@@ -21,8 +21,6 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-console.log('STAGE: ', process.env.STAGE)
-
 AWS.config.update({
   region: 'us-east-1',
 });
@@ -311,7 +309,59 @@ export const parseTx = (tx: any): FullTx => {
   return parsedTx;
 };
 
-export const syncToLatestBlock = async () => {
+export async function* syncToLatestBlockGen () {
+  const ourBestBlock: Block = await getWalletServiceBestBlock();
+  const fullNodeBestBlock: Block = await getFullNodeBestBlock();
+
+  for (let i = ourBestBlock.height + 1; i <= fullNodeBestBlock.height; i++) {
+    const block: FullBlock = await downloadBlockByHeight(i);
+    const preparedBlock = prepareTx(block);
+
+    // Ignore parents[0] because it is a block
+    const blockTxs = [
+      block.parents[1],
+      block.parents[2],
+    ];
+
+    // Download block transactions
+    const txs: FullTx[] = await recursivelyDownloadTx(block.txId, blockTxs);
+
+    // We will send the block only after all transactions were downloaded
+    // to be sure that all downloads were succesfull since there is no
+    // ROLLBACK yet on the wallet-service.
+    const sendTxResponse: ApiResponse = await sendTx(preparedBlock);
+
+    if (!sendTxResponse.success) {
+      throw new Error('Error sending block');
+    }
+
+    // console.log(`Sent block ${preparedBlock.tx_id} (Height: ${preparedBlock.height})`);
+
+    // Exclude duplicates:
+    const uniqueTxs: FullTx[] = txs.reduce((acc: FullTx[], tx: FullTx): FullTx[] => {
+      const alreadyInAcc = acc.find((accTx) => accTx.txId === tx.txId);
+
+      if (alreadyInAcc) return acc;
+
+      return [...acc, tx];
+    }, []);
+
+    for (let i = 0; i < uniqueTxs.length; i++) {
+      const preparedTx = prepareTx(uniqueTxs[i]);
+
+      try {
+        await sendTx(preparedTx);
+        console.log(`Sent txId: ${preparedTx.tx_id}`);
+      } catch (e) {
+        throw new Error(`Erroed sending tx: ${preparedTx.tx_id} from block ${block.txId}`);
+      }
+    }
+
+    yield { txId: preparedBlock.tx_id, height: preparedBlock.height };
+  }
+}
+
+export const syncToLatestBlock = async (): Promise<number> => {
   const ourBestBlock: Block = await getWalletServiceBestBlock();
   const fullNodeBestBlock: Block = await getFullNodeBestBlock();
 
@@ -363,4 +413,6 @@ export const syncToLatestBlock = async () => {
       }
     }
   }
+
+  return fullNodeBestBlock.height;
 };

@@ -73,3 +73,20 @@ export interface ApiResponse {
 export interface DownloadBlockApiResponse extends ApiResponse {
   block: FullBlock;
 }
+
+export interface SyncSchema {
+  states: {
+    idle: {};
+    syncing: {};
+    failure: {};
+  }
+}
+
+export interface SyncContext {
+  hasMoreBlocks: boolean;
+  error?: {};
+}
+
+export type SyncEvent =
+  | { type: 'NEW_BLOCK'; message: any }
+  | { type: 'STOP' };
