@@ -57,7 +57,6 @@ export const syncMachine = Machine<SyncContext, SyncSchema, any>({
   },
   states: {
     idle: {
-      entry: ['resetMoreBlocks'],
       always: [
         { target: 'syncing', cond: 'hasMoreBlocks' },
       ],
@@ -66,10 +65,12 @@ export const syncMachine = Machine<SyncContext, SyncSchema, any>({
       }
     },
     syncing: {
+      entry: ['resetMoreBlocks'],
       activities: ['syncToLatestBlock'],
       on: {
         NEW_BLOCK: {
-          actions: ['setMoreBlocks']
+          actions: ['setMoreBlocks'],
+          target: 'idle',
         },
         STOP: 'idle',
       }
