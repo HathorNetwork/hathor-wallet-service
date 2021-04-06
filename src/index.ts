@@ -5,8 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-// import { syncToLatestBlock } from './utils';
-import WebSocket from 'websocket';
 import {
   Machine,
   assign,
@@ -19,8 +17,9 @@ import {
   SyncContext,
   // SyncEvent,
 } from './types';
+import { Connection } from '@hathor/wallet-lib';
 
-const WEBSOCKET_SERVER = process.env.WEBSOCKET_SERVER;
+const DEFAULT_SERVER = process.env.DEFAULT_SERVER;
 
 // TODO: We need to type the Event
 export const syncMachine = Machine<SyncContext, SyncSchema, any>({
@@ -138,34 +137,29 @@ machine.onTransition(state => {
   }
 });
 
-const handleMessage = (payload: any) => {
-  if (payload.type === 'utf8') {
-    try {
-      const message = JSON.parse(payload.utf8Data);
-
-      switch(message.type) {
-        case 'dashboard:metrics':
-          break;
-        case 'network:new_tx_accepted':
-          if (!message.is_block) return;
-          if (message.is_voided) return;
-
-          machine.send({
-            type: 'NEW_BLOCK',
-            message,
-          })
-          break;
+const handleMessage = (message: any) => {
+  switch(message.type) {
+    case 'dashboard:metrics':
+      break;
+    case 'network:new_tx_accepted':
+      if (!message.is_block) return;
+      if (message.is_voided) return;
+      if (message.type === 'network:new_tx_accepted') {
+        machine.send({ type: 'NEW_BLOCK' });
       }
-    } catch(e) {
-      console.log('E: ', e);
-    }
+      break;
+    case 'state_update':
+      if (message.state === Connection.CONNECTED) {
+        machine.send({ type: 'NEW_BLOCK' });
+      }
+    break;
   }
 };
 
-const client = new WebSocket.client();
-
-client.on('connect', (connection) => {
-  connection.on('message', (message) => handleMessage(message));
-});
-
-client.connect(WEBSOCKET_SERVER);
+const conn = new Connection({ network: 'testnet', servers: [DEFAULT_SERVER] });
+conn.websocket.on('network', (message) => handleMessage(message));
+conn.on('state', (state) => handleMessage({
+  type: 'state_update',
+  state,
+}));
+conn.start();
