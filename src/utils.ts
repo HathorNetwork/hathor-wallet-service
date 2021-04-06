@@ -87,8 +87,8 @@ export const getFullNodeBestBlock = async (): Promise<Block> => {
   return bestBlock;
 };
 
-export const downloadTx = async (txId) => {
-  if (globalCache[txId]) {
+export const downloadTx = async (txId: string, noCache: boolean = false) => {
+  if (!noCache && globalCache[txId]) {
     return globalCache[txId];
   }
 
@@ -98,7 +98,9 @@ export const downloadTx = async (txId) => {
     globalCache = {};
   }
 
-  globalCache[txId] = response.data;
+  if (!noCache) {
+    globalCache[txId] = response.data;
+  }
 
   return response.data;
 };
@@ -359,10 +361,14 @@ export async function* syncToLatestBlockGen () {
     const sendTxResponse: ApiResponse = await sendTx(preparedBlock);
 
     if (!sendTxResponse.success) {
-      throw new Error('Error sending block');
-    }
+      console.log('SEND TX RESPONSE: ', sendTxResponse);
+      yield {
+        success: false,
+        message: `Failure on block ${preparedBlock.tx_id}`,
+      };
 
-    console.log(`Sent block ${preparedBlock.tx_id} (Height: ${preparedBlock.height})`);
+      break;
+    }
 
     // Exclude duplicates:
     const uniqueTxs: FullTx[] = txs.reduce((acc: FullTx[], tx: FullTx): FullTx[] => {
@@ -373,6 +379,7 @@ export async function* syncToLatestBlockGen () {
       return [...acc, tx];
     }, []);
 
+    txLoop:
     for (let i = 0; i < uniqueTxs.length; i++) {
       const preparedTx = prepareTx(uniqueTxs[i]);
 
@@ -380,10 +387,22 @@ export async function* syncToLatestBlockGen () {
         await sendTx(preparedTx);
         console.log(`Sent txId: ${preparedTx.tx_id}`);
       } catch (e) {
-        throw new Error(`Erroed sending tx: ${preparedTx.tx_id} from block ${block.txId}`);
+        yield {
+          success: false,
+          message: `Failure on transaction ${preparedTx.tx_id} from block: ${preparedBlock.tx_id}`,
+        };
+
+        break blockLoop;
       }
     }
-  }
 
-  return fullNodeBestBlock.height;
-};
+    yield {
+      success: true,
+      blockId: preparedBlock.tx_id,
+      height: preparedBlock.height,
+      transactions: uniqueTxs.map((tx: FullTx) => {
+        return tx.txId;
+      }),
+    };
+  }
+}
