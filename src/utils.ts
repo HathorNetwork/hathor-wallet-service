@@ -14,6 +14,7 @@ import {
   DecodedScript,
   FullTx,
   Token,
+  StatusEvent,
 } from './types';
 import AWS from 'aws-sdk';
 import axios from 'axios';
@@ -311,7 +312,7 @@ export const parseTx = (tx: any): FullTx => {
   return parsedTx;
 };
 
-export async function* syncToLatestBlockGen () {
+export async function* syncToLatestBlockGen(): AsyncGenerator<StatusEvent> {
   const ourBestBlock: Block = await getWalletServiceBestBlock();
   const fullNodeBestBlock: Block = await getFullNodeBestBlock();
 
@@ -320,6 +321,7 @@ export async function* syncToLatestBlockGen () {
 
   if (!ourBestBlockInFullNode.success) {
     yield {
+      type: 'error',
       success: false,
       message: 'Could not validate our best block',
       error: ourBestBlockInFullNode.message,
@@ -332,6 +334,7 @@ export async function* syncToLatestBlockGen () {
 
   if (meta.voided_by && meta.voided_by.length && meta.voided_by.length > 0) {
     yield {
+      type: 'error',
       success: false,
       message: 'Our best block was voided, we should reorg.',
     };
@@ -363,6 +366,7 @@ export async function* syncToLatestBlockGen () {
     if (!sendTxResponse.success) {
       console.log('SEND TX RESPONSE: ', sendTxResponse);
       yield {
+        type: 'error',
         success: false,
         message: `Failure on block ${preparedBlock.tx_id}`,
       };
@@ -388,6 +392,7 @@ export async function* syncToLatestBlockGen () {
         console.log(`Sent txId: ${preparedTx.tx_id}`);
       } catch (e) {
         yield {
+          type: 'transaction_success',
           success: false,
           message: `Failure on transaction ${preparedTx.tx_id} from block: ${preparedBlock.tx_id}`,
         };
@@ -397,6 +402,7 @@ export async function* syncToLatestBlockGen () {
     }
 
     yield {
+      type: 'block_success',
       success: true,
       blockId: preparedBlock.tx_id,
       height: preparedBlock.height,
@@ -405,4 +411,9 @@ export async function* syncToLatestBlockGen () {
       }),
     };
   }
+
+  yield {
+    success: true,
+    type: 'finished',
+  };
 }

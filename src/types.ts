@@ -90,3 +90,14 @@ export interface SyncContext {
 export type SyncEvent =
   | { type: 'NEW_BLOCK'; message: any }
   | { type: 'STOP' };
+
+
+export interface StatusEvent {
+  type: string;
+  success: boolean;
+  blockId?: string;
+  height?: number;
+  transactions?: string[];
+  message?: string;
+  error?: string;
+};
