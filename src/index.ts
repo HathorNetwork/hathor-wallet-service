@@ -56,15 +56,23 @@ export const syncMachine = Machine<SyncContext, SyncSchema, any>({
                 return;
               }
 
+              if (value.type === 'finished') {
+                console.log('FINISHED!');
+                callback('DONE');
+              }
+
               console.log('Downloaded block: ', value);
             }
 
             return;
           };
 
-          asyncCall();
 
           onReceive((e) => {
+            if (e.type === 'START') {
+              asyncCall();
+            }
+
             if (e.type === 'STOP') {
               console.log('Received STOP on onReceive.');
               // This will migrate to IDLE and STOP
@@ -75,7 +83,7 @@ export const syncMachine = Machine<SyncContext, SyncSchema, any>({
 
           return () => {
             console.log('Stopping the iterator.');
-            iterator.return();
+            iterator.return('finished');
 
             return;
           };
@@ -102,7 +110,7 @@ export const syncMachine = Machine<SyncContext, SyncSchema, any>({
     },
     failure: {
       type: 'final',
-    }
+    },
   }
 }, {
   guards: {
@@ -113,18 +121,7 @@ export const syncMachine = Machine<SyncContext, SyncSchema, any>({
       hasMoreBlocks: () => false,
     }),
     setMoreBlocks: assign({
-      hasMoreBlocks: (ctx, event) => {
-        const { message } = event;
-
-        if (message.type === 'network:new_tx_accepted') {
-          if (message.is_block) {
-            console.log('Received new blocks, will set hasNewBlocks');
-            return true;
-          }
-        }
-
-        return ctx.hasMoreBlocks;
-      }
+      hasMoreBlocks: () => true,
     }),
   }
 });
