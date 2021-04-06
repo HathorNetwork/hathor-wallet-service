@@ -313,62 +313,33 @@ export async function* syncToLatestBlockGen () {
   const ourBestBlock: Block = await getWalletServiceBestBlock();
   const fullNodeBestBlock: Block = await getFullNodeBestBlock();
 
-  for (let i = ourBestBlock.height + 1; i <= fullNodeBestBlock.height; i++) {
-    const block: FullBlock = await downloadBlockByHeight(i);
-    const preparedBlock = prepareTx(block);
+  // Check if our best block is still in the fullnode's chain
+  const ourBestBlockInFullNode = await downloadTx(ourBestBlock.txId, true);
 
-    // Ignore parents[0] because it is a block
-    const blockTxs = [
-      block.parents[1],
-      block.parents[2],
-    ];
+  if (!ourBestBlockInFullNode.success) {
+    yield {
+      success: false,
+      message: 'Could not validate our best block',
+      error: ourBestBlockInFullNode.message,
+    };
 
-    // Download block transactions
-    const txs: FullTx[] = await recursivelyDownloadTx(block.txId, blockTxs);
-
-    // We will send the block only after all transactions were downloaded
-    // to be sure that all downloads were succesfull since there is no
-    // ROLLBACK yet on the wallet-service.
-    const sendTxResponse: ApiResponse = await sendTx(preparedBlock);
-
-    if (!sendTxResponse.success) {
-      throw new Error('Error sending block');
-    }
-
-    // console.log(`Sent block ${preparedBlock.tx_id} (Height: ${preparedBlock.height})`);
-
-    // Exclude duplicates:
-    const uniqueTxs: FullTx[] = txs.reduce((acc: FullTx[], tx: FullTx): FullTx[] => {
-      const alreadyInAcc = acc.find((accTx) => accTx.txId === tx.txId);
-
-      if (alreadyInAcc) return acc;
-
-      return [...acc, tx];
-    }, []);
-
-    for (let i = 0; i < uniqueTxs.length; i++) {
-      const preparedTx = prepareTx(uniqueTxs[i]);
-
-      try {
-        await sendTx(preparedTx);
-        console.log(`Sent txId: ${preparedTx.tx_id}`);
-      } catch (e) {
-        throw new Error(`Erroed sending tx: ${preparedTx.tx_id} from block ${block.txId}`);
-      }
-    }
-
-    yield { txId: preparedBlock.tx_id, height: preparedBlock.height };
+    return;
   }
-}
 
-export const syncToLatestBlock = async (): Promise<number> => {
-  const ourBestBlock: Block = await getWalletServiceBestBlock();
-  const fullNodeBestBlock: Block = await getFullNodeBestBlock();
+  const { meta } = ourBestBlockInFullNode;
 
-  console.log('Our best block: ', ourBestBlock);
-  console.log('fullnode best block: ', fullNodeBestBlock);
-  console.log('Will download until: ', fullNodeBestBlock.height);
+  if (meta.voided_by && meta.voided_by.length && meta.voided_by.length > 0) {
+    yield {
+      success: false,
+      message: 'Our best block was voided, we should reorg.',
+    };
 
+    return;
+  }
+
+  console.log('Our best block is valid. We can continue.');
+
+  blockLoop:
   for (let i = ourBestBlock.height + 1; i <= fullNodeBestBlock.height; i++) {
     const block: FullBlock = await downloadBlockByHeight(i);
     const preparedBlock = prepareTx(block);
