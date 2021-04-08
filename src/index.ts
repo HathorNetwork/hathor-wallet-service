@@ -9,8 +9,6 @@ import { interpret } from 'xstate';
 import { SyncMachine } from './machine';
 import { Connection } from '@hathor/wallet-lib';
 
-const DEFAULT_SERVER = process.env.DEFAULT_SERVER;
-
 const machine = interpret(SyncMachine).start();
 
 machine.onTransition(state => {
@@ -38,7 +36,9 @@ const handleMessage = (message: any) => {
   }
 };
 
-const conn = new Connection({ network: 'testnet', servers: [DEFAULT_SERVER] });
+const DEFAULT_SERVER = process.env.DEFAULT_SERVER;
+const conn = new Connection({ network: process.env.NETWORK, servers: [DEFAULT_SERVER] });
+
 conn.websocket.on('network', (message) => handleMessage(message));
 conn.on('state', (state) => handleMessage({
   type: 'state_update',
