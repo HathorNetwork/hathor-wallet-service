@@ -148,7 +148,7 @@ export const downloadBlockByHeight = async (height: number): Promise<FullBlock> 
         type: output.decoded.type as string,
         address: output.decoded.address as string,
         timelock: output.decoded.timelock ? output.decoded.timelock as number : null,
-        value: output.decoded.value ? output.output.value as number : null,
+        value: output.decoded.value ? output.decoded.value as number : null,
         tokenData: output.decoded.token_data ? output.decoded.token_data as number : null,
       };
 
@@ -293,7 +293,7 @@ export const parseTx = (tx: any): FullTx => {
         type: output.decoded.type as string,
         address: output.decoded.address as string,
         timelock: output.decoded.timelock ? output.decoded.timelock as number : null,
-        value: output.decoded.value ? output.output.value as number : null,
+        value: output.decoded.value ? output.decoded.value as number : null,
         tokenData: output.decoded.token_data ? output.decoded.token_data as number : null,
       };
 
