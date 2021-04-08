@@ -29,6 +29,12 @@ export const syncHandler = (_context, _event) => (callback, onReceive) => {
         return;
       }
 
+      if (value.type === 'reorg') {
+        console.log(value.message);
+        callback('REORG');
+        return;
+      }
+
       if (value.type === 'finished') {
         console.log('FINISHED!');
         callback('DONE');
@@ -81,6 +87,7 @@ export const SyncMachine = Machine<SyncContext, SyncSchema, any>({
         STOP: 'idle',
         DONE: 'idle',
         ERROR: 'failure',
+        REORG: 'reorg',
       },
       entry: [
         'resetMoreBlocks',
@@ -88,6 +95,9 @@ export const SyncMachine = Machine<SyncContext, SyncSchema, any>({
           to: 'syncToLatestBlock',
         }),
       ],
+    },
+    reorg: {
+      type: 'final',
     },
     failure: {
       type: 'final',

@@ -83,6 +83,7 @@ export interface SyncSchema {
     idle: {};
     syncing: {};
     failure: {};
+    reorg: {};
   }
 }
 

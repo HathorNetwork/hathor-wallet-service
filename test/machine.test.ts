@@ -207,3 +207,29 @@ test('A SyncMachine should call the cleanupFn on the syncHandler service when st
 
   expect(mockCleanupFunction).toHaveBeenCalledTimes(3);
 }, 500);
+
+test('The SyncMachine should transition to \'reorg\' state when a reorg is detected', async () => {
+  const mockCleanupFunction = jest.fn();
+
+  const TestSyncMachine = SyncMachine.withConfig({
+    services: {
+      syncHandler: () => () => {
+        return mockCleanupFunction;
+      },
+    }
+  });
+
+  const syncMachine = interpret(TestSyncMachine).start();
+
+  expect(mockCleanupFunction).toHaveBeenCalledTimes(0);
+
+  expect(syncMachine.state.context.hasMoreBlocks).toStrictEqual(false);
+
+  syncMachine.send({ type: 'NEW_BLOCK' });
+
+  expect(syncMachine.state.value).toStrictEqual('syncing');
+
+  syncMachine.send({ type: 'REORG' });
+
+  expect(syncMachine.state.value).toStrictEqual('reorg');
+}, 500);

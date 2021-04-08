@@ -40,7 +40,7 @@ test('syncToLatestBlockGen should yield an error when the latest block from the 
 
   const { value: { type, success, message } } = await iterator.next();
 
-  expect(type).toStrictEqual('error');
+  expect(type).toStrictEqual('reorg');
   expect(success).toStrictEqual(false);
   expect(message).toStrictEqual('Our best block was voided, we should reorg.');
 }, 500);
@@ -62,7 +62,7 @@ test('syncToLatestBlockGen should yield an error when our best block height is h
 
   const { value: { type, success, message } } = await iterator.next();
 
-  expect(type).toStrictEqual('error');
+  expect(type).toStrictEqual('reorg');
   expect(success).toStrictEqual(false);
   expect(message).toStrictEqual('Our best block was voided, we should reorg.');
 }, 500);

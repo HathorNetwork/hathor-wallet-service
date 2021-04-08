@@ -350,13 +350,21 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
 
   if ((meta.voided_by &&
        meta.voided_by.length &&
-       meta.voided_by.length > 0) || (
-    ourBestBlock.height > meta.height
-  )) {
+       meta.voided_by.length > 0)) {
     yield {
-      type: 'error',
+      type: 'reorg',
       success: false,
       message: 'Our best block was voided, we should reorg.',
+    };
+
+    return;
+  }
+
+  if (ourBestBlock.height > meta.height) {
+    yield {
+      type: 'reorg',
+      success: false,
+      message: 'Our height is higher than the wallet-service\'s height, we should reorg.',
     };
 
     return;
