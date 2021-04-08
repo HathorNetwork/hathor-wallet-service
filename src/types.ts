@@ -11,58 +11,62 @@ export interface Block {
 }
 
 export interface DecodedScript {
-  type: string,
-  address: string,
-  timelock?: number,
+  type: string;
+  address: string;
+  timelock?: number;
+  value?: number;
+  tokenData?: number;
 }
 
 export interface Input {
-  value: number,
-  tokenData: number,
-  script: string,
-  decoded: DecodedScript,
-  token?: string,
+  txId: string;
+  value: number;
+  tokenData: number;
+  script: string;
+  decoded: DecodedScript;
+  index: number;
+  token?: string;
 }
 
 export interface Output {
-  value: number,
-  tokenData: number,
-  script: string,
-  decoded: DecodedScript,
-  token?: string,
-  spentBy?: string,
+  value: number;
+  tokenData: number;
+  script: string;
+  decoded: DecodedScript;
+  token?: string;
+  spentBy?: string;
 }
 
 export interface Token {
-  uid: string,
-  name: string,
-  symbol: string,
+  uid: string;
+  name: string;
+  symbol: string;
 }
 
 export interface FullTx {
-  txId: string,
-  nonce: string,
-  timestamp: number,
-  version: number,
-  weight: number,
-  parents: string[],
-  inputs: Input[],
-  outputs: Output[],
-  tokens?: Token[],
-  raw: string,
+  txId: string;
+  nonce: string;
+  timestamp: number;
+  version: number;
+  weight: number;
+  parents: string[];
+  inputs: Input[];
+  outputs: Output[];
+  tokens?: Token[];
+  raw?: string;
 }
 
 export interface FullBlock {
-  txId: string,
-  version: number,
-  weight: number,
-  timestamp: number,
-  isVoided: boolean,
-  inputs: Input[],
-  outputs: Output[],
-  parents: string[],
-  tokens?: Token[],
-  height: number,
+  txId: string;
+  version: number;
+  weight: number;
+  timestamp: number;
+  isVoided: boolean;
+  inputs: Input[];
+  outputs: Output[];
+  parents: string[];
+  tokens?: Token[];
+  height: number;
 }
 
 export interface ApiResponse {

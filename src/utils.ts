@@ -128,8 +128,12 @@ export const downloadBlockByHeight = async (height: number): Promise<FullBlock> 
         type: input.decoded.type as string,
         address: input.decoded.address as string,
         timelock: input.decoded.timelock ? input.decoded.timelock as number : null,
+        value: input.decoded.value ? input.decoded.value as number : null,
+        tokenData: input.decoded.token_data ? input.decoded.token_data as number : null,
       };
       const typedInput: Input = {
+        txId: input.tx_id as string,
+        index: input.index as number,
         value: input.value as number,
         tokenData: input.token_data as number,
         script: input.script as string,
@@ -144,6 +148,8 @@ export const downloadBlockByHeight = async (height: number): Promise<FullBlock> 
         type: output.decoded.type as string,
         address: output.decoded.address as string,
         timelock: output.decoded.timelock ? output.decoded.timelock as number : null,
+        value: output.decoded.value ? output.output.value as number : null,
+        tokenData: output.decoded.token_data ? output.decoded.token_data as number : null,
       };
 
       const typedOutput: Output = {
@@ -267,8 +273,12 @@ export const parseTx = (tx: any): FullTx => {
         type: input.decoded.type as string,
         address: input.decoded.address as string,
         timelock: input.decoded.timelock ? input.decoded.timelock as number : null,
+        value: input.decoded.value ? input.decoded.value as number : null,
+        tokenData: input.decoded.token_data ? input.decoded.token_data as number : null,
       };
       const typedInput: Input = {
+        txId: input.tx_id as string,
+        index: input.index as number,
         value: input.value as number,
         tokenData: input.token_data as number,
         script: input.script as string,
@@ -283,6 +293,8 @@ export const parseTx = (tx: any): FullTx => {
         type: output.decoded.type as string,
         address: output.decoded.address as string,
         timelock: output.decoded.timelock ? output.decoded.timelock as number : null,
+        value: output.decoded.value ? output.output.value as number : null,
+        tokenData: output.decoded.token_data ? output.decoded.token_data as number : null,
       };
 
       const typedOutput: Output = {
@@ -312,12 +324,16 @@ export const parseTx = (tx: any): FullTx => {
   return parsedTx;
 };
 
-export async function* syncToLatestBlockGen(): AsyncGenerator<StatusEvent> {
+export const getBlockByTxId = async (txId: string, noCache: boolean = false) => {
+  return downloadTx(txId, noCache);
+};
+
+export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
   const ourBestBlock: Block = await getWalletServiceBestBlock();
   const fullNodeBestBlock: Block = await getFullNodeBestBlock();
 
   // Check if our best block is still in the fullnode's chain
-  const ourBestBlockInFullNode = await downloadTx(ourBestBlock.txId, true);
+  const ourBestBlockInFullNode = await getBlockByTxId(ourBestBlock.txId, true);
 
   if (!ourBestBlockInFullNode.success) {
     yield {
@@ -332,7 +348,11 @@ export async function* syncToLatestBlockGen(): AsyncGenerator<StatusEvent> {
 
   const { meta } = ourBestBlockInFullNode;
 
-  if (meta.voided_by && meta.voided_by.length && meta.voided_by.length > 0) {
+  if ((meta.voided_by &&
+       meta.voided_by.length &&
+       meta.voided_by.length > 0) || (
+    ourBestBlock.height > meta.height
+  )) {
     yield {
       type: 'error',
       success: false,
@@ -342,7 +362,7 @@ export async function* syncToLatestBlockGen(): AsyncGenerator<StatusEvent> {
     return;
   }
 
-  console.log('Our best block is valid. We can continue.');
+  console.log('Best block is valid.');
 
   blockLoop:
   for (let i = ourBestBlock.height + 1; i <= fullNodeBestBlock.height; i++) {
@@ -361,10 +381,9 @@ export async function* syncToLatestBlockGen(): AsyncGenerator<StatusEvent> {
     // We will send the block only after all transactions were downloaded
     // to be sure that all downloads were succesfull since there is no
     // ROLLBACK yet on the wallet-service.
-    const sendTxResponse: ApiResponse = await sendTx(preparedBlock);
+    const sendBlockResponse: ApiResponse = await sendTx(preparedBlock);
 
-    if (!sendTxResponse.success) {
-      console.log('SEND TX RESPONSE: ', sendTxResponse);
+    if (!sendBlockResponse.success) {
       yield {
         type: 'error',
         success: false,
@@ -388,11 +407,14 @@ export async function* syncToLatestBlockGen(): AsyncGenerator<StatusEvent> {
       const preparedTx = prepareTx(uniqueTxs[i]);
 
       try {
-        await sendTx(preparedTx);
-        console.log(`Sent txId: ${preparedTx.tx_id}`);
+        const sendTxResponse: ApiResponse = await sendTx(preparedTx);
+
+        if (!sendTxResponse.success) {
+          throw new Error(sendTxResponse.message);
+        }
       } catch (e) {
         yield {
-          type: 'transaction_success',
+          type: 'transaction_failure',
           success: false,
           message: `Failure on transaction ${preparedTx.tx_id} from block: ${preparedBlock.tx_id}`,
         };

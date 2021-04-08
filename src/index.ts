@@ -11,7 +11,7 @@ import {
   interpret,
   send,
 } from 'xstate';
-import { syncToLatestBlockGen } from './utils';
+import { syncToLatestBlock } from './utils';
 import {
   SyncSchema,
   SyncContext,
@@ -39,7 +39,7 @@ export const syncMachine = Machine<SyncContext, SyncSchema, any>({
       invoke: {
         id: 'syncToLatestBlock',
         src: (_context, _event) => (callback, onReceive) => {
-          const iterator = syncToLatestBlockGen();
+          const iterator = syncToLatestBlock();
           const asyncCall: () => void = async () => {
             for (;;) {
               const block = await iterator.next();
