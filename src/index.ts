@@ -5,128 +5,13 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import {
-  Machine,
-  assign,
-  interpret,
-  send,
-} from 'xstate';
-import { syncToLatestBlock } from './utils';
-import {
-  SyncSchema,
-  SyncContext,
-  // SyncEvent,
-} from './types';
+import { interpret } from 'xstate';
+import { SyncMachine } from './machine';
 import { Connection } from '@hathor/wallet-lib';
 
 const DEFAULT_SERVER = process.env.DEFAULT_SERVER;
 
-// TODO: We need to type the Event
-export const syncMachine = Machine<SyncContext, SyncSchema, any>({
-  id: 'sync',
-  initial: 'idle',
-  context: {
-    hasMoreBlocks: false,
-  },
-  states: {
-    idle: {
-      always: [
-        { target: 'syncing', cond: 'hasMoreBlocks' },
-      ],
-      on: { NEW_BLOCK: 'syncing' },
-    },
-    syncing: {
-      invoke: {
-        id: 'syncToLatestBlock',
-        src: (_context, _event) => (callback, onReceive) => {
-          const iterator = syncToLatestBlock();
-          const asyncCall: () => void = async () => {
-            for (;;) {
-              const block = await iterator.next();
-
-              const { value, done } = block;
-              if (done) {
-                console.log('Done!', value)
-                break;
-              }
-
-              if (value && !value.success) {
-                console.log('Erroed!', value.message);
-                callback('ERROR');
-                return;
-              }
-
-              if (value.type === 'finished') {
-                console.log('FINISHED!');
-                callback('DONE');
-              }
-
-              console.log('Downloaded block: ', value);
-            }
-
-            return;
-          };
-
-
-          onReceive((e) => {
-            if (e.type === 'START') {
-              asyncCall();
-            }
-
-            if (e.type === 'STOP') {
-              console.log('Received STOP on onReceive.');
-              // This will migrate to IDLE and STOP
-              // the iterator
-              callback('DONE');
-            }
-          });
-
-          return () => {
-            console.log('Stopping the iterator.');
-            iterator.return('finished');
-
-            return;
-          };
-        },
-      },
-      on: {
-        NEW_BLOCK: {
-          actions: ['setMoreBlocks'],
-        },
-        STOP: {
-          actions: send('STOP', {
-            to: 'syncToLatestBlock',
-          }),
-        },
-        DONE: 'idle',
-        ERROR: 'failure',
-      },
-      entry: [
-        'resetMoreBlocks',
-        send('START', {
-          to: 'syncToLatestBlock',
-        }),
-      ],
-    },
-    failure: {
-      type: 'final',
-    },
-  }
-}, {
-  guards: {
-    hasMoreBlocks: (ctx) => ctx.hasMoreBlocks,
-  },
-  actions: {
-    resetMoreBlocks: assign({
-      hasMoreBlocks: () => false,
-    }),
-    setMoreBlocks: assign({
-      hasMoreBlocks: () => true,
-    }),
-  }
-});
-
-const machine = interpret(syncMachine).start();
+const machine = interpret(SyncMachine).start();
 
 machine.onTransition(state => {
   if (state.changed) {
