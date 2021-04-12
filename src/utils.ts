@@ -55,10 +55,17 @@ export const lambdaCall = (fnName: string, payload: any): Promise<any> => new Pr
       if (data.StatusCode !== 200) {
         reject(new Error('Request failed.'));
       }
-      const responsePayload = JSON.parse(data.Payload as string);
-      const body = JSON.parse(responsePayload.body);
 
-      resolve(body);
+      try {
+        const responsePayload = JSON.parse(data.Payload as string);
+        const body = JSON.parse(responsePayload.body);
+
+        resolve(body);
+      } catch(e) {
+        console.log('Erroed parsing response body: ', data.Payload);
+
+        return reject(e.message);
+      }
     }
   });
 });
