@@ -19,6 +19,7 @@ import {
 import AWS from 'aws-sdk';
 import axios from 'axios';
 import dotenv from 'dotenv';
+import { constants } from '@hathor/wallet-lib';
 
 dotenv.config();
 
@@ -26,9 +27,8 @@ AWS.config.update({
   region: 'us-east-1',
 });
 
-// const FULLNODE_URL = process.env.FULLNODE_URL || 'ws://localhost:8080/v1a/ws/';
 const DEFAULT_SERVER = process.env.DEFAULT_SERVER || 'https://node1.foxtrot.testnet.hathor.network/v1a/';
-const TOKEN_INDEX_MASK = 0b01111111;
+const TOKEN_INDEX_MASK = constants.TOKEN_INDEX_MASK;
 
 let globalCache = {};
 
