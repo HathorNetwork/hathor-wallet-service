@@ -21,6 +21,11 @@ const handleMessage = (message: any) => {
   switch(message.type) {
     case 'dashboard:metrics':
       break;
+
+    /* This message is only being used as a signal that a new block may have arrived
+     * the sync mechanism will download all blocks from the current height until the
+     * full node's best block height
+     */
     case 'network:new_tx_accepted':
       if (!message.is_block) return;
       if (message.is_voided) return;
