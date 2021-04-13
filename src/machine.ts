@@ -60,7 +60,9 @@ export const syncHandler = (_context, _event) => (callback, onReceive) => {
   };
 };
 
-// TODO: We need to type the Event
+/* See README for an explanation on how the machine works.
+ * TODO: We need to type the Event
+ */
 export const SyncMachine = Machine<SyncContext, SyncSchema, any>({
   id: 'sync',
   initial: 'idle',
