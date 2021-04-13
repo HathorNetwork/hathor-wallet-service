@@ -92,10 +92,12 @@ export interface SyncContext {
   error?: {};
 }
 
+/*
+TODO: This is not being used in the machine, we should type all events.
 export type SyncEvent =
   | { type: 'NEW_BLOCK'; message: any }
   | { type: 'STOP' };
-
+*/
 
 export interface StatusEvent {
   type: string;

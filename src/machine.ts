@@ -7,7 +7,6 @@ import { syncToLatestBlock } from './utils';
 import {
   SyncSchema,
   SyncContext,
-  // SyncEvent,
 } from './types';
 
 export const syncHandler = (_context, _event) => (callback, onReceive) => {
