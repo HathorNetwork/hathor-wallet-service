@@ -33,7 +33,12 @@ const handleMessage = (message: any) => {
         machine.send({ type: 'NEW_BLOCK' });
       }
       break;
+
     case 'state_update':
+      /* This handles state updates from the websocket connection.
+       * We will trigger a re-sync (by sending the NEW_BLOCK event) to
+       * the machine, triggering a download if new blocks were generated.
+       */
       if (message.state === Connection.CONNECTED) {
         machine.send({ type: 'NEW_BLOCK' });
       }
