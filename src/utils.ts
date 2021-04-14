@@ -382,6 +382,7 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
   }
 
   console.log('Best block is valid.');
+  let success = true;
 
   blockLoop:
   for (let i = ourBestBlock.height + 1; i <= fullNodeBestBlock.height; i++) {
@@ -403,11 +404,14 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
     const sendBlockResponse: ApiResponse = await sendTx(preparedBlock);
 
     if (!sendBlockResponse.success) {
+      console.log(sendBlockResponse);
       yield {
         type: 'error',
         success: false,
         message: `Failure on block ${preparedBlock.tx_id}`,
       };
+
+      success = false;
 
       break;
     }
@@ -438,6 +442,8 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
           message: `Failure on transaction ${preparedTx.tx_id} from block: ${preparedBlock.tx_id}`,
         };
 
+        success = false;
+
         break blockLoop;
       }
     }
@@ -454,7 +460,7 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
   }
 
   yield {
-    success: true,
+    success,
     type: 'finished',
   };
 }
