@@ -39,7 +39,7 @@ export const syncHandler = (_context, _event) => (callback, onReceive) => {
         callback('DONE');
       }
 
-      console.log('Downloaded block: ', value);
+      console.log(value);
     }
 
     return;
