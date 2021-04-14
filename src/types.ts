@@ -108,3 +108,41 @@ export interface StatusEvent {
   message?: string;
   error?: string;
 };
+
+export interface PreparedDecodedScript {
+  type: string;
+  address: string;
+  timelock?: number;
+  value?: number;
+  token_data?: number;
+}
+
+export interface PreparedInput {
+  value: number;
+  token_data: number;
+  script: string;
+  decoded: PreparedDecodedScript;
+  index: number;
+  token: string;
+}
+
+export interface PreparedOutput {
+  value: number;
+  token_data: number;
+  script: string;
+  token: string;
+  spent_by: string;
+  decoded: PreparedDecodedScript;
+}
+
+export interface PreparedTx {
+  tx_id: string;
+  inputs: PreparedInput[];
+  outputs: PreparedOutput[];
+  timestamp: number;
+  version: number;
+  weight: number;
+  parents: string[];
+  nonce?: string;
+  height?: number;
+}

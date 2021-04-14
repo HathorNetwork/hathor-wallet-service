@@ -15,6 +15,9 @@ import {
   FullTx,
   Token,
   StatusEvent,
+  PreparedTx,
+  PreparedInput,
+  PreparedOutput,
 } from './types';
 import AWS from 'aws-sdk';
 import axios from 'axios';
@@ -207,18 +210,19 @@ export const recursivelyDownloadTx = async (blockId: string, txIds: string[] = [
   return recursivelyDownloadTx(blockId, [...txIds, ...newParents], [...data, parsedTx]);
 };
 
-export const prepareTx = (tx: FullTx | FullBlock): any => {
+export const prepareTx = (tx: FullTx | FullBlock): PreparedTx => {
   const prepared = {
     ...tx,
     tx_id: tx.txId,
     raw: '',
     inputs: tx.inputs.map((input) => {
-      const baseInput = {
+      const baseInput: PreparedInput = {
         value: input.value,
         token_data: input.tokenData,
         script: input.script,
-        decoded: input.decoded,
         token: input.token,
+        decoded: input.decoded,
+        index: input.index,
       };
 
       if (input.tokenData === 0) {
@@ -238,13 +242,13 @@ export const prepareTx = (tx: FullTx | FullBlock): any => {
       };
     }),
     outputs: tx.outputs.map((output) => {
-      const baseOutput = {
+      const baseOutput: PreparedOutput = {
         value: output.value,
         token_data: output.tokenData,
         script: output.script,
-        decoded: output.decoded,
         token: output.token,
         spent_by: output.spentBy,
+        decoded: output.decoded,
       };
 
       if (output.tokenData === 0) {
