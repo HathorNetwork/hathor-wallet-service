@@ -35,6 +35,12 @@ const TOKEN_INDEX_MASK = constants.TOKEN_INDEX_MASK;
 
 let globalCache = {};
 
+/**
+ * Calls a function from the wallet-service lambda
+ *
+ * @param fnName - The lambda function name
+ * @param payload - The payload to be sent
+ */
 export const lambdaCall = (fnName: string, payload: any): Promise<any> => new Promise((resolve, reject) => {
   const lambda = new AWS.Lambda({
     apiVersion: '2015-03-31',
@@ -73,12 +79,21 @@ export const lambdaCall = (fnName: string, payload: any): Promise<any> => new Pr
   });
 });
 
+/**
+ * Calls the onNewTxRequest lambda function with a PreparedTx
+ *
+ * @param tx - The prepared transaction to be sent
+ */
 export const sendTx = async (tx): Promise<ApiResponse> => {
   const response = await lambdaCall('onNewTxRequest', tx);
 
   return response;
 };
 
+/**
+ * Calls the getLatestBlock lambda function from the wallet-service returning
+ * a typed `Block`.
+ */
 export const getWalletServiceBestBlock = async (): Promise<Block> => {
   const response = await lambdaCall('getLatestBlock', {});
   const bestBlock: Block = response.block;
@@ -86,6 +101,9 @@ export const getWalletServiceBestBlock = async (): Promise<Block> => {
   return bestBlock;
 };
 
+/**
+ * Returns the best block from the full_node as a typed `Block`.
+ */
 export const getFullNodeBestBlock = async (): Promise<Block> => {
   const response = await axios.get(`${DEFAULT_SERVER}transaction?type=block&count=1`);
   const { transactions } = response.data;
@@ -98,6 +116,12 @@ export const getFullNodeBestBlock = async (): Promise<Block> => {
   return bestBlock;
 };
 
+/**
+ * Returns a transaction from the fullnode
+ *
+ * @param txId - The transaction id to be downloaded
+ * @param noCache - Ignores cached transactions
+ */
 export const downloadTx = async (txId: string, noCache: boolean = false) => {
   if (!noCache && globalCache[txId]) {
     return globalCache[txId];
@@ -116,6 +140,11 @@ export const downloadTx = async (txId: string, noCache: boolean = false) => {
   return response.data;
 };
 
+/**
+ * Returns a `FullBlock` downloaded from the full_node
+ *
+ * @param height - The block's height
+ */
 export const downloadBlockByHeight = async (height: number): Promise<FullBlock> => {
   const response = await axios.get(`${DEFAULT_SERVER}block_at_height?height=${height}`);
 
@@ -180,6 +209,13 @@ export const downloadBlockByHeight = async (height: number): Promise<FullBlock> 
   return block;
 };
 
+/**
+ * Recursively downloads all transactions that were confirmed by a given block
+ *
+ * @param blockId - The blockId to download the transactions
+ * @param txIds - List of transactions to download
+ * @param data - Downloaded transactions, used while being called recursively
+ */
 export const recursivelyDownloadTx = async (blockId: string, txIds: string[] = [], data: FullTx[] = []): Promise<FullTx[]> => {
   if (txIds.length === 0) {
     return data;
@@ -188,7 +224,6 @@ export const recursivelyDownloadTx = async (blockId: string, txIds: string[] = [
   const txId = txIds.pop();
   const txData = await downloadTx(txId);
   const { tx, meta } = txData;
-
   const parsedTx: FullTx = parseTx(tx);
 
   if (parsedTx.parents.length > 2) {
@@ -196,6 +231,7 @@ export const recursivelyDownloadTx = async (blockId: string, txIds: string[] = [
     return recursivelyDownloadTx(blockId, txIds, data);
   }
 
+  // If the first_block from the downloaded tx is not from the block we are searching, we should ignore it.
   if (meta.first_block !== blockId) {
     return recursivelyDownloadTx(blockId, txIds, data);
   }
@@ -210,6 +246,11 @@ export const recursivelyDownloadTx = async (blockId: string, txIds: string[] = [
   return recursivelyDownloadTx(blockId, [...txIds, ...newParents], [...data, parsedTx]);
 };
 
+/**
+ * Prepares a transaction to be sent to the wallet-service `onNewTxRequest`
+ *
+ * @param tx - `FullTx` or `FullBlock` representing a typed transaction to be prepared
+ */
 export const prepareTx = (tx: FullTx | FullBlock): PreparedTx => {
   const prepared = {
     ...tx,
@@ -272,6 +313,11 @@ export const prepareTx = (tx: FullTx | FullBlock): PreparedTx => {
   return prepared;
 };
 
+/**
+ * Types a tx that was received from the full_node
+ *
+ * @param tx - The transaction object as received by the full_node
+ */
 export const parseTx = (tx: any): FullTx => {
   const parsedTx: FullTx = {
     txId: tx.hash ? tx.hash as string : tx.tx_id as string,
@@ -335,10 +381,23 @@ export const parseTx = (tx: any): FullTx => {
   return parsedTx;
 };
 
+/**
+ * Downloads a block from the full_node using the `block_at_height` API
+ *
+ * @param txId - The block txId
+ * @param noCache - Prevents downloading the block from cache as a reorg may have ocurred
+ */
 export const getBlockByTxId = async (txId: string, noCache: boolean = false) => {
   return downloadTx(txId, noCache);
 };
 
+/**
+ * Syncs to the latest block
+ *
+ * @generator
+ * @yields {StatusEvent} A status event indicating if a block at a height was successfully sent, \
+ * if an error ocurred or if a reorg ocurred.
+ */
 export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
   const ourBestBlock: Block = await getWalletServiceBestBlock();
   const fullNodeBestBlock: Block = await getFullNodeBestBlock();
