@@ -17,7 +17,8 @@ import {
   generateBlock,
 } from './utils';
 import * as Utils from '../src/utils';
-const { syncToLatestBlock } = Utils;
+import axios from 'axios';
+const { globalCache, downloadTx, syncToLatestBlock, LRU } = Utils;
 
 beforeAll(async () => {
   jest.clearAllMocks();
@@ -176,4 +177,61 @@ test('syncToLatestBlockGen should sync from our current height until the best bl
   const { value } = await iterator.next();
   expect(value.success).toStrictEqual(true);
   expect(value.type).toStrictEqual('finished');
+}, 500);
+
+test('Dowload tx should cache transactions', async () => {
+  expect.hasAssertions();
+
+  const axiosGetSpy = jest.spyOn(axios, 'get');
+
+  const mockAxiosGetImplementation = jest.fn((url) => {
+    const [_, txId] = url.split('=');
+    // is tx
+    return Promise.resolve({
+      success: true,
+      data: {
+        tx_id: txId
+      }
+    });
+  });
+
+  axiosGetSpy.mockImplementation(mockAxiosGetImplementation);
+
+  await downloadTx('tx1');
+
+  const cachedTx = globalCache.get('tx1');
+
+  expect(cachedTx).toStrictEqual({ tx_id: 'tx1' });
+
+}, 500);
+
+test('LRU cache', async () => {
+  expect.hasAssertions();
+
+  const cache = new LRU(3);
+
+  cache.set('tx1', { tx_id: 'tx1' });
+  cache.set('tx2', { tx_id: 'tx2' });
+  cache.set('tx3', { tx_id: 'tx3' });
+
+  expect(cache.first()).toStrictEqual('tx1');
+
+  expect(cache.get('tx1')).toStrictEqual({ tx_id: 'tx1' });
+  expect(cache.get('tx2')).toStrictEqual({ tx_id: 'tx2' });
+  expect(cache.get('tx3')).toStrictEqual({ tx_id: 'tx3' });
+
+  cache.set('tx4', { tx_id: 'tx4' });
+
+  expect(cache.get('tx1')).toStrictEqual(undefined);
+  expect(cache.first()).toStrictEqual('tx2');
+
+  cache.set('tx5', { tx_id: 'tx5' });
+
+  expect(cache.get('tx2')).toStrictEqual(undefined);
+  expect(cache.first()).toStrictEqual('tx3');
+
+  cache.set('tx6', { tx_id: 'tx6' });
+
+  expect(cache.get('tx3')).toStrictEqual(undefined);
+  expect(cache.first()).toStrictEqual('tx4');
 }, 500);

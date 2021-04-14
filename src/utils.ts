@@ -32,8 +32,7 @@ AWS.config.update({
 
 const DEFAULT_SERVER = process.env.DEFAULT_SERVER || 'https://node1.foxtrot.testnet.hathor.network/v1a/';
 const TOKEN_INDEX_MASK = constants.TOKEN_INDEX_MASK;
-
-let globalCache = {};
+const TX_CACHE_SIZE: number = parseInt(process.env.TX_CACHE_SIZE) || 200;
 
 /**
  * Calls a function from the wallet-service lambda
@@ -49,34 +48,34 @@ export const lambdaCall = (fnName: string, payload: any): Promise<any> => new Pr
       : `https://lambda.${process.env.AWS_REGION}.amazonaws.com`,
   });
 
-  const params = {
-    FunctionName: `${process.env.SERVICE_NAME}-${process.env.STAGE}-${fnName}`,
-    Payload: JSON.stringify({
-      body: payload,
-    }),
-  };
+      const params = {
+        FunctionName: `${process.env.SERVICE_NAME}-${process.env.STAGE}-${fnName}`,
+        Payload: JSON.stringify({
+          body: payload,
+        }),
+      };
 
-  lambda.invoke(params, (err, data) => {
-    if (err) {
-      console.log('err', err);
-      reject(err);
-    } else {
-      if (data.StatusCode !== 200) {
-        reject(new Error('Request failed.'));
-      }
+      lambda.invoke(params, (err, data) => {
+        if (err) {
+          console.log('err', err);
+          reject(err);
+        } else {
+          if (data.StatusCode !== 200) {
+            reject(new Error('Request failed.'));
+          }
 
-      try {
-        const responsePayload = JSON.parse(data.Payload as string);
-        const body = JSON.parse(responsePayload.body);
+          try {
+            const responsePayload = JSON.parse(data.Payload as string);
+            const body = JSON.parse(responsePayload.body);
 
-        resolve(body);
-      } catch(e) {
-        console.log('Erroed parsing response body: ', data.Payload);
+            resolve(body);
+          } catch(e) {
+            console.log('Erroed parsing response body: ', data.Payload);
 
-        return reject(e.message);
-      }
-    }
-  });
+            return reject(e.message);
+          }
+        }
+      });
 });
 
 /**
@@ -123,18 +122,14 @@ export const getFullNodeBestBlock = async (): Promise<Block> => {
  * @param noCache - Ignores cached transactions
  */
 export const downloadTx = async (txId: string, noCache: boolean = false) => {
-  if (!noCache && globalCache[txId]) {
-    return globalCache[txId];
+  if (!noCache && globalCache.get(txId)) {
+    return globalCache.get(txId);
   }
 
   const response = await axios.get(`${DEFAULT_SERVER}transaction?id=${txId}`);
 
-  if (Object.keys(globalCache).length > 200) {
-    globalCache = {};
-  }
-
   if (!noCache) {
-    globalCache[txId] = response.data;
+    globalCache.set(txId, response.data);
   }
 
   return response.data;
@@ -420,7 +415,7 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
 
   if ((meta.voided_by &&
        meta.voided_by.length &&
-       meta.voided_by.length > 0)) {
+         meta.voided_by.length > 0)) {
     yield {
       type: 'reorg',
       success: false,
@@ -444,7 +439,7 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
   let success = true;
 
   blockLoop:
-  for (let i = ourBestBlock.height + 1; i <= fullNodeBestBlock.height; i++) {
+    for (let i = ourBestBlock.height + 1; i <= fullNodeBestBlock.height; i++) {
     const block: FullBlock = await downloadBlockByHeight(i);
     const preparedBlock = prepareTx(block);
 
@@ -485,7 +480,7 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
     }, []);
 
     txLoop:
-    for (let i = 0; i < uniqueTxs.length; i++) {
+      for (let i = 0; i < uniqueTxs.length; i++) {
       const preparedTx = prepareTx(uniqueTxs[i]);
 
       try {
@@ -523,3 +518,45 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
     type: 'finished',
   };
 }
+
+export class LRU {
+  max: number;
+  cache: Map<string, any>;
+
+  constructor(max: number = 10) {
+    this.max = max;
+    this.cache = new Map();
+  }
+
+  get (txId: string) {
+    const transaction = this.cache.get(txId);
+
+    if (transaction) {
+      this.cache.delete(txId);
+      // Refresh it in the Map
+      this.cache.set(txId, transaction);
+    }
+
+    return transaction;
+  }
+
+  set (txId, transaction) {
+    if (this.cache.has(txId)) {
+      // Refresh it in the map
+      this.cache.delete(txId);
+    }
+
+    // Remove oldest
+    if (this.cache.size === this.max) {
+      this.cache.delete(this.first());
+    }
+
+    this.cache.set(txId, transaction);
+  }
+
+  first () {
+    return this.cache.keys().next().value;
+  }
+}
+
+export const globalCache = new LRU(TX_CACHE_SIZE);
