@@ -135,6 +135,12 @@ export interface PreparedOutput {
   decoded: PreparedDecodedScript;
 }
 
+export interface PreparedToken {
+  uid: string;
+  name: string;
+  symbol: string;
+}
+
 export interface PreparedTx {
   tx_id: string;
   inputs: PreparedInput[];
@@ -145,4 +151,8 @@ export interface PreparedTx {
   parents: string[];
   nonce?: string;
   height?: number;
+  tokens?: PreparedToken[];
+  token_name?: string;
+  token_symbol?: string;
+  raw?: string;
 }
