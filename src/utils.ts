@@ -102,6 +102,8 @@ export const getWalletServiceBestBlock = async (): Promise<Block> => {
 
 /**
  * Returns the best block from the full_node as a typed `Block`.
+ * TODO FIXME: Change this method to query the best block from the `/v1a/get_block_template` or
+ * a specialized API from the full_node to query its best block.
  */
 export const getFullNodeBestBlock = async (): Promise<Block> => {
   const response = await axios.get(`${DEFAULT_SERVER}transaction?type=block&count=1`);
