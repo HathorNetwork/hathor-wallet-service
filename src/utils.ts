@@ -525,12 +525,12 @@ export class LRU {
   max: number;
   cache: Map<string, any>;
 
-  constructor(max: number = 10) {
+  constructor (max: number = 10) {
     this.max = max;
     this.cache = new Map();
   }
 
-  get (txId: string) {
+  get (txId: string): any {
     const transaction = this.cache.get(txId);
 
     if (transaction) {
@@ -542,7 +542,7 @@ export class LRU {
     return transaction;
   }
 
-  set (txId, transaction) {
+  set (txId: string, transaction: any): void {
     if (this.cache.has(txId)) {
       // Refresh it in the map
       this.cache.delete(txId);
@@ -556,7 +556,7 @@ export class LRU {
     this.cache.set(txId, transaction);
   }
 
-  first () {
+  first (): string {
     return this.cache.keys().next().value;
   }
 }
