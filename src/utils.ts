@@ -83,7 +83,7 @@ export const lambdaCall = (fnName: string, payload: any): Promise<any> => new Pr
  *
  * @param tx - The prepared transaction to be sent
  */
-export const sendTx = async (tx): Promise<ApiResponse> => {
+export const sendTx = async (tx: PreparedTx): Promise<ApiResponse> => {
   const response = await lambdaCall('onNewTxRequest', tx);
 
   return response;
@@ -443,7 +443,7 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
   blockLoop:
     for (let i = ourBestBlock.height + 1; i <= fullNodeBestBlock.height; i++) {
     const block: FullBlock = await downloadBlockByHeight(i);
-    const preparedBlock = prepareTx(block);
+    const preparedBlock: PreparedTx = prepareTx(block);
 
     // Ignore parents[0] because it is a block
     const blockTxs = [
@@ -483,7 +483,7 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
 
     txLoop:
       for (let i = 0; i < uniqueTxs.length; i++) {
-      const preparedTx = prepareTx(uniqueTxs[i]);
+      const preparedTx: PreparedTx = prepareTx(uniqueTxs[i]);
 
       try {
         const sendTxResponse: ApiResponse = await sendTx(preparedTx);
