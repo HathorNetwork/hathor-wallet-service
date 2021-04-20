@@ -44,7 +44,7 @@ export const lambdaCall = (fnName: string, payload: any): Promise<any> => new Pr
   const lambda = new AWS.Lambda({
     apiVersion: '2015-03-31',
     endpoint: process.env.STAGE === 'local'
-      ? 'http://localhost:3002'
+      ? process.env.WALLET_SERVICE_LOCAL_URL || 'http://localhost:3002'
       : `https://lambda.${process.env.AWS_REGION}.amazonaws.com`,
   });
 
