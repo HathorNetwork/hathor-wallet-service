@@ -7,8 +7,8 @@
 FROM node:14 AS builder
 
 COPY package.json /app/
-RUN cd /app && npm install --global --unsafe-perm tsdx@0.14.1
-RUN npm install --production
+
+RUN cd /app && npm install --production
 
 COPY . /app/
 
