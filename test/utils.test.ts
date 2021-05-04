@@ -17,8 +17,11 @@ import {
   generateBlock,
 } from './utils';
 import * as Utils from '../src/utils';
+import * as FullNode from '../src/api/fullnode';
+import * as Lambda from '../src/api/lambda';
 import axios from 'axios';
-const { globalCache, downloadTx, syncToLatestBlock, LRU } = Utils;
+const { globalCache, syncToLatestBlock, LRU } = Utils;
+const { downloadTx } = FullNode;
 
 beforeAll(async () => {
   jest.clearAllMocks();
@@ -27,10 +30,10 @@ beforeAll(async () => {
 test('syncToLatestBlockGen should yield an error when the latest block from the wallet-service is_voided', async () => {
   expect.hasAssertions();
 
-  const getFullNodeBestBlockSpy = jest.spyOn(Utils, 'getFullNodeBestBlock');
-  const getWalletServiceBestBlockSpy = jest.spyOn(Utils, 'getWalletServiceBestBlock');
-  const getBlockByTxIdSpy = jest.spyOn(Utils, 'getBlockByTxId');
-  const downloadBlockByHeightSpy = jest.spyOn(Utils, 'downloadBlockByHeight');
+  const getFullNodeBestBlockSpy = jest.spyOn(FullNode, 'getFullNodeBestBlock');
+  const getWalletServiceBestBlockSpy = jest.spyOn(Lambda, 'getWalletServiceBestBlock');
+  const getBlockByTxIdSpy = jest.spyOn(FullNode, 'getBlockByTxId');
+  const downloadBlockByHeightSpy = jest.spyOn(FullNode, 'downloadBlockByHeight');
 
   getFullNodeBestBlockSpy.mockReturnValue(Promise.resolve(generateBlock(MOCK_TXS[0], 1)));
   getWalletServiceBestBlockSpy.mockReturnValue(Promise.resolve(generateBlock(MOCK_TXS[1], 0)));
@@ -49,10 +52,10 @@ test('syncToLatestBlockGen should yield an error when the latest block from the 
 test('syncToLatestBlockGen should yield an error when our best block height is higher than the fullnode\'s', async () => {
   expect.hasAssertions();
 
-  const getFullNodeBestBlockSpy = jest.spyOn(Utils, 'getFullNodeBestBlock');
-  const getWalletServiceBestBlockSpy = jest.spyOn(Utils, 'getWalletServiceBestBlock');
-  const getBlockByTxIdSpy = jest.spyOn(Utils, 'getBlockByTxId');
-  const downloadBlockByHeightSpy = jest.spyOn(Utils, 'downloadBlockByHeight');
+  const getFullNodeBestBlockSpy = jest.spyOn(FullNode, 'getFullNodeBestBlock');
+  const getWalletServiceBestBlockSpy = jest.spyOn(Lambda, 'getWalletServiceBestBlock');
+  const getBlockByTxIdSpy = jest.spyOn(FullNode, 'getBlockByTxId');
+  const downloadBlockByHeightSpy = jest.spyOn(FullNode, 'downloadBlockByHeight');
 
   getWalletServiceBestBlockSpy.mockReturnValue(Promise.resolve(generateBlock(MOCK_TXS[1], 6)));
   getFullNodeBestBlockSpy.mockReturnValue(Promise.resolve(generateBlock(MOCK_TXS[0], 3)));
@@ -71,11 +74,11 @@ test('syncToLatestBlockGen should yield an error when our best block height is h
 test('syncToLatestBlockGen should yield an error when it fails to send a block', async () => {
   expect.hasAssertions();
 
-  const getFullNodeBestBlockSpy = jest.spyOn(Utils, 'getFullNodeBestBlock');
-  const getWalletServiceBestBlockSpy = jest.spyOn(Utils, 'getWalletServiceBestBlock');
-  const getBlockByTxIdSpy = jest.spyOn(Utils, 'getBlockByTxId');
-  const sendTxSpy = jest.spyOn(Utils, 'sendTx');
-  const downloadBlockByHeightSpy = jest.spyOn(Utils, 'downloadBlockByHeight');
+  const getFullNodeBestBlockSpy = jest.spyOn(FullNode, 'getFullNodeBestBlock');
+  const getWalletServiceBestBlockSpy = jest.spyOn(Lambda, 'getWalletServiceBestBlock');
+  const getBlockByTxIdSpy = jest.spyOn(FullNode, 'getBlockByTxId');
+  const sendTxSpy = jest.spyOn(Lambda, 'sendTx');
+  const downloadBlockByHeightSpy = jest.spyOn(FullNode, 'downloadBlockByHeight');
   const recursivelyDownloadTxSpy = jest.spyOn(Utils, 'recursivelyDownloadTx');
 
   getWalletServiceBestBlockSpy.mockReturnValue(Promise.resolve(generateBlock(MOCK_TXS[1], 3)));
@@ -97,11 +100,11 @@ test('syncToLatestBlockGen should yield an error when it fails to send a block',
 test('syncToLatestBlockGen should yield an error when it fails to send a transaction', async () => {
   expect.hasAssertions();
 
-  const getFullNodeBestBlockSpy = jest.spyOn(Utils, 'getFullNodeBestBlock');
-  const getWalletServiceBestBlockSpy = jest.spyOn(Utils, 'getWalletServiceBestBlock');
-  const getBlockByTxIdSpy = jest.spyOn(Utils, 'getBlockByTxId');
-  const sendTxSpy = jest.spyOn(Utils, 'sendTx');
-  const downloadBlockByHeightSpy = jest.spyOn(Utils, 'downloadBlockByHeight');
+  const getFullNodeBestBlockSpy = jest.spyOn(FullNode, 'getFullNodeBestBlock');
+  const getWalletServiceBestBlockSpy = jest.spyOn(Lambda, 'getWalletServiceBestBlock');
+  const getBlockByTxIdSpy = jest.spyOn(FullNode, 'getBlockByTxId');
+  const sendTxSpy = jest.spyOn(Lambda, 'sendTx');
+  const downloadBlockByHeightSpy = jest.spyOn(FullNode, 'downloadBlockByHeight');
   const recursivelyDownloadTxSpy = jest.spyOn(Utils, 'recursivelyDownloadTx');
 
   getWalletServiceBestBlockSpy.mockReturnValue(Promise.resolve(generateBlock(MOCK_TXS[1], 3)));
@@ -140,11 +143,11 @@ test('syncToLatestBlockGen should yield an error when it fails to send a transac
 test('syncToLatestBlockGen should sync from our current height until the best block height', async () => {
   expect.hasAssertions();
 
-  const getFullNodeBestBlockSpy = jest.spyOn(Utils, 'getFullNodeBestBlock');
-  const getWalletServiceBestBlockSpy = jest.spyOn(Utils, 'getWalletServiceBestBlock');
-  const getBlockByTxIdSpy = jest.spyOn(Utils, 'getBlockByTxId');
-  const sendTxSpy = jest.spyOn(Utils, 'sendTx');
-  const downloadBlockByHeightSpy = jest.spyOn(Utils, 'downloadBlockByHeight');
+  const getFullNodeBestBlockSpy = jest.spyOn(FullNode, 'getFullNodeBestBlock');
+  const getWalletServiceBestBlockSpy = jest.spyOn(Lambda, 'getWalletServiceBestBlock');
+  const getBlockByTxIdSpy = jest.spyOn(FullNode, 'getBlockByTxId');
+  const sendTxSpy = jest.spyOn(Lambda, 'sendTx');
+  const downloadBlockByHeightSpy = jest.spyOn(FullNode, 'downloadBlockByHeight');
   const recursivelyDownloadTxSpy = jest.spyOn(Utils, 'recursivelyDownloadTx');
 
   getWalletServiceBestBlockSpy.mockReturnValue(Promise.resolve(generateBlock(MOCK_TXS[1], 1)));

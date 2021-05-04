@@ -19,193 +19,24 @@ import {
   PreparedInput,
   PreparedOutput,
 } from './types';
-import AWS from 'aws-sdk';
-import axios from 'axios';
+import {
+  downloadTx,
+  getBlockByTxId,
+  getFullNodeBestBlock,
+  downloadBlockByHeight,
+} from './api/fullnode';
+import {
+  getWalletServiceBestBlock,
+  sendTx,
+} from './api/lambda';
 import dotenv from 'dotenv';
 import { constants } from '@hathor/wallet-lib';
 import logger from './logger';
 
 dotenv.config();
 
-AWS.config.update({
-  region: 'us-east-1',
-});
-
-const DEFAULT_SERVER = process.env.DEFAULT_SERVER || 'https://node1.foxtrot.testnet.hathor.network/v1a/';
 const TOKEN_INDEX_MASK = constants.TOKEN_INDEX_MASK;
 const TX_CACHE_SIZE: number = parseInt(process.env.TX_CACHE_SIZE) || 200;
-
-/**
- * Calls a function from the wallet-service lambda
- *
- * @param fnName - The lambda function name
- * @param payload - The payload to be sent
- */
-export const lambdaCall = (fnName: string, payload: any): Promise<any> => new Promise((resolve, reject) => {
-  const lambda = new AWS.Lambda({
-    apiVersion: '2015-03-31',
-    endpoint: process.env.STAGE === 'local'
-      ? process.env.WALLET_SERVICE_LOCAL_URL || 'http://localhost:3002'
-      : `https://lambda.${process.env.AWS_REGION}.amazonaws.com`,
-  });
-
-      const params = {
-        FunctionName: `${process.env.SERVICE_NAME}-${process.env.STAGE}-${fnName}`,
-        Payload: JSON.stringify({
-          body: payload,
-        }),
-      };
-
-      lambda.invoke(params, (err, data) => {
-        if (err) {
-          logger.error('err', err);
-          reject(err);
-        } else {
-          if (data.StatusCode !== 200) {
-            reject(new Error('Request failed.'));
-          }
-
-          try {
-            const responsePayload = JSON.parse(data.Payload as string);
-            const body = JSON.parse(responsePayload.body);
-
-            resolve(body);
-          } catch(e) {
-            logger.error('Erroed parsing response body: ', data.Payload);
-
-            return reject(e.message);
-          }
-        }
-      });
-});
-
-/**
- * Calls the onNewTxRequest lambda function with a PreparedTx
- *
- * @param tx - The prepared transaction to be sent
- */
-export const sendTx = async (tx: PreparedTx): Promise<ApiResponse> => {
-  const response = await lambdaCall('onNewTxRequest', tx);
-
-  return response;
-};
-
-/**
- * Calls the getLatestBlock lambda function from the wallet-service returning
- * a typed `Block`.
- */
-export const getWalletServiceBestBlock = async (): Promise<Block> => {
-  const response = await lambdaCall('getLatestBlock', {});
-  const bestBlock: Block = response.block;
-
-  return bestBlock;
-};
-
-/**
- * Returns the best block from the full_node as a typed `Block`.
- * TODO FIXME: Change this method to query the best block from the `/v1a/get_block_template` or
- * a specialized API from the full_node to query its best block.
- */
-export const getFullNodeBestBlock = async (): Promise<Block> => {
-  const response = await axios.get(`${DEFAULT_SERVER}transaction?type=block&count=1`);
-  const { transactions } = response.data;
-
-  const bestBlock: Block = {
-    txId: transactions[0].tx_id as string,
-    height: transactions[0].height as number,
-  };
-
-  return bestBlock;
-};
-
-/**
- * Returns a transaction from the fullnode
- *
- * @param txId - The transaction id to be downloaded
- * @param noCache - Ignores cached transactions
- */
-export const downloadTx = async (txId: string, noCache: boolean = false) => {
-  if (!noCache && globalCache.get(txId)) {
-    return globalCache.get(txId);
-  }
-
-  const response = await axios.get(`${DEFAULT_SERVER}transaction?id=${txId}`);
-
-  if (!noCache) {
-    globalCache.set(txId, response.data);
-  }
-
-  return response.data;
-};
-
-/**
- * Returns a `FullBlock` downloaded from the full_node
- *
- * @param height - The block's height
- */
-export const downloadBlockByHeight = async (height: number): Promise<FullBlock> => {
-  const response = await axios.get(`${DEFAULT_SERVER}block_at_height?height=${height}`);
-
-  const data = response.data;
-
-  if (!data.success) {
-    throw new Error(`Block height ${height} download failed`);
-  }
-
-  const responseBlock = data.block;
-
-  const block: FullBlock = {
-    txId: responseBlock.tx_id as string,
-    version: responseBlock.version as number,
-    weight: responseBlock.weight as number,
-    timestamp: responseBlock.timestamp as number,
-    isVoided: responseBlock.is_voided as boolean,
-    inputs: responseBlock.inputs.map((input) => {
-      const typedDecodedScript: DecodedScript = {
-        type: input.decoded.type as string,
-        address: input.decoded.address as string,
-        timelock: input.decoded.timelock ? input.decoded.timelock as number : null,
-        value: input.decoded.value ? input.decoded.value as number : null,
-        tokenData: input.decoded.token_data ? input.decoded.token_data as number : null,
-      };
-      const typedInput: Input = {
-        txId: input.tx_id as string,
-        index: input.index as number,
-        value: input.value as number,
-        tokenData: input.token_data as number,
-        script: input.script as string,
-        decoded: typedDecodedScript,
-        token: input.token as string,
-      };
-
-      return typedInput;
-    }),
-    outputs: responseBlock.outputs.map((output): Output => {
-      const typedDecodedScript: DecodedScript = {
-        type: output.decoded.type as string,
-        address: output.decoded.address as string,
-        timelock: output.decoded.timelock ? output.decoded.timelock as number : null,
-        value: output.decoded.value ? output.decoded.value as number : null,
-        tokenData: output.decoded.token_data ? output.decoded.token_data as number : null,
-      };
-
-      const typedOutput: Output = {
-        value: output.value as number,
-        tokenData: output.token_data as number,
-        script: output.script as string,
-        decoded: typedDecodedScript,
-        token: output.token as string,
-        spentBy: output.spent_by ? output.spent_by as string : null,
-      };
-
-      return typedOutput;
-    }),
-    parents: responseBlock.parents,
-    height: responseBlock.height as number,
-  };
-
-  return block;
-};
 
 /**
  * Recursively downloads all transactions that were confirmed by a given block
@@ -377,16 +208,6 @@ export const parseTx = (tx: any): FullTx => {
   };
 
   return parsedTx;
-};
-
-/**
- * Downloads a block from the full_node using the `block_at_height` API
- *
- * @param txId - The block txId
- * @param noCache - Prevents downloading the block from cache as a reorg may have ocurred
- */
-export const getBlockByTxId = async (txId: string, noCache: boolean = false) => {
-  return downloadTx(txId, noCache);
 };
 
 /**
