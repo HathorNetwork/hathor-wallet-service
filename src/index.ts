@@ -9,11 +9,13 @@ import { interpret } from 'xstate';
 import { SyncMachine } from './machine';
 import { Connection } from '@hathor/wallet-lib';
 
+import logger from './logger';
+
 const machine = interpret(SyncMachine).start();
 
 machine.onTransition(state => {
   if (state.changed) {
-    console.log('Transitioned to state: ', state.value);
+    logger.debug('Transitioned to state: ', state.value);
   }
 });
 

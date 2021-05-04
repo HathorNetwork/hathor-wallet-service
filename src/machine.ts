@@ -15,38 +15,40 @@ import {
   SyncSchema,
   SyncContext,
 } from './types';
+import logger from './logger';
 
 export const syncHandler = (_context, _event) => (callback, onReceive) => {
-  console.log('Sync handler instantiated');
+  logger.debug('Sync handler instantiated');
   const iterator = syncToLatestBlock();
   const asyncCall: () => void = async () => {
     for (;;) {
       const block = await iterator.next();
-
       const { value, done } = block;
+
       if (done) {
-        console.log('Done!', value)
+        // The generator reached its end, we should end this handler
+        logger.debug('Done.', value)
         break;
       }
 
       if (value && !value.success) {
-        console.log('Erroed!', value.message);
+        logger.error(value.message);
         callback('ERROR');
         return;
       }
 
       if (value.type === 'reorg') {
-        console.log(value.message);
+        logger.info('A reorg happened: ', value.message);
         callback('REORG');
         return;
-      }
-
-      if (value.type === 'finished') {
-        console.log('FINISHED!');
+      } else if (value.type === 'finished') {
+        logger.info('Sync generator finished.');
         callback('DONE');
+      } else if (value.type === 'block_success') {
+        logger.info(`Block id: ${value.blockId} sent successfully, transactions sent: ${value.transactions.length}`);
+      } else {
+        logger.warn(`Unhandled type received from sync generator: ${value.type}`);
       }
-
-      console.log(value);
     }
 
     return;
@@ -60,7 +62,7 @@ export const syncHandler = (_context, _event) => (callback, onReceive) => {
   });
 
   return () => {
-    console.log('Stopping the iterator.');
+    logger.debug('Stopping the iterator.');
     iterator.return('finished');
 
     return;

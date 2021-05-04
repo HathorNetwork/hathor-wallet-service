@@ -23,6 +23,7 @@ import AWS from 'aws-sdk';
 import axios from 'axios';
 import dotenv from 'dotenv';
 import { constants } from '@hathor/wallet-lib';
+import logger from './logger';
 
 dotenv.config();
 
@@ -57,7 +58,7 @@ export const lambdaCall = (fnName: string, payload: any): Promise<any> => new Pr
 
       lambda.invoke(params, (err, data) => {
         if (err) {
-          console.log('err', err);
+          logger.error('err', err);
           reject(err);
         } else {
           if (data.StatusCode !== 200) {
@@ -70,7 +71,7 @@ export const lambdaCall = (fnName: string, payload: any): Promise<any> => new Pr
 
             resolve(body);
           } catch(e) {
-            console.log('Erroed parsing response body: ', data.Payload);
+            logger.error('Erroed parsing response body: ', data.Payload);
 
             return reject(e.message);
           }
@@ -437,7 +438,7 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
     return;
   }
 
-  console.log('Best block is valid.');
+  logger.debug('Best block is valid.');
   let success = true;
 
   blockLoop:
@@ -460,7 +461,7 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
     const sendBlockResponse: ApiResponse = await sendTx(preparedBlock);
 
     if (!sendBlockResponse.success) {
-      console.log(sendBlockResponse);
+      logger.debug(sendBlockResponse);
       yield {
         type: 'error',
         success: false,
