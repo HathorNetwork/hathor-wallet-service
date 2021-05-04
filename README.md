@@ -1,5 +1,76 @@
 # Hathor Wallet Service -- Sync Daemon
 
+## Running
+
+### Local environment
+
+#### System dependencies
+
+You need nodejs installed on your enviroment, we are using the latest Active LTS version (v14.16.1) on the dev environment. You can read more about installing nodejs on https://nodejs.org/en/download/package-manager/
+
+#### Clone the project and install dependencies
+
+`git clone https://github.com/HathorNetwork/hathor-wallet-service-sync_daemon.git && npm install`
+
+#### Add env variables or an .env file to the repository:
+
+Example:
+
+```
+STAGE=local
+NETWORK=testnet
+MAX_ADDRESS_GAP=20
+SERVICE_NAME=hathor-wallet-service
+DEFAULT_SERVER=http://fullnode_url/v1a/
+```
+
+`STAGE` - Wallet-Service's deployment stage, e.g. `local`, `production`, `staging`
+`NETWORK` - The current hathor network we want to connect to
+`MAX_ADDRESS_GAP` - The full-node configured GAP between addresses
+`SERVICE_NAME` - The Wallet-Service's service name as it was registered on AWS
+`DEFAULT_SERVER` - The full-node API url
+
+If the wallet-service is not running locally, you also need to specify the AWS-SDK env variables:
+
+```
+AWS_REGION="us-east-1"
+AWS_DEFAULT_REGION="us-east-1"
+AWS_ACCESS_KEY_ID="..."
+AWS_SECRET_ACCESS_KEY="..."
+```
+
+#### Run:
+
+`npm start`
+
+
+### Deploy
+
+The recommended way to deploy this service is to use docker.
+
+#### Building the image:
+
+`docker build -t hathor/sync-daemon .`
+
+#### Running:
+
+```
+docker run -d -e STAGE="production" \
+           -e NODE_ENV="production" \
+           -e AWS_REGION="us-east-1" \
+           -e AWS_DEFAULT_REGION="us-east-1" \
+           -e AWS_ACCESS_KEY_ID="..." \
+           -e AWS_SECRET_ACCESS_KEY="..." \
+           -e NETWORK="testnet" \
+           -e MAX_ADDRESS_GAP=20 \
+           -e NETWORK="testnet" \
+           -e SERVICE_NAME="hathor-wallet-service" \
+           -e DEFAULT_SERVER="http://fullnode:8082/v1a/" \
+           -ti localhost/hathor/sync-daemon
+```
+
+In this example, we are passing the env variables to the container and running as a daemon (`-d`). We are also expecting a fullnode to be running on fullnode:8082.
+
 ## State Machine
 
 The state machine diagram can be visualized at https://gist.github.com/andreabadesso/7299c0ed0ce189bc121a06dce1e11638
