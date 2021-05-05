@@ -290,17 +290,20 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
     }
 
     // Exclude duplicates:
-    const uniqueTxs: FullTx[] = txs.reduce((acc: FullTx[], tx: FullTx): FullTx[] => {
-      const alreadyInAcc = acc.find((accTx) => accTx.txId === tx.txId);
+    const uniqueTxs: Record<string, FullTx> = txs.reduce((acc: Record<string, FullTx>, tx: FullTx) => {
+      if (tx.txId in acc) {
+        return acc;
+      }
 
-      if (alreadyInAcc) return acc;
-
-      return [...acc, tx];
-    }, []);
+      return {
+        ...acc,
+        [tx.txId]: tx
+      };
+    }, {});
 
     txLoop:
-      for (let i = 0; i < uniqueTxs.length; i++) {
-      const preparedTx: PreparedTx = prepareTx(uniqueTxs[i]);
+      for (const key of Object.keys(uniqueTxs)) {
+      const preparedTx: PreparedTx = prepareTx(uniqueTxs[key]);
 
       try {
         const sendTxResponse: ApiResponse = await sendTx(preparedTx);
@@ -326,9 +329,7 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
       success: true,
       blockId: preparedBlock.tx_id,
       height: preparedBlock.height,
-      transactions: uniqueTxs.map((tx: FullTx) => {
-        return tx.txId;
-      }),
+      transactions: Object.keys(uniqueTxs),
     };
   }
 
