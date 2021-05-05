@@ -30,12 +30,11 @@ import {
   sendTx,
 } from './api/lambda';
 import dotenv from 'dotenv';
-import { constants } from '@hathor/wallet-lib';
+import { wallet } from '@hathor/wallet-lib';
 import logger from './logger';
 
 dotenv.config();
 
-const TOKEN_INDEX_MASK = constants.TOKEN_INDEX_MASK;
 const TX_CACHE_SIZE: number = parseInt(process.env.TX_CACHE_SIZE) || 200;
 
 /**
@@ -102,9 +101,7 @@ export const prepareTx = (tx: FullTx | FullBlock): PreparedTx => {
         };
       }
 
-      /* eslint-disable */
-      const { uid } = tx.tokens[(input.tokenData & TOKEN_INDEX_MASK) - 1]; // eslint-disable-line no-bitwise
-      /* eslint-enable */
+      const { uid } = tx.tokens[wallet.getTokenIndex(input.tokenData) - 1];
 
       return {
         ...baseInput,
@@ -128,9 +125,7 @@ export const prepareTx = (tx: FullTx | FullBlock): PreparedTx => {
         };
       }
 
-      /* eslint-disable */
-      const { uid } = tx.tokens[(output.tokenData & TOKEN_INDEX_MASK) - 1]; // eslint-disable-line no-bitwise
-      /* eslint-enable */
+      const { uid } = tx.tokens[wallet.getTokenIndex(output.tokenData) - 1];
 
       return {
         ...baseOutput,
