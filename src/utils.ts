@@ -223,7 +223,7 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
     yield {
       type: 'error',
       success: false,
-      message: 'Could not validate our best block',
+      message: 'Best block not found in the full-node. Reorg?',
       error: ourBestBlockInFullNode.message,
     };
 
