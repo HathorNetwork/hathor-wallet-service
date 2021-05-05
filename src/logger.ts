@@ -6,7 +6,7 @@
  */
 
 import util from 'util';
-import winston from 'winston';
+import * as winston from 'winston';
 
 const CONSOLE_LEVEL = process.env.CONSOLE_LEVEL || 'info';
 
