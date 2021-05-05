@@ -254,7 +254,7 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
     return;
   }
 
-  logger.debug('Best block is valid.');
+  logger.debug(`Downloading ${meta.height - outBestBlock.height} blocks...`);
   let success = true;
 
   blockLoop:
