@@ -339,6 +339,7 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
   };
 }
 
+// Map remembers the insertion order, so we can use it as a FIFO queue
 export class LRU {
   max: number;
   cache: Map<string, any>;
