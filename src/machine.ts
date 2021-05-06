@@ -20,7 +20,7 @@ import {
 } from './types';
 import logger from './logger';
 
-export const syncHandler = (_context, _event) => (callback, onReceive) => {
+export const syncHandler = () => (callback, onReceive) => {
   logger.debug('Sync handler instantiated');
   const iterator = syncToLatestBlock();
   const asyncCall: () => void = async () => {

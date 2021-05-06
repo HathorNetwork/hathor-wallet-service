@@ -18,6 +18,8 @@ import {
   PreparedTx,
   PreparedInput,
   PreparedOutput,
+  PreparedDecodedScript,
+  RawTxResponse,
 } from './types';
 import {
   downloadTx,
@@ -35,7 +37,7 @@ import logger from './logger';
 
 dotenv.config();
 
-const TX_CACHE_SIZE: number = parseInt(process.env.TX_CACHE_SIZE) || 200;
+const TX_CACHE_SIZE: number = parseInt(process.env.TX_CACHE_SIZE as string) || 200;
 
 /**
  * Recursively downloads all transactions that were confirmed by a given block
@@ -49,8 +51,8 @@ export const recursivelyDownloadTx = async (blockId: string, txIds: string[] = [
     return data;
   }
 
-  const txId = txIds.pop();
-  const txData = await downloadTx(txId);
+  const txId: string = txIds.pop() as string;
+  const txData: RawTxResponse = await downloadTx(txId);
   const { tx, meta } = txData;
   const parsedTx: FullTx = parseTx(tx);
 
@@ -89,8 +91,8 @@ export const prepareTx = (tx: FullTx | FullBlock): PreparedTx => {
         value: input.value,
         token_data: input.tokenData,
         script: input.script,
-        token: input.token,
-        decoded: input.decoded,
+        token: input.token as string,
+        decoded: input.decoded as PreparedDecodedScript,
         index: input.index,
       };
 
@@ -99,6 +101,10 @@ export const prepareTx = (tx: FullTx | FullBlock): PreparedTx => {
           ...baseInput,
           token: '00',
         };
+      }
+
+      if (!tx.tokens || tx.tokens.length <= 0) {
+        throw new Error('Input is a token but there are no tokens in the tokens list.');
       }
 
       const { uid } = tx.tokens[wallet.getTokenIndex(input.tokenData) - 1];
@@ -113,9 +119,9 @@ export const prepareTx = (tx: FullTx | FullBlock): PreparedTx => {
         value: output.value,
         token_data: output.tokenData,
         script: output.script,
-        token: output.token,
-        spent_by: output.spentBy,
-        decoded: output.decoded,
+        token: output.token as string,
+        spent_by: output.spentBy as string,
+        decoded: output.decoded as PreparedDecodedScript,
       };
 
       if (output.tokenData === 0) {
@@ -123,6 +129,10 @@ export const prepareTx = (tx: FullTx | FullBlock): PreparedTx => {
           ...baseOutput,
           token: '00',
         };
+      }
+
+      if (!tx.tokens || tx.tokens.length <= 0) {
+        throw new Error('Output is a token but there are no tokens in the tokens list.');
       }
 
       const { uid } = tx.tokens[wallet.getTokenIndex(output.tokenData) - 1];

@@ -13,9 +13,9 @@ export interface Block {
 export interface DecodedScript {
   type: string;
   address: string;
-  timelock?: number;
-  value?: number;
-  tokenData?: number;
+  timelock?: number | undefined | null;
+  value?: number | undefined | null;
+  tokenData?: number | undefined | null;
 }
 
 export interface Input {
@@ -25,7 +25,7 @@ export interface Input {
   script: string;
   decoded: DecodedScript;
   index: number;
-  token?: string;
+  token?: string | undefined | null;
 }
 
 export interface Output {
@@ -33,8 +33,8 @@ export interface Output {
   tokenData: number;
   script: string;
   decoded: DecodedScript;
-  token?: string;
-  spentBy?: string;
+  token?: string | undefined | null;
+  spentBy?: string | undefined | null;
 }
 
 export interface Token {
@@ -103,7 +103,33 @@ export interface HandlerEvent {
   type: string;
 }
 
-export interface StatusEvent {
+export type StatusEvent = {
+  type: 'finished';
+  success: boolean;
+  message?: string;
+} | {
+  type: 'block_success';
+  success: boolean;
+  height?: number;
+  blockId: string;
+  message?: string;
+  transactions: string[];
+} | {
+  type: 'transaction_failure';
+  success: boolean;
+  message?: string;
+} | {
+  type: 'reorg';
+  success: boolean;
+  message?: string;
+} | {
+  type: 'error';
+  success: boolean;
+  message?: string;
+  error?: string;
+}
+
+/* export interface StatusEvent {
   type: string;
   success: boolean;
   blockId?: string;
@@ -111,7 +137,7 @@ export interface StatusEvent {
   transactions?: string[];
   message?: string;
   error?: string;
-};
+}; */
 
 export interface GeneratorYieldResult<StatusEvent> {
   done?: boolean;
@@ -121,7 +147,7 @@ export interface GeneratorYieldResult<StatusEvent> {
 export interface PreparedDecodedScript {
   type: string;
   address: string;
-  timelock?: number;
+  timelock?: number | undefined | null;
   value?: number;
   token_data?: number;
 }
@@ -165,3 +191,8 @@ export interface PreparedTx {
   token_symbol?: string;
   raw?: string;
 }
+
+export interface RawTxResponse {
+  tx: any;
+  meta: any;
+};
