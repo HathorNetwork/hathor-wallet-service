@@ -180,12 +180,6 @@ export interface PreparedOutput {
   decoded: PreparedDecodedScript;
 }
 
-export interface PreparedToken {
-  uid: string;
-  name: string;
-  symbol: string;
-}
-
 export interface PreparedTx {
   tx_id: string;
   inputs: PreparedInput[];
