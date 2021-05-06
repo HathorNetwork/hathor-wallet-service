@@ -150,6 +150,11 @@ export interface GeneratorYieldResult<StatusEvent> {
   value: StatusEvent;
 }
 
+export interface GeneratorYieldResult<StatusEvent> {
+  done?: boolean;
+  value: StatusEvent;
+}
+
 export interface PreparedDecodedScript {
   type: string;
   address: string;
