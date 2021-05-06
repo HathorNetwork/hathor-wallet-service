@@ -39,8 +39,9 @@ export interface Output {
 
 export interface Token {
   uid: string;
-  name: string;
-  symbol: string;
+  // Hathor will return name: null and symbol: null
+  name: string | null;
+  symbol: string | null;
 }
 
 export interface FullTx {
@@ -50,23 +51,29 @@ export interface FullTx {
   version: number;
   weight: number;
   parents: string[];
+  tokenName?: string | null;
+  tokenSymbol?: string | null;
   inputs: Input[];
   outputs: Output[];
   tokens?: Token[];
+  height?: number;
   raw?: string;
 }
 
 export interface FullBlock {
   txId: string;
+  nonce: string;
+  timestamp: number;
   version: number;
   weight: number;
-  timestamp: number;
-  isVoided: boolean;
+  parents: string[];
+  tokenName?: string | null;
+  tokenSymbol?: string | null;
   inputs: Input[];
   outputs: Output[];
-  parents: string[];
   tokens?: Token[];
   height: number;
+  raw?: string;
 }
 
 export interface ApiResponse {
@@ -170,12 +177,6 @@ export interface PreparedOutput {
   decoded: PreparedDecodedScript;
 }
 
-export interface PreparedToken {
-  uid: string;
-  name: string;
-  symbol: string;
-}
-
 export interface PreparedTx {
   tx_id: string;
   inputs: PreparedInput[];
@@ -186,13 +187,15 @@ export interface PreparedTx {
   parents: string[];
   nonce?: string;
   height?: number;
-  tokens?: PreparedToken[];
-  token_name?: string;
-  token_symbol?: string;
+  tokens?: Token[];
+  token_name?: string | null;
+  token_symbol?: string | null;
   raw?: string;
 }
 
 export interface RawTxResponse {
   tx: any;
   meta: any;
+  success?: boolean;
+  spent_outputs?: any;
 };

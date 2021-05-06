@@ -83,9 +83,15 @@ export const recursivelyDownloadTx = async (blockId: string, txIds: string[] = [
  */
 export const prepareTx = (tx: FullTx | FullBlock): PreparedTx => {
   const prepared = {
-    ...tx,
     tx_id: tx.txId,
-    raw: '',
+    nonce: tx.nonce,
+    timestamp: tx.timestamp,
+    version: tx.version,
+    weight: tx.weight,
+    parents: tx.parents,
+    token_name: tx.tokenName,
+    token_symbol: tx.tokenSymbol,
+    height: tx.height,
     inputs: tx.inputs.map((input) => {
       const baseInput: PreparedInput = {
         value: input.value,
@@ -142,6 +148,8 @@ export const prepareTx = (tx: FullTx | FullBlock): PreparedTx => {
         token: uid,
       };
     }),
+    tokens: tx.tokens,
+    raw: tx.raw,
   };
 
   return prepared;
@@ -159,6 +167,8 @@ export const parseTx = (tx: any): FullTx => {
     version: tx.version as number,
     weight: tx.weight as number,
     timestamp: tx.timestamp as number,
+    tokenName: tx.token_name ? tx.token_name as string : null,
+    tokenSymbol: tx.token_symbol ? tx.token_symbol as string : null,
     inputs: tx.inputs.map((input) => {
       const typedDecodedScript: DecodedScript = {
         type: input.decoded.type as string,
@@ -264,7 +274,7 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
     return;
   }
 
-  logger.debug(`Downloading ${meta.height - ourBestBlock.height} blocks...`);
+  logger.info(`Downloading ${fullNodeBestBlock.height - ourBestBlock.height} blocks...`);
   let success = true;
 
   blockLoop:

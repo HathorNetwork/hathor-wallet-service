@@ -14,8 +14,13 @@ import {
   BLOCK_BY_HEIGHT,
   MOCK_TXS,
   MOCK_FULL_TXS,
+  MOCK_CREATE_TOKEN_TX,
   generateBlock,
 } from './utils';
+import {
+  prepareTx,
+  parseTx,
+} from '../src/utils';
 import * as Utils from '../src/utils';
 import * as FullNode from '../src/api/fullnode';
 import * as Lambda from '../src/api/lambda';
@@ -237,4 +242,15 @@ test('LRU cache', async () => {
 
   expect(cache.get('tx3')).toStrictEqual(undefined);
   expect(cache.first()).toStrictEqual('tx4');
+}, 500);
+
+test('prepareTx on a CREATE_TOKEN tx should have token_name and token_symbol', async () => {
+  expect.hasAssertions();
+
+  const { tx } = MOCK_CREATE_TOKEN_TX;
+  const parsedTx = parseTx(tx);
+  const preparedTx = prepareTx(parsedTx);
+
+  expect(preparedTx.token_name).toStrictEqual('XCoin');
+  expect(preparedTx.token_symbol).toStrictEqual('XCN');
 }, 500);

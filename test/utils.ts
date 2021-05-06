@@ -2,6 +2,7 @@ import {
   FullBlock,
   FullTx,
   Block,
+  RawTxResponse,
 } from '../src/types';
 
 export const MOCK_TXS = [
@@ -183,3 +184,91 @@ export const BLOCK_BY_HEIGHT: FullBlock = {
   height: 3
 };
 
+export const MOCK_CREATE_TOKEN_TX: RawTxResponse = {
+  success: true,
+  tx: {
+    hash: "0035db82f5993097515d5bcc9e869700d538332e017c7ff599c47f659ab63d42",
+    nonce: "180",
+    timestamp: 1620266110,
+    version: 2,
+    weight: 8.000001,
+    parents: [
+      "00504c97802cc199e2e418aefdafd1a627fdc4cf6fc9e4198b916c2456bbb203",
+      "0063b3ec31f8ffe0ebcb465e6c1111e1e9700926ac4d504c74b74b1af9cc6aad"
+    ],
+    inputs: [{
+      value: 1,
+      token_data: 0,
+      script: "dqkURCVU2U54vCcmN8UVMeIBKQ+ldayIrA==",
+      decoded: {
+        type: "P2PKH",
+        address: "WUtMYoi96nNVgf6i3Rq3GuvJkYsbkx3KDi",
+        timelock: null,
+        value: 1,
+        token_data: 2
+      },
+      tx_id: "00504c97802cc199e2e418aefdafd1a627fdc4cf6fc9e4198b916c2456bbb203",
+      index: 1
+    }],
+    outputs: [{
+      value: 100,
+      token_data: 1,
+      script: "dqkU1vXqQItRBKC9TwophPs9I5reNnOIrA==",
+      decoded: {
+        type: "P2PKH",
+        address: "WiGe5TRjhAsrYP2dxp1zsgvYZqcBjXdWmy",
+        timelock: null,
+        value: 100,
+        token_data: 1
+      }
+    }, {
+      value: 1,
+      token_data: 129,
+      script: "dqkUvKVTGtZCXV/Wmwxsdc47FUnf8f6IrA==",
+      decoded: {
+        type: "P2PKH",
+        address: "WfsVxwxZhrfKHSYCeqPubQkWaeBcWZJ1ox",
+        timelock: null,
+        value: 1,
+        token_data: 129
+      }
+    }, {
+      value: 2,
+      token_data: 129,
+      script: "dqkU6v6yo/94Z55pVSHPv+gTJWLln22IrA==",
+      decoded: {
+        type: "P2PKH",
+        address: "Wk6a7Xif6qYsprSzFmFhVXYrgQdqg7h1K6",
+        timelock: null,
+        value: 2,
+        token_data: 129
+      }
+    }],
+    tokens: [{
+      uid: "0035db82f5993097515d5bcc9e869700d538332e017c7ff599c47f659ab63d42",
+      name: "XCoin",
+      symbol: "XCN"
+    }, {
+      uid: "00",
+      name: null,
+      symbol: null
+    }],
+    token_name: "XCoin",
+    token_symbol: "XCN",
+    raw: ""
+  },
+  meta: {
+    hash: "0035db82f5993097515d5bcc9e869700d538332e017c7ff599c47f659ab63d42",
+    spent_outputs: [ [ 0, [] ], [ 1, [] ], [ 2, [] ] ],
+    received_by: [],
+    children: [],
+    conflict_with: [],
+    voided_by: [],
+    twins: [],
+    accumulated_weight: 25.78875940418488,
+    score: 0.0,
+    height: 0,
+    first_block: "000000bd45ecc5119963cc3fa03e894f574e69811eef266ed7c6a0d4c1e1806c"
+  },
+  spent_outputs: {}
+}
