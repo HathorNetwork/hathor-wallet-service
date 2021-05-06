@@ -109,6 +109,11 @@ export interface StatusEvent {
   error?: string;
 };
 
+export interface GeneratorYieldResult<StatusEvent> {
+  done?: boolean;
+  value: StatusEvent;
+}
+
 export interface PreparedDecodedScript {
   type: string;
   address: string;

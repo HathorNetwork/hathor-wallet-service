@@ -14,6 +14,8 @@ import { syncToLatestBlock } from './utils';
 import {
   SyncSchema,
   SyncContext,
+  StatusEvent,
+  GeneratorYieldResult,
 } from './types';
 import logger from './logger';
 
@@ -22,7 +24,7 @@ export const syncHandler = (_context, _event) => (callback, onReceive) => {
   const iterator = syncToLatestBlock();
   const asyncCall: () => void = async () => {
     for (;;) {
-      const block = await iterator.next();
+      const block: GeneratorYieldResult<StatusEvent> = await iterator.next();
       const { value, done } = block;
 
       if (done) {
@@ -54,8 +56,8 @@ export const syncHandler = (_context, _event) => (callback, onReceive) => {
     return;
   };
 
-
   onReceive((e) => {
+    console.log('E: ', e);
     if (e.type === 'START') {
       asyncCall();
     }
@@ -72,7 +74,7 @@ export const syncHandler = (_context, _event) => (callback, onReceive) => {
 /* See README for an explanation on how the machine works.
  * TODO: We need to type the Event
  */
-export const SyncMachine = Machine<SyncContext, SyncSchema, any>({
+export const SyncMachine = Machine<SyncContext, SyncSchema>({
   id: 'sync',
   initial: 'idle',
   context: {
