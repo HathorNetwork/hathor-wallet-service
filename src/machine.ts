@@ -15,6 +15,7 @@ import {
   SyncSchema,
   SyncContext,
   StatusEvent,
+  HandlerEvent,
   GeneratorYieldResult,
 } from './types';
 import logger from './logger';
@@ -56,8 +57,13 @@ export const syncHandler = (_context, _event) => (callback, onReceive) => {
     return;
   };
 
-  onReceive((e) => {
-    console.log('E: ', e);
+  /* onReceive is used for bi-directional communication between the
+   * machine and the invoked service (syncHandler).
+   *
+   * For now, the only message we are handling is the start event, to indicate
+   * that we should start the async promise dealing with the generator.
+   */
+  onReceive((e: HandlerEvent) => {
     if (e.type === 'START') {
       asyncCall();
     }

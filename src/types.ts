@@ -99,6 +99,10 @@ export type SyncEvent =
   | { type: 'STOP' };
 */
 
+export interface HandlerEvent {
+  type: string;
+}
+
 export interface StatusEvent {
   type: string;
   success: boolean;
