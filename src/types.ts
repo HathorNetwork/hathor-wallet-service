@@ -23,6 +23,24 @@ export interface GenerateAddresses {
   newAddresses: StringMap<number>;
 }
 
+export enum TxVersion {
+  REGULAR_BLOCK = 0,
+  REGULAR_TRANSACTION = 1,
+  TOKEN_CREATION_TRANSACTION = 2,
+  MERGE_MINED_BLOCK = 3,
+}
+
+export enum TokenActionType {
+  REGULAR_TRANSACTION = 'regular-transaction',
+  CREATE_TOKEN = 'create-token',
+  MINT_TOKEN = 'mint-token',
+  MELT_TOKEN = 'melt-token',
+  DELEGATE_MINT = 'delegate-mint',
+  DELEGATE_MELT = 'delegate-melt',
+  DESTROY_MINT = 'destroy-mint',
+  DESTROY_MELT = 'destroy-melt',
+}
+
 export enum TxProposalStatus {
   OPEN = 'open',
   SENT = 'sent',
@@ -48,6 +66,7 @@ export interface TxProposal {
   id: string;
   walletId: string;
   status: TxProposalStatus;
+  type: TokenActionType,
   createdAt: number;
   updatedAt: number;
 }
@@ -537,8 +556,10 @@ export interface Transaction {
 export interface IWalletOutput {
   address: string;
   value: number;
-  token: string;
+  token?: string;
   timelock: number;
+  // eslint-disable-next-line camelcase
+  token_data?: number;
 }
 
 export interface IWalletInput {
@@ -550,3 +571,99 @@ export interface ApiResponse {
   success: boolean;
   message: string;
 }
+
+export interface TxProposalTokenInfo {
+  txProposalId: string;
+  symbol: string;
+  name: string;
+}
+
+export interface TxData {
+  version: number;
+  name?: string;
+  symbol?: string;
+  parents: string[];
+  timestamp: number;
+  weight: number;
+  nonce: string;
+  tokens: string[];
+  inputs: TxInput[];
+  outputs: TxOutput[];
+}
+
+export interface IWalletInsufficientFunds {
+  tokenId: string;
+  requested: number;
+  available: number;
+}
+
+export interface BaseTxBody {
+  version?: number;
+  inputSelectionAlgo?: string;
+}
+
+export interface CreateTxBody extends BaseTxBody {
+  destinationAddress?: string;
+  inputs?: IWalletInput[];
+  outputs: IWalletOutput[];
+}
+
+export interface CreateTokenBody extends BaseTxBody {
+  name: string;
+  symbol: string;
+  amount: number;
+  destinationAddress?: string;
+  changeAddress?: string;
+  createMint?: boolean;
+  createMelt?: boolean;
+  mintDestination?: string;
+  meltDestination?: string;
+  authorityAddress?: string;
+  version?: number;
+  inputs?: IWalletInput[];
+}
+
+export interface MintTokenBody extends BaseTxBody {
+  amount: number;
+  token: string;
+  createAnotherAuthority?: boolean;
+  destinationAddress?: string;
+  changeAddress?: string;
+  authorityAddress?: string;
+  version?: number;
+  inputs?: IWalletInput[];
+}
+
+export interface MeltTokenBody extends BaseTxBody {
+  amount: number;
+  token: string;
+  createAnotherAuthority?: boolean;
+  destinationAddress?: string;
+  authorityAddress?: string;
+  version?: number;
+  inputs?: IWalletInput[];
+}
+
+export interface DelegateAuthorityBody extends BaseTxBody {
+  createAnotherAuthority?: boolean;
+  destinationAddress?: string;
+  token: string;
+  amount: number;
+  version?: number;
+  inputs?: IWalletInput[];
+}
+
+export interface DestroyAuthorityBody extends BaseTxBody {
+  token: string;
+  amount: number;
+  version?: number;
+  inputs?: IWalletInput[];
+}
+
+export type TxBody =
+  | DestroyAuthorityBody
+  | DelegateAuthorityBody
+  | MeltTokenBody
+  | MintTokenBody
+  | CreateTokenBody
+  | CreateTxBody

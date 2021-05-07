@@ -31,6 +31,8 @@ import {
   WalletStatus,
   WalletTokenBalance,
   FullNodeVersionData,
+  TokenActionType,
+  TxProposalTokenInfo,
 } from '@src/types';
 
 import { getUnixTimestamp, isAuthority } from '@src/utils';
@@ -1347,8 +1349,15 @@ export const createTxProposal = async (
   txProposalId: string,
   walletId: string,
   now: number,
+  type: TokenActionType = TokenActionType.REGULAR_TRANSACTION,
 ): Promise<void> => {
-  const entry = { id: txProposalId, wallet_id: walletId, status: TxProposalStatus.OPEN, created_at: now };
+  const entry = {
+    id: txProposalId,
+    wallet_id: walletId,
+    status: TxProposalStatus.OPEN,
+    created_at: now,
+    type,
+  };
   await mysql.query(
     'INSERT INTO `tx_proposal` SET ?',
     [entry],
@@ -1390,13 +1399,63 @@ export const getTxProposal = async (
     'SELECT * FROM `tx_proposal` WHERE `id` = ?',
     [txProposalId],
   );
+
   if (results.length === 0) return null;
+
   return {
     id: txProposalId,
     walletId: results[0].wallet_id as string,
     status: results[0].status as TxProposalStatus,
+    type: results[0].type as TokenActionType,
     createdAt: results[0].created_at as number,
     updatedAt: results[0].updated_at as number,
+  };
+};
+
+/**
+ * Add tx proposal token information
+ *
+ * @param mysql - Database connection
+ * @param txProposalId - The transaction proposal id
+ * @param name - The token name
+ * @param symbol - The token symbol
+ */
+export const addTxProposalTokenInfo = async (
+  mysql: ServerlessMysql,
+  txProposalId: string,
+  name: string,
+  symbol: string,
+): Promise<void> => {
+  const entry = [
+    [txProposalId, name, symbol],
+  ];
+
+  await mysql.query(
+    'INSERT INTO `tx_proposal_token_info` VALUES ?',
+    [entry],
+  );
+};
+
+/**
+ * Get tx proposal token info
+ *
+ * @param mysql - Database connection
+ * @param txProposalId - The transaction proposal id
+ * @returns Information about the new token
+ */
+export const getTxProposalTokenInfo = async (
+  mysql: ServerlessMysql,
+  txProposalId: string,
+): Promise<TxProposalTokenInfo> => {
+  const results: DbSelectResult = await mysql.query(
+    'SELECT * FROM `tx_proposal_token_info` WHERE `tx_proposal_id` = ?',
+    [txProposalId],
+  );
+
+  return {
+    txProposalId: results[0].tx_proposal_id as string,
+    name: results[0].name as string,
+    symbol: results[0].symbol as string,
   };
 };
 
@@ -1414,8 +1473,17 @@ export const addTxProposalOutputs = async (
 ): Promise<void> => {
   const entries = [];
   for (const [index, output] of outputs.entries()) {
-    entries.push([txProposalId, index, output.address, output.token, output.value, output.timelock]);
+    entries.push([
+      txProposalId,
+      index,
+      output.address,
+      output.token || null,
+      output.token_data || null,
+      output.value,
+      output.timelock,
+    ]);
   }
+
   await mysql.query(
     'INSERT INTO `tx_proposal_outputs` VALUES ?',
     [entries],
@@ -1444,6 +1512,7 @@ export const getTxProposalOutputs = async (
       token: result.token_id as string,
       value: result.value as number,
       timelock: result.timelock as number,
+      token_data: result.token_data as number,
     });
   }
   return outputs;
@@ -1508,4 +1577,44 @@ export const getTxProposalInputs = async (
     inputs.push(input);
   }
   return inputs;
+};
+
+export const getAuthorityUtxosForToken = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+  tokenId: string,
+  authority: number,
+  quantity = 1,
+): Promise<Utxo[]> => {
+  const results: DbSelectResult = await mysql.query(
+    `SELECT *
+       FROM \`utxo\`
+      WHERE \`address\`
+         IN (
+           SELECT \`address\`
+             FROM \`address\`
+            WHERE \`wallet_id\` = ?
+         )
+        AND \`token_id\` = ?
+        AND \`authorities\` = ?
+        AND \`locked\` = FALSE
+        AND \`tx_proposal\` IS NULL
+      LIMIT ?;
+       `,
+    [walletId, tokenId, authority, quantity],
+  );
+
+  const utxos: Utxo[] = results.map((utxo) => ({
+    txId: utxo.tx_id as string,
+    index: utxo.index as number,
+    tokenId: utxo.token_id as string,
+    address: utxo.address as string,
+    value: utxo.value as number,
+    authorities: utxo.authorities as number,
+    timelock: utxo.timelock as number,
+    heightlock: utxo.heightlock as number,
+    locked: utxo.locked > 0,
+  }));
+
+  return utxos;
 };

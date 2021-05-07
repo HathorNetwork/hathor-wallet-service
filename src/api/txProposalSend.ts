@@ -12,8 +12,14 @@ import {
   getTxProposalOutputs,
   updateTxProposal,
   removeTxProposalOutputs,
+  getTxProposalTokenInfo,
 } from '@src/db';
-import { TxProposalStatus, ApiResponse } from '@src/types';
+import {
+  TxProposalStatus,
+  TokenActionType,
+  ApiResponse,
+  TxData,
+} from '@src/types';
 import {
   closeDbConnection,
   getDbConnection,
@@ -105,6 +111,7 @@ export const send: APIGatewayProxyHandler = async (event) => {
   // input: tx_id, index, data
   const inputs = [];
   const usedUtxos = await getTxProposalInputs(mysql, txProposalId);
+
   for (const [i, utxo] of usedUtxos.entries()) {
     // Deserialize from base64
     const inputSignature = Buffer.from(inputsSignatures[i], 'base64');
@@ -119,6 +126,7 @@ export const send: APIGatewayProxyHandler = async (event) => {
   const proposalOutputs = await getTxProposalOutputs(mysql, txProposalId);
   const tokensSet = new Set(proposalOutputs.map((output) => (output.token)));
   tokensSet.delete(hathorLib.constants.HATHOR_TOKEN_CONFIG.uid);
+
   const tokens = Array.from(tokensSet);
 
   // output: value, tokenData, address, timelock
@@ -132,7 +140,7 @@ export const send: APIGatewayProxyHandler = async (event) => {
     });
   }
 
-  const txData = {
+  let txData: TxData = {
     version: hathorLib.constants.DEFAULT_TX_VERSION,
     parents,
     timestamp,
@@ -143,8 +151,20 @@ export const send: APIGatewayProxyHandler = async (event) => {
     outputs,
   };
 
-  await maybeRefreshWalletConstants(mysql);
+  if (txProposal.type === TokenActionType.CREATE_TOKEN) {
+    const tokenInfo = await getTxProposalTokenInfo(mysql, txProposalId);
 
+    txData = {
+      ...txData,
+      version: hathorLib.constants.CREATE_TOKEN_TX_VERSION,
+      name: tokenInfo.name,
+      symbol: tokenInfo.symbol,
+    };
+
+    delete txData.tokens;
+  }
+
+  await maybeRefreshWalletConstants(mysql);
   // Validate TX_WEIGHT
   const calculatedTxWeight = hathorLib.transaction.calculateTxWeight(txData);
 
