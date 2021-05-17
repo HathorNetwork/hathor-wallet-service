@@ -160,7 +160,6 @@ export const BLOCK_BY_HEIGHT: FullBlock = {
   version: 0,
   weight: 21.0,
   timestamp: 1596605949,
-  isVoided: false,
   inputs: [],
   outputs: [
     {
