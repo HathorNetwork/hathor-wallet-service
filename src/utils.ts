@@ -13,13 +13,15 @@ import {
   Output,
   DecodedScript,
   FullTx,
-  Token,
   StatusEvent,
   PreparedTx,
   PreparedInput,
   PreparedOutput,
   PreparedDecodedScript,
   RawTxResponse,
+  RawTx,
+  RawInput,
+  RawOutput,
 } from './types';
 import {
   downloadTx,
@@ -97,9 +99,9 @@ export const prepareTx = (tx: FullTx | FullBlock): PreparedTx => {
         value: input.value,
         token_data: input.tokenData,
         script: input.script,
-        token: input.token as string,
         decoded: input.decoded as PreparedDecodedScript,
         index: input.index,
+        token: '',
       };
 
       if (input.tokenData === 0) {
@@ -125,8 +127,7 @@ export const prepareTx = (tx: FullTx | FullBlock): PreparedTx => {
         value: output.value,
         token_data: output.tokenData,
         script: output.script,
-        token: output.token as string,
-        spent_by: output.spentBy as string,
+        token: '',
         decoded: output.decoded as PreparedDecodedScript,
       };
 
@@ -160,16 +161,16 @@ export const prepareTx = (tx: FullTx | FullBlock): PreparedTx => {
  *
  * @param tx - The transaction object as received by the full_node
  */
-export const parseTx = (tx: any): FullTx => {
+export const parseTx = (tx: RawTx): FullTx => {
   const parsedTx: FullTx = {
-    txId: tx.hash ? tx.hash as string : tx.tx_id as string,
+    txId: tx.hash as string,
     nonce: tx.nonce as string,
     version: tx.version as number,
     weight: tx.weight as number,
     timestamp: tx.timestamp as number,
     tokenName: tx.token_name ? tx.token_name as string : null,
     tokenSymbol: tx.token_symbol ? tx.token_symbol as string : null,
-    inputs: tx.inputs.map((input) => {
+    inputs: tx.inputs.map((input: RawInput) => {
       const typedDecodedScript: DecodedScript = {
         type: input.decoded.type as string,
         address: input.decoded.address as string,
@@ -184,12 +185,11 @@ export const parseTx = (tx: any): FullTx => {
         tokenData: input.token_data as number,
         script: input.script as string,
         decoded: typedDecodedScript,
-        token: input.token as string,
       };
 
       return typedInput;
     }),
-    outputs: tx.outputs.map((output): Output => {
+    outputs: tx.outputs.map((output: RawOutput): Output => {
       const typedDecodedScript: DecodedScript = {
         type: output.decoded.type as string,
         address: output.decoded.address as string,
@@ -203,22 +203,12 @@ export const parseTx = (tx: any): FullTx => {
         tokenData: output.token_data as number,
         script: output.script as string,
         decoded: typedDecodedScript,
-        token: output.token as string,
-        spentBy: output.spent_by ? output.spent_by as string : null,
       };
 
       return typedOutput;
     }),
     parents: tx.parents,
-    tokens: tx.tokens.map((token: any): Token => {
-      const parsedToken: Token = {
-        uid: token.uid as string,
-        name: token.name as string,
-        symbol: token.symbol as string,
-      };
-
-      return parsedToken;
-    }),
+    tokens: tx.tokens,
     raw: tx.raw as string,
   };
 

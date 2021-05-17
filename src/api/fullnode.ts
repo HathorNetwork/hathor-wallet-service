@@ -94,7 +94,6 @@ export const downloadBlockByHeight = async (height: number): Promise<FullBlock> 
         script: output.script as string,
         decoded: typedDecodedScript,
         token: output.token as string,
-        spentBy: output.spent_by ? output.spent_by as string : null,
       };
 
       return typedOutput;

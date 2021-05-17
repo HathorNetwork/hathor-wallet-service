@@ -34,7 +34,6 @@ export interface Output {
   script: string;
   decoded: DecodedScript;
   token?: string | undefined | null;
-  spentBy?: string | undefined | null;
 }
 
 export interface Token {
@@ -173,7 +172,6 @@ export interface PreparedOutput {
   token_data: number;
   script: string;
   token: string;
-  spent_by: string;
   decoded: PreparedDecodedScript;
 }
 
@@ -225,13 +223,6 @@ export interface RawOutput {
   decoded: RawDecodedOutput;
 }
 
-export interface RawToken {
-  uid: string;
-  // Name and symbol can be null when the token is htr
-  symbol?: string | null;
-  name?: string | null;
-}
-
 export interface RawTx {
   hash: string;
   nonce: string;
@@ -241,15 +232,30 @@ export interface RawTx {
   parents: string[];
   inputs: RawInput[];
   outputs: RawOutput[];
-  tokens: RawToken[];
+  tokens: Token[];
   token_name?: string | null;
   token_symbol?: string | null;
   raw: string;
 }
 
+export interface Meta {
+  hash: string;
+  spent_outputs: any;
+  received_by: string[];
+  children: string[];
+  conflict_with: string[];
+  voided_by: string[];
+  twins: string[];
+  accumulated_weight: number;
+  score: number;
+  height: number;
+  first_block?: string | null;
+}
+
 export interface RawTxResponse {
   tx: RawTx;
-  meta: any;
-  success?: boolean;
+  meta: Meta;
+  success: boolean;
+  message?: string;
   spent_outputs?: any;
 }
