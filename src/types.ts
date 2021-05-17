@@ -62,7 +62,7 @@ export interface FullTx {
 
 export interface FullBlock {
   txId: string;
-  nonce: string;
+  nonce?: string;
   timestamp: number;
   version: number;
   weight: number;
@@ -193,9 +193,63 @@ export interface PreparedTx {
   raw?: string;
 }
 
+export interface RawDecodedInput {
+  type: string;
+  address: string;
+  timelock?: number | null;
+  value: number;
+  token_data: number;
+}
+
+export interface RawDecodedOutput {
+  type: string;
+  address: string;
+  timelock?: number | null;
+  value: number;
+  token_data: number;
+}
+
+export interface RawInput {
+  value: number;
+  token_data: number;
+  script: string;
+  decoded: RawDecodedInput;
+  tx_id: string;
+  index: number;
+}
+
+export interface RawOutput {
+  value: number;
+  token_data: number;
+  script: string;
+  decoded: RawDecodedOutput;
+}
+
+export interface RawToken {
+  uid: string;
+  // Name and symbol can be null when the token is htr
+  symbol?: string | null;
+  name?: string | null;
+}
+
+export interface RawTx {
+  hash: string;
+  nonce: string;
+  timestamp: number;
+  version: number;
+  weight: number;
+  parents: string[];
+  inputs: RawInput[];
+  outputs: RawOutput[];
+  tokens: RawToken[];
+  token_name?: string | null;
+  token_symbol?: string | null;
+  raw: string;
+}
+
 export interface RawTxResponse {
-  tx: any;
+  tx: RawTx;
   meta: any;
   success?: boolean;
   spent_outputs?: any;
-};
+}
