@@ -7,10 +7,12 @@
 
 import { interpret } from 'xstate';
 import { SyncMachine } from './machine';
+// @ts-ignore
 import { Connection } from '@hathor/wallet-lib';
 
 import logger from './logger';
 
+// @ts-ignore
 const machine = interpret(SyncMachine).start();
 
 machine.onTransition(state => {
@@ -51,7 +53,9 @@ const handleMessage = (message: any) => {
 const DEFAULT_SERVER = process.env.DEFAULT_SERVER;
 const conn = new Connection({ network: process.env.NETWORK, servers: [DEFAULT_SERVER] });
 
+// @ts-ignore
 conn.websocket.on('network', (message) => handleMessage(message));
+// @ts-ignore
 conn.on('state', (state) => handleMessage({
   type: 'state_update',
   state,

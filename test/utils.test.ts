@@ -25,6 +25,7 @@ import * as Utils from '../src/utils';
 import * as FullNode from '../src/api/fullnode';
 import * as Lambda from '../src/api/lambda';
 import axios from 'axios';
+  // @ts-ignore
 import hathorLib from '@hathor/wallet-lib';
 const { globalCache, syncToLatestBlock, LRU } = Utils;
 const { downloadTx } = FullNode;

@@ -20,6 +20,7 @@ import {
 } from './types';
 import logger from './logger';
 
+// @ts-ignore
 export const syncHandler = () => (callback, onReceive) => {
   logger.debug('Sync handler instantiated');
   const iterator = syncToLatestBlock();
@@ -126,9 +127,11 @@ export const SyncMachine = Machine<SyncContext, SyncSchema>({
     hasMoreBlocks: (ctx) => ctx.hasMoreBlocks,
   },
   actions: {
+    // @ts-ignore
     resetMoreBlocks: assign({
       hasMoreBlocks: () => false,
     }),
+    // @ts-ignore
     setMoreBlocks: assign({
       hasMoreBlocks: () => true,
     }),

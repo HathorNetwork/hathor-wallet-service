@@ -34,6 +34,7 @@ import {
   sendTx,
 } from './api/lambda';
 import dotenv from 'dotenv';
+// @ts-ignore
 import { wallet } from '@hathor/wallet-lib';
 import logger from './logger';
 

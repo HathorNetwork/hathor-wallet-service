@@ -17,6 +17,7 @@ beforeAll(async () => {
 });
 
 test('SyncMachine should start as idle', async () => {
+  // @ts-ignore
   const syncMachine = interpret(SyncMachine).start();
 
   expect(syncMachine.state.value).toStrictEqual('idle');
@@ -31,6 +32,7 @@ test('An idle SyncMachine should transition to \'syncing\' when a NEW_BLOCK acti
     }
   });
 
+  // @ts-ignore
   const syncMachine = interpret(TestSyncMachine).start();
 
   syncMachine.send({ type: 'NEW_BLOCK' });
@@ -47,6 +49,7 @@ test('A SyncMachine in the syncing state should transition to \'failure\' when a
     }
   });
 
+  // @ts-ignore
   const syncMachine = interpret(TestSyncMachine).start();
 
   syncMachine.send({ type: 'NEW_BLOCK' });
@@ -67,6 +70,7 @@ test('A SyncMachine in the syncing state should store hasMoreBlocks on context i
     }
   });
 
+  // @ts-ignore
   const syncMachine = interpret(TestSyncMachine).start();
 
   expect(syncMachine.state.context.hasMoreBlocks).toStrictEqual(false);
@@ -89,6 +93,7 @@ test('A SyncMachine should transition to \'idle\' when it is on \'syncing\' stat
     }
   });
 
+  // @ts-ignore
   const syncMachine = interpret(TestSyncMachine).start();
 
   expect(syncMachine.state.context.hasMoreBlocks).toStrictEqual(false);
@@ -111,6 +116,7 @@ test('A SyncMachine should transition to \'syncing\' if hasMoreBlocks context is
     }
   });
 
+  // @ts-ignore
   const syncMachine = interpret(TestSyncMachine).start();
 
   expect(syncMachine.state.context.hasMoreBlocks).toStrictEqual(false);
@@ -138,6 +144,7 @@ test('A SyncMachine should clear hasMoreBlocks from context when transitioning t
     }
   });
 
+  // @ts-ignore
   const syncMachine = interpret(TestSyncMachine).start();
 
   expect(syncMachine.state.context.hasMoreBlocks).toStrictEqual(false);
@@ -171,6 +178,7 @@ test('A SyncMachine should call the cleanupFn on the syncHandler service when st
     }
   });
 
+  // @ts-ignore
   const syncMachine = interpret(TestSyncMachine).start();
 
   expect(mockCleanupFunction).toHaveBeenCalledTimes(0);
@@ -219,6 +227,7 @@ test('The SyncMachine should transition to \'reorg\' state when a reorg is detec
     }
   });
 
+  // @ts-ignore
   const syncMachine = interpret(TestSyncMachine).start();
 
   expect(mockCleanupFunction).toHaveBeenCalledTimes(0);
