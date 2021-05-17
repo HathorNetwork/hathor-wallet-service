@@ -11,6 +11,8 @@ import {
   Input,
   Output,
   DecodedScript,
+  RawInput,
+  RawOutput,
 } from '../types';
 import axios from 'axios';
 import { globalCache } from '../utils';
@@ -59,7 +61,7 @@ export const downloadBlockByHeight = async (height: number): Promise<FullBlock> 
     weight: responseBlock.weight as number,
     timestamp: responseBlock.timestamp as number,
     nonce: responseBlock.nonce as string,
-    inputs: responseBlock.inputs.map((input) => {
+    inputs: responseBlock.inputs.map((input: RawInput) => {
       const typedDecodedScript: DecodedScript = {
         type: input.decoded.type as string,
         address: input.decoded.address as string,
@@ -79,7 +81,7 @@ export const downloadBlockByHeight = async (height: number): Promise<FullBlock> 
 
       return typedInput;
     }),
-    outputs: responseBlock.outputs.map((output): Output => {
+    outputs: responseBlock.outputs.map((output: RawOutput): Output => {
       const typedDecodedScript: DecodedScript = {
         type: output.decoded.type as string,
         address: output.decoded.address as string,

@@ -214,6 +214,8 @@ export interface RawInput {
   decoded: RawDecodedInput;
   tx_id: string;
   index: number;
+  token?: string | null;
+  spent_by?: string | null;
 }
 
 export interface RawOutput {
@@ -221,6 +223,8 @@ export interface RawOutput {
   token_data: number;
   script: string;
   decoded: RawDecodedOutput;
+  token?: string | null;
+  spent_by?: string | null;
 }
 
 export interface RawTx {
