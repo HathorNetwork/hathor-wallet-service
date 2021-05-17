@@ -25,6 +25,7 @@ import * as Utils from '../src/utils';
 import * as FullNode from '../src/api/fullnode';
 import * as Lambda from '../src/api/lambda';
 import axios from 'axios';
+import hathorLib from '@hathor/wallet-lib';
 const { globalCache, syncToLatestBlock, LRU } = Utils;
 const { downloadTx } = FullNode;
 
@@ -120,7 +121,7 @@ test('syncToLatestBlockGen should yield an error when it fails to send a transac
   recursivelyDownloadTxSpy.mockReturnValue(Promise.resolve([MOCK_FULL_TXS[0]]));
 
   const mockSendTxImplementation = jest.fn((tx) => {
-    if (tx.height) {
+    if (hathorLib.helpers.isBlock(tx)) {
       // is block
       return Promise.resolve({
         success: true,
