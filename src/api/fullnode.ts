@@ -58,7 +58,7 @@ export const downloadBlockByHeight = async (height: number): Promise<FullBlock> 
     version: responseBlock.version as number,
     weight: responseBlock.weight as number,
     timestamp: responseBlock.timestamp as number,
-    isVoided: responseBlock.is_voided as boolean,
+    nonce: responseBlock.nonce as string,
     inputs: responseBlock.inputs.map((input) => {
       const typedDecodedScript: DecodedScript = {
         type: input.decoded.type as string,
