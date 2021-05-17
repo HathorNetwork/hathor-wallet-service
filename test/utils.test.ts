@@ -28,7 +28,7 @@ import axios from 'axios';
 const { globalCache, syncToLatestBlock, LRU } = Utils;
 const { downloadTx } = FullNode;
 
-beforeAll(async () => {
+beforeEach(async () => {
   jest.clearAllMocks();
 });
 
@@ -164,7 +164,7 @@ test('syncToLatestBlockGen should sync from our current height until the best bl
   const mockBlockHeightImplementation = jest.fn((height: number) => {
     return Promise.resolve({
       ...BLOCK_BY_HEIGHT,
-      height
+      height,
     });
   });
 
