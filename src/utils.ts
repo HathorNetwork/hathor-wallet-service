@@ -40,18 +40,18 @@ import logger from './logger';
 
 dotenv.config();
 
-export const IGNORE_TXS = {
-  mainnet: [
+export const IGNORE_TXS: Map<string, string[]> = new Map<string, string[]>([
+  ['mainnet', [
     '000006cb93385b8b87a545a1cbb6197e6caff600c12cc12fc54250d39c8088fc',
     '0002d4d2a15def7604688e1878ab681142a7b155cbe52a6b4e031250ae96db0a',
     '0002ad8d1519daaddc8e1a37b14aac0b045129c01832281fb1c02d873c7abbf9',
-  ],
-  testnet: [
+  ]],
+  ['testnet', [
     '0000033139d08176d1051fb3a272c3610457f0c7f686afbe0afe3d37f966db85',
     '00e161a6b0bee1781ea9300680913fb76fd0fac4acab527cd9626cc1514abdc9',
     '00975897028ceb037307327c953f5e7ad4d3f42402d71bd3d11ecb63ac39f01a',
-  ],
-};
+  ]],
+]);
 
 
 const TX_CACHE_SIZE: number = parseInt(process.env.TX_CACHE_SIZE as string) || 200;
@@ -71,8 +71,8 @@ export const recursivelyDownloadTx = async (blockId: string, txIds: string[] = [
   const txId: string = txIds.pop() as string;
   const network: string = process.env.NETWORK || 'mainnet';
 
-  if (network in IGNORE_TXS) {
-    const networkTxs: string[] = IGNORE_TXS[network];
+  if (IGNORE_TXS.has(network)) {
+    const networkTxs: string[] = IGNORE_TXS.get(network) as string[];
 
     if (networkTxs.includes(txId)) {
       // Skip
