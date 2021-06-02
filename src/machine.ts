@@ -37,16 +37,18 @@ export const syncHandler = () => (callback, onReceive) => {
       }
 
       if (value && !value.success) {
+        if (value.type === 'reorg') {
+          logger.warn('A reorg happened: ', value.message);
+          callback('REORG');
+          return;
+        }
+
         logger.error(value.message);
         callback('ERROR');
         return;
       }
 
-      if (value.type === 'reorg') {
-        logger.info('A reorg happened: ', value.message);
-        callback('REORG');
-        return;
-      } else if (value.type === 'finished') {
+      if (value.type === 'finished') {
         logger.info('Sync generator finished.');
         callback('DONE');
       } else if (value.type === 'block_success') {
@@ -126,6 +128,8 @@ export const SyncMachine = Machine<SyncContext, SyncSchema>({
             logger.debug(response);
             throw new Error('Reorg failed');
           }
+
+          return;
         },
         onDone: {
           target: 'idle',
