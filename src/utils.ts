@@ -69,10 +69,12 @@ export const recursivelyDownloadTx = async (blockId: string, txIds: string[] = [
   }
 
   const txId: string = txIds.pop() as string;
-  const network = process.env.NETWORK || 'mainnet';
+  const network: string = process.env.NETWORK || 'mainnet';
 
   if (network in IGNORE_TXS) {
-    if (IGNORE_TXS[network].includes(txId)) {
+    const networkTxs: string[] = IGNORE_TXS[network];
+
+    if (networkTxs.includes(txId)) {
       // Skip
       return recursivelyDownloadTx(blockId, txIds, data);
     }
@@ -120,6 +122,7 @@ export const prepareTx = (tx: FullTx | FullBlock): PreparedTx => {
     height: tx.height,
     inputs: tx.inputs.map((input) => {
       const baseInput: PreparedInput = {
+        tx_id: input.txId,
         value: input.value,
         token_data: input.tokenData,
         script: input.script,
@@ -303,7 +306,9 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
     ];
 
     // Download block transactions
-    const txs: FullTx[] = await recursivelyDownloadTx(block.txId, blockTxs);
+    let txs: FullTx[] = await recursivelyDownloadTx(block.txId, blockTxs);
+
+    txs = txs.sort((x, y) => x.timestamp - y.timestamp);
 
     // We will send the block only after all transactions were downloaded
     // to be sure that all downloads were succesfull since there is no
