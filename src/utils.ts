@@ -63,7 +63,7 @@ const TX_CACHE_SIZE: number = parseInt(process.env.TX_CACHE_SIZE as string) || 2
  * @param txIds - List of transactions to download
  * @param data - Downloaded transactions, used while being called recursively
  */
-export const recursivelyDownloadTx = async (blockId: string, txIds: string[] = [], data: FullTx[] = []): Promise<FullTx[]> => {
+export const recursivelyDownloadTx = async (blockId: string, txIds: string[] = [], data = new Map<string, FullTx>()): Promise<Map<string, FullTx>> => {
   if (txIds.length === 0) {
     return data;
   }
@@ -99,9 +99,14 @@ export const recursivelyDownloadTx = async (blockId: string, txIds: string[] = [
     return recursivelyDownloadTx(blockId, txIds, data);
   }
 
-  const newParents = parsedTx.parents.filter((parent) => txIds.indexOf(parent) < 0 && parent !== txId);
+  // check if we have already downloaded the parents
+  const newParents = parsedTx.parents.filter((parent) => {
+    return txIds.indexOf(parent) < 0 &&
+      parent !== txId &&
+      !data.has(parent)
+  });
 
-  return recursivelyDownloadTx(blockId, [...txIds, ...newParents], [...data, parsedTx]);
+  return recursivelyDownloadTx(blockId, [...txIds, ...newParents], data.set(parsedTx.txId, parsedTx));
 };
 
 /**
@@ -306,9 +311,9 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
     ];
 
     // Download block transactions
-    let txs: FullTx[] = await recursivelyDownloadTx(block.txId, blockTxs);
+    const txList: Map<string, FullTx> = await recursivelyDownloadTx(block.txId, blockTxs);
 
-    txs = txs.sort((x, y) => x.timestamp - y.timestamp);
+    const txs: FullTx[] = Array.from(txList.values()).sort((x, y) => x.timestamp - y.timestamp);
 
     // We will send the block only after all transactions were downloaded
     // to be sure that all downloads were succesfull since there is no
