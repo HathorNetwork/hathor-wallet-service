@@ -125,7 +125,7 @@ export const SyncMachine = Machine<SyncContext, SyncSchema>({
           const response = await invokeReorg();
 
           if (!response.success) {
-            logger.debug(response);
+            logger.error(response);
             throw new Error('Reorg failed');
           }
 
