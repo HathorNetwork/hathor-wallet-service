@@ -19,6 +19,7 @@ import {
   GeneratorYieldResult,
 } from './types';
 import logger from './logger';
+import { invokeReorg } from './api/lambda';
 
 // @ts-ignore
 export const syncHandler = () => (callback, onReceive) => {
@@ -116,7 +117,23 @@ export const SyncMachine = Machine<SyncContext, SyncSchema>({
       ],
     },
     reorg: {
-      type: 'final',
+      invoke: {
+        id: 'invokeReorg',
+        src: (_context, _event) => async () => {
+          const response = await invokeReorg();
+
+          if (!response.success) {
+            logger.debug(response);
+            throw new Error('Reorg failed');
+          }
+        },
+        onDone: {
+          target: 'idle',
+        },
+        onError: {
+          target: 'failure',
+        },
+      }
     },
     failure: {
       type: 'final',

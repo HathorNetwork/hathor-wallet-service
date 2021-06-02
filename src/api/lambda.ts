@@ -61,6 +61,12 @@ export const lambdaCall = (fnName: string, payload: any): Promise<any> => new Pr
       });
 });
 
+export const invokeReorg = async (): Promise<ApiResponse> => {
+  const response = await lambdaCall('onHandleReorgRequest', {});
+
+  return response;
+};
+
 /**
  * Calls the onNewTxRequest lambda function with a PreparedTx
  *
