@@ -267,7 +267,7 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
 
   if (!ourBestBlockInFullNode.success) {
     yield {
-      type: 'error',
+      type: 'reorg',
       success: false,
       message: 'Best block not found in the full-node. Reorg?',
       error: ourBestBlockInFullNode.message,
