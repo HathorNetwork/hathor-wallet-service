@@ -102,7 +102,11 @@ export const recursivelyDownloadTx = async (blockId: string, txIds: string[] = [
   // check if we have already downloaded the parents
   const newParents = parsedTx.parents.filter((parent) => {
     return txIds.indexOf(parent) < 0 &&
+      /* Removing the current tx from the list of transactions to download: */
       parent !== txId &&
+      /* Data works as our return list on the recursion and also as a "seen" list on the BFS.
+       * We don't want to download a transaction that is already on our seen list.
+       */
       !data.has(parent)
   });
 
