@@ -164,6 +164,7 @@ export interface PreparedDecodedScript {
 }
 
 export interface PreparedInput {
+  tx_id: string;
   value: number;
   token_data: number;
   script: string;

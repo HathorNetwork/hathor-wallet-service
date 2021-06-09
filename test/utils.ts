@@ -172,7 +172,6 @@ export const BLOCK_BY_HEIGHT: FullBlock = {
         timelock: null
       },
       token: '00',
-      spentBy: null
     }
   ],
   parents: [
