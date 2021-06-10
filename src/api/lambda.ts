@@ -61,22 +61,17 @@ export const lambdaCall = (fnName: string, payload: any): Promise<any> => new Pr
       });
 });
 
-export const invokeReorg = async (): Promise<ApiResponse> => {
-  const response = await lambdaCall('onHandleReorgRequest', {});
-
-  return response;
-};
+/**
+ * Calls the onHandleReorgRequest lambda function
+ */
+export const invokeReorg = async (): Promise<ApiResponse> => lambdaCall('onHandleReorgRequest', {});
 
 /**
  * Calls the onNewTxRequest lambda function with a PreparedTx
  *
  * @param tx - The prepared transaction to be sent
  */
-export const sendTx = async (tx: PreparedTx): Promise<ApiResponse> => {
-  const response = await lambdaCall('onNewTxRequest', tx);
-
-  return response;
-};
+export const sendTx = async (tx: PreparedTx): Promise<ApiResponse> => lambdaCall('onNewTxRequest', tx);
 
 /**
  * Calls the getLatestBlock lambda function from the wallet-service returning

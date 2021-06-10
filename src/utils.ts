@@ -266,11 +266,12 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
   const ourBestBlockInFullNode = await getBlockByTxId(ourBestBlock.txId, true);
 
   if (!ourBestBlockInFullNode.success) {
+    logger.warn(ourBestBlockInFullNode.message);
+
     yield {
       type: 'reorg',
       success: false,
       message: 'Best block not found in the full-node. Reorg?',
-      error: ourBestBlockInFullNode.message,
     };
 
     return;
