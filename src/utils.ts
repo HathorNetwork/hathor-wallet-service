@@ -243,6 +243,53 @@ export const parseTx = (tx: RawTx): FullTx => {
 };
 
 /**
+ * Syncs the latest mempool
+ *
+ * @generator
+ * @yields {StatusEvent} A status event indicating if a block at a height was successfully sent, \
+ * if an error ocurred or if a reorg ocurred.
+ */
+export async function* syncLatestMempool(): AsyncGenerator<StatusEvent> {
+
+  logger.info(`Downloading mempool...`);
+  let success = true;
+  const mempoolResp = await downloadMempool();
+
+  for (let i = 0; i < mempoolResp.transactions.length; i++) {
+    const tx = mempoolResp.transactions[i];
+
+    const preparedTx: PreparedTx = prepareTx(tx);
+
+    try {
+      const sendTxResponse: ApiResponse = await sendTx(preparedTx);
+      if (!sendTxResponse.success) {
+        throw new Error(sendTxResponse.message);
+      }
+    } catch (e) {
+      logger.debug(sendTxResponse);
+      yield {
+        type: 'transaction_failure',
+        success: false,
+        message: `Failure on transaction ${preparedTx.tx_id} in mempool`,
+      };
+      success = false;
+      break;
+    }
+
+    yield {
+      type: 'mempool_tx_success',
+      success: true,
+      txId: preparedTx.tx_id,
+    };
+  }
+
+  yield {
+    success,
+    type: 'finished',
+  };
+}
+
+/**
  * Syncs to the latest block
  *
  * @generator

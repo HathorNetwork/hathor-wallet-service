@@ -98,6 +98,11 @@ export interface SyncContext {
   error?: {};
 }
 
+export interface MempoolContext {
+  hasMempoolUpdate: boolean;
+  error?: {};
+}
+
 /*
 TODO: This is not being used in the machine, we should type all events.
 export type SyncEvent =
@@ -120,6 +125,11 @@ export type StatusEvent = {
   blockId: string;
   message?: string;
   transactions: string[];
+} | {
+  type: 'mempool_tx_success';
+  success: boolean;
+  txId: string;
+  message?: string;
 } | {
   type: 'transaction_failure';
   success: boolean;

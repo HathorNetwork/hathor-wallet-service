@@ -40,6 +40,18 @@ export const downloadTx = async (txId: string, noCache: boolean = false) => {
 };
 
 /**
+ * Returns a list of transactions on the mempool
+ *
+ */
+export const downloadMempool = async () => {
+  // Maybe api could return a list of tx ids (to make this call lighter in case mempool gets too big)
+  // with a list of tx ids the daemon should use the list to download each tx by id
+  // Use cache to prevent download of known tx if it's still in the mempool on other runs
+  const response = await axios.get(`${DEFAULT_SERVER}mempool`);
+  return response.data;
+};
+
+/**
  * Returns a `FullBlock` downloaded from the full_node
  *
  * @param height - The block's height

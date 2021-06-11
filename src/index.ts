@@ -6,7 +6,7 @@
  */
 
 import { interpret } from 'xstate';
-import { SyncMachine } from './machine';
+import { SyncMachine, MempoolMachine } from './machine';
 // @ts-ignore
 import { Connection } from '@hathor/wallet-lib';
 
@@ -14,8 +14,16 @@ import logger from './logger';
 
 // @ts-ignore
 const machine = interpret(SyncMachine).start();
+// @ts-ignore
+const mempoolMachine = interpret(MempoolMachine).start();
 
 machine.onTransition(state => {
+  if (state.changed) {
+    logger.debug('Transitioned to state: ', state.value);
+  }
+});
+
+mempoolMachine.onTransition(state => {
   if (state.changed) {
     logger.debug('Transitioned to state: ', state.value);
   }
@@ -31,11 +39,14 @@ const handleMessage = (message: any) => {
      * full node's best block height
      */
     case 'network:new_tx_accepted':
-      if (!message.is_block) return;
       if (message.is_voided) return;
-      if (message.type === 'network:new_tx_accepted') {
-        machine.send({ type: 'NEW_BLOCK' });
+      if (!message.is_block) {
+        // identify the tx as a mempool tx
+        if (message.first_block) return;
+        mempoolMachine.send({ type: 'MEMPOOL_UPDATE' });
+        return;
       }
+      machine.send({ type: 'NEW_BLOCK' });
       break;
 
     case 'state_update':
@@ -45,8 +56,9 @@ const handleMessage = (message: any) => {
        */
       if (message.state === Connection.CONNECTED) {
         machine.send({ type: 'NEW_BLOCK' });
+        // mempoolMachine.send({ type: 'MEMPOOL_UPDATE' });
       }
-    break;
+      break;
   }
 };
 

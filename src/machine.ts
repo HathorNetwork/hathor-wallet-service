@@ -10,7 +10,7 @@ import {
   assign,
   send,
 } from 'xstate';
-import { syncToLatestBlock } from './utils';
+import { syncToLatestBlock, syncLatestMempool } from './utils';
 import {
   SyncSchema,
   SyncContext,
@@ -78,6 +78,53 @@ export const syncHandler = () => (callback, onReceive) => {
   };
 };
 
+// @ts-ignore
+export const mempoolHandler = () => (callback, onReceive) => {
+  logger.debug('Sync handler instantiated');
+  const iterator = syncLatestMempool();
+  const asyncCall: () => void = async () => {
+    for (;;) {
+      // XXX: create other type for mempool StatusEvent?
+      const block: GeneratorYieldResult<StatusEvent> = await iterator.next();
+      const { value, done } = block;
+
+      if (done) {
+        // The generator reached its end, we should end this handler
+        logger.debug('Done.', value)
+        break;
+      }
+
+      if (value && !value.success) {
+        logger.error(value.message);
+        callback('ERROR');
+        return;
+      }
+
+      if (value.type === 'finished') {
+        logger.info('Sync generator finished.');
+        callback('DONE');
+      } else if (value.type === 'mempool_tx_success') {
+        logger.info('Mempool tx synced!');
+      } else {
+        logger.warn(`Unhandled type received from sync generator: ${value.type}`);
+      }
+    }
+
+    return;
+  };
+
+  onReceive((e: HandlerEvent) => {
+    if (e.type === 'START') {
+      asyncCall();
+    }
+  });
+
+  return () => {
+    logger.debug('Stopping the iterator.');
+    iterator.return('finished');
+  };
+};
+
 /* See README for an explanation on how the machine works.
  * TODO: We need to type the Event
  */
@@ -138,5 +185,66 @@ export const SyncMachine = Machine<SyncContext, SyncSchema>({
   },
   services: {
     syncHandler,
+  },
+});
+
+
+export const MempoolMachine = Machine<MempoolContext, SyncSchema>({
+  id: 'mempool',
+  initial: 'idle',
+  context: {
+    hasMempoolUpdate: false,
+  },
+  states: {
+    idle: {
+      always: [
+        { target: 'syncing', cond: 'hasMempoolUpdate' },
+      ],
+      on: { MEMPOOL_UPDATE: 'syncing' },
+    },
+    syncing: {
+      invoke: {
+        id: 'syncLatestMempool',
+        src: 'mempoolHandler',
+      },
+      on: {
+        MEMPOOL_UPDATE: {
+          actions: ['setMempoolUpdate'],
+        },
+        STOP: 'idle',
+        DONE: 'idle',
+        ERROR: 'failure',
+        REORG: 'reorg',
+      },
+      entry: [
+        'resetMempoolUpdate',
+        send('START', {
+          to: 'syncToLatestBlock',
+        }),
+      ],
+    },
+    reorg: {
+      type: 'final',
+    },
+    failure: {
+      type: 'final',
+    },
+  }
+}, {
+  guards: {
+    hasMempoolUpdate: (ctx) => ctx.hasMempoolUpdate,
+  },
+  actions: {
+    // @ts-ignore
+    resetMempoolUpdate: assign({
+      hasMempoolUpdate: () => false,
+    }),
+    // @ts-ignore
+    setMempoolUpdate: assign({
+      hasMempoolUpdate: () => true,
+    }),
+  },
+  services: {
+    mempoolHandler,
   },
 });
