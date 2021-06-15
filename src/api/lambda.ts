@@ -40,6 +40,7 @@ export const lambdaCall = (fnName: string, payload: any): Promise<any> => new Pr
 
       lambda.invoke(params, (err, data) => {
         if (err) {
+          logger.error(`Erroed on ${fnName} method call with payload: ${payload}`);
           logger.error(err);
           reject(err);
         } else {
