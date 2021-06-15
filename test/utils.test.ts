@@ -17,6 +17,10 @@ import {
   MOCK_CREATE_TOKEN_TX,
   generateBlock,
 } from './utils';
+
+import {
+  FullTx,
+} from '../src/types';
 import {
   prepareTx,
   parseTx,
@@ -93,7 +97,7 @@ test('syncToLatestBlockGen should yield an error when it fails to send a block',
   getBlockByTxIdSpy.mockReturnValue(Promise.resolve(OUR_BEST_BLOCK_API_RESPONSE));
   sendTxSpy.mockReturnValue(Promise.resolve({ success: false, message: 'generic error message' }));
   downloadBlockByHeightSpy.mockReturnValue(Promise.resolve(BLOCK_BY_HEIGHT));
-  recursivelyDownloadTxSpy.mockReturnValue(Promise.resolve([]));
+  recursivelyDownloadTxSpy.mockReturnValue(Promise.resolve(new Map<string, FullTx>()));
 
   const iterator = syncToLatestBlock();
 
@@ -119,7 +123,10 @@ test('syncToLatestBlockGen should yield an error when it fails to send a transac
   getBlockByTxIdSpy.mockReturnValue(Promise.resolve(OUR_BEST_BLOCK_API_RESPONSE));
   // sendTxSpy.mockReturnValue(Promise.resolve({ success: false, message: 'generic error message' }));
   downloadBlockByHeightSpy.mockReturnValue(Promise.resolve(BLOCK_BY_HEIGHT));
-  recursivelyDownloadTxSpy.mockReturnValue(Promise.resolve([MOCK_FULL_TXS[0]]));
+  recursivelyDownloadTxSpy.mockReturnValue(Promise.resolve(new Map<string, FullTx>([[
+    MOCK_FULL_TXS[0].txId as string,
+    MOCK_FULL_TXS[0] as FullTx,
+  ]])));
 
   const mockSendTxImplementation = jest.fn((tx) => {
     if (hathorLib.helpers.isBlock(tx)) {
@@ -161,7 +168,7 @@ test('syncToLatestBlockGen should sync from our current height until the best bl
   getFullNodeBestBlockSpy.mockReturnValue(Promise.resolve(generateBlock(MOCK_TXS[0], 3)));
   getBlockByTxIdSpy.mockReturnValue(Promise.resolve(OUR_BEST_BLOCK_API_RESPONSE));
   sendTxSpy.mockReturnValue(Promise.resolve({ success: true, message: 'ok' }));
-  recursivelyDownloadTxSpy.mockReturnValue(Promise.resolve([]));
+  recursivelyDownloadTxSpy.mockReturnValue(Promise.resolve(new Map<string, FullTx>()));
 
   const mockBlockHeightImplementation = jest.fn((height: number) => {
     return Promise.resolve({
