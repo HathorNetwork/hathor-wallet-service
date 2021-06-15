@@ -40,7 +40,8 @@ export const lambdaCall = (fnName: string, payload: any): Promise<any> => new Pr
 
       lambda.invoke(params, (err, data) => {
         if (err) {
-          logger.error('err', err);
+          logger.error(`Erroed on ${fnName} method call with payload: ${payload}`);
+          logger.error(err);
           reject(err);
         } else {
           if (data.StatusCode !== 200) {
@@ -53,7 +54,7 @@ export const lambdaCall = (fnName: string, payload: any): Promise<any> => new Pr
 
             resolve(body);
           } catch(e) {
-            logger.error('Erroed parsing response body: ', data);
+            logger.error(`Erroed parsing response body: ${data}`);
 
             return reject(e.message);
           }
@@ -62,15 +63,16 @@ export const lambdaCall = (fnName: string, payload: any): Promise<any> => new Pr
 });
 
 /**
+ * Calls the onHandleReorgRequest lambda function
+ */
+export const invokeReorg = async (): Promise<ApiResponse> => lambdaCall('onHandleReorgRequest', {});
+
+/**
  * Calls the onNewTxRequest lambda function with a PreparedTx
  *
  * @param tx - The prepared transaction to be sent
  */
-export const sendTx = async (tx: PreparedTx): Promise<ApiResponse> => {
-  const response = await lambdaCall('onNewTxRequest', tx);
-
-  return response;
-};
+export const sendTx = async (tx: PreparedTx): Promise<ApiResponse> => lambdaCall('onNewTxRequest', tx);
 
 /**
  * Calls the getLatestBlock lambda function from the wallet-service returning

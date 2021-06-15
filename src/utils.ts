@@ -40,18 +40,18 @@ import logger from './logger';
 
 dotenv.config();
 
-export const IGNORE_TXS = {
-  mainnet: [
+export const IGNORE_TXS: Map<string, string[]> = new Map<string, string[]>([
+  ['mainnet', [
     '000006cb93385b8b87a545a1cbb6197e6caff600c12cc12fc54250d39c8088fc',
     '0002d4d2a15def7604688e1878ab681142a7b155cbe52a6b4e031250ae96db0a',
     '0002ad8d1519daaddc8e1a37b14aac0b045129c01832281fb1c02d873c7abbf9',
-  ],
-  testnet: [
+  ]],
+  ['testnet', [
     '0000033139d08176d1051fb3a272c3610457f0c7f686afbe0afe3d37f966db85',
     '00e161a6b0bee1781ea9300680913fb76fd0fac4acab527cd9626cc1514abdc9',
     '00975897028ceb037307327c953f5e7ad4d3f42402d71bd3d11ecb63ac39f01a',
-  ],
-};
+  ]],
+]);
 
 
 const TX_CACHE_SIZE: number = parseInt(process.env.TX_CACHE_SIZE as string) || 200;
@@ -63,7 +63,7 @@ const TX_CACHE_SIZE: number = parseInt(process.env.TX_CACHE_SIZE as string) || 2
  * @param txIds - List of transactions to download
  * @param data - Downloaded transactions, used while being called recursively
  */
-export const recursivelyDownloadTx = async (blockId: string, txIds: string[] = [], data: FullTx[] = []): Promise<FullTx[]> => {
+export const recursivelyDownloadTx = async (blockId: string, txIds: string[] = [], data = new Map<string, FullTx>()): Promise<Map<string, FullTx>> => {
   if (txIds.length === 0) {
     return data;
   }
@@ -71,8 +71,8 @@ export const recursivelyDownloadTx = async (blockId: string, txIds: string[] = [
   const txId: string = txIds.pop() as string;
   const network: string = process.env.NETWORK || 'mainnet';
 
-  if (network in IGNORE_TXS) {
-    const networkTxs: string[] = IGNORE_TXS[network];
+  if (IGNORE_TXS.has(network)) {
+    const networkTxs: string[] = IGNORE_TXS.get(network) as string[];
 
     if (networkTxs.includes(txId)) {
       // Skip
@@ -99,9 +99,18 @@ export const recursivelyDownloadTx = async (blockId: string, txIds: string[] = [
     return recursivelyDownloadTx(blockId, txIds, data);
   }
 
-  const newParents = parsedTx.parents.filter((parent) => txIds.indexOf(parent) < 0 && parent !== txId);
+  // check if we have already downloaded the parents
+  const newParents = parsedTx.parents.filter((parent) => {
+    return txIds.indexOf(parent) < 0 &&
+      /* Removing the current tx from the list of transactions to download: */
+      parent !== txId &&
+      /* Data works as our return list on the recursion and also as a "seen" list on the BFS.
+       * We don't want to download a transaction that is already on our seen list.
+       */
+      !data.has(parent)
+  });
 
-  return recursivelyDownloadTx(blockId, [...txIds, ...newParents], [...data, parsedTx]);
+  return recursivelyDownloadTx(blockId, [...txIds, ...newParents], data.set(parsedTx.txId, parsedTx));
 };
 
 /**
@@ -257,11 +266,12 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
   const ourBestBlockInFullNode = await getBlockByTxId(ourBestBlock.txId, true);
 
   if (!ourBestBlockInFullNode.success) {
+    logger.warn(ourBestBlockInFullNode.message);
+
     yield {
-      type: 'error',
+      type: 'reorg',
       success: false,
       message: 'Best block not found in the full-node. Reorg?',
-      error: ourBestBlockInFullNode.message,
     };
 
     return;
@@ -306,9 +316,9 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
     ];
 
     // Download block transactions
-    let txs: FullTx[] = await recursivelyDownloadTx(block.txId, blockTxs);
+    const txList: Map<string, FullTx> = await recursivelyDownloadTx(block.txId, blockTxs);
 
-    txs = txs.sort((x, y) => x.timestamp - y.timestamp);
+    const txs: FullTx[] = Array.from(txList.values()).sort((x, y) => x.timestamp - y.timestamp);
 
     // We will send the block only after all transactions were downloaded
     // to be sure that all downloads were succesfull since there is no
