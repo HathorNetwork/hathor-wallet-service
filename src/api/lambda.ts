@@ -74,6 +74,11 @@ export const invokeReorg = async (): Promise<ApiResponse> =>
   lambdaCall('onHandleReorgRequest', {});
 
 /**
+ * Calls the onHandleReorgRequest lambda function
+ */
+export const invokeReorg = async (): Promise<ApiResponse> => lambdaCall('onHandleReorgRequest', {});
+
+/**
  * Calls the onNewTxRequest lambda function with a PreparedTx
  *
  * @param tx - The prepared transaction to be sent
