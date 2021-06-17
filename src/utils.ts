@@ -14,6 +14,7 @@ import {
   DecodedScript,
   FullTx,
   StatusEvent,
+  MempoolEvent,
   PreparedTx,
   PreparedInput,
   PreparedOutput,
@@ -25,6 +26,7 @@ import {
 } from './types';
 import {
   downloadTx,
+  downloadMempool,
   getBlockByTxId,
   getFullNodeBestBlock,
   downloadBlockByHeight,
@@ -40,7 +42,7 @@ import logger from './logger';
 
 dotenv.config();
 
-export const IGNORE_TXS = {
+export const IGNORE_TXS: {[key: string] : string[]} = {
   mainnet: [
     '000006cb93385b8b87a545a1cbb6197e6caff600c12cc12fc54250d39c8088fc',
     '0002d4d2a15def7604688e1878ab681142a7b155cbe52a6b4e031250ae96db0a',
@@ -55,6 +57,24 @@ export const IGNORE_TXS = {
 
 
 const TX_CACHE_SIZE: number = parseInt(process.env.TX_CACHE_SIZE as string) || 200;
+
+/**
+ * Download and parse a tx by it's id
+ *
+ * @param txId - the id of the tx to be downloaded
+ */
+export const downloadTxFromId = async (txId: string): Promise<FullTx | null> => {
+
+  const network: string = process.env.NETWORK || 'mainnet';
+
+  // Do not download genesis transactions
+  if (network in IGNORE_TXS && IGNORE_TXS[network].includes(txId)) return null;
+
+  const txData: RawTxResponse = await downloadTx(txId);
+  const { tx, meta } = txData;
+  return parseTx(tx);
+
+};
 
 /**
  * Recursively downloads all transactions that were confirmed by a given block
@@ -246,38 +266,54 @@ export const parseTx = (tx: RawTx): FullTx => {
  * Syncs the latest mempool
  *
  * @generator
- * @yields {StatusEvent} A status event indicating if a block at a height was successfully sent, \
- * if an error ocurred or if a reorg ocurred.
+ * @yields {MempoolEvent}
  */
-export async function* syncLatestMempool(): AsyncGenerator<StatusEvent> {
+export async function* syncLatestMempool(): AsyncGenerator<MempoolEvent> {
 
   logger.info(`Downloading mempool...`);
   let success = true;
   const mempoolResp = await downloadMempool();
 
+  if (!mempoolResp.success) {
+    yield {
+      success,
+      type: 'wait',
+      message: 'Could not download from mempool api',
+    };
+    return;
+  }
+
   for (let i = 0; i < mempoolResp.transactions.length; i++) {
-    const tx = mempoolResp.transactions[i];
+    const tx = await downloadTxFromId(mempoolResp.transactions[i]);
+
+    if (tx === null) {
+      yield {
+        type: 'wait',
+        success: false,
+        message: `Failure on transaction ${mempoolResp.transactions[i]} in mempool`,
+      };
+      return;
+    }
 
     const preparedTx: PreparedTx = prepareTx(tx);
 
     try {
       const sendTxResponse: ApiResponse = await sendTx(preparedTx);
       if (!sendTxResponse.success) {
+        logger.debug(sendTxResponse);
         throw new Error(sendTxResponse.message);
       }
     } catch (e) {
-      logger.debug(sendTxResponse);
       yield {
-        type: 'transaction_failure',
+        type: 'wait',
         success: false,
         message: `Failure on transaction ${preparedTx.tx_id} in mempool`,
       };
-      success = false;
-      break;
+      return;
     }
 
     yield {
-      type: 'mempool_tx_success',
+      type: 'tx_success',
       success: true,
       txId: preparedTx.tx_id,
     };

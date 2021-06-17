@@ -13,21 +13,13 @@ import { Connection } from '@hathor/wallet-lib';
 import logger from './logger';
 
 // @ts-ignore
-const machine = interpret(SyncMachine).start();
+const machine = interpret(SyncMachine).onTransition(state => {
+  console.log(`Sync on state: ${state.value}`);
+});
 // @ts-ignore
-const mempoolMachine = interpret(MempoolMachine).start();
-
-machine.onTransition(state => {
-  if (state.changed) {
-    logger.debug('Transitioned to state: ', state.value);
-  }
-});
-
-mempoolMachine.onTransition(state => {
-  if (state.changed) {
-    logger.debug('Transitioned to state: ', state.value);
-  }
-});
+const mempMachine = interpret(MempoolMachine).onTransition(state => {
+  console.log(`Mempool on state: ${state.value}`);
+});;
 
 const handleMessage = (message: any) => {
   switch(message.type) {
@@ -43,7 +35,7 @@ const handleMessage = (message: any) => {
       if (!message.is_block) {
         // identify the tx as a mempool tx
         if (message.first_block) return;
-        mempoolMachine.send({ type: 'MEMPOOL_UPDATE' });
+        mempMachine.send({ type: 'MEMPOOL_UPDATE' });
         return;
       }
       machine.send({ type: 'NEW_BLOCK' });
@@ -55,12 +47,15 @@ const handleMessage = (message: any) => {
        * the machine, triggering a download if new blocks were generated.
        */
       if (message.state === Connection.CONNECTED) {
+        mempMachine.send({ type: 'MEMPOOL_UPDATE' });
         machine.send({ type: 'NEW_BLOCK' });
-        // mempoolMachine.send({ type: 'MEMPOOL_UPDATE' });
       }
       break;
   }
 };
+
+mempMachine.start();
+machine.start();
 
 const DEFAULT_SERVER = process.env.DEFAULT_SERVER;
 const conn = new Connection({ network: process.env.NETWORK, servers: [DEFAULT_SERVER] });

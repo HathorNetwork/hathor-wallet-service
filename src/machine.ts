@@ -12,11 +12,14 @@ import {
 } from 'xstate';
 import { syncToLatestBlock, syncLatestMempool } from './utils';
 import {
-  SyncSchema,
-  SyncContext,
-  StatusEvent,
-  HandlerEvent,
   GeneratorYieldResult,
+  HandlerEvent,
+  MempoolContext,
+  MempoolSchema,
+  StatusEvent,
+  MempoolEvent,
+  SyncContext,
+  SyncSchema,
 } from './types';
 import logger from './logger';
 
@@ -80,13 +83,12 @@ export const syncHandler = () => (callback, onReceive) => {
 
 // @ts-ignore
 export const mempoolHandler = () => (callback, onReceive) => {
-  logger.debug('Sync handler instantiated');
+  logger.debug('Mempool handler instantiated');
   const iterator = syncLatestMempool();
   const asyncCall: () => void = async () => {
     for (;;) {
-      // XXX: create other type for mempool StatusEvent?
-      const block: GeneratorYieldResult<StatusEvent> = await iterator.next();
-      const { value, done } = block;
+      const txResult: GeneratorYieldResult<MempoolEvent> = await iterator.next();
+      const { value, done } = txResult;
 
       if (done) {
         // The generator reached its end, we should end this handler
@@ -96,6 +98,11 @@ export const mempoolHandler = () => (callback, onReceive) => {
 
       if (value && !value.success) {
         logger.error(value.message);
+        // if there is any error calling the lambda, wait 30 seconds and retry
+        if (value.type == 'wait') {
+          callback('WAIT');
+          return;
+        }
         callback('ERROR');
         return;
       }
@@ -103,7 +110,8 @@ export const mempoolHandler = () => (callback, onReceive) => {
       if (value.type === 'finished') {
         logger.info('Sync generator finished.');
         callback('DONE');
-      } else if (value.type === 'mempool_tx_success') {
+        return;
+      } else if (value.type === 'tx_success') {
         logger.info('Mempool tx synced!');
       } else {
         logger.warn(`Unhandled type received from sync generator: ${value.type}`);
@@ -189,7 +197,7 @@ export const SyncMachine = Machine<SyncContext, SyncSchema>({
 });
 
 
-export const MempoolMachine = Machine<MempoolContext, SyncSchema>({
+export const MempoolMachine = Machine<MempoolContext, MempoolSchema>({
   id: 'mempool',
   initial: 'idle',
   context: {
@@ -214,17 +222,19 @@ export const MempoolMachine = Machine<MempoolContext, SyncSchema>({
         STOP: 'idle',
         DONE: 'idle',
         ERROR: 'failure',
-        REORG: 'reorg',
+        WAIT: 'wait',
       },
       entry: [
         'resetMempoolUpdate',
         send('START', {
-          to: 'syncToLatestBlock',
+          to: 'syncLatestMempool',
         }),
       ],
     },
-    reorg: {
-      type: 'final',
+    wait: {
+      after: {
+        30000: { target: 'idle' },
+      },
     },
     failure: {
       type: 'final',

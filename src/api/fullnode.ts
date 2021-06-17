@@ -30,6 +30,7 @@ export const downloadTx = async (txId: string, noCache: boolean = false) => {
     return globalCache.get(txId);
   }
 
+  console.log(`Gonna download ${txId} from ${DEFAULT_SERVER}`);
   const response = await axios.get(`${DEFAULT_SERVER}transaction?id=${txId}`);
 
   if (!noCache) {

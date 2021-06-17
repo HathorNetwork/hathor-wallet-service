@@ -98,6 +98,15 @@ export interface SyncContext {
   error?: {};
 }
 
+export interface MempoolSchema {
+  states: {
+    idle: {};
+    syncing: {};
+    wait: {};
+    failure: {};
+  }
+}
+
 export interface MempoolContext {
   hasMempoolUpdate: boolean;
   error?: {};
@@ -126,16 +135,31 @@ export type StatusEvent = {
   message?: string;
   transactions: string[];
 } | {
-  type: 'mempool_tx_success';
-  success: boolean;
-  txId: string;
-  message?: string;
-} | {
   type: 'transaction_failure';
   success: boolean;
   message?: string;
 } | {
   type: 'reorg';
+  success: boolean;
+  message?: string;
+} | {
+  type: 'error';
+  success: boolean;
+  message?: string;
+  error?: string;
+}
+
+export type MempoolEvent = {
+  type: 'finished';
+  success: boolean;
+  message?: string;
+} | {
+  type: 'tx_success';
+  success: boolean;
+  txId: string;
+  message?: string;
+} | {
+  type: 'wait';
   success: boolean;
   message?: string;
 } | {
