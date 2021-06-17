@@ -320,24 +320,6 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
 
     const txs: FullTx[] = Array.from(txList.values()).sort((x, y) => x.timestamp - y.timestamp);
 
-    // We will send the block only after all transactions were downloaded
-    // to be sure that all downloads were succesfull since there is no
-    // ROLLBACK yet on the wallet-service.
-    const sendBlockResponse: ApiResponse = await sendTx(preparedBlock);
-
-    if (!sendBlockResponse.success) {
-      logger.debug(sendBlockResponse);
-      yield {
-        type: 'error',
-        success: false,
-        message: `Failure on block ${preparedBlock.tx_id}`,
-      };
-
-      success = false;
-
-      break;
-    }
-
     // Exclude duplicates:
     const uniqueTxs: Record<string, FullTx> = txs.reduce((acc: Record<string, FullTx>, tx: FullTx) => {
       if (tx.txId in acc) {
@@ -371,6 +353,24 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
 
         break blockLoop;
       }
+    }
+
+    // We will send the block only after all transactions were sent
+    // to be sure that all downloads were succesfull since there is no
+    // ROLLBACK yet on the wallet-service.
+    const sendBlockResponse: ApiResponse = await sendTx(preparedBlock);
+
+    if (!sendBlockResponse.success) {
+      logger.debug(sendBlockResponse);
+      yield {
+        type: 'error',
+        success: false,
+        message: `Failure on block ${preparedBlock.tx_id}`,
+      };
+
+      success = false;
+
+      break;
     }
 
     yield {
