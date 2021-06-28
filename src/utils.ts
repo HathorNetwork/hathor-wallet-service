@@ -271,19 +271,20 @@ export const parseTx = (tx: RawTx): FullTx => {
 export async function* syncLatestMempool(): AsyncGenerator<MempoolEvent> {
 
   logger.info(`Downloading mempool...`);
-  let success = true;
-  const mempoolResp = await downloadMempool();
-
-  if (!mempoolResp.success) {
+  let mempoolResp;
+  try {
+    mempoolResp = await downloadMempool();
+  } catch (e) {
     yield {
-      success,
-      type: 'wait',
+      success: false,
+      type: 'error',
       message: 'Could not download from mempool api',
     };
     return;
   }
 
   for (let i = 0; i < mempoolResp.transactions.length; i++) {
+    if (mempoolCache.get(mempoolResp.transactions[i])) continue;
     const tx = await downloadTxFromId(mempoolResp.transactions[i]);
 
     if (tx === null) {
@@ -300,7 +301,7 @@ export async function* syncLatestMempool(): AsyncGenerator<MempoolEvent> {
     try {
       const sendTxResponse: ApiResponse = await sendTx(preparedTx);
       if (!sendTxResponse.success) {
-        logger.debug(sendTxResponse);
+        logger.error(sendTxResponse);
         throw new Error(sendTxResponse.message);
       }
     } catch (e) {
@@ -312,6 +313,7 @@ export async function* syncLatestMempool(): AsyncGenerator<MempoolEvent> {
       return;
     }
 
+    mempoolCache.set(mempoolResp.transactions[i], true);
     yield {
       type: 'tx_success',
       success: true,
@@ -320,7 +322,7 @@ export async function* syncLatestMempool(): AsyncGenerator<MempoolEvent> {
   }
 
   yield {
-    success,
+    success: true,
     type: 'finished',
   };
 }
@@ -503,3 +505,4 @@ export class LRU {
 }
 
 export const globalCache = new LRU(TX_CACHE_SIZE);
+export const mempoolCache = new LRU(TX_CACHE_SIZE);
