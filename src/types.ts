@@ -87,27 +87,16 @@ export interface DownloadBlockApiResponse extends ApiResponse {
 export interface SyncSchema {
   states: {
     idle: {};
+    mempoolsync: {};
     syncing: {};
     failure: {};
+    wait: {};
     reorg: {};
   }
 }
 
 export interface SyncContext {
   hasMoreBlocks: boolean;
-  error?: {};
-}
-
-export interface MempoolSchema {
-  states: {
-    idle: {};
-    syncing: {};
-    wait: {};
-    failure: {};
-  }
-}
-
-export interface MempoolContext {
   hasMempoolUpdate: boolean;
   error?: {};
 }

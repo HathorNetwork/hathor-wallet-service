@@ -14,8 +14,6 @@ import { syncToLatestBlock, syncLatestMempool } from './utils';
 import {
   GeneratorYieldResult,
   HandlerEvent,
-  MempoolContext,
-  MempoolSchema,
   StatusEvent,
   MempoolEvent,
   SyncContext,
@@ -122,8 +120,15 @@ export const mempoolHandler = () => (callback, onReceive) => {
   };
 
   onReceive((e: HandlerEvent) => {
-    if (e.type === 'START') {
-      asyncCall();
+    switch(e.type) {
+      case 'START':
+        asyncCall();
+        break
+      case 'NEW_BLOCK':
+        // stop iterator
+        logger.debug('Stopping the iterator.');
+        iterator.return('finished');
+        break;
     }
   });
 
@@ -141,13 +146,39 @@ export const SyncMachine = Machine<SyncContext, SyncSchema>({
   initial: 'idle',
   context: {
     hasMoreBlocks: false,
+    hasMempoolUpdate: false,
   },
   states: {
     idle: {
       always: [
         { target: 'syncing', cond: 'hasMoreBlocks' },
+        { target: 'mempoolsync', cond: 'hasMempoolUpdate' },
       ],
-      on: { NEW_BLOCK: 'syncing' },
+      on: {
+        NEW_BLOCK: 'syncing',
+        MEMPOOL_UPDATE: 'mempoolsync',
+      },
+    },
+    mempoolsync: {
+      invoke: {
+        id: 'syncLatestMempool',
+        src: 'mempoolHandler',
+      },
+      on: {
+        MEMPOOL_UPDATE: {
+          actions: ['setMempoolUpdate'],
+        },
+        STOP: 'idle',
+        DONE: 'idle',
+        ERROR: 'failure',
+        WAIT: 'wait',
+      },
+      entry: [
+        'resetMempoolUpdate',
+        send('START', {
+          to: 'syncLatestMempool',
+        }),
+      ],
     },
     syncing: {
       invoke: {
@@ -170,6 +201,11 @@ export const SyncMachine = Machine<SyncContext, SyncSchema>({
         }),
       ],
     },
+    wait: {
+      after: {
+        30000: { target: 'idle' },
+      },
+    },
     reorg: {
       type: 'final',
     },
@@ -180,6 +216,7 @@ export const SyncMachine = Machine<SyncContext, SyncSchema>({
 }, {
   guards: {
     hasMoreBlocks: (ctx) => ctx.hasMoreBlocks,
+    hasMempoolUpdate: (ctx) => ctx.hasMempoolUpdate,
   },
   actions: {
     // @ts-ignore
@@ -190,61 +227,6 @@ export const SyncMachine = Machine<SyncContext, SyncSchema>({
     setMoreBlocks: assign({
       hasMoreBlocks: () => true,
     }),
-  },
-  services: {
-    syncHandler,
-  },
-});
-
-
-export const MempoolMachine = Machine<MempoolContext, MempoolSchema>({
-  id: 'mempool',
-  initial: 'idle',
-  context: {
-    hasMempoolUpdate: false,
-  },
-  states: {
-    idle: {
-      always: [
-        { target: 'syncing', cond: 'hasMempoolUpdate' },
-      ],
-      on: { MEMPOOL_UPDATE: 'syncing' },
-    },
-    syncing: {
-      invoke: {
-        id: 'syncLatestMempool',
-        src: 'mempoolHandler',
-      },
-      on: {
-        MEMPOOL_UPDATE: {
-          actions: ['setMempoolUpdate'],
-        },
-        STOP: 'idle',
-        DONE: 'idle',
-        ERROR: 'failure',
-        WAIT: 'wait',
-      },
-      entry: [
-        'resetMempoolUpdate',
-        send('START', {
-          to: 'syncLatestMempool',
-        }),
-      ],
-    },
-    wait: {
-      after: {
-        30000: { target: 'idle' },
-      },
-    },
-    failure: {
-      type: 'final',
-    },
-  }
-}, {
-  guards: {
-    hasMempoolUpdate: (ctx) => ctx.hasMempoolUpdate,
-  },
-  actions: {
     // @ts-ignore
     resetMempoolUpdate: assign({
       hasMempoolUpdate: () => false,
@@ -255,6 +237,7 @@ export const MempoolMachine = Machine<MempoolContext, MempoolSchema>({
     }),
   },
   services: {
+    syncHandler,
     mempoolHandler,
   },
 });
