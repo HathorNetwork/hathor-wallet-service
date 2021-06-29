@@ -168,6 +168,13 @@ export const SyncMachine = Machine<SyncContext, SyncSchema>({
         MEMPOOL_UPDATE: {
           actions: ['setMempoolUpdate'],
         },
+        NEW_BLOCK: {
+          actions: [
+            send('NEW_BLOCK', {
+              to: 'syncLatestMempool',
+            }),
+          ],
+        },
         STOP: 'idle',
         DONE: 'idle',
         ERROR: 'failure',
