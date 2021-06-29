@@ -284,7 +284,6 @@ export async function* syncLatestMempool(): AsyncGenerator<MempoolEvent> {
   }
 
   for (let i = 0; i < mempoolResp.transactions.length; i++) {
-    if (mempoolCache.get(mempoolResp.transactions[i])) continue;
     const tx = await downloadTxFromId(mempoolResp.transactions[i]);
 
     if (tx === null) {
@@ -313,7 +312,6 @@ export async function* syncLatestMempool(): AsyncGenerator<MempoolEvent> {
       return;
     }
 
-    mempoolCache.set(mempoolResp.transactions[i], true);
     yield {
       type: 'tx_success',
       success: true,
@@ -505,4 +503,3 @@ export class LRU {
 }
 
 export const globalCache = new LRU(TX_CACHE_SIZE);
-export const mempoolCache = new LRU(TX_CACHE_SIZE);
