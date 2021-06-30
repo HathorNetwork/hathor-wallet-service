@@ -14,7 +14,7 @@ import logger from './logger';
 
 // @ts-ignore
 const machine = interpret(SyncMachine).onTransition(state => {
-  console.log(`Sync on state: ${state.value}`);
+  logger.info(`Sync on state: ${state.value}`);
 });
 
 const handleMessage = (message: any) => {

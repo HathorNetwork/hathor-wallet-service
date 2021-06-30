@@ -125,7 +125,9 @@ export const mempoolHandler = () => (callback, onReceive) => {
         asyncCall();
         break
       case 'NEW_BLOCK':
-        // stop iterator
+        // Stop mempool sync when a block arrives
+        // this means that the mempool may not be fully synced when it leaves this state
+        // giving priority to blocks means the mempool may change between syncs
         logger.debug('Stopping the iterator.');
         iterator.return('finished');
         break;
@@ -170,6 +172,8 @@ export const SyncMachine = Machine<SyncContext, SyncSchema>({
         },
         NEW_BLOCK: {
           actions: [
+            // Since we are stopping the sync, we may have more mempool to sync
+            'setMempoolUpdate',
             send('NEW_BLOCK', {
               to: 'syncLatestMempool',
             }),

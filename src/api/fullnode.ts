@@ -16,6 +16,7 @@ import {
 } from '../types';
 import axios from 'axios';
 import { globalCache } from '../utils';
+import logger from '../logger';
 
 const DEFAULT_SERVER = process.env.DEFAULT_SERVER || 'https://node1.foxtrot.testnet.hathor.network/v1a/';
 
@@ -30,7 +31,6 @@ export const downloadTx = async (txId: string, noCache: boolean = false) => {
     return globalCache.get(txId);
   }
 
-  console.log(`Gonna download ${txId} from ${DEFAULT_SERVER}`);
   const response = await axios.get(`${DEFAULT_SERVER}transaction?id=${txId}`);
 
   if (!noCache) {
@@ -50,6 +50,7 @@ export const downloadMempool = async () => {
   const data = response.data;
 
   if (!data.success) {
+    logger.error(data);
     throw new Error('Mempool API failure');
   }
   return data;
