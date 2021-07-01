@@ -8,15 +8,17 @@ FROM node:14 AS builder
 
 COPY package.json /app/
 
-RUN cd /app && npm install --production
+RUN cd /app && npm install
 
 COPY . /app/
 
 RUN cd /app && npm run build
 
-FROM node:14-alpine3.13 AS builder
+FROM node:14-alpine3.13
 
 COPY --from=builder /app/dist/ /app/
-COPY --from=builder /app/node_modules /app/node_modules
+COPY --from=builder /app/package.json /app/
+
+RUN cd /app && npm install --production
 
 CMD node /app/index.js
