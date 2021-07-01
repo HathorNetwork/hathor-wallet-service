@@ -90,7 +90,6 @@ export interface SyncSchema {
     mempoolsync: {};
     syncing: {};
     failure: {};
-    wait: {};
     reorg: {};
   }
 }

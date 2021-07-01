@@ -96,11 +96,6 @@ export const mempoolHandler = () => (callback, onReceive) => {
 
       if (value && !value.success) {
         logger.error(value.message);
-        // if there is any error calling the lambda, wait 30 seconds and retry
-        if (value.type == 'wait') {
-          callback('WAIT');
-          return;
-        }
         callback('ERROR');
         return;
       }
@@ -120,17 +115,8 @@ export const mempoolHandler = () => (callback, onReceive) => {
   };
 
   onReceive((e: HandlerEvent) => {
-    switch(e.type) {
-      case 'START':
-        asyncCall();
-        break
-      case 'NEW_BLOCK':
-        // Stop mempool sync when a block arrives
-        // this means that the mempool may not be fully synced when it leaves this state
-        // giving priority to blocks means the mempool may change between syncs
-        logger.debug('Stopping the iterator.');
-        iterator.return('finished');
-        break;
+    if (e.type === 'START') {
+      asyncCall();
     }
   });
 
@@ -153,6 +139,8 @@ export const SyncMachine = Machine<SyncContext, SyncSchema>({
   states: {
     idle: {
       always: [
+        // Conditions are tested in order, the first valid one is taken, if any are valid
+        // https://xstate.js.org/docs/guides/guards.html#multiple-guards
         { target: 'syncing', cond: 'hasMoreBlocks' },
         { target: 'mempoolsync', cond: 'hasMempoolUpdate' },
       ],
@@ -170,19 +158,17 @@ export const SyncMachine = Machine<SyncContext, SyncSchema>({
         MEMPOOL_UPDATE: {
           actions: ['setMempoolUpdate'],
         },
+        // Stop mempool sync when a block arrives
+        // this means that the mempool may not be fully synced when it leaves this state
+        // giving priority to blocks means the mempool may change between syncs
         NEW_BLOCK: {
-          actions: [
-            // Since we are stopping the sync, we may have more mempool to sync
-            'setMempoolUpdate',
-            send('NEW_BLOCK', {
-              to: 'syncLatestMempool',
-            }),
-          ],
+          target: 'syncing',
+          // When block sync finishes, go back to mempool sync
+          actions: ['setMempoolUpdate'],
         },
         STOP: 'idle',
         DONE: 'idle',
         ERROR: 'failure',
-        WAIT: 'wait',
       },
       entry: [
         'resetMempoolUpdate',
@@ -211,11 +197,6 @@ export const SyncMachine = Machine<SyncContext, SyncSchema>({
           to: 'syncToLatestBlock',
         }),
       ],
-    },
-    wait: {
-      after: {
-        30000: { target: 'idle' },
-      },
     },
     reorg: {
       type: 'final',
