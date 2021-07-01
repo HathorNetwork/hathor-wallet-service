@@ -242,3 +242,103 @@ test('The SyncMachine should transition to \'reorg\' state when a reorg is detec
 
   expect(syncMachine.state.value).toStrictEqual('reorg');
 }, 500);
+
+test('Mempool: transition to \'idle\' on ERROR event', async () => {
+  const mockCleanupFunction = jest.fn();
+
+  const TestSyncMachine = SyncMachine.withConfig({
+    services: {
+      syncHandler: () => () => {
+        return mockCleanupFunction;
+      },
+    }
+  });
+
+  // @ts-ignore
+  const syncMachine = interpret(TestSyncMachine).start();
+
+  syncMachine.send({ type: 'MEMPOOL_UPDATE' });
+
+  expect(syncMachine.state.value).toStrictEqual('mempoolsync');
+
+  syncMachine.send({ type: 'ERROR' });
+
+  expect(syncMachine.state.value).toStrictEqual('idle');
+}, 500);
+
+test('Mempool: transition to \'idle\' on DONE event', async () => {
+  const mockCleanupFunction = jest.fn();
+
+  const TestSyncMachine = SyncMachine.withConfig({
+    services: {
+      syncHandler: () => () => {
+        return mockCleanupFunction;
+      },
+    }
+  });
+
+  // @ts-ignore
+  const syncMachine = interpret(TestSyncMachine).start();
+
+  syncMachine.send({ type: 'MEMPOOL_UPDATE' });
+
+  expect(syncMachine.state.value).toStrictEqual('mempoolsync');
+
+  syncMachine.send({ type: 'DONE' });
+
+  expect(syncMachine.state.value).toStrictEqual('idle');
+}, 500);
+
+test('Mempool: transition to \'idle\' on STOP event', async () => {
+  const mockCleanupFunction = jest.fn();
+
+  const TestSyncMachine = SyncMachine.withConfig({
+    services: {
+      syncHandler: () => () => {
+        return mockCleanupFunction;
+      },
+    }
+  });
+
+  // @ts-ignore
+  const syncMachine = interpret(TestSyncMachine).start();
+
+  syncMachine.send({ type: 'MEMPOOL_UPDATE' });
+
+  expect(syncMachine.state.value).toStrictEqual('mempoolsync');
+
+  syncMachine.send({ type: 'STOP' });
+
+  expect(syncMachine.state.value).toStrictEqual('idle');
+}, 500);
+
+test('Mempool: transition to \'syncing\' on NEW_BLOCK event and back to \'mempoolsync\' when DONE with block sync', async () => {
+  const mockCleanupFunction = jest.fn();
+
+  const TestSyncMachine = SyncMachine.withConfig({
+    services: {
+      syncHandler: () => () => {
+        return mockCleanupFunction;
+      },
+    }
+  });
+
+  // @ts-ignore
+  const syncMachine = interpret(TestSyncMachine).start();
+
+  syncMachine.send({ type: 'MEMPOOL_UPDATE' });
+
+  expect(syncMachine.state.value).toStrictEqual('mempoolsync');
+
+  syncMachine.send({ type: 'NEW_BLOCK' });
+
+  expect(syncMachine.state.value).toStrictEqual('syncing');
+
+  expect(syncMachine.state.context.hasMempoolUpdate).toStrictEqual(true);
+
+  syncMachine.send({ type: 'DONE' });
+
+  // Will go to idle and straight back to mempoolsync, setting hasMempoolUpdate to false
+  expect(syncMachine.state.context.hasMempoolUpdate).toStrictEqual(false);
+  expect(syncMachine.state.value).toStrictEqual('mempoolsync');
+}, 500);
