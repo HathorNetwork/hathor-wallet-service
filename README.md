@@ -73,7 +73,7 @@ In this example, we are passing the env variables to the container and running a
 
 ## State Machine
 
-The state machine diagram can be visualized at https://xstate.js.org/viz/?gist=7299c0ed0ce189bc121a06dce1e11638
+The state machine diagram can be visualized at https://xstate.js.org/viz/?gist=19dd8bc6d62533add23e124ef31adb78
 
 ## States:
 

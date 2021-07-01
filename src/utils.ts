@@ -14,6 +14,7 @@ import {
   DecodedScript,
   FullTx,
   StatusEvent,
+  MempoolEvent,
   PreparedTx,
   PreparedInput,
   PreparedOutput,
@@ -25,6 +26,7 @@ import {
 } from './types';
 import {
   downloadTx,
+  downloadMempool,
   getBlockByTxId,
   getFullNodeBestBlock,
   downloadBlockByHeight,
@@ -55,6 +57,31 @@ export const IGNORE_TXS: Map<string, string[]> = new Map<string, string[]>([
 
 
 const TX_CACHE_SIZE: number = parseInt(process.env.TX_CACHE_SIZE as string) || 200;
+
+/**
+ * Download and parse a tx by it's id
+ *
+ * @param txId - the id of the tx to be downloaded
+ */
+export const downloadTxFromId = async (txId: string): Promise<FullTx | null> => {
+
+  const network: string = process.env.NETWORK || 'mainnet';
+
+  // Do not download genesis transactions
+  if (IGNORE_TXS.has(network)) {
+    const networkTxs: string[] = IGNORE_TXS.get(network) as string[];
+
+    if (networkTxs.includes(txId)) {
+      // Skip
+      return null;
+    }
+  }
+
+  const txData: RawTxResponse = await downloadTx(txId);
+  const { tx, meta } = txData;
+  return parseTx(tx);
+
+};
 
 /**
  * Recursively downloads all transactions that were confirmed by a given block
@@ -250,6 +277,69 @@ export const parseTx = (tx: RawTx): FullTx => {
 
   return parsedTx;
 };
+
+/**
+ * Syncs the latest mempool
+ *
+ * @generator
+ * @yields {MempoolEvent}
+ */
+export async function* syncLatestMempool(): AsyncGenerator<MempoolEvent> {
+
+  logger.info(`Downloading mempool...`);
+  let mempoolResp;
+  try {
+    mempoolResp = await downloadMempool();
+  } catch (e) {
+    yield {
+      success: false,
+      type: 'error',
+      message: 'Could not download from mempool api',
+    };
+    return;
+  }
+
+  for (let i = 0; i < mempoolResp.transactions.length; i++) {
+    const tx = await downloadTxFromId(mempoolResp.transactions[i]);
+
+    if (tx === null) {
+      yield {
+        type: 'error',
+        success: false,
+        message: `Failure on transaction ${mempoolResp.transactions[i]} in mempool`,
+      };
+      return;
+    }
+
+    const preparedTx: PreparedTx = prepareTx(tx);
+
+    try {
+      const sendTxResponse: ApiResponse = await sendTx(preparedTx);
+      if (!sendTxResponse.success) {
+        logger.error(sendTxResponse);
+        throw new Error(sendTxResponse.message);
+      }
+    } catch (e) {
+      yield {
+        type: 'error',
+        success: false,
+        message: `Failure on transaction ${preparedTx.tx_id} in mempool`,
+      };
+      return;
+    }
+
+    yield {
+      type: 'tx_success',
+      success: true,
+      txId: preparedTx.tx_id,
+    };
+  }
+
+  yield {
+    success: true,
+    type: 'finished',
+  };
+}
 
 /**
  * Syncs to the latest block

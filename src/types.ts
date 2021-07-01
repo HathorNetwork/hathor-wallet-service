@@ -87,6 +87,7 @@ export interface DownloadBlockApiResponse extends ApiResponse {
 export interface SyncSchema {
   states: {
     idle: {};
+    mempoolsync: {};
     syncing: {};
     failure: {};
     reorg: {};
@@ -95,6 +96,7 @@ export interface SyncSchema {
 
 export interface SyncContext {
   hasMoreBlocks: boolean;
+  hasMempoolUpdate: boolean;
   error?: {};
 }
 
@@ -126,6 +128,26 @@ export type StatusEvent = {
   message?: string;
 } | {
   type: 'reorg';
+  success: boolean;
+  message?: string;
+} | {
+  type: 'error';
+  success: boolean;
+  message?: string;
+  error?: string;
+}
+
+export type MempoolEvent = {
+  type: 'finished';
+  success: boolean;
+  message?: string;
+} | {
+  type: 'tx_success';
+  success: boolean;
+  txId: string;
+  message?: string;
+} | {
+  type: 'wait';
   success: boolean;
   message?: string;
 } | {
