@@ -168,7 +168,8 @@ export const SyncMachine = Machine<SyncContext, SyncSchema>({
         },
         STOP: 'idle',
         DONE: 'idle',
-        ERROR: 'failure',
+        // Errors on mempool sync are "ignored" since next sync (either block or mempool) should fix it
+        ERROR: 'idle',
       },
       entry: [
         'resetMempoolUpdate',
