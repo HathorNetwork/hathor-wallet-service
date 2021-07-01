@@ -89,6 +89,31 @@ export const downloadTxFromId = async (
 };
 
 /**
+ * Download and parse a tx by it's id
+ *
+ * @param txId - the id of the tx to be downloaded
+ */
+export const downloadTxFromId = async (txId: string): Promise<FullTx | null> => {
+
+  const network: string = process.env.NETWORK || 'mainnet';
+
+  // Do not download genesis transactions
+  if (IGNORE_TXS.has(network)) {
+    const networkTxs: string[] = IGNORE_TXS.get(network) as string[];
+
+    if (networkTxs.includes(txId)) {
+      // Skip
+      return null;
+    }
+  }
+
+  const txData: RawTxResponse = await downloadTx(txId);
+  const { tx, meta } = txData;
+  return parseTx(tx);
+
+};
+
+/**
  * Recursively downloads all transactions that were confirmed by a given block
  *
  * @param blockId - The blockId to download the transactions

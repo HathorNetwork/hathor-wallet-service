@@ -166,6 +166,26 @@ export type MempoolEvent =
       error?: string;
     };
 
+export type MempoolEvent = {
+  type: 'finished';
+  success: boolean;
+  message?: string;
+} | {
+  type: 'tx_success';
+  success: boolean;
+  txId: string;
+  message?: string;
+} | {
+  type: 'wait';
+  success: boolean;
+  message?: string;
+} | {
+  type: 'error';
+  success: boolean;
+  message?: string;
+  error?: string;
+}
+
 /* export interface StatusEvent {
   type: string;
   success: boolean;

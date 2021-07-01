@@ -60,6 +60,8 @@ const handleMessage = (message: any) => {
   }
 };
 
+machine.start();
+
 const DEFAULT_SERVER = process.env.DEFAULT_SERVER;
 const conn = new Connection({
   network: process.env.NETWORK,
