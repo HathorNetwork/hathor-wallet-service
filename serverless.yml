@@ -100,6 +100,7 @@ functions:
           path: utxos
           method: get
           cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
           request:
             parameters:
               querystrings:
