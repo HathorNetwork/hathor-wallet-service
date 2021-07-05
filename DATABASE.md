@@ -79,6 +79,7 @@ CREATE TABLE `tx_proposal` (
   `id` varchar(36) NOT NULL,
   `wallet_id` varchar(64) NOT NULL,
   `status` enum('open','sent','send_error','cancelled') NOT NULL,
+  `version` int unsigned NOT NULL DEFAULT 1,
   `created_at` int unsigned NOT NULL,
   `updated_at` int unsigned DEFAULT NULL,
   PRIMARY KEY (`id`)
@@ -88,10 +89,18 @@ CREATE TABLE `tx_proposal_outputs` (
   `tx_proposal_id` varchar(36) NOT NULL,
   `index` tinyint unsigned NOT NULL,
   `address` varchar(34) NOT NULL,
-  `token_id` varchar(64) NOT NULL,
+  `token_id` varchar(64), -- Can be null because it might be a token creation action
+  `token_data` int unsigned NOT NULL,
   `value` bigint DEFAULT NULL,
   `timelock` int unsigned DEFAULT NULL,
   PRIMARY KEY (`tx_proposal_id`,`index`)
+);
+
+CREATE TABLE `tx_proposal_token_info` (
+  `tx_proposal_id` varchar(36) NOT NULL,
+  `name` varchar(30) NOT NULL,
+  `symbol` varchar(5) NOT NULL,
+  PRIMARY KEY (`tx_proposal_id`)
 );
 
 CREATE TABLE `tx_output` (
@@ -150,6 +159,8 @@ CREATE TABLE `transaction` (
   `voided` boolean NOT NULL DEFAULT false,
   -- Height is the block's height if it's a block and the height of the `first_block` if it is a transaction.
   `height` int unsigned DEFAULT NULL,
+  -- Seen is the number of times this transaction has been seen. This is used to determine if the transaction is voided (no height and seen < last seen on mempool sync)
+  `seen` int unsigned DEFAULT 0,
   PRIMARY KEY (`tx_id`)
 );
 

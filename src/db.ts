@@ -35,6 +35,8 @@ import {
   Tx,
   AddressBalance,
   AddressTotalBalance,
+  IFilterUtxo,
+  TxProposalTokenInfo,
 } from '@src/types';
 
 import { getUnixTimestamp, isAuthority } from '@src/utils';
@@ -598,9 +600,67 @@ export const addOrUpdateTx = async (
   await mysql.query(
     `INSERT INTO \`transaction\` (tx_id, height, timestamp, version)
      VALUES ?
-         ON DUPLICATE KEY UPDATE height = ?`,
+         ON DUPLICATE KEY
+     UPDATE height = ?, seen = seen + 1`,
     [entries, height],
   );
+};
+
+/**
+ * Unvoid a transaction
+ *
+ * @param mysql - Database connection
+ * @param txId - The transaction that should be unvoided
+ */
+export const unvoidTx = async (
+  mysql: ServerlessMysql,
+  txId: string,
+): Promise<void> => {
+  await mysql.query(
+    `UPDATE \`transaction\`
+        SET \`voided\` = FALSE
+      WHERE \`tx_id\` = ?`,
+    [txId],
+  );
+};
+
+/**
+ * Voids all transactions before a given seen number
+ *
+ * @param mysql - Database connection
+ * @param txId - The transaction that should be unvoided
+ */
+export const voidBeforeSeen = async (
+  mysql: ServerlessMysql,
+  seen: number,
+): Promise<void> => {
+  await mysql.query(
+    `UPDATE \`transaction\`
+        SET \`voided\` = TRUE
+      WHERE \`seen\` < ?
+        AND \`height\` IS NULL`,
+    [seen],
+  );
+};
+
+/**
+ * Gets the latest seen number from the transaction table
+ *
+ * @param mysql - Database connection
+ * @returns seen - The latest seen number
+ */
+export const getLatestSeen = async (
+  mysql: ServerlessMysql,
+): Promise<number> => {
+  const result = await mysql.query(
+    `SELECT MAX(\`seen\`) AS last_seen
+       FROM \`transaction\`
+      WHERE \`height\` IS NULL
+        AND \`voided\` = FALSE`,
+  );
+  const lastSeen: number = result[0].last_seen as number;
+
+  return lastSeen;
 };
 
 /**
@@ -1450,9 +1510,10 @@ export const createTxProposal = async (
   mysql: ServerlessMysql,
   txProposalId: string,
   walletId: string,
+  version: number,
   now: number,
 ): Promise<void> => {
-  const entry = { id: txProposalId, wallet_id: walletId, status: TxProposalStatus.OPEN, created_at: now };
+  const entry = { id: txProposalId, wallet_id: walletId, version, status: TxProposalStatus.OPEN, created_at: now };
   await mysql.query(
     'INSERT INTO `tx_proposal` SET ?',
     [entry],
@@ -1499,6 +1560,7 @@ export const getTxProposal = async (
     id: txProposalId,
     walletId: results[0].wallet_id as string,
     status: results[0].status as TxProposalStatus,
+    version: results[0].version as number,
     createdAt: results[0].created_at as number,
     updatedAt: results[0].updated_at as number,
   };
@@ -1518,7 +1580,7 @@ export const addTxProposalOutputs = async (
 ): Promise<void> => {
   const entries = [];
   for (const [index, output] of outputs.entries()) {
-    entries.push([txProposalId, index, output.address, output.token, output.value, output.timelock]);
+    entries.push([txProposalId, index, output.address, output.token, output.tokenData, output.value, output.timelock]);
   }
   await mysql.query(
     'INSERT INTO `tx_proposal_outputs` VALUES ?',
@@ -1546,6 +1608,7 @@ export const getTxProposalOutputs = async (
     outputs.push({
       address: result.address as string,
       token: result.token_id as string,
+      tokenData: result.token_data as number,
       value: result.value as number,
       timelock: result.timelock as number,
     });
@@ -2022,6 +2085,7 @@ export const fetchTx = async (
     version: result.version as number,
     voided: result.voided === 1,
     height: result.height as number,
+    seen: result.seen as number,
   };
 
   return tx;
@@ -2086,4 +2150,110 @@ export const fetchAddressTxHistorySum = async (
     balance: result.balance as number,
     transactions: result.transactions as number,
   }));
+};
+
+export const filterUtxos = async (
+  mysql: ServerlessMysql,
+  filters: IFilterUtxo = { addresses: [] },
+): Promise<DbTxOutput[]> => {
+  const finalFilters = {
+    addresses: [],
+    tokenId: '00',
+    authority: 0,
+    ignoreLocked: false,
+    biggerThan: -1,
+    smallerThan: constants.MAX_OUTPUT_VALUE + 1,
+    ...filters,
+  };
+
+  if (finalFilters.addresses.length === 0) {
+    throw new Error('Addresses can\'t be empty.');
+  }
+
+  const results: DbSelectResult = await mysql.query(
+    `SELECT *
+       FROM \`tx_output\`
+      WHERE \`address\`
+         IN (?)
+        AND \`token_id\` = ?
+        AND \`authorities\` = ?
+        ${finalFilters.ignoreLocked ? 'AND `locked` = FALSE' : ''}
+        ${finalFilters.authority === 0 ? 'AND value < ?' : ''}
+        ${finalFilters.authority === 0 ? 'AND value > ?' : ''}
+        AND \`tx_proposal\` IS NULL
+        AND \`voided\` = FALSE
+        AND \`spent_by\` IS NULL
+   ORDER BY \`value\` DESC
+        ${finalFilters.maxUtxos ? 'LIMIT ?' : ''}
+       `,
+    [
+      finalFilters.addresses,
+      finalFilters.tokenId,
+      finalFilters.authority,
+      finalFilters.smallerThan,
+      finalFilters.biggerThan,
+      finalFilters.maxUtxos,
+    ],
+  );
+
+  const utxos: DbTxOutput[] = results.map((utxo) => ({
+    txId: utxo.tx_id as string,
+    index: utxo.index as number,
+    tokenId: utxo.token_id as string,
+    address: utxo.address as string,
+    value: utxo.value as number,
+    authorities: utxo.authorities as number,
+    timelock: utxo.timelock as number,
+    heightlock: utxo.heightlock as number,
+    locked: utxo.locked > 0,
+  }));
+
+  return utxos;
+};
+
+/**
+ * Add tx proposal token information
+ *
+ * @param mysql - Database connection
+ * @param txProposalId - The transaction proposal id
+ * @param name - The token name
+ * @param symbol - The token symbol
+ */
+export const addTxProposalTokenInfo = async (
+  mysql: ServerlessMysql,
+  txProposalId: string,
+  name: string,
+  symbol: string,
+): Promise<void> => {
+  const entry = [
+    [txProposalId, name, symbol],
+  ];
+
+  await mysql.query(
+    'INSERT INTO `tx_proposal_token_info` VALUES ?',
+    [entry],
+  );
+};
+
+/**
+ * Get tx proposal token info
+ *
+ * @param mysql - Database connection
+ * @param txProposalId - The transaction proposal id
+ * @returns Information about the new token
+ */
+export const getTxProposalTokenInfo = async (
+  mysql: ServerlessMysql,
+  txProposalId: string,
+): Promise<TxProposalTokenInfo> => {
+  const results: DbSelectResult = await mysql.query(
+    'SELECT * FROM `tx_proposal_token_info` WHERE `tx_proposal_id` = ?',
+    [txProposalId],
+  );
+
+  return {
+    txProposalId: results[0].tx_proposal_id as string,
+    name: results[0].name as string,
+    symbol: results[0].symbol as string,
+  };
 };

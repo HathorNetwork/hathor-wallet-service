@@ -33,6 +33,8 @@ import {
   updateAddressTablesWithTx,
   updateWalletTablesWithTx,
   fetchTx,
+  unvoidTx,
+  getLatestSeen,
 } from '@src/db';
 import {
   StringMap,
@@ -209,6 +211,15 @@ export const addNewTx = async (tx: Transaction, now: number, blockRewardLock: nu
       return;
     }
 
+    // if the received transaction has height, it means that it has just been
+    // confirmed by a block, so we if it is voided on our database, we need to "unvoid" it.
+    // this might happen because we are setting transactions that were not 'seen' in sequential
+    // mempool requests as voided but we might have called the method that does that before having
+    // synced to the latest valid block.
+    if (dbTx.voided && tx.height) {
+      await unvoidTx(mysql, txId);
+    }
+
     // set height and break out because it was already on the mempool
     // so we can consider that our balances have already been calculated
     // and the utxos were already inserted
@@ -285,4 +296,14 @@ export const addNewTx = async (tx: Transaction, now: number, blockRewardLock: nu
     QueueUrl: queueUrl,
   };
   await sqs.sendMessage(params).promise();
+};
+
+/**
+ * Voids transactions that happened before our latest "seen" transaction
+ * and were not confirmed by a block
+ */
+export const voidMissingTransactions = async (): Promise<void> => {
+  const latestSeen: number = await getLatestSeen(mysql);
+
+  await voidBeforeSeen(mysql, latestSeen);
 };
