@@ -178,7 +178,7 @@ export const prepareTx = (tx: FullTx | FullBlock): PreparedTx => {
         throw new Error('Input is a token but there are no tokens in the tokens list.');
       }
 
-      const { uid } = tx.tokens[wallet.getTokenIndex(input.tokenData) - 1];
+      const { uid } = tx.tokens[wallet.getTokenIndex(input.decoded.tokenData) - 1];
 
       return {
         ...baseInput,
@@ -205,7 +205,7 @@ export const prepareTx = (tx: FullTx | FullBlock): PreparedTx => {
         throw new Error('Output is a token but there are no tokens in the tokens list.');
       }
 
-      const { uid } = tx.tokens[wallet.getTokenIndex(output.tokenData) - 1];
+      const { uid } = tx.tokens[wallet.getTokenIndex(output.decoded.tokenData) - 1];
 
       return {
         ...baseOutput,
