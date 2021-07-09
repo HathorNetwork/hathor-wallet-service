@@ -14,7 +14,7 @@ import {
 } from '../types';
 
 AWS.config.update({
-  region: 'us-east-1',
+  region: process.env.AWS_REGION,
 });
 
 /**
@@ -26,13 +26,13 @@ AWS.config.update({
 export const lambdaCall = (fnName: string, payload: any): Promise<any> => new Promise((resolve, reject) => {
   const lambda = new AWS.Lambda({
     apiVersion: '2015-03-31',
-    endpoint: process.env.STAGE === 'local'
+    endpoint: process.env.WALLET_SERVICE_STAGE === 'local'
       ? process.env.WALLET_SERVICE_LOCAL_URL || 'http://localhost:3002'
       : `https://lambda.${process.env.AWS_REGION}.amazonaws.com`,
   });
 
       const params = {
-        FunctionName: `${process.env.SERVICE_NAME}-${process.env.STAGE}-${fnName}`,
+        FunctionName: `${process.env.WALLET_SERVICE_NAME}-${process.env.WALLET_SERVICE_STAGE}-${fnName}`,
         Payload: JSON.stringify({
           body: payload,
         }),
