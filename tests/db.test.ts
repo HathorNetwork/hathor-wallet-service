@@ -4,7 +4,10 @@ import {
   addNewAddresses,
   addTxProposalOutputs,
   addUtxos,
+  checkForMissingTxs,
+  clearMissingTx,
   createTxProposal,
+  createUnconfirmedTx,
   createWallet,
   generateAddresses,
   getAddressWalletInfo,
@@ -59,6 +62,7 @@ import {
   WalletStatus,
   FullNodeVersionData,
   Tx,
+  TxInput,
 } from '@src/types';
 import {
   closeDbConnection,
@@ -1456,4 +1460,39 @@ test('markAddressTxHistoryAsVoided', async () => {
   const history2 = await fetchAddressTxHistorySum(mysql, [addr1, addr2]);
 
   expect(history2).toHaveLength(0);
+});
+
+test('unconfirmedTx: create and clear', async () => {
+  expect.hasAssertions();
+  const data = '{"foo":"bar"}';
+  await createUnconfirmedTx(mysql, '123', data, ['456', '789']);
+  // Nobody is waiting for 000
+  expect(await clearMissingTx(mysql, '000')).toStrictEqual([]);
+  // '123' is still waiting for '789'
+  expect(await clearMissingTx(mysql, '456')).toStrictEqual([]);
+  // '123' is waiting for noone, return it with the original data
+  expect(await clearMissingTx(mysql, '789')).toStrictEqual([{ tx: '123', data }]);
+  // Nobody is waiting for 000 still
+  expect(await clearMissingTx(mysql, '000')).toStrictEqual([]);
+});
+
+test('checkForMissingTxs', async () => {
+  expect.hasAssertions();
+
+  const outputs = [createOutput(10, 'address1')];
+  await addUtxos(mysql, 'not-missing', outputs);
+
+  const inputs: TxInput[] = [createInput(5, 'address1', 'not-missing', 1)];
+  // if not missing, return empty
+  expect(await checkForMissingTxs(mysql, inputs)).toStrictEqual([]);
+  inputs.push(createInput(5, 'address1', 'missing1', 1));
+  // if missing, return txId
+  expect(await checkForMissingTxs(mysql, inputs)).toStrictEqual(['missing1']);
+  inputs.push(createInput(5, 'address1', 'missing2', 1));
+  // if missing multiple, return all missing txIds
+  expect(await checkForMissingTxs(mysql, inputs)).toStrictEqual(['missing1', 'missing2']);
+  // add missing2 utxo
+  await addUtxos(mysql, 'missing2', outputs);
+  // now the check should return only missing1
+  expect(await checkForMissingTxs(mysql, inputs)).toStrictEqual(['missing1']);
 });

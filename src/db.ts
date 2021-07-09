@@ -2087,3 +2087,88 @@ export const fetchAddressTxHistorySum = async (
     transactions: result.transactions as number,
   }));
 };
+
+/**
+ * Find all transactions being spent that we do not have.
+ *
+ * @param mysql - Database connection
+ * @param txInputs - List of inputs spent by the tx
+ * @returns A list with the missing UTXOs, if any
+ */
+export const checkForMissingTxs = async (mysql: ServerlessMysql, txInputs: TxInput[]): Promise<string[]> => {
+  const inputs = [];
+  for (const txIn of txInputs) {
+    const input: IWalletInput = {
+      txId: txIn.tx_id as string,
+      index: txIn.index as number,
+    };
+    inputs.push(input);
+  }
+
+  const utxos: DbTxOutput[] = await getUtxos(mysql, inputs);
+
+  if (inputs.length === utxos.length) return [];
+
+  const missing = new Set(inputs.map((input) => input.txId));
+  for (const utxo of utxos) {
+    missing.delete(utxo.txId);
+  }
+  return Array.from(missing);
+};
+
+export const createUnconfirmedTx = async (mysql: ServerlessMysql, txId: string, data: string, missing: string[]): Promise<void> => {
+  const now = getUnixTimestamp();
+  // insert txId with data on unconfirmed_tx
+  await mysql.query(
+    `INSERT IGNORE INTO \`unconfirmed_tx\`(\`tx_id\`, \`data\`, \`created_at\`)
+      VALUES (?)`,
+    [[
+      txId,
+      data,
+      now,
+    ]],
+  );
+
+  // insert each missing tx being spent on unconfirmed_tx_missing
+  const entries = [];
+  for (const missingTx of missing) {
+    entries.push([missingTx, txId, now]);
+  }
+  await mysql.query(
+    `INSERT IGNORE INTO \`unconfirmed_tx_missing\`(\`tx_id\`, \`spent_by\`, \`created_at\`)
+     VALUES ?`,
+    [entries],
+  );
+};
+
+export const clearMissingTx = async (mysql: ServerlessMysql, txId: string): Promise<Array<Record<string, string>>> => {
+  // Delete all entries of this tx from unconfirmed_tx_missing
+  await mysql.query(
+    'DELETE FROM `unconfirmed_tx_missing` WHERE `tx_id` = ?',
+    txId,
+  );
+
+  // Find all entries that are not waiting for other txs...
+  const doneWaiting: DbSelectResult = await mysql.query(
+    {
+      sql: `SELECT \`unconfirmed_tx\`.tx_id, \`unconfirmed_tx\`.data,
+              FROM \`unconfirmed_tx\`
+              LEFT OUTER JOIN \`unconfirmed_tx_missing\`
+              ON \`unconfirmed_tx\`.\`tx_id\` = \`unconfirmed_tx_missing\`.\`spent_by\`
+              WHERE \`unconfirmed_tx_missing\`.\`spent_by\` IS NULL`,
+    },
+  );
+  // No need to nest tables because we only return the fields on one of the tables
+  // https://github.com/mysqljs/mysql#joins-with-overlapping-column-names
+
+  // ...then delete and return them
+  await mysql.query(
+    'DELETE FROM `unconfirmed_tx` WHERE `tx_id` IN (?)',
+    [doneWaiting.map((tx) => tx.tx_id)],
+  );
+
+  return doneWaiting.map((entry) => ({
+    tx: entry.tx_id as string,
+    data: entry.data as string,
+  }));
+};

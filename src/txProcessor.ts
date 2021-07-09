@@ -23,6 +23,9 @@ import {
   addNewAddresses,
   addUtxos,
   addOrUpdateTx,
+  checkForMissingTxs,
+  createUnconfirmedTx,
+  clearMissingTx,
   updateTx,
   generateAddresses,
   getAddressWalletInfo,
@@ -36,10 +39,10 @@ import {
 } from '@src/db';
 import {
   StringMap,
-  Transaction,
   TokenBalanceMap,
-  Wallet,
+  Transaction,
   Tx,
+  Wallet,
 } from '@src/types';
 import { closeDbConnection, getDbConnection, getUnixTimestamp } from '@src/utils';
 
@@ -217,6 +220,14 @@ export const addNewTx = async (tx: Transaction, now: number, blockRewardLock: nu
     return;
   }
 
+  // XXX: Check if we have the utxos from the inputs
+  const missing = await checkForMissingTxs(mysql, tx.inputs);
+  if (missing) {
+    // Need to wait for these txs to be processed
+    await createUnconfirmedTx(mysql, txId, JSON.stringify(tx), missing);
+    return;
+  }
+
   let heightlock = null;
   if (tx.version === hathorLib.constants.BLOCK_VERSION
     || tx.version === hathorLib.constants.MERGED_MINED_BLOCK_VERSION) {
@@ -273,16 +284,28 @@ export const addNewTx = async (tx: Transaction, now: number, blockRewardLock: nu
   const walletBalanceMap: StringMap<TokenBalanceMap> = getWalletBalanceMap(addressWalletMap, addressBalanceMap);
   await updateWalletTablesWithTx(mysql, txId, tx.timestamp, walletBalanceMap);
 
-  const queueUrl = process.env.NEW_TX_SQS;
-  if (!queueUrl) return;
-
   const sqs = new AWS.SQS({ apiVersion: '2012-11-05' });
+
+  // This tx has been processed, check if any txs are waiting for it!
+  const txReprocess = await clearMissingTx(mysql, txId);
+  const promises = [];
+  txReprocess.forEach((readyTx) => {
+    const params = {
+      MessageBody: readyTx.data,
+      QueueUrl: process.env.PROCESS_TX_SQS,
+    };
+    promises.push(sqs.sendMessage(params).promise());
+  });
+  // wait for all ready tx to be sent to sqs
+  await Promise.all(promises);
+
+  // send current tx to websocket sqs
   const params = {
     MessageBody: JSON.stringify({
       wallets: Array.from(seenWallets),
       tx,
     }),
-    QueueUrl: queueUrl,
+    QueueUrl: process.env.NEW_TX_SQS,
   };
   await sqs.sendMessage(params).promise();
 };
