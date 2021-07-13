@@ -46,6 +46,7 @@
   ],
   "devDependencies": {
     "@size-limit/preset-small-lib": "^4.10.2",
+    "@types/lodash": "^4.14.171",
     "husky": "^6.0.0",
     "size-limit": "^4.10.2",
     "tsdx": "^0.14.1",
@@ -57,6 +58,7 @@
     "aws-sdk": "^2.878.0",
     "axios": "^0.21.1",
     "dotenv": "^8.2.0",
+    "lodash": "^4.17.21",
     "websocket": "^1.0.33",
     "winston": "^3.3.3",
     "xstate": "^4.17.1"

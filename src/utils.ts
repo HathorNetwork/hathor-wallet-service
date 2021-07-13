@@ -39,6 +39,7 @@ import dotenv from 'dotenv';
 // @ts-ignore
 import { wallet } from '@hathor/wallet-lib';
 import logger from './logger';
+import { isNumber, isNil, get } from 'lodash';
 
 dotenv.config();
 
@@ -79,8 +80,8 @@ export const downloadTxFromId = async (txId: string): Promise<FullTx | null> => 
 
   const txData: RawTxResponse = await downloadTx(txId);
   const { tx, meta } = txData;
-  return parseTx(tx);
 
+  return parseTx(tx);
 };
 
 /**
@@ -137,7 +138,37 @@ export const recursivelyDownloadTx = async (blockId: string, txIds: string[] = [
       !data.has(parent)
   });
 
-  return recursivelyDownloadTx(blockId, [...txIds, ...newParents], data.set(parsedTx.txId, parsedTx));
+  let newData;
+
+  // We need to validate that the outputs scripts have been parsed successfully
+  if (validateTxOutputs(parsedTx)) {
+    newData = data.set(parsedTx.txId, parsedTx)
+  } else {
+    // Ignore the current transaction (but not its parents)
+    logger.warn(`Ignoring tx ${parsedTx.txId} because it has invalid output(s)`);
+    newData = data;
+  }
+
+  return recursivelyDownloadTx(blockId, [...txIds, ...newParents], newData);
+};
+
+/**
+ * Validates a transaction by checking if all tx outputs scripts have been successfully decoded
+ *
+ * @param tx - `RawTx` to be validated
+ * @returns True or False depending on transaction validity
+ */
+export const validateTxOutputs = (tx: FullTx): boolean => {
+  for (let i = 0; i < tx.outputs.length; i++) {
+    /* get will not crash if decoded is undefined and isNil will check for
+     * both null and undefined
+     */
+    if (isNil(get(tx.outputs[i], 'decoded.type'))) {
+      return false;
+    }
+  }
+
+  return true;
 };
 
 /**
@@ -237,9 +268,9 @@ export const parseTx = (tx: RawTx): FullTx => {
       const typedDecodedScript: DecodedScript = {
         type: input.decoded.type as string,
         address: input.decoded.address as string,
-        timelock: input.decoded.timelock ? input.decoded.timelock as number : null,
-        value: input.decoded.value ? input.decoded.value as number : null,
-        tokenData: input.decoded.token_data ? input.decoded.token_data as number : null,
+        timelock: isNumber(input.decoded.timelock) ? input.decoded.timelock as number : null,
+        value: isNumber(input.decoded.value) ? input.decoded.value as number : null,
+        tokenData: isNumber(input.decoded.token_data) ? input.decoded.token_data as number : null,
       };
       const typedInput: Input = {
         txId: input.tx_id as string,
@@ -256,9 +287,9 @@ export const parseTx = (tx: RawTx): FullTx => {
       const typedDecodedScript: DecodedScript = {
         type: output.decoded.type as string,
         address: output.decoded.address as string,
-        timelock: output.decoded.timelock ? output.decoded.timelock as number : null,
-        value: output.decoded.value ? output.decoded.value as number : null,
-        tokenData: output.decoded.token_data ? output.decoded.token_data as number : null,
+        timelock: isNumber(output.decoded.timelock) ? output.decoded.timelock as number : null,
+        value: isNumber(output.decoded.value) ? output.decoded.value as number : null,
+        tokenData: isNumber(output.decoded.token_data) ? output.decoded.token_data as number : null,
       };
 
       const typedOutput: Output = {
@@ -309,6 +340,12 @@ export async function* syncLatestMempool(): AsyncGenerator<MempoolEvent> {
         message: `Failure on transaction ${mempoolResp.transactions[i]} in mempool`,
       };
       return;
+    }
+
+
+    if (!validateTxOutputs(tx)) {
+      logger.warn(`Ignoring tx ${tx.txId} because it has invalid output(s)`);
+      continue;
     }
 
     const preparedTx: PreparedTx = prepareTx(tx);
