@@ -138,38 +138,29 @@ export const recursivelyDownloadTx = async (blockId: string, txIds: string[] = [
       !data.has(parent)
   });
 
-  let newData;
-
-  // We need to validate that the outputs scripts have been parsed successfully
-  if (validateTxOutputs(parsedTx)) {
-    newData = data.set(parsedTx.txId, parsedTx)
-  } else {
-    // Ignore the current transaction (but not its parents)
-    logger.warn(`Ignoring tx ${parsedTx.txId} because it has invalid output(s)`);
-    newData = data;
-  }
+  const newData = data.set(parsedTx.txId, cleanInvalidOutputs(parsedTx));
 
   return recursivelyDownloadTx(blockId, [...txIds, ...newParents], newData);
 };
 
 /**
- * Validates a transaction by checking if all tx outputs scripts have been successfully decoded
+ * Removes invalid tx outputs from the received tx
  *
- * @param tx - `RawTx` to be validated
- * @returns True or False depending on transaction validity
+ * @param tx - `FullTx` to remove the invalid outputs
  */
-export const validateTxOutputs = (tx: FullTx): boolean => {
-  for (let i = 0; i < tx.outputs.length; i++) {
-    /* get will not crash if decoded is undefined and isNil will check for
-     * both null and undefined
-     */
-    if (isNil(get(tx.outputs[i], 'decoded.type'))) {
-      return false;
-    }
-  }
+export const cleanInvalidOutputs = (tx: FullTx) => ({
+  ...tx,
+  // Filter outputs that we can't handle (script was unable to be decoded)
+  outputs: tx.outputs.filter((output) => {
+    const validDecoded = !isNil(get(output, 'decoded.type'));
 
-  return true;
-};
+    if (!validDecoded) {
+      logger.warn(`Ignoring tx output from tx ${tx.txId} as script couldn't be decoded.`);
+    }
+
+    return validDecoded;
+  }),
+});
 
 /**
  * Prepares a transaction to be sent to the wallet-service `onNewTxRequest`
@@ -342,13 +333,7 @@ export async function* syncLatestMempool(): AsyncGenerator<MempoolEvent> {
       return;
     }
 
-
-    if (!validateTxOutputs(tx)) {
-      logger.warn(`Ignoring tx ${tx.txId} because it has invalid output(s)`);
-      continue;
-    }
-
-    const preparedTx: PreparedTx = prepareTx(tx);
+    const preparedTx: PreparedTx = prepareTx(cleanInvalidOutputs(tx));
 
     try {
       const sendTxResponse: ApiResponse = await sendTx(preparedTx);
