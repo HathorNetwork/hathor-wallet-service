@@ -1216,7 +1216,7 @@ export const getUtxosLockedAtHeight = async (
     const results: DbSelectResult = await mysql.query(
       `SELECT *
          FROM \`tx_output\`
-        WHERE \`heightlock\` <= ?
+        WHERE \`heightlock\` = ?
           AND \`spent_by\` IS NULL
           AND \`voided\` = FALSE
           AND (\`timelock\` <= ?
