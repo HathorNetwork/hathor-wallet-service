@@ -7,7 +7,7 @@
 
 import {
   APIGatewayProxyHandler,
-  APIGatewayTokenAuthorizerHandler,
+  CustomAuthorizerHandler,
   CustomAuthorizerResult,
   PolicyDocument,
   Statement,
@@ -177,30 +177,29 @@ const _generatePolicy = (principalId: string, effect: string, resource: string) 
 
   // XXX: to get the resulting policy on the logs, since we can't check the cached policy
   console.info('Generated policy:', authResponse);
+  console.info('Generated statement:', statementOne);
   return authResponse;
 };
 
-export const bearerAuthorizer: APIGatewayTokenAuthorizerHandler = async (event) => {
+export const bearerAuthorizer: CustomAuthorizerHandler = async (event) => {
   const { authorizationToken } = event;
   if (!authorizationToken) {
-    throw new Error('Unauthorized'); // returns a 401
+    throw new Error('No token found!'); // returns a 401
   }
-  const sanitizedToken = authorizationToken.replace(/Bearer /gi, '');
+  const tokenSanitized = authorizationToken.replace(/Bearer /gi, '');
   let data;
   try {
     data = jwt.verify(
-      sanitizedToken,
+      tokenSanitized,
       process.env.AUTH_SECRET,
     );
   } catch (e) {
-    // XXX: find a way to return specific error to frontend or make all errors Unauthorized?
-    //
     // Identify exception from jsonwebtoken by the name property
     // https://github.com/auth0/node-jsonwebtoken/blob/master/lib/TokenExpiredError.js#L5
     if (e.name === 'JsonWebTokenError') {
-      throw new Error('Unauthorized');
+      throw new Error('Invalid Token');
     } else if (e.name === 'TokenExpiredError') {
-      throw new Error('Unauthorized');
+      throw new Error('Expired Token');
     } else {
       console.log('Error on bearerAuthorizer: ', e);
       throw e;
@@ -222,5 +221,5 @@ export const bearerAuthorizer: APIGatewayTokenAuthorizerHandler = async (event) 
     return _generatePolicy(walletId, 'Allow', event.methodArn);
   }
 
-  return _generatePolicy(walletId, 'Deny', event.methodArn);
+  throw new Error('Unexpected Error.');
 };

@@ -1,5 +1,12 @@
-service:
-  name: hathor-wallet-service
+service: hathor-wallet-service
+
+useDotenv: true
+
+frameworkVersion: '2'
+configValidationMode: warn
+variablesResolutionMode: null
+unresolvedVariablesNotificationMode: warn
+deprecationNotificationMode: warn:summary
 
 custom:
   webpack:
@@ -11,15 +18,21 @@ custom:
   authorizer:
     walletBearer:
       name: bearerAuthorizer
-      type: TOKEN
-      identitySource: method.request.header.Authorization
-      identityValidationExpression: Bearer (.*)
+      type: token
+      identitySource:
+        - method.request.header.Authorization
+      resultTtlInSeconds: 600
+    wsBearer:
+      name: bearerAuthorizer
+      type: token
+      identitySource:
+        - route.request.querystring.token
+      resultTtlInSeconds: 600
 
 plugins:
   - serverless-offline
   - serverless-webpack
   - serverless-prune-plugin
-  - serverless-dotenv-plugin
 
 resources:
   Resources:
@@ -32,6 +45,7 @@ resources:
 provider:
   name: aws
   runtime: nodejs12.x
+  lambdaHashingVersion: 20201221
   # In MB. This is the memory allocated for the Lambdas, they cannot use more than this
   # and will break if they try.
   memorySize: 256
@@ -92,7 +106,6 @@ functions:
   loadWalletAsync:
     handler: src/api/wallet.loadWallet
   loadWalletApi:
-    role: arn:aws:iam::769498303037:role/WalletServiceLoadWalletLambda
     handler: src/api/wallet.load
     role: arn:aws:iam::769498303037:role/WalletServiceLoadWalletLambda
     events:
@@ -170,16 +183,17 @@ functions:
     events:
       - websocket:
           route: $connect
-      - websocket:
-          route: $disconnect
-      - websocket:
-          route: ping
-  wsJoin:
-    handler: src/ws/join.handler
-    timeout: 1
+          authorizer: ${self:custom.authorizer.wsBearer}
+  wsDisconnect:
+    handler: src/ws/connection.disconnect
     events:
       - websocket:
-          route: join
+          route: $disconnect
+  wsPing:
+    handler: src/ws/connection.ping
+    events:
+      - websocket:
+          route: ping
   wsTxNotifyNew:
     handler: src/ws/txNotify.onNewTx
     timeout: 1
