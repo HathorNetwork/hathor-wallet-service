@@ -35,6 +35,8 @@ import {
   Tx,
   AddressBalance,
   AddressTotalBalance,
+  IFilterUtxo,
+  TxProposalTokenInfo,
 } from '@src/types';
 
 import { getUnixTimestamp, isAuthority } from '@src/utils';
@@ -626,6 +628,52 @@ export const updateTxOutputSpentBy = async (mysql: ServerlessMysql, inputs: TxIn
 };
 
 /**
+ * Get the requested UTXO.
+ *
+ * @param mysql - Database connection
+ * @param txId - The tx id to search
+ * @param index - The index to search
+ * @returns The requested UTXO
+ */
+export const getUtxo = async (
+  mysql: ServerlessMysql,
+  txId: string,
+  index: number,
+): Promise<DbTxOutput> => {
+  const results: DbSelectResult = await mysql.query(
+    `SELECT *
+       FROM \`tx_output\`
+      WHERE \`tx_id\` = ?
+        AND \`index\` = ?
+        AND \`spent_by\` IS NULL
+        AND \`voided\` = FALSE`,
+    [txId, index],
+  );
+
+  if (!results.length || results.length === 0) {
+    return null;
+  }
+
+  const result = results[0];
+
+  const utxo: DbTxOutput = {
+    txId: result.tx_id as string,
+    index: result.index as number,
+    tokenId: result.token_id as string,
+    address: result.address as string,
+    value: result.value as number,
+    authorities: result.authorities as number,
+    timelock: result.timelock as number,
+    heightlock: result.heightlock as number,
+    locked: result.locked > 0,
+    txProposalId: result.tx_proposal as string,
+    txProposalIndex: result.tx_proposal_index as number,
+  };
+
+  return utxo;
+};
+
+/**
  * Get the requested UTXOs.
  *
  * @param mysql - Database connection
@@ -1168,7 +1216,7 @@ export const getUtxosLockedAtHeight = async (
     const results: DbSelectResult = await mysql.query(
       `SELECT *
          FROM \`tx_output\`
-        WHERE \`heightlock\` <= ?
+        WHERE \`heightlock\` = ?
           AND \`spent_by\` IS NULL
           AND \`voided\` = FALSE
           AND (\`timelock\` <= ?
@@ -1450,9 +1498,10 @@ export const createTxProposal = async (
   mysql: ServerlessMysql,
   txProposalId: string,
   walletId: string,
+  version: number,
   now: number,
 ): Promise<void> => {
-  const entry = { id: txProposalId, wallet_id: walletId, status: TxProposalStatus.OPEN, created_at: now };
+  const entry = { id: txProposalId, wallet_id: walletId, version, status: TxProposalStatus.OPEN, created_at: now };
   await mysql.query(
     'INSERT INTO `tx_proposal` SET ?',
     [entry],
@@ -1499,6 +1548,7 @@ export const getTxProposal = async (
     id: txProposalId,
     walletId: results[0].wallet_id as string,
     status: results[0].status as TxProposalStatus,
+    version: results[0].version as number,
     createdAt: results[0].created_at as number,
     updatedAt: results[0].updated_at as number,
   };
@@ -1518,7 +1568,7 @@ export const addTxProposalOutputs = async (
 ): Promise<void> => {
   const entries = [];
   for (const [index, output] of outputs.entries()) {
-    entries.push([txProposalId, index, output.address, output.token, output.value, output.timelock]);
+    entries.push([txProposalId, index, output.address, output.token, output.tokenData, output.value, output.timelock]);
   }
   await mysql.query(
     'INSERT INTO `tx_proposal_outputs` VALUES ?',
@@ -1546,6 +1596,7 @@ export const getTxProposalOutputs = async (
     outputs.push({
       address: result.address as string,
       token: result.token_id as string,
+      tokenData: result.token_data as number,
       value: result.value as number,
       timelock: result.timelock as number,
     });
@@ -2086,4 +2137,110 @@ export const fetchAddressTxHistorySum = async (
     balance: result.balance as number,
     transactions: result.transactions as number,
   }));
+};
+
+export const filterUtxos = async (
+  mysql: ServerlessMysql,
+  filters: IFilterUtxo = { addresses: [] },
+): Promise<DbTxOutput[]> => {
+  const finalFilters = {
+    addresses: [],
+    tokenId: '00',
+    authority: 0,
+    ignoreLocked: false,
+    biggerThan: -1,
+    smallerThan: constants.MAX_OUTPUT_VALUE + 1,
+    ...filters,
+  };
+
+  if (finalFilters.addresses.length === 0) {
+    throw new Error('Addresses can\'t be empty.');
+  }
+
+  const results: DbSelectResult = await mysql.query(
+    `SELECT *
+       FROM \`tx_output\`
+      WHERE \`address\`
+         IN (?)
+        AND \`token_id\` = ?
+        AND \`authorities\` = ?
+        ${finalFilters.ignoreLocked ? 'AND `locked` = FALSE' : ''}
+        ${finalFilters.authority === 0 ? 'AND value < ?' : ''}
+        ${finalFilters.authority === 0 ? 'AND value > ?' : ''}
+        AND \`tx_proposal\` IS NULL
+        AND \`voided\` = FALSE
+        AND \`spent_by\` IS NULL
+   ORDER BY \`value\` DESC
+        ${finalFilters.maxUtxos ? 'LIMIT ?' : ''}
+       `,
+    [
+      finalFilters.addresses,
+      finalFilters.tokenId,
+      finalFilters.authority,
+      finalFilters.smallerThan,
+      finalFilters.biggerThan,
+      finalFilters.maxUtxos,
+    ],
+  );
+
+  const utxos: DbTxOutput[] = results.map((utxo) => ({
+    txId: utxo.tx_id as string,
+    index: utxo.index as number,
+    tokenId: utxo.token_id as string,
+    address: utxo.address as string,
+    value: utxo.value as number,
+    authorities: utxo.authorities as number,
+    timelock: utxo.timelock as number,
+    heightlock: utxo.heightlock as number,
+    locked: utxo.locked > 0,
+  }));
+
+  return utxos;
+};
+
+/**
+ * Add tx proposal token information
+ *
+ * @param mysql - Database connection
+ * @param txProposalId - The transaction proposal id
+ * @param name - The token name
+ * @param symbol - The token symbol
+ */
+export const addTxProposalTokenInfo = async (
+  mysql: ServerlessMysql,
+  txProposalId: string,
+  name: string,
+  symbol: string,
+): Promise<void> => {
+  const entry = [
+    [txProposalId, name, symbol],
+  ];
+
+  await mysql.query(
+    'INSERT INTO `tx_proposal_token_info` VALUES ?',
+    [entry],
+  );
+};
+
+/**
+ * Get tx proposal token info
+ *
+ * @param mysql - Database connection
+ * @param txProposalId - The transaction proposal id
+ * @returns Information about the new token
+ */
+export const getTxProposalTokenInfo = async (
+  mysql: ServerlessMysql,
+  txProposalId: string,
+): Promise<TxProposalTokenInfo> => {
+  const results: DbSelectResult = await mysql.query(
+    'SELECT * FROM `tx_proposal_token_info` WHERE `tx_proposal_id` = ?',
+    [txProposalId],
+  );
+
+  return {
+    txProposalId: results[0].tx_proposal_id as string,
+    name: results[0].name as string,
+    symbol: results[0].symbol as string,
+  };
 };

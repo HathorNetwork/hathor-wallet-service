@@ -13,6 +13,7 @@ export enum ApiError {
   UNKNOWN_ERROR = 'unknown-error',
   INPUTS_NOT_FOUND = 'inputs-not-found',
   INPUTS_ALREADY_USED = 'inputs-already-used',
+  INPUTS_NOT_IN_WALLET = 'inputs-not-in-wallet',
   INSUFFICIENT_FUNDS = 'insufficient-funds',
   INSUFFICIENT_INPUTS = 'insufficient-inputs',
   INVALID_PARAMETER = 'invalid-parameter',
@@ -26,6 +27,9 @@ export enum ApiError {
   WALLET_NOT_FOUND = 'wallet-not-found',
   WALLET_NOT_READY = 'wallet-not-ready',
   WALLET_ALREADY_LOADED = 'wallet-already-loaded',
+  ADDRESS_NOT_IN_WALLET = 'address-not-in-wallet',
+  NO_TX_INDEX = 'no-tx-index',
+  UTXO_NOT_FOUND = 'utxo-not-found',
   FORBIDDEN = 'forbidden',
   UNAUTHORIZED = 'unauthorized',
 }

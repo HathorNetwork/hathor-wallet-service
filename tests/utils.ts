@@ -55,6 +55,7 @@ export const cleanDatabase = async (mysql: ServerlessMysql): Promise<void> => {
     'token',
     'tx_proposal',
     'tx_proposal_outputs',
+    'tx_proposal_token_info',
     'transaction',
     'tx_output',
     'version_data',
@@ -598,9 +599,11 @@ export const addToTxProposalTable = async (
   );
 };
 
-export const makeGatewayEvent = (params: {
-    [name: string]: string,
-  }, body = null): APIGatewayProxyEvent => ({
+export const makeGatewayEvent = (
+  params: { [name: string]: string },
+  body = null,
+  multiValueQueryStringParameters = null,
+): APIGatewayProxyEvent => ({
   body,
   queryStringParameters: params,
   pathParameters: params,
@@ -609,7 +612,7 @@ export const makeGatewayEvent = (params: {
   httpMethod: '',
   isBase64Encoded: false,
   path: '',
-  multiValueQueryStringParameters: null,
+  multiValueQueryStringParameters,
   stageVariables: null,
   requestContext: null,
   resource: null,

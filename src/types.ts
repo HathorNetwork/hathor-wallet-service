@@ -55,6 +55,7 @@ export interface TxProposal {
   id: string;
   walletId: string;
   status: TxProposalStatus;
+  version: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -227,8 +228,8 @@ export class Authorities {
   toJSON(): Record<string, unknown> {
     const authorities = this.toInteger();
     return {
-      mint: (authorities & hathorLib.constants.TOKEN_MINT_MASK) > 0,   // eslint-disable-line no-bitwise
-      melt: (authorities & hathorLib.constants.TOKEN_MELT_MASK) > 0,   // eslint-disable-line no-bitwise
+      mint: (authorities & hathorLib.constants.TOKEN_MINT_MASK) > 0, // eslint-disable-line no-bitwise
+      melt: (authorities & hathorLib.constants.TOKEN_MELT_MASK) > 0, // eslint-disable-line no-bitwise
     };
   }
 }
@@ -531,6 +532,7 @@ export interface IWalletOutput {
   address: string;
   value: number;
   token: string;
+  tokenData: number;
   timelock: number;
 }
 
@@ -608,3 +610,29 @@ export type WalletProxyHandler = (
   context?: Context,
   callback?: Callback<APIGatewayProxyResult>
 ) => Promise<APIGatewayProxyResult>;
+
+export interface IFilterUtxo {
+  addresses: string[];
+  tokenId?: string;
+  authority?: number;
+  ignoreLocked?: boolean;
+  biggerThan?: number;
+  smallerThan?: number;
+  maxUtxos?: number;
+}
+
+export enum InputSelectionAlgo {
+  USE_LARGER_UTXOS = 'use-larger-utxos',
+}
+
+export interface IWalletInsufficientFunds {
+  tokenId: string;
+  requested: number;
+  available: number;
+}
+
+export interface TxProposalTokenInfo {
+  txProposalId: string;
+  symbol: string;
+  name: string;
+}
