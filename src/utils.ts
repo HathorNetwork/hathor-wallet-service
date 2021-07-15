@@ -109,8 +109,8 @@ export const downloadTxFromId = async (txId: string): Promise<FullTx | null> => 
 
   const txData: RawTxResponse = await downloadTx(txId);
   const { tx, meta } = txData;
-  return parseTx(tx);
 
+  return parseTx(tx);
 };
 
 /**
@@ -177,6 +177,25 @@ export const recursivelyDownloadTx = async (
 
   return recursivelyDownloadTx(blockId, [...txIds, ...newParents], newData);
 };
+
+/**
+ * Removes invalid tx outputs from the received tx
+ *
+ * @param tx - `FullTx` to remove the invalid outputs
+ */
+export const cleanInvalidOutputs = (tx: FullTx) => ({
+  ...tx,
+  // Filter outputs that we can't handle (script was unable to be decoded)
+  outputs: tx.outputs.filter((output, index) => {
+    const validDecoded = !isNil(get(output, 'decoded.type'));
+
+    if (!validDecoded) {
+      logger.warn(`Ignoring tx output with index ${index} from tx ${tx.txId} as script couldn't be decoded.`);
+    }
+
+    return validDecoded;
+  }),
+});
 
 /**
  * Prepares a transaction to be sent to the wallet-service `onNewTxRequest`
@@ -374,7 +393,7 @@ export async function* syncLatestMempool(): AsyncGenerator<MempoolEvent> {
       return;
     }
 
-    const preparedTx: PreparedTx = prepareTx(tx);
+    const preparedTx: PreparedTx = prepareTx(cleanInvalidOutputs(tx));
 
     try {
       const sendTxResponse: ApiResponse = await sendTx(preparedTx);
