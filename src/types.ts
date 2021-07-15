@@ -11,8 +11,8 @@ export interface Block {
 }
 
 export interface DecodedScript {
-  type: string;
-  address: string;
+  type?: string;
+  address?: string;
   timelock?: number | undefined | null;
   value?: number | undefined | null;
   tokenData?: number | undefined | null;
@@ -222,12 +222,15 @@ export interface RawDecodedInput {
   token_data: number;
 }
 
+/* Everything is optional because scripts that were not able to
+ * be decoded will be returned as {}
+ */
 export interface RawDecodedOutput {
-  type: string;
-  address: string;
+  type?: string;
+  address?: string;
   timelock?: number | null;
-  value: number;
-  token_data: number;
+  value?: number;
+  token_data?: number;
 }
 
 export interface RawInput {
@@ -276,6 +279,7 @@ export interface Meta {
   accumulated_weight: number;
   score: number;
   height: number;
+  validation?: string;
   first_block?: string | null;
 }
 

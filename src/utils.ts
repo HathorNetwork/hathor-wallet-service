@@ -39,6 +39,7 @@ import dotenv from 'dotenv';
 // @ts-ignore
 import { wallet } from '@hathor/wallet-lib';
 import logger from './logger';
+import { isNumber, isNil, get } from 'lodash';
 
 dotenv.config();
 
@@ -79,8 +80,8 @@ export const downloadTxFromId = async (txId: string): Promise<FullTx | null> => 
 
   const txData: RawTxResponse = await downloadTx(txId);
   const { tx, meta } = txData;
-  return parseTx(tx);
 
+  return parseTx(tx);
 };
 
 /**
@@ -137,8 +138,29 @@ export const recursivelyDownloadTx = async (blockId: string, txIds: string[] = [
       !data.has(parent)
   });
 
-  return recursivelyDownloadTx(blockId, [...txIds, ...newParents], data.set(parsedTx.txId, parsedTx));
+  const newData = data.set(parsedTx.txId, cleanInvalidOutputs(parsedTx));
+
+  return recursivelyDownloadTx(blockId, [...txIds, ...newParents], newData);
 };
+
+/**
+ * Removes invalid tx outputs from the received tx
+ *
+ * @param tx - `FullTx` to remove the invalid outputs
+ */
+export const cleanInvalidOutputs = (tx: FullTx) => ({
+  ...tx,
+  // Filter outputs that we can't handle (script was unable to be decoded)
+  outputs: tx.outputs.filter((output, index) => {
+    const validDecoded = !isNil(get(output, 'decoded.type'));
+
+    if (!validDecoded) {
+      logger.warn(`Ignoring tx output with index ${index} from tx ${tx.txId} as script couldn't be decoded.`);
+    }
+
+    return validDecoded;
+  }),
+});
 
 /**
  * Prepares a transaction to be sent to the wallet-service `onNewTxRequest`
@@ -237,9 +259,9 @@ export const parseTx = (tx: RawTx): FullTx => {
       const typedDecodedScript: DecodedScript = {
         type: input.decoded.type as string,
         address: input.decoded.address as string,
-        timelock: input.decoded.timelock ? input.decoded.timelock as number : null,
-        value: input.decoded.value ? input.decoded.value as number : null,
-        tokenData: input.decoded.token_data ? input.decoded.token_data as number : null,
+        timelock: isNumber(input.decoded.timelock) ? input.decoded.timelock as number : null,
+        value: isNumber(input.decoded.value) ? input.decoded.value as number : null,
+        tokenData: isNumber(input.decoded.token_data) ? input.decoded.token_data as number : null,
       };
       const typedInput: Input = {
         txId: input.tx_id as string,
@@ -256,9 +278,9 @@ export const parseTx = (tx: RawTx): FullTx => {
       const typedDecodedScript: DecodedScript = {
         type: output.decoded.type as string,
         address: output.decoded.address as string,
-        timelock: output.decoded.timelock ? output.decoded.timelock as number : null,
-        value: output.decoded.value ? output.decoded.value as number : null,
-        tokenData: output.decoded.token_data ? output.decoded.token_data as number : null,
+        timelock: isNumber(output.decoded.timelock) ? output.decoded.timelock as number : null,
+        value: isNumber(output.decoded.value) ? output.decoded.value as number : null,
+        tokenData: isNumber(output.decoded.token_data) ? output.decoded.token_data as number : null,
       };
 
       const typedOutput: Output = {
@@ -311,7 +333,7 @@ export async function* syncLatestMempool(): AsyncGenerator<MempoolEvent> {
       return;
     }
 
-    const preparedTx: PreparedTx = prepareTx(tx);
+    const preparedTx: PreparedTx = prepareTx(cleanInvalidOutputs(tx));
 
     try {
       const sendTxResponse: ApiResponse = await sendTx(preparedTx);
