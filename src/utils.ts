@@ -151,11 +151,11 @@ export const recursivelyDownloadTx = async (blockId: string, txIds: string[] = [
 export const cleanInvalidOutputs = (tx: FullTx) => ({
   ...tx,
   // Filter outputs that we can't handle (script was unable to be decoded)
-  outputs: tx.outputs.filter((output) => {
+  outputs: tx.outputs.filter((output, index) => {
     const validDecoded = !isNil(get(output, 'decoded.type'));
 
     if (!validDecoded) {
-      logger.warn(`Ignoring tx output from tx ${tx.txId} as script couldn't be decoded.`);
+      logger.warn(`Ignoring tx output with index ${index} from tx ${tx.txId} as script couldn't be decoded.`);
     }
 
     return validDecoded;
