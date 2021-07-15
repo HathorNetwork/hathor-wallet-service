@@ -20,6 +20,7 @@ export interface DecodedScript {
   address: string,
   timelock?: number,
 }
+
 export const MOCK_FULL_TXS: FullTx[] = [{
   txId: '0000000033a3bb347e0401d85a70b38f0aa7b5e37ea4c70d7dacf8e493946e64',
   nonce: '2553516830',
@@ -269,4 +270,100 @@ export const MOCK_CREATE_TOKEN_TX: RawTxResponse = {
     first_block: "000000bd45ecc5119963cc3fa03e894f574e69811eef266ed7c6a0d4c1e1806c"
   },
   spent_outputs: {}
-}
+};
+
+export const MOCK_NFT_TX: RawTxResponse = {
+  "success": true,
+  "tx": {
+    "hash": "0055c424b9038b0a8888b574ccdb1933a007fdfc15b91a4b38a48cc883b540bf",
+    "nonce": "389",
+    "timestamp": 1626187098,
+    "version": 2,
+    "weight": 8.0,
+    "parents": [
+      "0055b20066e8168ad8f05e82d66a34d19970cfb1861281735215cdd84744d842",
+      "00bb42880bd1183ce34df2185d1431f531a0a95af3556e368fa72e462edf7a9f"
+    ],
+    "inputs": [{
+      "value": 2,
+      "token_data": 0,
+      "script": "dqkU8uf1ieRE8taN5bCNug5z5UHMO6eIrA==",
+      "decoded": {
+        "type": "P2PKH",
+        "address": "WkpQH9t4ue4LbTQKAEWssiXnYHC8CyMp7J",
+        "timelock": null,
+        "value": 2,
+        "token_data": 0
+      },
+      "tx_id": "0055b20066e8168ad8f05e82d66a34d19970cfb1861281735215cdd84744d842",
+      "index": 1
+    }],
+    "outputs": [{
+        "value": 1,
+        "token_data": 0,
+        "script": "TFFodHRwczovL2lwZnMuaW8vaXBmcy9RbWJIdEZrWWlGSG5XdEV6bm01RFFHTVNOSmdwTExXeDdRNlBxdHAxb0NiQlpwL21ldGFkYXRhLmpzb26s",
+        "decoded": {}
+      },
+      {
+        "value": 2,
+        "token_data": 129,
+        "script": "dqkUYpULlr3iJ6sZbP3YIfgL52fasneIrA==",
+        "decoded": {
+          "type": "P2PKH",
+          "address": "WXfHeaEtr3fS9ex42V5chr2jY7wb5tdcWD",
+          "timelock": null,
+          "value": 2,
+          "token_data": 129
+        }
+      },
+      {
+        "value": 1,
+        "token_data": 1,
+        "script": "dqkUYpULlr3iJ6sZbP3YIfgL52fasneIrA==",
+        "decoded": {
+          "type": "P2PKH",
+          "address": "WXfHeaEtr3fS9ex42V5chr2jY7wb5tdcWD",
+          "timelock": null,
+          "value": 1,
+          "token_data": 1
+        }
+      }
+    ],
+    "tokens": [{
+      "uid": "0055c424b9038b0a8888b574ccdb1933a007fdfc15b91a4b38a48cc883b540bf",
+      "name": "Furia Special Edition",
+      "symbol": "DPL9"
+    }],
+    "token_name": "Furia Special Edition",
+    "token_symbol": "DPL9",
+    "raw": "000201030055b20066e8168ad8f05e82d66a34d19970cfb1861281735215cdd84744d8420100694630440220692c2a95bbb335729520bc1717d9b6da7361ebfc5fb500e6ac45ed4243b4912202201980930659406e06a0f0117a9eb01a29f06faaebf9e4ec58cc96941681043a2e21020377708f22ac1e829c9cfbfd891bb99a47f460bf45d71f4841db404cbefdcb93000000010000544c5168747470733a2f2f697066732e696f2f697066732f516d624874466b596946486e5774457a6e6d354451474d534e4a67704c4c577837513650717470316f4362425a702f6d657461646174612e6a736f6eac0000000281001976a91462950b96bde227ab196cfdd821f80be767dab27788ac0000000101001976a91462950b96bde227ab196cfdd821f80be767dab27788ac01154675726961205370656369616c2045646974696f6e0444504c39402000000000000060eda55a020055b20066e8168ad8f05e82d66a34d19970cfb1861281735215cdd84744d84200bb42880bd1183ce34df2185d1431f531a0a95af3556e368fa72e462edf7a9f00000185"
+  },
+  "meta": {
+    "hash": "0055c424b9038b0a8888b574ccdb1933a007fdfc15b91a4b38a48cc883b540bf",
+    "spent_outputs": [
+      [
+        0,
+        []
+      ],
+      [
+        1,
+        []
+      ],
+      [
+        2,
+        []
+      ]
+    ],
+    "received_by": [],
+    "children": [],
+    "conflict_with": [],
+    "voided_by": [],
+    "twins": [],
+    "accumulated_weight": 8.0,
+    "score": 0,
+    "height": 0,
+    "first_block": "000000b17b22dd27fb1205a1f810a2c4d40de1e20af140e001529642c4b173a1",
+    "validation": "full"
+  },
+  "spent_outputs": {}
+};
