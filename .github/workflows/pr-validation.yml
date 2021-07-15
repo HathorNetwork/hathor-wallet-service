@@ -65,6 +65,7 @@ jobs:
           CI_DB_PORT: 3306
       - name: Run Tests
         run: |
+          npm run lint
           npm run test
         env:
           NODE_ENV: test
