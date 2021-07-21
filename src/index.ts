@@ -45,10 +45,11 @@ const handleMessage = (message: any) => {
        * the machine, triggering a download if new blocks were generated.
        */
       if (message.state === Connection.CONNECTED) {
+        logger.info('Websocket connected.');
         machine.send({ type: 'NEW_BLOCK' });
       }
       if (message.state === Connection.CONNECTING) {
-        logger.error(`Websocket is attempting to connect to ${process.env.DEFAULT_SERVER}`);
+        logger.info(`Websocket is attempting to connect to ${process.env.DEFAULT_SERVER}`);
       }
       if (message.state === Connection.CLOSED) {
         logger.error('Websocket connection was closed.');
