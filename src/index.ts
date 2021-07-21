@@ -47,14 +47,21 @@ const handleMessage = (message: any) => {
       if (message.state === Connection.CONNECTED) {
         machine.send({ type: 'NEW_BLOCK' });
       }
+      if (message.state === Connection.CONNECTING) {
+        logger.error(`Websocket is attempting to connect to ${process.env.DEFAULT_SERVER}`);
+      }
+      if (message.state === Connection.CLOSED) {
+        logger.error('Websocket connection was closed.');
+      }
       break;
   }
 };
 
-machine.start();
-
 const DEFAULT_SERVER = process.env.DEFAULT_SERVER;
-const conn = new Connection({ network: process.env.NETWORK, servers: [DEFAULT_SERVER] });
+const conn = new Connection({
+  network: process.env.NETWORK,
+  servers: [DEFAULT_SERVER],
+});
 
 // @ts-ignore
 conn.websocket.on('network', (message) => handleMessage(message));
@@ -63,4 +70,10 @@ conn.on('state', (state) => handleMessage({
   type: 'state_update',
   state,
 }));
+// @ts-ignore
+conn.websocket.on('connection_error', (evt) => {
+  logger.error(`Websocket connection error: ${evt.message}`);
+});
+
+machine.start();
 conn.start();
