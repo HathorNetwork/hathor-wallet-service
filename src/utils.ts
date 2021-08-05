@@ -455,6 +455,7 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
           throw new Error(sendTxResponse.message);
         }
       } catch (e) {
+        logger.error(e);
         yield {
           type: 'transaction_failure',
           success: false,
