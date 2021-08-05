@@ -429,7 +429,6 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
 
     // Download block transactions
     const txList: Map<string, FullTx> = await recursivelyDownloadTx(block.txId, blockTxs);
-
     const txs: FullTx[] = Array.from(txList.values()).sort((x, y) => x.timestamp - y.timestamp);
 
     // Exclude duplicates:
@@ -446,7 +445,10 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
 
     txLoop:
       for (const key of Object.keys(uniqueTxs)) {
-      const preparedTx: PreparedTx = prepareTx(uniqueTxs[key]);
+      const preparedTx: PreparedTx = prepareTx({
+        ...uniqueTxs[key],
+        height: block.height, // this tx is confirmed by the current block on the loop, we must send its height
+      });
 
       try {
         const sendTxResponse: ApiResponse = await sendTx(preparedTx);
@@ -455,6 +457,7 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
           throw new Error(sendTxResponse.message);
         }
       } catch (e) {
+        logger.error(e);
         yield {
           type: 'transaction_failure',
           success: false,

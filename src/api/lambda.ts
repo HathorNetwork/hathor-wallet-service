@@ -54,7 +54,8 @@ export const lambdaCall = (fnName: string, payload: any): Promise<any> => new Pr
 
             resolve(body);
           } catch(e) {
-            logger.error(`Erroed parsing response body: ${data}`);
+            logger.error(`Erroed on lambda call to ${fnName} with payload: ${JSON.stringify(payload)}`);
+            logger.error(e);
 
             return reject(e.message);
           }
