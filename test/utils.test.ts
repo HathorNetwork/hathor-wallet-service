@@ -40,6 +40,41 @@ beforeEach(async () => {
   jest.clearAllMocks();
 });
 
+test('syncToLatestBlock should send transaction height for every block tx', async () => {
+  expect.hasAssertions();
+
+  const getFullNodeBestBlockSpy = jest.spyOn(FullNode, 'getFullNodeBestBlock');
+  const getWalletServiceBestBlockSpy = jest.spyOn(Lambda, 'getWalletServiceBestBlock');
+  const getBlockByTxIdSpy = jest.spyOn(FullNode, 'getBlockByTxId');
+  const downloadBlockByHeightSpy = jest.spyOn(FullNode, 'downloadBlockByHeight');
+  const recursivelyDownloadTxSpy = jest.spyOn(Utils, 'recursivelyDownloadTx');
+  const sendTxSpy = jest.spyOn(Lambda, 'sendTx');
+
+  getFullNodeBestBlockSpy.mockReturnValue(Promise.resolve(generateBlock(MOCK_TXS[0], 1)));
+  getWalletServiceBestBlockSpy.mockReturnValue(Promise.resolve(generateBlock(MOCK_TXS[1], 0)));
+  getBlockByTxIdSpy.mockReturnValue(Promise.resolve(OUR_BEST_BLOCK_API_RESPONSE));
+  downloadBlockByHeightSpy.mockReturnValue(Promise.resolve(BLOCK_BY_HEIGHT));
+  recursivelyDownloadTxSpy.mockReturnValue(Promise.resolve(new Map<string, FullTx>([
+    [MOCK_FULL_TXS[0].txId, MOCK_FULL_TXS[0]],
+  ])));
+
+  const mockSendTxImplementation = jest.fn((tx) => {
+    return Promise.resolve({
+      success: true,
+    });
+  });
+
+  const mockFn = sendTxSpy.mockImplementation(mockSendTxImplementation);
+  const iterator = syncToLatestBlock();
+
+  await iterator.next();
+
+  expect(mockFn).toHaveBeenCalledWith(prepareTx({
+    ...MOCK_FULL_TXS[0],
+    height: BLOCK_BY_HEIGHT.height,
+  }));
+});
+
 test('syncToLatestBlockGen should yield an error when the latest block from the wallet-service is_voided', async () => {
   expect.hasAssertions();
 
