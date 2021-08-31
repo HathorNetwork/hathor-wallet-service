@@ -2,7 +2,7 @@ name: deploy
 
 on:
   push:
-    branches: [dev, master]
+    branches: [dev, master, ci/deploy]
     tags: ['v*.*.*']
 
 env:
@@ -35,6 +35,15 @@ jobs:
           export DOCKER_IMAGE_TAG=${GITHUB_REF#refs/*/}
           make build-and-push-docker
       # TODO Send message to Slack
+      - name: Slack Notification
+        uses: rtCamp/action-slack-notify@28e8b353eabda5998a2e1203aed33c5999944779
+        env:
+          SLACK_CHANNEL: deploys
+          SLACK_COLOR: ${{ job.status }} # or a specific color like 'good' or '#ff00ff'
+          SLACK_MESSAGE: 'Check if there is a commit here to make sure the deploy worked: https://github.com/HathorNetwork/ops-tools/commits/master'
+          SLACK_TITLE: 'WalletServiceDaemon - Deploying new image :rocket:'
+          SLACK_USERNAME: HathorSlack
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
       - name: Clean
         run: |
           rm /home/runner/.docker/config.json
