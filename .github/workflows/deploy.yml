@@ -21,6 +21,8 @@ jobs:
         if: github.ref == 'refs/heads/dev'
         run: |
           make build-and-push-docker
+
+          echo "environment=dev-testnet" >> $GITHUB_ENV
       - name: Push Testnet Image
         if: github.ref == 'refs/heads/master'
         run: |
@@ -29,21 +31,27 @@ jobs:
           export DOCKER_IMAGE_TAG="master-$commit-$timestamp";
 
           make build-and-push-docker
+
+          echo "environment=testnet" >> $GITHUB_ENV
       - name: Push Mainnet Image
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           export DOCKER_IMAGE_TAG=${GITHUB_REF#refs/*/}
           make build-and-push-docker
+
+          echo "environment=mainnet" >> $GITHUB_ENV
       # TODO Send message to Slack
       - name: Slack Notification
         uses: rtCamp/action-slack-notify@28e8b353eabda5998a2e1203aed33c5999944779
         env:
           SLACK_CHANNEL: deploys
           SLACK_COLOR: ${{ job.status }} # or a specific color like 'good' or '#ff00ff'
-          SLACK_MESSAGE: 'Check if there is a commit here to make sure the deploy worked: https://github.com/HathorNetwork/ops-tools/commits/master'
-          SLACK_TITLE: 'WalletServiceDaemon - Deploying new image :rocket:'
+          SLACK_MESSAGE: 'Make sure the image is correctly deployed by checking if a new commit by fluxcdbot was made: https://github.com/HathorNetwork/ops-tools/commits/master'
+          SLACK_TITLE: 'WalletServiceDaemon - new ${{ env.environment }} Docker image pushed :rocket:'
           SLACK_USERNAME: HathorSlack
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_FOOTER: ''
+          MSG_MINIMAL: actions url
       - name: Clean
         run: |
           rm /home/runner/.docker/config.json
