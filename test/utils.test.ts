@@ -25,7 +25,6 @@ import {
 import {
   prepareTx,
   parseTx,
-  cleanInvalidOutputs,
 } from '../src/utils';
 import * as Utils from '../src/utils';
 import * as FullNode from '../src/api/fullnode';
@@ -300,14 +299,3 @@ test('prepareTx on a CREATE_TOKEN tx should have token_name and token_symbol', a
   expect(preparedTx.token_name).toStrictEqual('XCoin');
   expect(preparedTx.token_symbol).toStrictEqual('XCN');
 }, 500);
-
-test('cleanInvalidOutputs on NFT transaction', async () => {
-  expect.hasAssertions();
-
-  const { tx } = MOCK_NFT_TX;
-  const parsedTx = parseTx(tx);
-
-  const cleanedTx = cleanInvalidOutputs(parsedTx);
-
-  expect(cleanedTx.outputs.length).toStrictEqual(2);
-});
