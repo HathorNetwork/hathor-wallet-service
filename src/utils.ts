@@ -224,9 +224,7 @@ export const prepareTx = (tx: FullTx | FullBlock): PreparedTx => {
         );
       }
 
-      if (!output.decoded
-          || isEmpty(output.decoded)
-          || !output.decoded.type) {
+      if (!output.decoded || isEmpty(output.decoded) || !output.decoded.type) {
         return baseOutput;
       }
 
