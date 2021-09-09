@@ -36,7 +36,7 @@ import dotenv from 'dotenv';
 // @ts-ignore
 import { wallet } from '@hathor/wallet-lib';
 import logger from './logger';
-import { isNumber } from 'lodash';
+import { isNumber, isEmpty } from 'lodash';
 
 dotenv.config();
 
@@ -222,6 +222,12 @@ export const prepareTx = (tx: FullTx | FullBlock): PreparedTx => {
         throw new Error(
           'Output is a token but there are no tokens in the tokens list.'
         );
+      }
+
+      if (!output.decoded
+          || isEmpty(output.decoded)
+          || !output.decoded.type) {
+        return baseOutput;
       }
 
       const { uid } = tx.tokens[
