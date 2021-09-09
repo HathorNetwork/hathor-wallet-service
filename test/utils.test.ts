@@ -14,6 +14,7 @@ import {
   BLOCK_BY_HEIGHT,
   MOCK_TXS,
   MOCK_FULL_TXS,
+  MOCK_NFT_TX,
   MOCK_CREATE_TOKEN_TX,
   generateBlock,
 } from './utils';
