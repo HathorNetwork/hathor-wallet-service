@@ -14,6 +14,7 @@ import {
   BLOCK_BY_HEIGHT,
   MOCK_TXS,
   MOCK_FULL_TXS,
+  MOCK_NFT_TX,
   MOCK_CREATE_TOKEN_TX,
   generateBlock,
 } from './utils';
@@ -390,4 +391,16 @@ test('prepareTx on a CREATE_TOKEN tx should have token_name and token_symbol', a
 
   expect(preparedTx.token_name).toStrictEqual('XCoin');
   expect(preparedTx.token_symbol).toStrictEqual('XCN');
+}, 500);
+
+test('prepareTx on a NFT transaction should not throw', async () => {
+  expect.hasAssertions();
+
+  const { tx } = MOCK_NFT_TX;
+  const parsedTx = parseTx(tx);
+  const preparedTx = prepareTx(parsedTx);
+
+  expect(preparedTx.outputs[0].decoded.type).toStrictEqual(undefined);
+  expect(preparedTx.outputs[0].value).toStrictEqual(1);
+  expect(preparedTx.outputs[0].token_data).toStrictEqual(0);
 }, 500);
