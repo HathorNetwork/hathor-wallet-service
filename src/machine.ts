@@ -228,6 +228,7 @@ export const SyncMachine = Machine<SyncContext, SyncSchema>(
       },
       failure: {
         type: 'final',
+        entry: ['logFailure'],
       },
     },
   },
@@ -237,6 +238,10 @@ export const SyncMachine = Machine<SyncContext, SyncSchema>(
       hasMempoolUpdate: ctx => ctx.hasMempoolUpdate,
     },
     actions: {
+      // @ts-ignore
+      logFailure: () => {
+        logger.error('[ALERT] Machine transitioned to failure state.');
+      },
       // @ts-ignore
       resetMoreBlocks: assign({
         hasMoreBlocks: () => false,
