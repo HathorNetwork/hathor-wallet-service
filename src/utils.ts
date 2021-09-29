@@ -344,7 +344,7 @@ export async function* syncLatestMempool(): AsyncGenerator<MempoolEvent> {
       yield {
         type: 'error',
         success: false,
-        message: `Failure on transaction ${mempoolResp.transactions[i]} in mempool`,
+        message: `[ALERT] Failure on transaction ${mempoolResp.transactions[i]} in mempool`,
       };
       return;
     }
@@ -361,7 +361,7 @@ export async function* syncLatestMempool(): AsyncGenerator<MempoolEvent> {
       yield {
         type: 'error',
         success: false,
-        message: `Failure on transaction ${preparedTx.tx_id} in mempool`,
+        message: `[ALERT] Failure on transaction ${preparedTx.tx_id} in mempool`,
       };
       return;
     }
