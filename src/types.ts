@@ -11,8 +11,8 @@ export interface Block {
 }
 
 export interface DecodedScript {
-  type: string;
-  address: string;
+  type?: string;
+  address?: string;
   timelock?: number | undefined | null;
   value?: number | undefined | null;
   tokenData?: number | undefined | null;
@@ -87,14 +87,16 @@ export interface DownloadBlockApiResponse extends ApiResponse {
 export interface SyncSchema {
   states: {
     idle: {};
+    mempoolsync: {};
     syncing: {};
     failure: {};
     reorg: {};
-  }
+  };
 }
 
 export interface SyncContext {
   hasMoreBlocks: boolean;
+  hasMempoolUpdate: boolean;
   error?: {};
 }
 
@@ -109,31 +111,60 @@ export interface HandlerEvent {
   type: string;
 }
 
-export type StatusEvent = {
-  type: 'finished';
-  success: boolean;
-  message?: string;
-} | {
-  type: 'block_success';
-  success: boolean;
-  height?: number;
-  blockId: string;
-  message?: string;
-  transactions: string[];
-} | {
-  type: 'transaction_failure';
-  success: boolean;
-  message?: string;
-} | {
-  type: 'reorg';
-  success: boolean;
-  message?: string;
-} | {
-  type: 'error';
-  success: boolean;
-  message?: string;
-  error?: string;
-}
+export type StatusEvent =
+  | {
+      type: 'finished';
+      success: boolean;
+      message?: string;
+    }
+  | {
+      type: 'block_success';
+      success: boolean;
+      height?: number;
+      blockId: string;
+      message?: string;
+      transactions: string[];
+    }
+  | {
+      type: 'transaction_failure';
+      success: boolean;
+      message?: string;
+    }
+  | {
+      type: 'reorg';
+      success: boolean;
+      message?: string;
+    }
+  | {
+      type: 'error';
+      success: boolean;
+      message?: string;
+      error?: string;
+    };
+
+export type MempoolEvent =
+  | {
+      type: 'finished';
+      success: boolean;
+      message?: string;
+    }
+  | {
+      type: 'tx_success';
+      success: boolean;
+      txId: string;
+      message?: string;
+    }
+  | {
+      type: 'wait';
+      success: boolean;
+      message?: string;
+    }
+  | {
+      type: 'error';
+      success: boolean;
+      message?: string;
+      error?: string;
+    };
 
 /* export interface StatusEvent {
   type: string;
@@ -150,6 +181,11 @@ export interface GeneratorYieldResult<StatusEvent> {
   value: StatusEvent;
 }
 
+export interface GeneratorYieldResult<StatusEvent> {
+  done?: boolean;
+  value: StatusEvent;
+}
+
 export interface PreparedDecodedScript {
   type: string;
   address: string;
@@ -159,6 +195,7 @@ export interface PreparedDecodedScript {
 }
 
 export interface PreparedInput {
+  tx_id: string;
   value: number;
   token_data: number;
   script: string;
@@ -199,12 +236,15 @@ export interface RawDecodedInput {
   token_data: number;
 }
 
+/* Everything is optional because scripts that were not able to
+ * be decoded will be returned as {}
+ */
 export interface RawDecodedOutput {
-  type: string;
-  address: string;
+  type?: string;
+  address?: string;
   timelock?: number | null;
-  value: number;
-  token_data: number;
+  value?: number;
+  token_data?: number;
 }
 
 export interface RawInput {
@@ -253,6 +293,7 @@ export interface Meta {
   accumulated_weight: number;
   score: number;
   height: number;
+  validation?: string;
   first_block?: string | null;
 }
 

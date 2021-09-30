@@ -17,17 +17,17 @@ You need nodejs installed on your enviroment, we are using the latest Active LTS
 Example:
 
 ```
-STAGE=local
 NETWORK=testnet
 MAX_ADDRESS_GAP=20
-SERVICE_NAME=hathor-wallet-service
+WALLET_SERVICE_NAME=hathor-wallet-service
+WALLET_SERVICE_STAGE=local
 DEFAULT_SERVER=http://fullnode_url/v1a/
 ```
 
-`STAGE` - Wallet-Service's deployment stage, e.g. `local`, `production`, `staging`
 `NETWORK` - The current hathor network we want to connect to
 `MAX_ADDRESS_GAP` - The full-node configured GAP between addresses
-`SERVICE_NAME` - The Wallet-Service's service name as it was registered on AWS
+`WALLET_SERVICE_NAME` - The Wallet-Service's service name as it was registered on AWS
+`WALLET_SERVICE_STAGE` - Wallet-Service's deployment stage, e.g. `local`, `production`, `staging`
 `DEFAULT_SERVER` - The full-node API url
 
 If the wallet-service is not running locally, you also need to specify the AWS-SDK env variables:
@@ -55,7 +55,7 @@ The recommended way to deploy this service is to use docker.
 #### Running:
 
 ```
-docker run -d -e STAGE="production" \
+docker run -d -e WALLET_SERVICE_STAGE="production" \
            -e NODE_ENV="production" \
            -e AWS_REGION="us-east-1" \
            -e AWS_DEFAULT_REGION="us-east-1" \
@@ -64,7 +64,7 @@ docker run -d -e STAGE="production" \
            -e NETWORK="testnet" \
            -e MAX_ADDRESS_GAP=20 \
            -e NETWORK="testnet" \
-           -e SERVICE_NAME="hathor-wallet-service" \
+           -e WALLET_SERVICE_NAME="hathor-wallet-service" \
            -e DEFAULT_SERVER="http://fullnode:8082/v1a/" \
            -ti localhost/hathor/sync-daemon
 ```
@@ -73,7 +73,7 @@ In this example, we are passing the env variables to the container and running a
 
 ## State Machine
 
-The state machine diagram can be visualized at https://xstate.js.org/viz/?gist=7299c0ed0ce189bc121a06dce1e11638
+The state machine diagram can be visualized at https://xstate.js.org/viz/?gist=19dd8bc6d62533add23e124ef31adb78
 
 ## States:
 

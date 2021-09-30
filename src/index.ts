@@ -13,16 +13,14 @@ import { Connection } from '@hathor/wallet-lib';
 import logger from './logger';
 
 // @ts-ignore
-const machine = interpret(SyncMachine).start();
-
-machine.onTransition(state => {
+const machine = interpret(SyncMachine).onTransition(state => {
   if (state.changed) {
     logger.debug('Transitioned to state: ', state.value);
   }
 });
 
 const handleMessage = (message: any) => {
-  switch(message.type) {
+  switch (message.type) {
     case 'dashboard:metrics':
       break;
 
@@ -31,11 +29,14 @@ const handleMessage = (message: any) => {
      * full node's best block height
      */
     case 'network:new_tx_accepted':
-      if (!message.is_block) return;
       if (message.is_voided) return;
-      if (message.type === 'network:new_tx_accepted') {
-        machine.send({ type: 'NEW_BLOCK' });
+      if (!message.is_block) {
+        // identify the tx as a mempool tx
+        if (message.first_block) return;
+        machine.send({ type: 'MEMPOOL_UPDATE' });
+        return;
       }
+      machine.send({ type: 'NEW_BLOCK' });
       break;
 
     case 'state_update':
@@ -44,20 +45,40 @@ const handleMessage = (message: any) => {
        * the machine, triggering a download if new blocks were generated.
        */
       if (message.state === Connection.CONNECTED) {
+        logger.info('Websocket connected.');
         machine.send({ type: 'NEW_BLOCK' });
       }
-    break;
+      if (message.state === Connection.CONNECTING) {
+        logger.info(
+          `Websocket is attempting to connect to ${process.env.DEFAULT_SERVER}`
+        );
+      }
+      if (message.state === Connection.CLOSED) {
+        logger.error('Websocket connection was closed.');
+      }
+      break;
   }
 };
 
 const DEFAULT_SERVER = process.env.DEFAULT_SERVER;
-const conn = new Connection({ network: process.env.NETWORK, servers: [DEFAULT_SERVER] });
+const conn = new Connection({
+  network: process.env.NETWORK,
+  servers: [DEFAULT_SERVER],
+});
 
 // @ts-ignore
-conn.websocket.on('network', (message) => handleMessage(message));
+conn.websocket.on('network', message => handleMessage(message));
 // @ts-ignore
-conn.on('state', (state) => handleMessage({
-  type: 'state_update',
-  state,
-}));
+conn.on('state', state =>
+  handleMessage({
+    type: 'state_update',
+    state,
+  })
+);
+// @ts-ignore
+conn.websocket.on('connection_error', evt => {
+  logger.error(`[ALERT] Websocket connection error: ${evt.message}`);
+});
+
+machine.start();
 conn.start();
