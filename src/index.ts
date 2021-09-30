@@ -77,7 +77,7 @@ conn.on('state', state =>
 );
 // @ts-ignore
 conn.websocket.on('connection_error', evt => {
-  logger.error(`Websocket connection error: ${evt.message}`);
+  logger.error(`[ALERT] Websocket connection error: ${evt.message}`);
 });
 
 machine.start();
