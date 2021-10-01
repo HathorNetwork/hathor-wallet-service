@@ -28,7 +28,7 @@ jobs:
         run: |
           commit=`git rev-parse HEAD`;
           timestamp=`date +%s`;
-          export DOCKER_IMAGE_TAG="master-$commit-$timestamp";
+          export DOCKER_IMAGE_TAG="testnet-$commit-$timestamp";
 
           make build-and-push-docker
 
