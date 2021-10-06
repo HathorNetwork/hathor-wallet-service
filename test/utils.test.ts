@@ -32,6 +32,7 @@ const { downloadTx } = FullNode;
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  globalCache.clear();
 });
 
 test('syncToLatestBlock should send transaction height for every block tx', async () => {
@@ -349,6 +350,31 @@ test('Dowload tx should cache transactions', async () => {
   const cachedTx = globalCache.get('tx1');
 
   expect(cachedTx).toStrictEqual({ tx_id: 'tx1' });
+}, 500);
+
+test('Dowload tx should not cache transactions if noCache is set to true', async () => {
+  expect.hasAssertions();
+
+  const axiosGetSpy = jest.spyOn(axios, 'get');
+
+  const mockAxiosGetImplementation = jest.fn(url => {
+    const [_, txId] = url.split('=');
+    // is tx
+    return Promise.resolve({
+      success: true,
+      data: {
+        tx_id: txId,
+      },
+    });
+  });
+
+  axiosGetSpy.mockImplementation(mockAxiosGetImplementation);
+
+  await downloadTx('tx1', true);
+
+  const cachedTx = globalCache.get('tx1');
+
+  expect(cachedTx).toStrictEqual(undefined);
 }, 500);
 
 test('LRU cache', async () => {
