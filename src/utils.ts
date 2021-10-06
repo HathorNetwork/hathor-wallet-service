@@ -68,7 +68,8 @@ const TX_CACHE_SIZE: number =
  * @param txId - the id of the tx to be downloaded
  */
 export const downloadTxFromId = async (
-  txId: string
+  txId: string,
+  noCache: boolean = false
 ): Promise<FullTx | null> => {
   const network: string = process.env.NETWORK || 'mainnet';
 
@@ -82,7 +83,7 @@ export const downloadTxFromId = async (
     }
   }
 
-  const txData: RawTxResponse = await downloadTx(txId);
+  const txData: RawTxResponse = await downloadTx(txId, noCache);
   const { tx } = txData;
 
   return parseTx(tx);
@@ -364,7 +365,7 @@ export async function* syncLatestMempool(): AsyncGenerator<MempoolEvent> {
   }
 
   for (let i = 0; i < mempoolResp.transactions.length; i++) {
-    const tx = await downloadTxFromId(mempoolResp.transactions[i]);
+    const tx = await downloadTxFromId(mempoolResp.transactions[i], true); // we don't want to cache mempool transactions
 
     if (tx === null) {
       yield {
@@ -591,6 +592,10 @@ export class LRU {
 
   first(): string {
     return this.cache.keys().next().value;
+  }
+
+  clear(): void {
+    this.cache = new Map();
   }
 }
 
