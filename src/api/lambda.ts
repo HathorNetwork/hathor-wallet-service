@@ -39,7 +39,7 @@ export const lambdaCall = (fnName: string, payload: any): Promise<any> =>
     lambda.invoke(params, (err, data) => {
       if (err) {
         logger.error(
-          `Erroed on ${fnName} method call with payload: ${payload}`
+          `Erroed on ${fnName} method call with payload: ${JSON.stringify(payload)}`
         );
         logger.error(err);
         reject(err);

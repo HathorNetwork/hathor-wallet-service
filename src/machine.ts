@@ -244,7 +244,7 @@ export const SyncMachine = Machine<SyncContext, SyncSchema>(
       logFailure: () => {
         addAlert(
           `Wallet Service sync stopped on ${process.env.NETWORK}`,
-          `Machine transitioned to failure state`,
+          'Machine transitioned to failure state',
           process.env.NETWORK === 'mainnet' ? Severity.CRITICAL : Severity.MAJOR,
         );
         logger.error('Machine transitioned to failure state.');

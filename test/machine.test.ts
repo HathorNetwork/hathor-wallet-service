@@ -11,6 +11,8 @@
 
 import { interpret } from 'xstate';
 import { SyncMachine } from '../src/machine';
+import * as Lambda from '../src/api/lambda';
+import { Severity } from '../src/types';
 
 beforeAll(async () => {
   jest.clearAllMocks();
@@ -23,7 +25,7 @@ test('SyncMachine should start as idle', async () => {
   expect(syncMachine.state.value).toStrictEqual('idle');
 }, 100);
 
-test("An idle SyncMachine should transition to 'syncing' when a NEW_BLOCK action is received", async () => {
+test('An idle SyncMachine should transition to \'syncing\' when a NEW_BLOCK action is received', async () => {
   const TestSyncMachine = SyncMachine.withConfig({
     services: {
       syncHandler: () => () => {
@@ -40,7 +42,10 @@ test("An idle SyncMachine should transition to 'syncing' when a NEW_BLOCK action
   expect(syncMachine.state.value).toStrictEqual('syncing');
 }, 500);
 
-test("A SyncMachine in the syncing state should transition to 'failure' when an ERROR event is received", async () => {
+test('A SyncMachine in the syncing state should transition to \'failure\' when an ERROR event is received', async () => {
+  const addAlertSpy = jest.spyOn(Lambda, 'addAlert');
+  const addAlertMock = addAlertSpy.mockReturnValue(Promise.resolve());
+
   const TestSyncMachine = SyncMachine.withConfig({
     services: {
       syncHandler: () => () => {
@@ -59,6 +64,12 @@ test("A SyncMachine in the syncing state should transition to 'failure' when an 
   syncMachine.send({ type: 'ERROR' });
 
   expect(syncMachine.state.value).toStrictEqual('failure');
+
+  expect(addAlertMock).toHaveBeenCalledWith(
+    `Wallet Service sync stopped on ${process.env.NETWORK}`,
+    'Machine transitioned to failure state',
+    process.env.NETWORK === 'mainnet' ? Severity.CRITICAL : Severity.MAJOR,
+  );
 }, 500);
 
 test('A SyncMachine in the syncing state should store hasMoreBlocks on context if a NEW_BLOCK event is received', async () => {
@@ -166,6 +177,8 @@ test("A SyncMachine should clear hasMoreBlocks from context when transitioning t
 }, 500);
 
 test('A SyncMachine should call the cleanupFn on the syncHandler service when state is transitioned out of syncing', async () => {
+  const addAlertSpy = jest.spyOn(Lambda, 'addAlert');
+  const addAlertMock = addAlertSpy.mockReturnValue(Promise.resolve());
   const mockCleanupFunction = jest.fn();
 
   const TestSyncMachine = SyncMachine.withConfig({
@@ -210,12 +223,21 @@ test('A SyncMachine should call the cleanupFn on the syncHandler service when st
   syncMachine.send({ type: 'ERROR' });
 
   expect(syncMachine.state.value).toStrictEqual('failure');
+  expect(addAlertMock).toHaveBeenCalledWith(
+    `Wallet Service sync stopped on ${process.env.NETWORK}`,
+    'Machine transitioned to failure state',
+    process.env.NETWORK === 'mainnet' ? Severity.CRITICAL : Severity.MAJOR,
+  );
 
   expect(mockCleanupFunction).toHaveBeenCalledTimes(3);
 }, 500);
 
-test("The SyncMachine should transition to 'reorg' state when a reorg is detected", async () => {
+test('The SyncMachine should transition to \'reorg\' state when a reorg is detected', async () => {
   const mockCleanupFunction = jest.fn();
+  const addAlertSpy = jest.spyOn(Lambda, 'addAlert');
+  const invokeReorgSpy = jest.spyOn(Lambda, 'invokeReorg');
+  addAlertSpy.mockReturnValue(Promise.resolve());
+  invokeReorgSpy.mockReturnValue(Promise.resolve({ success: true }));
 
   const TestSyncMachine = SyncMachine.withConfig({
     services: {
