@@ -14,9 +14,10 @@ import {
   MempoolEvent,
   SyncContext,
   SyncSchema,
+  Severity,
 } from './types';
 import logger from './logger';
-import { invokeReorg } from './api/lambda';
+import { invokeReorg, addAlert } from './api/lambda';
 
 // @ts-ignore
 export const syncHandler = () => (callback, onReceive) => {
@@ -241,7 +242,12 @@ export const SyncMachine = Machine<SyncContext, SyncSchema>(
     actions: {
       // @ts-ignore
       logFailure: () => {
-        logger.error('[ALERT] Machine transitioned to failure state.');
+        addAlert(
+          `Wallet Service sync stopped on ${process.env.NETWORK}`,
+          `Machine transitioned to failure state`,
+          process.env.NETWORK === 'mainnet' ? Severity.CRITICAL : Severity.MAJOR,
+        );
+        logger.error('Machine transitioned to failure state.');
       },
       // @ts-ignore
       resetMoreBlocks: assign({
