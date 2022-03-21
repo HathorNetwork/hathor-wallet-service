@@ -133,7 +133,7 @@ test('syncToLatestBlockGen should yield an error when the latest block from the 
   );
 }, 500);
 
-test("syncToLatestBlockGen should yield an error when our best block height is higher than the fullnode's", async () => {
+test('syncToLatestBlockGen should yield an error when our best block height is higher than the fullnode\'s', async () => {
   expect.hasAssertions();
 
   const getFullNodeBestBlockSpy = jest.spyOn(FullNode, 'getFullNodeBestBlock');
