@@ -41,6 +41,7 @@ export const syncHandler = () => (callback, onReceive) => {
         }
 
         logger.error(value.message);
+
         callback('ERROR');
         return;
       }
