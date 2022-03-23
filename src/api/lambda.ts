@@ -7,7 +7,7 @@
 
 import AWS from 'aws-sdk';
 import logger from '../logger';
-import { PreparedTx, ApiResponse, Block } from '../types';
+import { PreparedTx, ApiResponse, Block, Severity } from '../types';
 
 AWS.config.update({
   region: process.env.AWS_REGION,
@@ -39,7 +39,7 @@ export const lambdaCall = (fnName: string, payload: any): Promise<any> =>
     lambda.invoke(params, (err, data) => {
       if (err) {
         logger.error(
-          `Erroed on ${fnName} method call with payload: ${payload}`
+          `Erroed on ${fnName} method call with payload: ${JSON.stringify(payload)}`
         );
         logger.error(err);
         reject(err);
@@ -66,6 +66,43 @@ export const lambdaCall = (fnName: string, payload: any): Promise<any> =>
       }
     });
   });
+
+
+/**
+ * Adds a message to the SQS alerting queue
+ *
+ * @param fnName - The lambda function name
+ * @param payload - The payload to be sent
+ */
+export const addAlert = async (title: string, message: string, severity: Severity, metadata?: any): Promise<void> => {
+  const preparedMessage = {
+    title,
+    message,
+    severity,
+    metadata,
+    application: process.env.APPLICATION_NAME,
+  };
+
+  const sqs = new AWS.SQS({ apiVersion: '2015-03-31' });
+
+  const params = {
+    MessageBody: JSON.stringify(preparedMessage),
+    QueueUrl: process.env.ALERT_QUEUE_URL as string,
+    MessageAttributes: {
+      None: {
+        DataType: 'String',
+        StringValue: '--',
+      },
+    }
+  };
+
+  sqs.sendMessage(params, (err) => {
+    if (err) {
+      logger.error('[ALERT] Erroed while sending message to the alert sqs queue');
+      logger.error(err);
+    }
+  });
+}
 
 /**
  * Calls the onHandleReorgRequest lambda function

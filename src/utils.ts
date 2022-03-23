@@ -23,6 +23,7 @@ import {
   RawTx,
   RawInput,
   RawOutput,
+  Severity,
 } from './types';
 import {
   downloadTx,
@@ -31,7 +32,7 @@ import {
   getFullNodeBestBlock,
   downloadBlockByHeight,
 } from './api/fullnode';
-import { getWalletServiceBestBlock, sendTx } from './api/lambda';
+import { getWalletServiceBestBlock, sendTx, addAlert } from './api/lambda';
 import dotenv from 'dotenv';
 // @ts-ignore
 import { wallet } from '@hathor/wallet-lib';
@@ -325,7 +326,7 @@ export const parseTx = (tx: RawTx): FullTx => {
  * @yields {MempoolEvent}
  */
 export async function* syncLatestMempool(): AsyncGenerator<MempoolEvent> {
-  logger.info(`Downloading mempool...`);
+  logger.info(`Downloading mempool.`);
   let mempoolResp;
   try {
     mempoolResp = await downloadMempool();
@@ -342,10 +343,19 @@ export async function* syncLatestMempool(): AsyncGenerator<MempoolEvent> {
     const tx = await downloadTxFromId(mempoolResp.transactions[i], true); // we don't want to cache mempool transactions
 
     if (tx === null) {
+      addAlert(
+        'Failure to download tx from mempool',
+        `Failure to download transaction ${mempoolResp.transactions[i]} from mempool`,
+        Severity.WARNING, // Transaction will be downloaded again when it's confirmed by a block
+        {
+          'MempoolLength': mempoolResp.transactions.length,
+          'TxId': mempoolResp.transactions[i],
+        },
+      );
       yield {
         type: 'error',
         success: false,
-        message: `[ALERT] Failure on transaction ${mempoolResp.transactions[i]} in mempool`,
+        message: `Failure on transaction ${mempoolResp.transactions[i]} in mempool`,
       };
       return;
     }
@@ -359,10 +369,19 @@ export async function* syncLatestMempool(): AsyncGenerator<MempoolEvent> {
         throw new Error(sendTxResponse.message);
       }
     } catch (e) {
+      addAlert(
+        'Failure to send mempool tx to the wallet service',
+        `Failure to send transaction ${tx.txId} from mempool to the wallet service`,
+        Severity.WARNING, // Transaction will be downloaded again when it's confirmed by a block
+        {
+          'MempoolLength': mempoolResp.transactions.length,
+          'TxId': mempoolResp.transactions[i],
+        },
+      );
       yield {
         type: 'error',
         success: false,
-        message: `[ALERT] Failure on transaction ${preparedTx.tx_id} in mempool: ${e.message}`,
+        message: `Failure on transaction ${preparedTx.tx_id} in mempool: ${e.message}`,
       };
       return;
     }
@@ -403,12 +422,32 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
       message: 'Best block not found in the full-node. Reorg?',
     };
 
+    addAlert(
+      `Potential re-org on ${process.env.NETWORK}`,
+      `Best block not found in the full-node.`,
+      Severity.INFO,
+      {
+        'Wallet Service best block': ourBestBlock.txId,
+        'Fullnode best block': fullNodeBestBlock.txId,
+      },
+    );
+
     return;
   }
 
   const { meta } = ourBestBlockInFullNode;
 
   if (meta.voided_by && meta.voided_by.length && meta.voided_by.length > 0) {
+    addAlert(
+      `Re-org on ${process.env.NETWORK}`,
+      `The daemon's best block has been voided, handling re-org`,
+      Severity.INFO,
+      {
+        'Wallet Service best block': ourBestBlock.txId,
+        'Fullnode best block': fullNodeBestBlock.txId,
+      },
+    );
+
     yield {
       type: 'reorg',
       success: false,
@@ -419,11 +458,20 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
   }
 
   if (ourBestBlock.height > meta.height) {
+    addAlert(
+      `Re-org on ${process.env.NETWORK}`,
+      `The downloaded height (${ourBestBlock.height}) is higher than the wallet service height (${meta.height})`,
+      Severity.INFO,
+      {
+        'Wallet Service best block': ourBestBlock.txId,
+        'Fullnode best block': fullNodeBestBlock.txId,
+      },
+    );
+
     yield {
       type: 'reorg',
       success: false,
-      message:
-        "Our height is higher than the wallet-service's height, we should reorg.",
+      message: `Our height is higher than the wallet-service\'s height, we should reorg.`,
     };
 
     return;
@@ -483,6 +531,11 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
         }
       } catch (e) {
         logger.error(e);
+        addAlert(
+          'Failed to send transaction',
+          `Failure on transaction ${preparedTx.tx_id} from block: ${preparedBlock.tx_id}`,
+          process.env.NETWORK === 'mainnet' ? Severity.CRITICAL : Severity.MAJOR,
+        );
         yield {
           type: 'transaction_failure',
           success: false,
@@ -502,6 +555,11 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
 
     if (!sendBlockResponse.success) {
       logger.debug(sendBlockResponse);
+      addAlert(
+        'Failed to send block transaction',
+        `Failure on block ${preparedBlock.tx_id}`,
+        process.env.NETWORK === 'mainnet' ? Severity.CRITICAL : Severity.MAJOR,
+      );
       yield {
         type: 'error',
         success: false,
