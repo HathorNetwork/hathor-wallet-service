@@ -19,7 +19,7 @@ import {
   generateBlock,
 } from './utils';
 
-import { FullTx } from '../src/types';
+import { FullTx, Severity } from '../src/types';
 import { prepareTx, parseTx } from '../src/utils';
 import * as Utils from '../src/utils';
 import * as FullNode from '../src/api/fullnode';
@@ -94,6 +94,7 @@ test('syncToLatestBlockGen should yield an error when the latest block from the 
     Lambda,
     'getWalletServiceBestBlock'
   );
+  const addAlertSpy = jest.spyOn(Lambda, 'addAlert');
   const getBlockByTxIdSpy = jest.spyOn(FullNode, 'getBlockByTxId');
   const downloadBlockByHeightSpy = jest.spyOn(
     FullNode,
@@ -111,6 +112,7 @@ test('syncToLatestBlockGen should yield an error when the latest block from the 
   );
   downloadBlockByHeightSpy.mockReturnValue(Promise.resolve(BLOCK_BY_HEIGHT));
 
+  const addAlertMock = addAlertSpy.mockReturnValue(Promise.resolve());
   const iterator = syncToLatestBlock();
 
   const {
@@ -120,9 +122,18 @@ test('syncToLatestBlockGen should yield an error when the latest block from the 
   expect(type).toStrictEqual('reorg');
   expect(success).toStrictEqual(false);
   expect(message).toStrictEqual('Our best block was voided, we should reorg.');
+  expect(addAlertMock).toHaveBeenCalledWith(
+    `Re-org on ${process.env.NETWORK}`,
+    'The daemon\'s best block has been voided, handling re-org',
+    Severity.INFO,
+    {
+      'Wallet Service best block': MOCK_TXS[1],
+      'Fullnode best block': MOCK_TXS[0],
+    },
+  );
 }, 500);
 
-test("syncToLatestBlockGen should yield an error when our best block height is higher than the fullnode's", async () => {
+test('syncToLatestBlockGen should yield an error when our best block height is higher than the fullnode\'s', async () => {
   expect.hasAssertions();
 
   const getFullNodeBestBlockSpy = jest.spyOn(FullNode, 'getFullNodeBestBlock');
@@ -135,6 +146,7 @@ test("syncToLatestBlockGen should yield an error when our best block height is h
     FullNode,
     'downloadBlockByHeight'
   );
+  const addAlertSpy = jest.spyOn(Lambda, 'addAlert');
 
   getWalletServiceBestBlockSpy.mockReturnValue(
     Promise.resolve(generateBlock(MOCK_TXS[1], 6))
@@ -147,6 +159,7 @@ test("syncToLatestBlockGen should yield an error when our best block height is h
   );
   downloadBlockByHeightSpy.mockReturnValue(Promise.resolve(BLOCK_BY_HEIGHT));
 
+  const addAlertMock = addAlertSpy.mockReturnValue(Promise.resolve());
   const iterator = syncToLatestBlock();
 
   const {
@@ -156,6 +169,16 @@ test("syncToLatestBlockGen should yield an error when our best block height is h
   expect(type).toStrictEqual('reorg');
   expect(success).toStrictEqual(false);
   expect(message).toStrictEqual('Our best block was voided, we should reorg.');
+
+  expect(addAlertMock).toHaveBeenCalledWith(
+    `Re-org on ${process.env.NETWORK}`,
+    'The daemon\'s best block has been voided, handling re-org',
+    Severity.INFO,
+    {
+      'Wallet Service best block': '000001517136ab420446a80b212715160c4693deabfa72d1f2e99683fdcb845e',
+      'Fullnode best block': '0000018b4b08ad8668a42af30185e4ff228b5d2afc41ce7ee5cb7a085342ffda',
+    },
+  );
 }, 500);
 
 test('syncToLatestBlockGen should yield an error when it fails to send a block', async () => {
@@ -168,6 +191,7 @@ test('syncToLatestBlockGen should yield an error when it fails to send a block',
   );
   const getBlockByTxIdSpy = jest.spyOn(FullNode, 'getBlockByTxId');
   const sendTxSpy = jest.spyOn(Lambda, 'sendTx');
+  const addAlertSpy = jest.spyOn(Lambda, 'addAlert');
   const downloadBlockByHeightSpy = jest.spyOn(
     FullNode,
     'downloadBlockByHeight'
@@ -191,6 +215,7 @@ test('syncToLatestBlockGen should yield an error when it fails to send a block',
     Promise.resolve(new Map<string, FullTx>())
   );
 
+  const addAlertMock = addAlertSpy.mockReturnValue(Promise.resolve());
   const iterator = syncToLatestBlock();
 
   const {
@@ -202,6 +227,11 @@ test('syncToLatestBlockGen should yield an error when it fails to send a block',
   expect(message).toStrictEqual(
     'Failure on block 0000000f1fbb4bd8a8e71735af832be210ac9a6c1e2081b21faeea3c0f5797f7'
   );
+  expect(addAlertMock).toHaveBeenCalledWith(
+    'Failed to send block transaction',
+    'Failure on block 0000000f1fbb4bd8a8e71735af832be210ac9a6c1e2081b21faeea3c0f5797f7',
+    process.env.NETWORK === 'mainnet' ? Severity.CRITICAL : Severity.MAJOR,
+  );
 }, 500);
 
 test('syncToLatestBlockGen should yield an error when it fails to send a transaction', async () => {
@@ -212,6 +242,7 @@ test('syncToLatestBlockGen should yield an error when it fails to send a transac
     Lambda,
     'getWalletServiceBestBlock'
   );
+  const addAlertSpy = jest.spyOn(Lambda, 'addAlert');
   const getBlockByTxIdSpy = jest.spyOn(FullNode, 'getBlockByTxId');
   const sendTxSpy = jest.spyOn(Lambda, 'sendTx');
   const downloadBlockByHeightSpy = jest.spyOn(
@@ -229,6 +260,7 @@ test('syncToLatestBlockGen should yield an error when it fails to send a transac
   getBlockByTxIdSpy.mockReturnValue(
     Promise.resolve(OUR_BEST_BLOCK_API_RESPONSE)
   );
+  const addAlertMock = addAlertSpy.mockReturnValue(Promise.resolve());
   // sendTxSpy.mockReturnValue(Promise.resolve({ success: false, message: 'generic error message' }));
   downloadBlockByHeightSpy.mockReturnValue(Promise.resolve(BLOCK_BY_HEIGHT));
   recursivelyDownloadTxSpy.mockReturnValue(
@@ -266,6 +298,11 @@ test('syncToLatestBlockGen should yield an error when it fails to send a transac
   expect(success).toStrictEqual(false);
   expect(message).toStrictEqual(
     'Failure on transaction 0000000033a3bb347e0401d85a70b38f0aa7b5e37ea4c70d7dacf8e493946e64 from block: 0000000f1fbb4bd8a8e71735af832be210ac9a6c1e2081b21faeea3c0f5797f7'
+  );
+  expect(addAlertMock).toHaveBeenCalledWith(
+    'Failed to send transaction',
+    'Failure on transaction 0000000033a3bb347e0401d85a70b38f0aa7b5e37ea4c70d7dacf8e493946e64 from block: 0000000f1fbb4bd8a8e71735af832be210ac9a6c1e2081b21faeea3c0f5797f7',
+    process.env.NETWORK === 'mainnet' ? Severity.CRITICAL : Severity.MAJOR,
   );
 }, 500);
 

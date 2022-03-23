@@ -304,3 +304,11 @@ export interface RawTxResponse {
   message?: string;
   spent_outputs?: any;
 }
+
+export enum Severity {
+  CRITICAL = 'critical',
+  MAJOR = 'major',
+  MINOR = 'minor',
+  WARNING = 'warning',
+  INFO = 'info',
+}

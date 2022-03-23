@@ -9,6 +9,8 @@ import { interpret } from 'xstate';
 import { SyncMachine } from './machine';
 // @ts-ignore
 import { Connection } from '@hathor/wallet-lib';
+import { addAlert } from './api/lambda';
+import { Severity } from './types';
 
 import logger from './logger';
 
@@ -77,7 +79,12 @@ conn.on('state', state =>
 );
 // @ts-ignore
 conn.websocket.on('connection_error', evt => {
-  logger.error(`[ALERT] Websocket connection error: ${evt.message}`);
+  addAlert(
+    'Failed to send block transaction',
+    `WebSocket connection error: ${evt.message}`,
+    Severity.MINOR,
+  );
+  logger.error(`Websocket connection error: ${evt.message}`);
 });
 
 machine.start();

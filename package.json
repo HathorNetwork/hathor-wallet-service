@@ -1,5 +1,5 @@
 {
-  "version": "1.0.1-alpha",
+  "version": "1.1.0-alpha",
   "license": "MIT",
   "main": "dist/index.js",
   "typings": "dist/index.d.ts",
@@ -47,6 +47,7 @@
   "devDependencies": {
     "@size-limit/preset-small-lib": "^4.10.2",
     "@types/lodash": "^4.14.172",
+    "@types/node": "^17.0.21",
     "husky": "^6.0.0",
     "size-limit": "^4.10.2",
     "tsdx": "^0.14.1",
