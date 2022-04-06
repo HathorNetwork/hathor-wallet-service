@@ -129,6 +129,7 @@ test('syncToLatestBlockGen should yield an error when the latest block from the 
     {
       'Wallet Service best block': MOCK_TXS[1],
       'Fullnode best block': MOCK_TXS[0],
+      'Reorg size': 1,
     },
   );
 }, 500);
@@ -149,10 +150,10 @@ test('syncToLatestBlockGen should yield an error when our best block height is h
   const addAlertSpy = jest.spyOn(Lambda, 'addAlert');
 
   getWalletServiceBestBlockSpy.mockReturnValue(
-    Promise.resolve(generateBlock(MOCK_TXS[1], 6))
+    Promise.resolve(generateBlock(MOCK_TXS[1], 3))
   );
   getFullNodeBestBlockSpy.mockReturnValue(
-    Promise.resolve(generateBlock(MOCK_TXS[0], 3))
+    Promise.resolve(generateBlock(MOCK_TXS[0], 6))
   );
   getBlockByTxIdSpy.mockReturnValue(
     Promise.resolve(OUR_BEST_BLOCK_API_RESPONSE_VOIDED)
@@ -177,6 +178,7 @@ test('syncToLatestBlockGen should yield an error when our best block height is h
     {
       'Wallet Service best block': '000001517136ab420446a80b212715160c4693deabfa72d1f2e99683fdcb845e',
       'Fullnode best block': '0000018b4b08ad8668a42af30185e4ff228b5d2afc41ce7ee5cb7a085342ffda',
+      'Reorg size': 3,
     },
   );
 }, 500);

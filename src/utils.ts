@@ -438,6 +438,8 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
   const { meta } = ourBestBlockInFullNode;
 
   if (meta.voided_by && meta.voided_by.length && meta.voided_by.length > 0) {
+    const reorgSize = fullNodeBestBlock.height - ourBestBlock.height;
+
     addAlert(
       `Re-org on ${process.env.NETWORK}`,
       `The daemon's best block has been voided, handling re-org`,
@@ -445,6 +447,7 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
       {
         'Wallet Service best block': ourBestBlock.txId,
         'Fullnode best block': fullNodeBestBlock.txId,
+        'Reorg size': reorgSize,
       },
     );
 
