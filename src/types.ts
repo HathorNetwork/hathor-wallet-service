@@ -49,6 +49,7 @@ export interface FullTx {
   timestamp: number;
   version: number;
   weight: number;
+  voided?: boolean;
   parents: string[];
   tokenName?: string | null;
   tokenSymbol?: string | null;
