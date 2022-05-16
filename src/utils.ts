@@ -132,11 +132,6 @@ export const recursivelyDownloadTx = async (
     return recursivelyDownloadTx(blockId, txIds, data);
   }
 
-  // Ignore voided txs
-  if (meta.voided_by && meta.voided_by.length && meta.voided_by.length > 0) {
-    return recursivelyDownloadTx(blockId, txIds, data);
-  }
-
   // check if we have already downloaded the parents
   const newParents = parsedTx.parents.filter(parent => {
     return (
@@ -150,7 +145,10 @@ export const recursivelyDownloadTx = async (
     );
   });
 
-  const newData = data.set(parsedTx.txId, parsedTx);
+  const newData = data.set(parsedTx.txId, {
+    ...parsedTx,
+    voided: (meta.voided_by && meta.voided_by.length && meta.voided_by.length) > 0,
+  });
 
   return recursivelyDownloadTx(blockId, [...txIds, ...newParents], newData);
 };
@@ -501,13 +499,18 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
       block.txId,
       blockTxs
     );
+
     const txs: FullTx[] = Array.from(txList.values()).sort(
       (x, y) => x.timestamp - y.timestamp
     );
 
-    // Exclude duplicates:
+    // Exclude duplicates and voided transactions:
     const uniqueTxs: Record<string, FullTx> = txs.reduce(
       (acc: Record<string, FullTx>, tx: FullTx) => {
+        if (tx.voided) {
+          return acc;
+        }
+
         if (tx.txId in acc) {
           return acc;
         }
