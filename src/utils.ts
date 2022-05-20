@@ -99,6 +99,7 @@ export const downloadTxFromId = async (
  */
 export const recursivelyDownloadTx = async (
   blockId: string,
+  blockHeight: number,
   txIds: string[] = [],
   data = new Map<string, FullTx>()
 ): Promise<Map<string, FullTx>> => {
@@ -114,7 +115,7 @@ export const recursivelyDownloadTx = async (
 
     if (networkTxs.includes(txId)) {
       // Skip
-      return recursivelyDownloadTx(blockId, txIds, data);
+      return recursivelyDownloadTx(blockId, blockHeight, txIds, data);
     }
   }
 
@@ -124,16 +125,28 @@ export const recursivelyDownloadTx = async (
 
   if (parsedTx.parents.length > 2) {
     // We downloaded a block, we should ignore it
-    return recursivelyDownloadTx(blockId, txIds, data);
+    return recursivelyDownloadTx(blockId, blockHeight, txIds, data);
   }
 
   // If the first_block from the downloaded tx is not from the block we are searching, we should ignore it.
-  if (meta.first_block !== blockId) {
-    return recursivelyDownloadTx(blockId, txIds, data);
+  if (meta.first_block) {
+    const firstBlockResponse = await downloadTx(meta.first_block);
+
+    if (firstBlockResponse.tx.height < blockHeight) {
+      logger.info(`Transaction ${parsedTx.txId} was already sent, ignoring it`)
+      // This transaction was probably already sent to the wallet-service, we should ignore it
+      return recursivelyDownloadTx(blockId, blockHeight, txIds, data);
+    }
   }
 
+  /* if (meta.first_block !== blockId) {
+    return recursivelyDownloadTx(blockId, blockHeight, txIds, data);
+  } */
+
+ const txList = [...parsedTx.parents, ...parsedTx.inputs.map((input) => input.txId)];
+
   // check if we have already downloaded the parents
-  const newParents = parsedTx.parents.filter(parent => {
+  const newTxIds = txList.filter(parent => {
     return (
       txIds.indexOf(parent) < 0 &&
       /* Removing the current tx from the list of transactions to download: */
@@ -150,7 +163,7 @@ export const recursivelyDownloadTx = async (
     voided: (meta.voided_by && meta.voided_by.length && meta.voided_by.length) > 0,
   });
 
-  return recursivelyDownloadTx(blockId, [...txIds, ...newParents], newData);
+  return recursivelyDownloadTx(blockId, blockHeight, [...txIds, ...newTxIds], newData);
 };
 
 /**
@@ -497,7 +510,8 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
     // Download block transactions
     const txList: Map<string, FullTx> = await recursivelyDownloadTx(
       block.txId,
-      blockTxs
+      block.height,
+      blockTxs,
     );
 
     const txs: FullTx[] = Array.from(txList.values()).sort(
