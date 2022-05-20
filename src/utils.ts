@@ -94,7 +94,7 @@ export const downloadTxFromId = async (
  * Recursively downloads all transactions confirmed directly or indirectly by a block
  *
  * This method will go through the parent tree and the inputs tree downloading all transactions,
- * while ignoring transactions confirmed by the passed block
+ * while ignoring transactions confirmed by blocks with height < blockHeight
  *
  * @param blockId - The blockId to download the transactions
  * @param blockHeight - The block height from the block we are downloading transactions from
@@ -132,13 +132,13 @@ export const recursivelyDownloadTx = async (
     return recursivelyDownloadTx(blockId, blockHeight, txIds, data);
   }
 
-  // If the first_block from the downloaded tx is not from the block we are searching, we should ignore it.
+  // Transaction is already confirmed
   if (meta.first_block) {
     const firstBlockResponse = await downloadTx(meta.first_block);
 
+    // If the transaction was confirmed by an older block, ignore it as it was
+    // already sent to the wallet-service
     if (firstBlockResponse.tx.height < blockHeight) {
-      logger.info(`Transaction ${parsedTx.txId} was already sent, ignoring it`)
-      // This transaction was probably already sent to the wallet-service, we should ignore it
       return recursivelyDownloadTx(blockId, blockHeight, txIds, data);
     }
   }
@@ -146,7 +146,7 @@ export const recursivelyDownloadTx = async (
   const inputList = parsedTx.inputs.map((input) => input.txId);
   const txList = [...parsedTx.parents, ...inputList];
 
-  // check if we have already downloaded the parents
+  // check if we have already downloaded any of the transactions of the new list
   const newTxIds = txList.filter(transaction => {
     return (
       txIds.indexOf(transaction) < 0 &&
