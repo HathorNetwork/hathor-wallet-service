@@ -91,9 +91,13 @@ export const downloadTxFromId = async (
 };
 
 /**
- * Recursively downloads all transactions that were confirmed by a given block
+ * Recursively downloads all transactions confirmed directly or indirectly by a block
+ *
+ * This method will go through the parent tree and the inputs tree downloading all transactions,
+ * while ignoring transactions confirmed by the passed block
  *
  * @param blockId - The blockId to download the transactions
+ * @param blockHeight - The block height from the block we are downloading transactions from
  * @param txIds - List of transactions to download
  * @param data - Downloaded transactions, used while being called recursively
  */
@@ -139,22 +143,18 @@ export const recursivelyDownloadTx = async (
     }
   }
 
-  /* if (meta.first_block !== blockId) {
-    return recursivelyDownloadTx(blockId, blockHeight, txIds, data);
-  } */
-
- const txList = [...parsedTx.parents, ...parsedTx.inputs.map((input) => input.txId)];
+  const inputList = parsedTx.inputs.map((input) => input.txId);
+  const txList = [...parsedTx.parents, ...inputList];
 
   // check if we have already downloaded the parents
-  const newTxIds = txList.filter(parent => {
+  const newTxIds = txList.filter(transaction => {
     return (
-      txIds.indexOf(parent) < 0 &&
+      txIds.indexOf(transaction) < 0 &&
       /* Removing the current tx from the list of transactions to download: */
-      parent !== txId &&
+      transaction !== txId &&
       /* Data works as our return list on the recursion and also as a "seen" list on the BFS.
-       * We don't want to download a transaction that is already on our seen list.
-       */
-      !data.has(parent)
+       * We don't want to download a transaction that is already on our seen list. */
+      !data.has(transaction)
     );
   });
 
