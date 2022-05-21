@@ -132,8 +132,8 @@ export const recursivelyDownloadTx = async (
     return recursivelyDownloadTx(blockId, blockHeight, txIds, data);
   }
 
-  // Transaction is already confirmed
-  if (meta.first_block) {
+  // Transaction was already confirmed by a different block in the past
+  if (meta.first_block && meta.first_block !== blockId) {
     const firstBlockResponse = await downloadTx(meta.first_block);
 
     // If the transaction was confirmed by an older block, ignore it as it was
