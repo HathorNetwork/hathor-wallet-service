@@ -91,14 +91,21 @@ export const downloadTxFromId = async (
 };
 
 /**
- * Recursively downloads all transactions that were confirmed by a given block
+ * Recursively downloads all transactions confirmed directly or indirectly by a block
+ *
+ * This method will go through the parent tree and the inputs tree downloading all transactions,
+ * while ignoring transactions confirmed by blocks with height < blockHeight
+ *
+ * NOTE: This operation will get slower and slower as the BFS dives into the funds and the confirmation DAGs 
  *
  * @param blockId - The blockId to download the transactions
+ * @param blockHeight - The block height from the block we are downloading transactions from
  * @param txIds - List of transactions to download
  * @param data - Downloaded transactions, used while being called recursively
  */
 export const recursivelyDownloadTx = async (
   blockId: string,
+  blockHeight: number,
   txIds: string[] = [],
   data = new Map<string, FullTx>()
 ): Promise<Map<string, FullTx>> => {
@@ -114,7 +121,7 @@ export const recursivelyDownloadTx = async (
 
     if (networkTxs.includes(txId)) {
       // Skip
-      return recursivelyDownloadTx(blockId, txIds, data);
+      return recursivelyDownloadTx(blockId, blockHeight, txIds, data);
     }
   }
 
@@ -124,24 +131,32 @@ export const recursivelyDownloadTx = async (
 
   if (parsedTx.parents.length > 2) {
     // We downloaded a block, we should ignore it
-    return recursivelyDownloadTx(blockId, txIds, data);
+    return recursivelyDownloadTx(blockId, blockHeight, txIds, data);
   }
 
-  // If the first_block from the downloaded tx is not from the block we are searching, we should ignore it.
-  if (meta.first_block !== blockId) {
-    return recursivelyDownloadTx(blockId, txIds, data);
+  // Transaction was already confirmed by a different block
+  if (meta.first_block && meta.first_block !== blockId) {
+    const firstBlockResponse = await downloadTx(meta.first_block);
+
+    // If the transaction was confirmed by an older block, ignore it as it was
+    // already sent to the wallet-service
+    if (firstBlockResponse.tx.height < blockHeight) {
+      return recursivelyDownloadTx(blockId, blockHeight, txIds, data);
+    }
   }
 
-  // check if we have already downloaded the parents
-  const newParents = parsedTx.parents.filter(parent => {
+  const inputList = parsedTx.inputs.map((input) => input.txId);
+  const txList = [...parsedTx.parents, ...inputList];
+
+  // check if we have already downloaded any of the transactions of the new list
+  const newTxIds = txList.filter(transaction => {
     return (
-      txIds.indexOf(parent) < 0 &&
+      txIds.indexOf(transaction) < 0 &&
       /* Removing the current tx from the list of transactions to download: */
-      parent !== txId &&
+      transaction !== txId &&
       /* Data works as our return list on the recursion and also as a "seen" list on the BFS.
-       * We don't want to download a transaction that is already on our seen list.
-       */
-      !data.has(parent)
+       * We don't want to download a transaction that is already on our seen list. */
+      !data.has(transaction)
     );
   });
 
@@ -150,7 +165,7 @@ export const recursivelyDownloadTx = async (
     voided: (meta.voided_by && meta.voided_by.length && meta.voided_by.length) > 0,
   });
 
-  return recursivelyDownloadTx(blockId, [...txIds, ...newParents], newData);
+  return recursivelyDownloadTx(blockId, blockHeight, [...txIds, ...newTxIds], newData);
 };
 
 /**
@@ -497,7 +512,8 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
     // Download block transactions
     const txList: Map<string, FullTx> = await recursivelyDownloadTx(
       block.txId,
-      blockTxs
+      block.height,
+      blockTxs,
     );
 
     const txs: FullTx[] = Array.from(txList.values()).sort(
