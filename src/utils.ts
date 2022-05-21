@@ -96,6 +96,8 @@ export const downloadTxFromId = async (
  * This method will go through the parent tree and the inputs tree downloading all transactions,
  * while ignoring transactions confirmed by blocks with height < blockHeight
  *
+ * NOTE: This operation will get slower and slower as the BFS dives into the funds and the confirmation DAGs 
+ *
  * @param blockId - The blockId to download the transactions
  * @param blockHeight - The block height from the block we are downloading transactions from
  * @param txIds - List of transactions to download
@@ -132,7 +134,7 @@ export const recursivelyDownloadTx = async (
     return recursivelyDownloadTx(blockId, blockHeight, txIds, data);
   }
 
-  // Transaction was already confirmed by a different block in the past
+  // Transaction was already confirmed by a different block
   if (meta.first_block && meta.first_block !== blockId) {
     const firstBlockResponse = await downloadTx(meta.first_block);
 
