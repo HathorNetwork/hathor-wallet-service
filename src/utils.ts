@@ -147,11 +147,12 @@ export const recursivelyDownloadTx = async (
 
   const inputList = parsedTx.inputs.map((input) => input.txId);
   const txList = [...parsedTx.parents, ...inputList];
+  const txIdsSet = new Set(txIds);
 
   // check if we have already downloaded any of the transactions of the new list
   const newTxIds = txList.filter(transaction => {
     return (
-      txIds.indexOf(transaction) < 0 &&
+      !txIdsSet.has(transaction) &&
       /* Removing the current tx from the list of transactions to download: */
       transaction !== txId &&
       /* Data works as our return list on the recursion and also as a "seen" list on the BFS.
