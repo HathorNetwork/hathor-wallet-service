@@ -80,6 +80,7 @@ export const addAlert = async (title: string, message: string, severity: Severit
     message,
     severity,
     metadata,
+    environment: process.env.NETWORK,
     application: process.env.APPLICATION_NAME,
   };
 
