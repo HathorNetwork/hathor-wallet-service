@@ -139,7 +139,8 @@ export const recursivelyDownloadTx = async (
     let firstBlockHeight = meta.first_block_height;
 
     // We need a fallback for old fullnodes as the first_block_height attribute was only introduced
-    // on v0.49.0
+    // on v0.49.0.
+    // Using == to include `undefined` on this check
     if (firstBlockHeight == null) {
       const firstBlockResponse = await downloadTx(meta.first_block);
 
