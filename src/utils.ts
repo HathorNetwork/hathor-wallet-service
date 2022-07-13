@@ -138,16 +138,8 @@ export const recursivelyDownloadTx = async (
   if (meta.first_block && meta.first_block !== blockId) {
     let firstBlockHeight = meta.first_block_height;
 
-    // We need a fallback for old fullnodes as the first_block_height attribute was only introduced
-    // on v0.49.0.
-    // Using == to include `undefined` on this check
-    if (firstBlockHeight == null) {
-      const firstBlockResponse = await downloadTx(meta.first_block);
-
-      firstBlockHeight = firstBlockResponse.tx.height;
-    }
-
     // This should never happen
+    // Using == to include `undefined` on this check
     if (firstBlockHeight == null) {
       throw new Error('Transaction was confirmed by a block but we were unable to detect its height');
     }
