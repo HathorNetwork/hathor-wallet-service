@@ -296,6 +296,7 @@ export interface Meta {
   height: number;
   validation?: string;
   first_block?: string | null;
+  first_block_height?: number | null;
 }
 
 export interface RawTxResponse {

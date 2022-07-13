@@ -136,11 +136,17 @@ export const recursivelyDownloadTx = async (
 
   // Transaction was already confirmed by a different block
   if (meta.first_block && meta.first_block !== blockId) {
-    const firstBlockResponse = await downloadTx(meta.first_block);
+    let firstBlockHeight = meta.first_block_height;
+
+    // This should never happen
+    // Using == to include `undefined` on this check
+    if (firstBlockHeight == null) {
+      throw new Error('Transaction was confirmed by a block but we were unable to detect its height');
+    }
 
     // If the transaction was confirmed by an older block, ignore it as it was
     // already sent to the wallet-service
-    if (firstBlockResponse.tx.height < blockHeight) {
+    if (firstBlockHeight < blockHeight) {
       return recursivelyDownloadTx(blockId, blockHeight, txIds, data);
     }
   }
