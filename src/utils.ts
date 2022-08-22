@@ -63,7 +63,7 @@ export const IGNORE_TXS: Map<string, string[]> = new Map<string, string[]>([
 const TX_CACHE_SIZE: number =
   parseInt(process.env.TX_CACHE_SIZE as string) || 200;
 
-function get_alert_severity_for_reorg_size(reorg_size: number) {
+function getAlertSeverityForReorgSize(reorg_size: number) {
   if (reorg_size < 3) return Severity.INFO;
   else if (reorg_size < 5) return Severity.WARNING;
   else if (reorg_size < 10) return Severity.MINOR;
@@ -469,7 +469,7 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
   if (meta.voided_by && meta.voided_by.length && meta.voided_by.length > 0) {
     const reorgSize = fullNodeBestBlock.height - ourBestBlock.height;
 
-    const severity = get_alert_severity_for_reorg_size(reorgSize);
+    const severity = getAlertSeverityForReorgSize(reorgSize);
 
     addAlert(
       `Re-org on ${process.env.NETWORK}`,
