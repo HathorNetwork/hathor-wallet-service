@@ -174,7 +174,7 @@ test('syncToLatestBlockGen should yield an error when our best block height is h
   expect(addAlertMock).toHaveBeenCalledWith(
     `Re-org on ${process.env.NETWORK}`,
     'The daemon\'s best block has been voided, handling re-org',
-    Severity.INFO,
+    Severity.WARNING,
     {
       'Wallet Service best block': '000001517136ab420446a80b212715160c4693deabfa72d1f2e99683fdcb845e',
       'Fullnode best block': '0000018b4b08ad8668a42af30185e4ff228b5d2afc41ce7ee5cb7a085342ffda',
