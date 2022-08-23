@@ -57,7 +57,7 @@
   "dependencies": {
     "@hathor/wallet-lib": "^0.20.3",
     "aws-sdk": "^2.878.0",
-    "axios": "^0.21.1",
+    "axios": "^0.21.2",
     "dotenv": "^8.2.0",
     "lodash": "^4.17.21",
     "websocket": "^1.0.33",
