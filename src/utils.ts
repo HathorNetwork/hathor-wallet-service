@@ -63,6 +63,15 @@ export const IGNORE_TXS: Map<string, string[]> = new Map<string, string[]>([
 const TX_CACHE_SIZE: number =
   parseInt(process.env.TX_CACHE_SIZE as string) || 200;
 
+function getAlertSeverityForReorgSize(reorg_size: number) {
+  if (reorg_size < 3) return Severity.INFO;
+  else if (reorg_size < 5) return Severity.WARNING;
+  else if (reorg_size < 10) return Severity.MINOR;
+  else if (reorg_size < 20) return Severity.MEDIUM;
+  else if (reorg_size < 30) return Severity.MAJOR;
+  else return Severity.CRITICAL;
+}
+
 /**
  * Download and parse a tx by it's id
  *
@@ -460,10 +469,12 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
   if (meta.voided_by && meta.voided_by.length && meta.voided_by.length > 0) {
     const reorgSize = fullNodeBestBlock.height - ourBestBlock.height;
 
+    const severity = getAlertSeverityForReorgSize(reorgSize);
+
     addAlert(
       `Re-org on ${process.env.NETWORK}`,
       `The daemon's best block has been voided, handling re-org`,
-      Severity.INFO,
+      severity,
       {
         'Wallet Service best block': ourBestBlock.txId,
         'Fullnode best block': fullNodeBestBlock.txId,

@@ -310,6 +310,7 @@ export interface RawTxResponse {
 export enum Severity {
   CRITICAL = 'critical',
   MAJOR = 'major',
+  MEDIUM = 'medium',
   MINOR = 'minor',
   WARNING = 'warning',
   INFO = 'info',
