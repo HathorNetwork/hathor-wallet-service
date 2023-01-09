@@ -588,13 +588,18 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
       }
     }
 
-    // We will send the block only after all transactions were sent
-    // to be sure that all downloads were succesfull since there is no
-    // ROLLBACK yet on the wallet-service.
-    const sendBlockResponse: ApiResponse = await sendTx(preparedBlock);
+    try {
+      // We will send the block only after all transactions were sent
+      // to be sure that all downloads were succesfull since there is no
+      // ROLLBACK yet on the wallet-service.
+      const sendBlockResponse: ApiResponse = await sendTx(preparedBlock);
 
-    if (!sendBlockResponse.success) {
-      logger.debug(sendBlockResponse);
+      if (!sendBlockResponse.success) {
+        logger.debug(sendBlockResponse);
+        throw new Error('Erroed sending block to the wallet-service.');
+      }
+    } catch(e) {
+      logger.error(e);
       addAlert(
         'Failed to send block transaction',
         `Failure on block ${preparedBlock.tx_id}`,
