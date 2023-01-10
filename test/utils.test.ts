@@ -236,6 +236,58 @@ test('syncToLatestBlockGen should yield an error when it fails to send a block',
   );
 }, 500);
 
+test('syncToLatestBlock should handle errors properly if lambdaCall throws', async () => {
+  expect.hasAssertions();
+
+  const getFullNodeBestBlockSpy = jest.spyOn(FullNode, 'getFullNodeBestBlock');
+  const getWalletServiceBestBlockSpy = jest.spyOn(
+    Lambda,
+    'getWalletServiceBestBlock'
+  );
+  const getBlockByTxIdSpy = jest.spyOn(FullNode, 'getBlockByTxId');
+  const sendTxSpy = jest.spyOn(Lambda, 'sendTx');
+  const addAlertSpy = jest.spyOn(Lambda, 'addAlert');
+  const downloadBlockByHeightSpy = jest.spyOn(
+    FullNode,
+    'downloadBlockByHeight'
+  );
+  const recursivelyDownloadTxSpy = jest.spyOn(Utils, 'recursivelyDownloadTx');
+
+  getWalletServiceBestBlockSpy.mockReturnValue(
+    Promise.resolve(generateBlock(MOCK_TXS[1], 3))
+  );
+  getFullNodeBestBlockSpy.mockReturnValue(
+    Promise.resolve(generateBlock(MOCK_TXS[0], 6))
+  );
+  getBlockByTxIdSpy.mockReturnValue(
+    Promise.resolve(OUR_BEST_BLOCK_API_RESPONSE)
+  );
+
+  sendTxSpy.mockReturnValue(Promise.reject(new Error('generic error message')));
+  downloadBlockByHeightSpy.mockReturnValue(Promise.resolve(BLOCK_BY_HEIGHT));
+  recursivelyDownloadTxSpy.mockReturnValue(
+    Promise.resolve(new Map<string, FullTx>())
+  );
+
+  const addAlertMock = addAlertSpy.mockReturnValue(Promise.resolve());
+  const iterator = syncToLatestBlock();
+
+  const {
+    value: { type, success, message },
+  } = await iterator.next();
+
+  expect(type).toStrictEqual('error');
+  expect(success).toStrictEqual(false);
+  expect(message).toStrictEqual(
+    'Failure on block 0000000f1fbb4bd8a8e71735af832be210ac9a6c1e2081b21faeea3c0f5797f7'
+  );
+  expect(addAlertMock).toHaveBeenCalledWith(
+    'Failed to send block transaction',
+    'Failure on block 0000000f1fbb4bd8a8e71735af832be210ac9a6c1e2081b21faeea3c0f5797f7',
+    process.env.NETWORK === 'mainnet' ? Severity.CRITICAL : Severity.MAJOR,
+  );
+}, 500);
+
 test('syncToLatestBlockGen should yield an error when it fails to send a transaction', async () => {
   expect.hasAssertions();
 

@@ -315,3 +315,8 @@ export enum Severity {
   WARNING = 'warning',
   INFO = 'info',
 }
+
+export interface TxSendResult {
+  success: boolean;
+  message?: string;
+}

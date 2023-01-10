@@ -20,6 +20,7 @@ import {
   PreparedOutput,
   PreparedDecodedScript,
   RawTxResponse,
+  TxSendResult,
   RawTx,
   RawInput,
   RawOutput,
@@ -390,14 +391,9 @@ export async function* syncLatestMempool(): AsyncGenerator<MempoolEvent> {
     }
 
     const preparedTx: PreparedTx = prepareTx(tx);
+    const sendTxResponse: TxSendResult = await sendTxHandler(preparedTx);
 
-    try {
-      const sendTxResponse: ApiResponse = await sendTx(preparedTx);
-      if (!sendTxResponse.success) {
-        logger.error(sendTxResponse);
-        throw new Error(sendTxResponse.message);
-      }
-    } catch (e) {
+    if (!sendTxResponse.success) {
       addAlert(
         'Failure to send mempool tx to the wallet service',
         `Failure to send transaction ${tx.txId} from mempool to the wallet service`,
@@ -407,10 +403,11 @@ export async function* syncLatestMempool(): AsyncGenerator<MempoolEvent> {
           'TxId': mempoolResp.transactions[i],
         },
       );
+
       yield {
         type: 'error',
         success: false,
-        message: `Failure on transaction ${preparedTx.tx_id} in mempool: ${e.message}`,
+        message: `Failure on transaction ${preparedTx.tx_id} in mempool: ${sendTxResponse.message}`,
       };
       return;
     }
@@ -426,6 +423,33 @@ export async function* syncLatestMempool(): AsyncGenerator<MempoolEvent> {
     success: true,
     type: 'finished',
   };
+}
+
+/**
+ * Sends a transaction to the lambda and handle the response
+ */
+export async function sendTxHandler (
+  preparedTx: PreparedTx,
+): Promise<TxSendResult> {
+  try {
+    const sendTxResponse: ApiResponse = await sendTx(preparedTx);
+
+    if (!sendTxResponse.success) {
+      logger.error(sendTxResponse.message);
+      return {
+        success: false,
+        message: sendTxResponse.message,
+      };
+    }
+
+    return { success: true };
+  } catch(e) {
+    logger.error(e);
+    return {
+      success: false,
+      message: e.message,
+    };
+  }
 }
 
 /**
@@ -563,19 +587,16 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
         height: block.height, // this tx is confirmed by the current block on the loop, we must send its height
       });
 
-      try {
-        const sendTxResponse: ApiResponse = await sendTx(preparedTx);
 
-        if (!sendTxResponse.success) {
-          throw new Error(sendTxResponse.message);
-        }
-      } catch (e) {
-        logger.error(e);
+      const sendTxResponse: TxSendResult = await sendTxHandler(preparedTx);
+
+      if (!sendTxResponse.success) {
         addAlert(
           'Failed to send transaction',
           `Failure on transaction ${preparedTx.tx_id} from block: ${preparedBlock.tx_id}`,
           process.env.NETWORK === 'mainnet' ? Severity.CRITICAL : Severity.MAJOR,
         );
+
         yield {
           type: 'transaction_failure',
           success: false,
@@ -591,10 +612,9 @@ export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
     // We will send the block only after all transactions were sent
     // to be sure that all downloads were succesfull since there is no
     // ROLLBACK yet on the wallet-service.
-    const sendBlockResponse: ApiResponse = await sendTx(preparedBlock);
+    const sendBlockResponse: TxSendResult = await sendTxHandler(preparedBlock);
 
     if (!sendBlockResponse.success) {
-      logger.debug(sendBlockResponse);
       addAlert(
         'Failed to send block transaction',
         `Failure on block ${preparedBlock.tx_id}`,
