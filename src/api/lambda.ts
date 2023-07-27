@@ -19,14 +19,12 @@ AWS.config.update({
  * @param fnName - The lambda function name
  * @param payload - The payload to be sent
  */
+console.log('STAGE:', process.env.WALLET_SERVICE_STAGE);
 export const lambdaCall = (fnName: string, payload: any): Promise<any> =>
   new Promise((resolve, reject) => {
     const lambda = new AWS.Lambda({
       apiVersion: '2015-03-31',
-      endpoint:
-        process.env.WALLET_SERVICE_STAGE === 'local'
-          ? process.env.WALLET_SERVICE_LOCAL_URL || 'http://localhost:3002'
-          : `https://lambda.${process.env.AWS_REGION}.amazonaws.com`,
+      endpoint: process.env.WALLET_SERVICE_LOCAL_URL,
     });
 
     const params = {

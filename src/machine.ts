@@ -5,270 +5,238 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { Machine, assign, send } from 'xstate';
-import { syncToLatestBlock, syncLatestMempool } from './utils';
+import { Machine, AssignAction, assign, AnyEventObject } from 'xstate';
+import { WebSocket } from 'ws';
 import {
-  GeneratorYieldResult,
-  HandlerEvent,
-  StatusEvent,
-  MempoolEvent,
-  SyncContext,
-  SyncSchema,
-  Severity,
-} from './types';
-import logger from './logger';
-import { invokeReorg, addAlert } from './api/lambda';
+  getDbConnection,
+  addOrUpdateTx,
+  addUtxos,
+  updateTxOutputSpentBy,
+  getTxOutputs,
+} from './db';
+import { TxOutputWithIndex, TxInput, DbTxOutput } from './types';
+import { prepareOutputs } from './utils';
 
-// @ts-ignore
-export const syncHandler = () => (callback, onReceive) => {
-  logger.debug('Sync handler instantiated');
-  const iterator = syncToLatestBlock();
-  const asyncCall: () => void = async () => {
-    for (;;) {
-      const block: GeneratorYieldResult<StatusEvent> = await iterator.next();
-      const { value, done } = block;
+const WS_URL = 'ws://localhost:8083/v1a/event_ws';
 
-      if (done) {
-        // The generator reached its end, we should end this handler
-        logger.debug('Done.', value);
-        break;
-      }
+interface Context {
+  lastEventId: number | null;
+  socket: WebSocket | null;
+}
 
-      if (value && !value.success) {
-        if (value.type === 'reorg') {
-          logger.warn('A reorg happened: ', value.message);
-          callback('REORG');
-          return;
-        }
+type FullNodeEvent = {
+  type: string;
+  peer_id: string;
+  id: number;
+  timestamp: number;
+  data: unknown;
+}
 
-        logger.error(value.message);
+type WebSocketEvent = 
+  | { type: 'CONNECTED'; socket: WebSocket }
+  | { type: 'DISCONNECT' };
 
-        callback('ERROR');
-        return;
-      }
+type Event =
+  | WebSocketEvent
+  | FullNodeEvent;
 
-      if (value.type === 'finished') {
-        logger.info('Sync generator finished.');
-        callback('DONE');
-      } else if (value.type === 'block_success') {
-        logger.info(
-          `Block id: ${value.blockId} sent successfully, transactions sent: ${value.transactions.length}`
-        );
-      } else {
-        logger.warn(
-          `Unhandled type received from sync generator: ${value.type}`
-        );
-      }
+const storeSocket: AssignAction<Context, Event> = assign({
+  socket: (context, event) => {
+    if (event.type !== 'CONNECTED') {
+      return context.socket || null;
     }
 
-    return;
-  };
-
-  /* onReceive is used for bi-directional communication between the
-   * machine and the invoked service (syncHandler).
-   *
-   * For now, the only message we are handling is the start event, to indicate
-   * that we should start the async promise dealing with the generator.
-   */
-  onReceive((e: HandlerEvent) => {
-    if (e.type === 'START') {
-      asyncCall();
-    }
-  });
-
-  return () => {
-    logger.debug('Stopping the iterator.');
-    iterator.return('finished');
-
-    return;
-  };
-};
-
-// @ts-ignore
-export const mempoolHandler = () => (callback, onReceive) => {
-  logger.debug('Mempool handler instantiated');
-  const iterator = syncLatestMempool();
-  const asyncCall: () => void = async () => {
-    for (;;) {
-      const txResult: GeneratorYieldResult<MempoolEvent> = await iterator.next();
-      const { value, done } = txResult;
-
-      if (done) {
-        // The generator reached its end, we should end this handler
-        logger.debug('Done.', value);
-        break;
-      }
-
-      if (value && !value.success) {
-        logger.error(value.message);
-        callback('ERROR');
-        return;
-      }
-
-      if (value.type === 'finished') {
-        logger.info('Sync generator finished.');
-        callback('DONE');
-        return;
-      } else if (value.type === 'tx_success') {
-        logger.info('Mempool tx synced!');
-      } else {
-        logger.warn(
-          `Unhandled type received from sync generator: ${value.type}`
-        );
-      }
-    }
-
-    return;
-  };
-
-  onReceive((e: HandlerEvent) => {
-    if (e.type === 'START') {
-      asyncCall();
-    }
-  });
-
-  return () => {
-    logger.debug('Stopping the iterator.');
-    iterator.return('finished');
-  };
-};
-
-/* See README for an explanation on how the machine works.
- * TODO: We need to type the Event
- */
-export const SyncMachine = Machine<SyncContext, SyncSchema>(
-  {
-    id: 'sync',
-    initial: 'idle',
-    context: {
-      hasMoreBlocks: false,
-      hasMempoolUpdate: false,
-    },
-    states: {
-      idle: {
-        always: [
-          // Conditions are tested in order, the first valid one is taken, if any are valid
-          // https://xstate.js.org/docs/guides/guards.html#multiple-guards
-          { target: 'syncing', cond: 'hasMoreBlocks' },
-          { target: 'mempoolsync', cond: 'hasMempoolUpdate' },
-        ],
-        on: {
-          NEW_BLOCK: 'syncing',
-          MEMPOOL_UPDATE: 'mempoolsync',
-        },
-      },
-      mempoolsync: {
-        invoke: {
-          id: 'syncLatestMempool',
-          src: 'mempoolHandler',
-        },
-        on: {
-          MEMPOOL_UPDATE: {
-            actions: ['setMempoolUpdate'],
-          },
-          // Stop mempool sync when a block arrives
-          // this means that the mempool may not be fully synced when it leaves this state
-          // giving priority to blocks means the mempool may change between syncs
-          NEW_BLOCK: {
-            target: 'syncing',
-            // When block sync finishes, go back to mempool sync
-            actions: ['setMempoolUpdate'],
-          },
-          STOP: 'idle',
-          DONE: 'idle',
-          // Errors on mempool sync are "ignored" since next sync (either block or mempool) should fix it
-          ERROR: 'idle',
-        },
-        entry: [
-          'resetMempoolUpdate',
-          send('START', {
-            to: 'syncLatestMempool',
-          }),
-        ],
-      },
-      syncing: {
-        invoke: {
-          id: 'syncToLatestBlock',
-          src: 'syncHandler',
-        },
-        on: {
-          NEW_BLOCK: {
-            actions: ['setMoreBlocks'],
-          },
-          STOP: 'idle',
-          DONE: 'idle',
-          ERROR: 'failure',
-          REORG: 'reorg',
-        },
-        entry: [
-          'resetMoreBlocks',
-          send('START', {
-            to: 'syncToLatestBlock',
-          }),
-        ],
-      },
-      reorg: {
-        invoke: {
-          id: 'invokeReorg',
-          src: (_context, _event) => async () => {
-            const response = await invokeReorg();
-
-            if (!response.success) {
-              logger.error(response);
-              throw new Error('Reorg failed');
-            }
-
-            return;
-          },
-          onDone: {
-            target: 'idle',
-          },
-          onError: {
-            target: 'failure',
-          },
-        },
-      },
-      failure: {
-        type: 'final',
-        entry: ['logFailure'],
-      },
-    },
+    // @ts-ignore typescript is dumb, even with the check above it still thinks
+    // that an event other than CONNECTED can reach this point.
+    return event.socket;
   },
-  {
-    guards: {
-      hasMoreBlocks: ctx => ctx.hasMoreBlocks,
-      hasMempoolUpdate: ctx => ctx.hasMempoolUpdate,
+});
+
+const storeEvent: AssignAction<Context, Event> = assign({
+  // @ts-ignore
+  lastEventId: (_context, event) => {
+    if (!('id' in event)) return;
+
+    return event.id;
+  },
+});
+
+const websocketMachine = Machine<Context, any, Event>({
+  id: 'websocket',
+  initial: 'CONNECTING',
+  context: {
+    lastEventId: null,
+    socket: null,
+  },
+  invoke: {
+    src: 'initializeWebSocket',
+    onDone: 'CONNECTED',
+  },
+  states: {
+    CONNECTING: {
+      on: {
+        CONNECTED: {
+          target: 'CONNECTED.idle',
+          actions: 'storeSocket',
+        },
+      }
     },
-    actions: {
-      // @ts-ignore
-      logFailure: () => {
-        addAlert(
-          `Wallet Service sync stopped on ${process.env.NETWORK}`,
-          'Machine transitioned to failure state',
-          process.env.NETWORK === 'mainnet' ? Severity.CRITICAL : Severity.MAJOR,
-        );
-        logger.error('Machine transitioned to failure state.');
+    CONNECTED: {
+      onEntry: 'startStream',
+      on: {
+        DISCONNECT: {
+          target: 'CONNECTING',
+        },
       },
-      // @ts-ignore
-      resetMoreBlocks: assign({
-        hasMoreBlocks: () => false,
-      }),
-      // @ts-ignore
-      setMoreBlocks: assign({
-        hasMoreBlocks: () => true,
-      }),
-      // @ts-ignore
-      resetMempoolUpdate: assign({
-        hasMempoolUpdate: () => false,
-      }),
-      // @ts-ignore
-      setMempoolUpdate: assign({
-        hasMempoolUpdate: () => true,
-      }),
-    },
-    services: {
-      syncHandler,
-      mempoolHandler,
-    },
+      initial: 'idle',
+      states: {
+        idle: {
+          on: {
+            NEW_VERTEX_ACCEPTED: {
+              actions: ['storeEvent'],
+              target: 'handlingVertexAccepted',
+            },
+            VERTEX_METADATA_CHANGED: {
+              actions: ['storeEvent'],
+              target: 'handlingMetadataChanged',
+            },
+            LOAD_STARTED: {
+              actions: ['storeEvent', 'sendAck'],
+              target: 'idle',
+            },
+            ACK: {
+              actions: 'sendAck'
+            },
+            '*': {
+              actions: ['storeEvent', 'sendAck'],
+              target: 'idle',
+            }
+          }
+        },
+        handlingMetadataChanged: {
+          invoke: {
+            src: 'updateDatabase',
+            onDone: 'success',
+            onError: 'error'
+          },
+        },
+        handlingVertexAccepted: {
+          invoke: {
+            src: 'handleVertexAccepted',
+            data: (_context: Context, event: Event) => event,
+            onDone: 'success',
+            onError: 'error',
+          },
+        },
+        success: {
+          entry: 'sendAck',
+          always: [
+            { target: 'idle' }
+          ],
+        },
+        error: {
+          type: 'final',
+          entry: 'logError',
+        },
+      }
+    }
   }
-);
+}, {
+  actions: {
+    storeSocket,
+    storeEvent,
+    logError: (_context: Context, event: Event) => {
+      console.log('Got error!', event);
+    },
+    startStream: ({ socket }: Context, _event: Event) => {
+      if (!socket) {
+        throw new Error('Reached sendStartSteam but socket is not available.');
+      }
+      
+      const message = {
+        'type': 'START_STREAM',
+        'window_size': 1,
+      };
+
+      socket.send(JSON.stringify(message));
+    },
+    sendAck: ({ socket, lastEventId }: Context) => {
+      console.log('Last event: ', lastEventId);
+      if (lastEventId === null) return;
+
+      const message = {
+        type: 'ACK',
+        window_size: 1,
+        ack_event_id: lastEventId,
+      };
+
+      if (!socket) {
+        throw new Error('Reached sendAck but socket is not available.');
+      }
+
+      console.log('Sending ack', message);
+      socket.send(JSON.stringify(message));
+    }
+  }, 
+  services: {
+    handleVertexAccepted: (_context: Context, receivedEvent: AnyEventObject) => async () => {
+      const event = receivedEvent as FullNodeEvent;
+      const mysql = await getDbConnection();
+
+      // @ts-ignore
+      const { hash, metadata: { height }, timestamp, version, weight, outputs, inputs, tokens } = event.data;
+
+      // Add the transaction
+      await addOrUpdateTx(
+        mysql,
+        hash,
+        height,
+        timestamp,
+        version,
+        weight,
+      );
+
+      const txOutputs: TxOutputWithIndex[] = prepareOutputs(outputs, tokens);
+      // @ts-ignore
+      const txInputs: DbTxOutput[] = await getTxOutputs(mysql, inputs.map((input: unknown) => ({ txId: input.tx_id, index: input.index })));
+
+      // Add utxos
+      await addUtxos(mysql, hash, txOutputs, null);
+
+      await updateTxOutputSpentBy(mysql, txInputs, hash);
+
+      await mysql.end();
+    },
+    updateDatabase: () => () => {
+      return new Promise((resolve) => {
+        setTimeout(resolve, 10);
+      });
+    },
+    initializeWebSocket: () => (sendBack) => {
+      const socket = new WebSocket(WS_URL);
+
+      socket.onopen = () => {
+        sendBack({ type: 'CONNECTED', socket });
+      };
+
+      socket.onmessage = (socketEvent) => {
+        const data = JSON.parse(socketEvent.data.toString());
+        const { event } = data;
+
+        console.log(`Received ${event.type} from socket.`);
+
+        sendBack(event);
+      };
+
+      socket.onclose = () => {
+        sendBack('DISCONNECT');
+      };
+
+      return () => {
+        console.log('Service closed.');
+      };
+    }
+  },
+});
+
+export default websocketMachine;

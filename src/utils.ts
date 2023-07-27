@@ -4,13 +4,26 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  */
+import dotenv from 'dotenv';
+import { isNumber, isEmpty } from 'lodash';
+import {
+  wallet,
+  constants,
+  Output,
+  Network,
+  scriptsUtils,
+  P2PKH,
+  P2SH,
+  ScriptData,
+  errors,
+// @ts-ignore
+} from '@hathor/wallet-lib';
 
 import {
   Block,
   ApiResponse,
   FullBlock,
   Input,
-  Output,
   DecodedScript,
   FullTx,
   StatusEvent,
@@ -25,6 +38,10 @@ import {
   RawInput,
   RawOutput,
   Severity,
+  TxOutput,
+  TxOutputWithIndex,
+  TxInput,
+  EventTxInput,
 } from './types';
 import {
   downloadTx,
@@ -34,11 +51,7 @@ import {
   downloadBlockByHeight,
 } from './api/fullnode';
 import { getWalletServiceBestBlock, sendTx, addAlert } from './api/lambda';
-import dotenv from 'dotenv';
-// @ts-ignore
-import { wallet } from '@hathor/wallet-lib';
 import logger from './logger';
-import { isNumber, isEmpty } from 'lodash';
 
 dotenv.config();
 
@@ -460,8 +473,22 @@ export async function sendTxHandler (
  * if an error ocurred or if a reorg ocurred.
  */
 export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
-  const ourBestBlock: Block = await getWalletServiceBestBlock();
-  const fullNodeBestBlock: Block = await getFullNodeBestBlock();
+  let ourBestBlock: Block | null = null;
+  let fullNodeBestBlock: Block | null = null;
+
+  try {
+    ourBestBlock = await getWalletServiceBestBlock();
+    fullNodeBestBlock = await getFullNodeBestBlock();
+
+  } catch (e) {
+    yield {
+      type: 'error',
+      success: false,
+      message: 'Failure to reach the wallet-service or the fullnode',
+    };
+
+    return;
+  }
 
   // Check if our best block is still in the fullnode's chain
   const ourBestBlockInFullNode = await getBlockByTxId(ourBestBlock.txId, true);
@@ -690,5 +717,177 @@ export class LRU {
     this.cache = new Map();
   }
 }
+
+export const isAuthority = (tokenData: number): boolean => (
+  (tokenData & constants.TOKEN_AUTHORITY_MASK) > 0    // eslint-disable-line no-bitwise
+);
+
+
+export const parseScript = (script: Buffer): P2PKH | P2SH | ScriptData | null => {
+  const network = new Network(process.env.NETWORK);
+  // It's still unsure how expensive it is to throw an exception in JavaScript. Some languages are really
+  // inefficient when it comes to exceptions while others are totally efficient. If it is efficient,
+  // we can keep throwing the error. Otherwise, we should just return null
+  // because this method will be used together with others when we are trying to parse a given script.
+
+  try {
+    let parsedScript;
+    if (P2PKH.identify(script)) {
+      // This is a P2PKH script
+      parsedScript = scriptsUtils.parseP2PKH(script, network);
+    } else if (P2SH.identify(script)) {
+      // This is a P2SH script
+      parsedScript = scriptsUtils.parseP2SH(script, network);
+    } else {
+      // defaults to data script
+      parsedScript = scriptsUtils.parseScriptData(script);
+    }
+
+    return parsedScript;
+  } catch (error) {
+    if (error instanceof errors.ParseError) {
+      // We don't know how to parse this script
+      return null;
+    } else {
+      throw error;
+    }
+  }
+}
+
+export const getTokenIndex = (tokenData: number): number => {
+  return ((tokenData & constants.TOKEN_INDEX_MASK) - 1);
+}
+
+export const isTokenHTR = (tokenData: number): boolean => {
+  return getTokenIndex(tokenData) === -1;
+};
+
+export const prepareInputs = (inputs: EventTxInput[], tokens: string[]): TxInput[] => {
+  const preparedInputs: TxInput[] = inputs.reduce(
+    (newInputs: TxInput[], _input: EventTxInput): TxInput[] => {
+      console.log('script: ', _input);
+      const decoded = parseScript(Buffer.from(_input.script, 'base64'));
+      const input: TxInput = {
+        tx_id: _input.tx_id,
+        index: _input.index,
+        value: _input.value,
+        token_data: _input.token_data,
+        script: _input.script,
+        token: (() => {
+          if (!isTokenHTR(_input.token_data)) {
+            return tokens[getTokenIndex(_input.token_data)];
+          }
+
+          return '00';
+        })(),
+        decoded: (() => {
+          if (decoded) {
+            return {
+              type: decoded.getType(),
+              address: decoded.address?.base58,
+              timelock: decoded.timelock,
+            };
+          }
+
+          return null;
+        })(),
+      };
+
+
+      return [...newInputs, input];
+    }, []);
+
+  return preparedInputs;
+};
+
+export const prepareOutputs = (outputs: TxOutput[], tokens: string[]): TxOutputWithIndex[] => {
+  const preparedOutputs: [number, TxOutputWithIndex[]] = outputs.reduce(
+    ([currIndex, newOutputs]: [number, TxOutputWithIndex[]], _output: TxOutput): [number, TxOutputWithIndex[]] => {
+      const output = new Output(_output.value, Buffer.from(_output.script, 'base64'));
+      let token = '00';
+      if (!output.isTokenHTR()) {
+        token = tokens[output.getTokenIndex()];
+      }
+      output.token = token;
+
+      const network = new Network(process.env.NETWORK);
+      const decoded = output.parseScript(network);
+
+      if (decoded) {
+        output.decoded = {
+          type: decoded.getType(),
+          address: decoded.address?.base58,
+          timelock: decoded.timelock,
+        };
+      }
+
+      if (!output.decoded
+          || output.decoded.type === null
+          || output.decoded.type === undefined) {
+        return [currIndex + 1, newOutputs];
+      }
+
+      output.locked = false;
+
+      return [
+        currIndex + 1,
+        [
+          ...newOutputs,
+          {
+            ...output,
+            index: currIndex,
+          },
+        ],
+      ];
+    },
+    [0, []],
+  );
+
+  return preparedOutputs[1];
+};
+
+/**
+ * Get the map of token balances for each address in the transaction inputs and outputs.
+ *
+ * @example
+ * Return map has this format:
+ * ```
+ * {
+ *   address1: {token1: balance1, token2: balance2},
+ *   address2: {token1: balance3}
+ * }
+ * ```
+ *
+ * @param inputs - The transaction inputs
+ * @param outputs - The transaction outputs
+ * @returns A map of addresses and its token balances
+ */
+export const getAddressBalanceMap = (
+  inputs: TxInput[],
+  outputs: TxOutput[],
+): StringMap<TokenBalanceMap> => {
+  const addressBalanceMap = {};
+
+  for (const input of inputs) {
+    const address = input.decoded.address;
+
+    // get the TokenBalanceMap from this input
+    const tokenBalanceMap = TokenBalanceMap.fromTxInput(input);
+    // merge it with existing TokenBalanceMap for the address
+    addressBalanceMap[address] = TokenBalanceMap.merge(addressBalanceMap[address], tokenBalanceMap);
+  }
+
+  for (const output of outputs) {
+    const address = output.decoded.address;
+
+    // get the TokenBalanceMap from this output
+    const tokenBalanceMap = TokenBalanceMap.fromTxOutput(output);
+
+    // merge it with existing TokenBalanceMap for the address
+    addressBalanceMap[address] = TokenBalanceMap.merge(addressBalanceMap[address], tokenBalanceMap);
+  }
+
+  return addressBalanceMap;
+};
 
 export const globalCache = new LRU(TX_CACHE_SIZE);

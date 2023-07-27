@@ -5,87 +5,19 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { interpret } from 'xstate';
-import { SyncMachine } from './machine';
-// @ts-ignore
-import { Connection } from '@hathor/wallet-lib';
-import { addAlert } from './api/lambda';
-import { Severity } from './types';
+ import { interpret } from 'xstate';
+ import WebsocketMachine from './machine';
 
-import logger from './logger';
+const main = async () => {
+  // Interpret the machine (start it and listen to its state changes)
+  const machine = interpret(WebsocketMachine);
 
-// @ts-ignore
-const machine = interpret(SyncMachine).onTransition(state => {
-  if (state.changed) {
-    logger.debug('Transitioned to state: ', state.value);
-  }
-});
+  machine.onTransition(state => {
+    // You can handle side-effects or logging here if needed
+    console.log('Transitioned to state:', state.value);
+  }).start();
 
-const handleMessage = (message: any) => {
-  switch (message.type) {
-    case 'dashboard:metrics':
-      break;
-
-    /* This message is only being used as a signal that a new block may have arrived
-     * the sync mechanism will download all blocks from the current height until the
-     * full node's best block height
-     */
-    case 'network:new_tx_accepted':
-      if (message.is_voided) return;
-      if (!message.is_block) {
-        // identify the tx as a mempool tx
-        if (message.first_block) return;
-        machine.send({ type: 'MEMPOOL_UPDATE' });
-        return;
-      }
-      machine.send({ type: 'NEW_BLOCK' });
-      break;
-
-    case 'state_update':
-      /* This handles state updates from the websocket connection.
-       * We will trigger a re-sync (by sending the NEW_BLOCK event) to
-       * the machine, triggering a download if new blocks were generated.
-       */
-      if (message.state === Connection.CONNECTED) {
-        logger.info('Websocket connected.');
-        machine.send({ type: 'NEW_BLOCK' });
-      }
-      if (message.state === Connection.CONNECTING) {
-        logger.info(
-          `Websocket is attempting to connect to ${process.env.DEFAULT_SERVER}`
-        );
-      }
-      if (message.state === Connection.CLOSED) {
-        logger.error('Websocket connection was closed.');
-      }
-      break;
-  }
+  machine.start();
 };
 
-const DEFAULT_SERVER = process.env.DEFAULT_SERVER;
-const conn = new Connection({
-  network: process.env.NETWORK,
-  servers: [DEFAULT_SERVER],
-});
-
-// @ts-ignore
-conn.websocket.on('network', message => handleMessage(message));
-// @ts-ignore
-conn.on('state', state =>
-  handleMessage({
-    type: 'state_update',
-    state,
-  })
-);
-// @ts-ignore
-conn.websocket.on('connection_error', evt => {
-  addAlert(
-    'Failed to send block transaction',
-    `WebSocket connection error: ${evt.message}`,
-    Severity.MINOR,
-  );
-  logger.error(`Websocket connection error: ${evt.message}`);
-});
-
-machine.start();
-conn.start();
+main();
