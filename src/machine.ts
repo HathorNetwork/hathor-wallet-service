@@ -13,9 +13,16 @@ import {
   addUtxos,
   updateTxOutputSpentBy,
   getTxOutputs,
+  updateAddressTablesWithTx,
+  handleVoidedTx,
 } from './db';
-import { TxOutputWithIndex, TxInput, DbTxOutput } from './types';
-import { prepareOutputs } from './utils';
+import {
+  TxOutputWithIndex,
+  DbTxOutput,
+  StringMap,
+  TokenBalanceMap,
+} from './types';
+import { getAddressBalanceMap, prepareInputs, prepareOutputs } from './utils';
 
 const WS_URL = 'ws://localhost:8083/v1a/event_ws';
 
@@ -115,9 +122,10 @@ const websocketMachine = Machine<Context, any, Event>({
         },
         handlingMetadataChanged: {
           invoke: {
-            src: 'updateDatabase',
+            src: 'handleMetadataChanged',
+            data: (_context: Context, event: Event) => event,
             onDone: 'success',
-            onError: 'error'
+            onError: 'error',
           },
         },
         handlingVertexAccepted: {
@@ -179,6 +187,31 @@ const websocketMachine = Machine<Context, any, Event>({
     }
   }, 
   services: {
+    handleMetadataChanged: (_context: Context, receivedEvent: AnyEventObject) => async () => {
+      const event = receivedEvent as FullNodeEvent;
+      const mysql = await getDbConnection();
+
+      // @ts-ignore
+      const { hash, metadata: { height }, timestamp, version, weight, outputs, inputs, tokens } = event.data;
+
+      // Add the transaction
+      await addOrUpdateTx(
+        mysql,
+        hash,
+        height,
+        timestamp,
+        version,
+        weight,
+      );
+
+      const txOutputs: TxOutputWithIndex[] = prepareOutputs(outputs, tokens);
+      // @ts-ignore
+      const txInputs: DbTxOutput[] = await getTxOutputs(mysql, inputs.map((input: unknown) => ({ txId: input.tx_id, index: input.index })));
+
+      const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputs);
+
+      await handleVoidedTx(mysql, hash, addressBalanceMap);
+    },
     handleVertexAccepted: (_context: Context, receivedEvent: AnyEventObject) => async () => {
       const event = receivedEvent as FullNodeEvent;
       const mysql = await getDbConnection();
@@ -202,8 +235,15 @@ const websocketMachine = Machine<Context, any, Event>({
 
       // Add utxos
       await addUtxos(mysql, hash, txOutputs, null);
-
       await updateTxOutputSpentBy(mysql, txInputs, hash);
+
+      // Handle genesis txs:
+      if (txInputs.length > 0 || txOutputs.length > 0)  {
+        const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputs);
+
+        // update address tables (address, address_balance, address_tx_history)
+        await updateAddressTablesWithTx(mysql, hash, timestamp, addressBalanceMap);
+      }
 
       await mysql.end();
     },
@@ -240,3 +280,11 @@ const websocketMachine = Machine<Context, any, Event>({
 });
 
 export default websocketMachine;
+
+/*
+TRUNCATE TABLE transaction;
+TRUNCATE TABLE tx_output;
+TRUNCATE TABLE address;
+TRUNCATE TABLE address_balance;
+TRUNCATE TABLE address_tx_history;
+*/
