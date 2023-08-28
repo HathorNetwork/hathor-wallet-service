@@ -42,6 +42,9 @@ import {
   TxOutputWithIndex,
   TxInput,
   EventTxInput,
+  StringMap,
+  TokenBalanceMap,
+  DbTxOutput,
 } from './types';
 import {
   downloadTx,
@@ -765,7 +768,6 @@ export const isTokenHTR = (tokenData: number): boolean => {
 export const prepareInputs = (inputs: EventTxInput[], tokens: string[]): TxInput[] => {
   const preparedInputs: TxInput[] = inputs.reduce(
     (newInputs: TxInput[], _input: EventTxInput): TxInput[] => {
-      console.log('script: ', _input);
       const decoded = parseScript(Buffer.from(_input.script, 'base64'));
       const input: TxInput = {
         tx_id: _input.tx_id,
@@ -863,27 +865,36 @@ export const prepareOutputs = (outputs: TxOutput[], tokens: string[]): TxOutputW
  * @returns A map of addresses and its token balances
  */
 export const getAddressBalanceMap = (
-  inputs: TxInput[],
+  inputs: DbTxOutput[],
   outputs: TxOutput[],
 ): StringMap<TokenBalanceMap> => {
   const addressBalanceMap = {};
 
   for (const input of inputs) {
-    const address = input.decoded.address;
+    const address = input.address;
 
     // get the TokenBalanceMap from this input
     const tokenBalanceMap = TokenBalanceMap.fromTxInput(input);
     // merge it with existing TokenBalanceMap for the address
+    // @ts-ignore
     addressBalanceMap[address] = TokenBalanceMap.merge(addressBalanceMap[address], tokenBalanceMap);
   }
 
   for (const output of outputs) {
+    if (!output.decoded) {
+      throw new Error('Outputhas no decoded script');
+    }
+
+    if (!output.decoded.address) {
+      throw new Error('Decoded output data has no address');
+    }
     const address = output.decoded.address;
 
     // get the TokenBalanceMap from this output
     const tokenBalanceMap = TokenBalanceMap.fromTxOutput(output);
 
     // merge it with existing TokenBalanceMap for the address
+    // @ts-ignore
     addressBalanceMap[address] = TokenBalanceMap.merge(addressBalanceMap[address], tokenBalanceMap);
   }
 
