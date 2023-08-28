@@ -5,7 +5,12 @@
  * LICENSE file in the root directory of this source tree.
  */
  import mysql from 'mysql2/promise';
- import { TxOutputWithIndex, TxInput, DbTxOutput } from './types';
+ import {
+   TxOutputWithIndex,
+   TokenBalanceMap,
+   DbTxOutput,
+   StringMap,
+ } from './types';
  import { isAuthority } from './utils';
 
 /**
@@ -193,3 +198,203 @@ export const getTxOutputs = async (
   return utxos;
 };
 
+export const handleVoidedTx = async (
+  mysql: any,
+  txId: string,
+  addressBalanceMap: StringMap<TokenBalanceMap>,
+): Promise<void> => {
+  const addressEntries = Object.keys(addressBalanceMap).map((address) => [address, 0]);
+  console.log('Handling voided tx: ', addressEntries);
+  await mysql.query(
+    `INSERT INTO \`address\`(\`address\`, \`transactions\`)
+          VALUES ?
+              ON DUPLICATE KEY UPDATE transactions = transactions - 1`,
+    [addressEntries],
+  );
+
+  const entries = [];
+  for (const [address, tokenMap] of Object.entries(addressBalanceMap)) {
+    for (const [token, tokenBalance] of tokenMap.iterator()) {
+      // update address_balance table or update balance and transactions if there's an entry already
+      const entry = {
+        address,
+        token_id: token,
+        // totalAmountSent is the sum of the value of all outputs of this token on the tx being sent to this address
+        // which means it is the "total_received" for this address
+        total_received: tokenBalance.totalAmountSent,
+        // if it's < 0, there must be an entry already, so it will execute "ON DUPLICATE KEY UPDATE" instead of setting it to 0
+        unlocked_balance: (tokenBalance.unlockedAmount < 0 ? 0 : tokenBalance.unlockedAmount),
+        // this is never less than 0, as locked balance only changes when a tx is unlocked
+        locked_balance: tokenBalance.lockedAmount,
+        unlocked_authorities: tokenBalance.unlockedAuthorities.toUnsignedInteger(),
+        locked_authorities: tokenBalance.lockedAuthorities.toUnsignedInteger(),
+        timelock_expires: tokenBalance.lockExpires,
+        transactions: 1,
+      };
+      // save the smaller value of timelock_expires, when not null
+      await mysql.query(
+        `INSERT INTO address_balance
+                 SET ?
+                  ON DUPLICATE KEY
+                            UPDATE total_received = total_received - ?,
+                                   unlocked_balance = unlocked_balance - ?,
+                                   locked_balance = locked_balance - ?,
+                                   transactions = transactions - 1,
+                                   timelock_expires = CASE
+                                                        WHEN timelock_expires IS NULL THEN VALUES(timelock_expires)
+                                                        WHEN VALUES(timelock_expires) IS NULL THEN timelock_expires
+                                                        ELSE LEAST(timelock_expires, VALUES(timelock_expires))
+                                                      END,
+                                   unlocked_authorities = (unlocked_authorities | VALUES(unlocked_authorities)),
+                                   locked_authorities = locked_authorities | VALUES(locked_authorities)`,
+        [entry, tokenBalance.totalAmountSent, tokenBalance.unlockedAmount, tokenBalance.lockedAmount, address, token],
+      );
+
+      // if we're removing any of the authorities, we need to refresh the authority columns. Unlike the values,
+      // we cannot only sum/subtract, as authorities are binary: you have it or you don't. We might be spending
+      // an authority output in this tx without creating a new one, but it doesn't mean this address does not
+      // have this authority anymore, as it might have other authority outputs
+      if (tokenBalance.unlockedAuthorities.hasNegativeValue()) {
+        await mysql.query(
+          `UPDATE \`address_balance\`
+              SET \`unlocked_authorities\` = (
+                SELECT BIT_OR(\`authorities\`)
+                  FROM \`tx_output\`
+                 WHERE \`address\` = ?
+                   AND \`token_id\` = ?
+                   AND \`locked\` = FALSE
+                   AND \`spent_by\` IS NULL
+                   AND \`voided\` = FALSE
+              )
+            WHERE \`address\` = ?
+              AND \`token_id\` = ?`,
+          [address, token, address, token],
+        );
+      }
+      // for locked authorities, it doesn't make sense to perform the same operation. The authority needs to be
+      // unlocked before it can be spent. In case we're just adding new locked authorities, this will be taken
+      // care by the first sql query.
+
+      // update address_tx_history with one entry for each pair (address, token)
+      entries.push(txId);
+    }
+  }
+
+  await mysql.query(
+    `DELETE FROM \`address_tx_history\`
+      WHERE \`tx_id\`
+      IN (?)`,
+    [entries],
+  );
+};
+
+/**
+ * Update addresses tables with a new transaction.
+ *
+ * @remarks
+ * When a new transaction arrives, it will change the balance and tx history for addresses. This function
+ * updates the address, address_balance and address_tx_history tables with information from this transaction.
+ *
+ * @param mysql - Database connection
+ * @param txId - Transaction id
+ * @param timestamp - Transaction timestamp
+ * @param addressBalanceMap - Map with the transaction's balance for each address
+ */
+export const updateAddressTablesWithTx = async (
+  mysql: any,
+  txId: string,
+  timestamp: number,
+  addressBalanceMap: StringMap<TokenBalanceMap>,
+): Promise<void> => {
+  /*
+   * update address table
+   *
+   * If an address is not yet present, add entry with index = null, walletId = null and transactions = 1.
+   * Later, when the corresponding wallet is started, index and walletId will be updated.
+   *
+   * If address is already present, just increment the transactions counter.
+   */
+  const addressEntries = Object.keys(addressBalanceMap).map((address) => [address, 1]);
+  await mysql.query(
+    `INSERT INTO \`address\`(\`address\`, \`transactions\`)
+          VALUES ?
+              ON DUPLICATE KEY UPDATE transactions = transactions + 1`,
+    [addressEntries],
+  );
+
+  const entries = [];
+  for (const [address, tokenMap] of Object.entries(addressBalanceMap)) {
+    for (const [token, tokenBalance] of tokenMap.iterator()) {
+      // update address_balance table or update balance and transactions if there's an entry already
+      const entry = {
+        address,
+        token_id: token,
+        // totalAmountSent is the sum of the value of all outputs of this token on the tx being sent to this address
+        // which means it is the "total_received" for this address
+        total_received: tokenBalance.totalAmountSent,
+        // if it's < 0, there must be an entry already, so it will execute "ON DUPLICATE KEY UPDATE" instead of setting it to 0
+        unlocked_balance: (tokenBalance.unlockedAmount < 0 ? 0 : tokenBalance.unlockedAmount),
+        // this is never less than 0, as locked balance only changes when a tx is unlocked
+        locked_balance: tokenBalance.lockedAmount,
+        unlocked_authorities: tokenBalance.unlockedAuthorities.toUnsignedInteger(),
+        locked_authorities: tokenBalance.lockedAuthorities.toUnsignedInteger(),
+        timelock_expires: tokenBalance.lockExpires,
+        transactions: 1,
+      };
+      // save the smaller value of timelock_expires, when not null
+      await mysql.query(
+        `INSERT INTO address_balance
+                 SET ?
+                  ON DUPLICATE KEY
+                            UPDATE total_received = total_received + ?,
+                                   unlocked_balance = unlocked_balance + ?,
+                                   locked_balance = locked_balance + ?,
+                                   transactions = transactions + 1,
+                                   timelock_expires = CASE
+                                                        WHEN timelock_expires IS NULL THEN VALUES(timelock_expires)
+                                                        WHEN VALUES(timelock_expires) IS NULL THEN timelock_expires
+                                                        ELSE LEAST(timelock_expires, VALUES(timelock_expires))
+                                                      END,
+                                   unlocked_authorities = (unlocked_authorities | VALUES(unlocked_authorities)),
+                                   locked_authorities = locked_authorities | VALUES(locked_authorities)`,
+        [entry, tokenBalance.totalAmountSent, tokenBalance.unlockedAmount, tokenBalance.lockedAmount, address, token],
+      );
+
+      // if we're removing any of the authorities, we need to refresh the authority columns. Unlike the values,
+      // we cannot only sum/subtract, as authorities are binary: you have it or you don't. We might be spending
+      // an authority output in this tx without creating a new one, but it doesn't mean this address does not
+      // have this authority anymore, as it might have other authority outputs
+      if (tokenBalance.unlockedAuthorities.hasNegativeValue()) {
+        await mysql.query(
+          `UPDATE \`address_balance\`
+              SET \`unlocked_authorities\` = (
+                SELECT BIT_OR(\`authorities\`)
+                  FROM \`tx_output\`
+                 WHERE \`address\` = ?
+                   AND \`token_id\` = ?
+                   AND \`locked\` = FALSE
+                   AND \`spent_by\` IS NULL
+                   AND \`voided\` = FALSE
+              )
+            WHERE \`address\` = ?
+              AND \`token_id\` = ?`,
+          [address, token, address, token],
+        );
+      }
+      // for locked authorities, it doesn't make sense to perform the same operation. The authority needs to be
+      // unlocked before it can be spent. In case we're just adding new locked authorities, this will be taken
+      // care by the first sql query.
+
+      // update address_tx_history with one entry for each pair (address, token)
+      entries.push([address, txId, token, tokenBalance.total(), timestamp]);
+    }
+  }
+
+  await mysql.query(
+    `INSERT INTO \`address_tx_history\`(\`address\`, \`tx_id\`,
+                                        \`token_id\`, \`balance\`,
+                                        \`timestamp\`)
+     VALUES ?`,
+    [entries],
+  );
+};
