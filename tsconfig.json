@@ -15,6 +15,7 @@
     "forceConsistentCasingInFileNames": true,
     "baseUrl": "./",
     "noEmit": true,
+    "target": "es6",
     "paths": {
       "@src/*": ["src/*"],
       "@tests/*": ["tests/*"]
