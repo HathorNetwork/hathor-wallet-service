@@ -5,6 +5,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 import { isAuthority } from './utils';
+// @ts-ignore
+import hathorLib from '@hathor/wallet-lib';
 
 export interface Block {
   txId: string;
@@ -395,7 +397,7 @@ export class Authorities {
   array: number[];
 
   constructor(authorities?: number | number[]) {
-    let tmp = [];
+    let tmp: number[] = [];
     if (authorities instanceof Array) {
       tmp = authorities;
     } else if (authorities != null) {
@@ -515,7 +517,7 @@ export class Balance {
 
   unlockedAuthorities: Authorities;
 
-  lockExpires: number | null;
+  lockExpires: number | null | undefined;
 
   constructor(totalAmountSent = 0, unlockedAmount = 0, lockedAmount = 0, lockExpires = null, unlockedAuthorities = null, lockedAuthorities = null) {
     this.totalAmountSent = totalAmountSent;
@@ -554,6 +556,7 @@ export class Balance {
       this.totalAmountSent,
       this.unlockedAmount,
       this.lockedAmount,
+      // @ts-ignore
       this.lockExpires,
       this.unlockedAuthorities.clone(),
       this.lockedAuthorities.clone(),
@@ -577,12 +580,14 @@ export class Balance {
     } else if (b2.lockExpires === null) {
       lockExpires = b1.lockExpires;
     } else {
+      // @ts-ignore
       lockExpires = Math.min(b1.lockExpires, b2.lockExpires);
     }
     return new Balance(
       b1.totalAmountSent + b2.totalAmountSent,
       b1.unlockedAmount + b2.unlockedAmount,
       b1.lockedAmount + b2.lockedAmount,
+      // @ts-ignore
       lockExpires,
       Authorities.merge(b1.unlockedAuthorities, b2.unlockedAuthorities),
       Authorities.merge(b1.lockedAuthorities, b2.lockedAuthorities),
@@ -641,6 +646,7 @@ export class TokenBalanceMap {
   static fromStringMap(tokenBalanceMap: StringMap<StringMap<number | Authorities>>): TokenBalanceMap {
     const obj = new TokenBalanceMap();
     for (const [tokenId, balance] of Object.entries(tokenBalanceMap)) {
+      // @ts-ignore
       obj.set(tokenId, new Balance(balance.totalSent as number, balance.unlocked as number, balance.locked as number, balance.lockExpires || null,
         balance.unlockedAuthorities, balance.lockedAuthorities));
     }
@@ -679,11 +685,14 @@ export class TokenBalanceMap {
 
     if (output.locked) {
       if (isAuthority(output.token_data)) {
+        // @ts-ignore
         obj.set(token, new Balance(0, 0, 0, output.decoded.timelock, 0, new Authorities(output.value)));
       } else {
+        // @ts-ignore
         obj.set(token, new Balance(value, 0, value, output.decoded.timelock, 0, 0));
       }
     } else if (isAuthority(output.token_data)) {
+      // @ts-ignore
       obj.set(token, new Balance(0, 0, 0, null, new Authorities(output.value), 0));
     } else {
       obj.set(token, new Balance(value, value, 0, null));
@@ -701,11 +710,11 @@ export class TokenBalanceMap {
    * @param input - The transaction input
    * @returns The TokenBalanceMap object
    */
-  static fromTxInput(input: TxInput): TokenBalanceMap {
-    const token = input.token;
+  static fromTxInput(input: DbTxOutput): TokenBalanceMap {
+    const token = input.tokenId;
     const obj = new TokenBalanceMap();
 
-    if (isAuthority(input.token_data)) {
+    if (isAuthority(input.authorities)) {
       // for inputs, the authorities will have a value of -1 when set
       const authorities = new Authorities(input.value);
       obj.set(
@@ -715,6 +724,7 @@ export class TokenBalanceMap {
           0,
           0,
           null,
+          // @ts-ignore
           authorities.toNegative(),
           new Authorities(0)
         ),
