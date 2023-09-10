@@ -5,53 +5,66 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { Machine } from 'xstate';
-import { WebSocket } from 'ws';
+import { Machine, assign } from 'xstate';
+import {
+  Context,
+  Event,
+} from './types';
 
-
-interface Context {
-  socket: WebSocket | null;
-}
-
-type FullNodeEvent = {
-  type: string;
-  peer_id: string;
-  id: number;
-  timestamp: number;
-  data: unknown;
-}
-
-type WebSocketEvent = 
-  | { type: 'CONNECTED'; socket: WebSocket }
-  | { type: 'DISCONNECT' };
-
-type Event =
-  | WebSocketEvent
-  | FullNodeEvent;
+const RETRY_BACKOFF_INCREASE = 1000; // 1s increase in the backoff strategy
+const MAX_BACKOFF_RETRIES = 10; // The retry backoff will top at 10s
 
 const SyncMachine = Machine<Context, any, Event>({
   id: 'websocket',
   initial: 'CONNECTING',
   context: {
     socket: null,
+    retryAttempt: 0,
   },
-  invoke: {
-    src: 'initializeWebSocket',
-    onDone: 'CONNECTED',
-  },
-  states: {}
+  states: {
+    CONNECTING: {
+      invoke: {
+        src: 'initializeWebSocket',
+        onDone: 'CONNECTED',
+        onError: 'RECONNECTING',
+      },
+    },
+    RECONNECTING: {
+      onEntry: ['clearSocket'],
+      after: {
+        RETRY_BACKOFF_INCREASE: 'CONNECTING',
+      },
+    },
+    CONNECTED: {
+      initial: 'idle',
+      states: {
+        idle: {}
+      },
+    },
+  }
 }, {
-  actions: {}, 
+  delays: {
+    BACKOFF_DELAYED_RECONNECT: (context: Context) => {
+      if (context.retryAttempt > MAX_BACKOFF_RETRIES) {
+        return MAX_BACKOFF_RETRIES * RETRY_BACKOFF_INCREASE;
+      }
+
+      return context.retryAttempt * RETRY_BACKOFF_INCREASE;
+    },
+  },
+  actions: {
+    clearSocket: assign({
+      socket: null,
+    }),
+  }, 
   guards: {},
-  services: {},
+  services: {
+    initializeWebSocket: async (_context: Context, _event: Event) => {
+      console.log('Do nothing !')
+
+      return Promise.resolve();
+    }
+  },
 });
 
 export default SyncMachine;
-
-/*
-TRUNCATE TABLE transaction;
-TRUNCATE TABLE tx_output;
-TRUNCATE TABLE address;
-TRUNCATE TABLE address_balance;
-TRUNCATE TABLE address_tx_history;
-*/
