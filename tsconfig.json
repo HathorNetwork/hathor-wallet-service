@@ -1,24 +1,17 @@
 {
-  "include": ["src", "types"],
   "compilerOptions": {
-    "module": "esnext",
-    "lib": ["esnext"],
-    "importHelpers": true,
-    "declaration": true,
-    "sourceMap": true,
-    "rootDir": "./src",
+    "target": "ES2020",
+    "module": "CommonJS",
     "strict": true,
-    "moduleResolution": "node",
-    "jsx": "react",
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "baseUrl": "./",
-    "noEmit": true,
-    "target": "es6",
-    "paths": {
-      "@src/*": ["src/*"],
-      "@tests/*": ["tests/*"]
-    }
-  }
+    "outDir": "./dist"
+  },
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }
