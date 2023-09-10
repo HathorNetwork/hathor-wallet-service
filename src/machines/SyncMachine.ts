@@ -36,12 +36,24 @@ const SyncMachine = Machine<Context, any, Event>({
       },
     },
     CONNECTED: {
-      initial: 'idle',
+      invoke: {
+        src: 'validatePeerId',
+        onDone: 'CONNECTED.idle',
+        onError: 'ERROR',
+      },
+      initial: 'validating',
       states: {
+        validating: {},
         idle: {}
       },
+      on: {
+        'DISCONNECTED': 'RECONNECTING',
+      }
     },
-  }
+    ERROR: {
+      type: 'final',
+    }
+  },
 }, {
   delays: {
     BACKOFF_DELAYED_RECONNECT: (context: Context) => {
@@ -57,13 +69,16 @@ const SyncMachine = Machine<Context, any, Event>({
       socket: null,
     }),
   }, 
-  guards: {},
   services: {
     initializeWebSocket: async (_context: Context, _event: Event) => {
       console.log('Do nothing !')
 
       return Promise.resolve();
-    }
+    },
+    validatePeerId: async (_context: Context, _event: Event) => {
+      // Here we should request the fullnode API to get the peerId
+      return Promise.resolve();
+    },
   },
 });
 
