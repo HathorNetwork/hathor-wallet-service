@@ -119,7 +119,12 @@ describe('WebSocket connection', () => {
     syncMachine.onTransition((state) => {
       if (state.matches('CONNECTED.idle')) {
         sentDisconnect = true;
-        syncMachine.send('DISCONNECTED');
+        syncMachine.send({
+          type: 'WEBSOCKET_EVENT',
+          event: {
+            type: 'DISCONNECTED',
+          }
+        });
       }
 
       if (sentDisconnect && state.matches('RECONNECTING')) {
@@ -133,13 +138,13 @@ describe('WebSocket connection', () => {
 });
 
 describe('Validations', () => {
-  test('SyncMachine should validate the peer id before starting the stream', (done) => {
+  test('SyncMachine should validate the network before starting the stream', (done) => {
     const MockedFetchMachine = SyncMachine.withConfig({
       services: {
         initializeWebSocket: async (_, _event) => {
           return Promise.resolve();
         },
-        checkPeerId: async (_, _event) => {
+        validateNetwork: async (_, _event) => {
           return Promise.resolve();
         },
       },
@@ -165,13 +170,13 @@ describe('Validations', () => {
     syncMachine.start();
   });
 
-  test('SyncMachine should transition to ERROR final state if the peer id is incorrect', (done) => {
+  test('SyncMachine should transition to ERROR final state if the network is incorrect', (done) => {
     const MockedFetchMachine = SyncMachine.withConfig({
       services: {
         initializeWebSocket: async (_, _event) => {
           return Promise.resolve();
         },
-        validatePeerId: async (_, _event) => {
+        validateNetwork: async (_, _event) => {
           return Promise.reject();
         },
       },
@@ -189,6 +194,49 @@ describe('Validations', () => {
         validating = true;
       }
       if (validating && state.matches('ERROR')) {
+        syncMachine.stop();
+        done();
+      }
+    });
+
+    syncMachine.start();
+  });
+
+  test('SyncMachine should validate the peerid on every message', (done) => {
+    const MockedFetchMachine = SyncMachine.withConfig({
+      services: {
+        initializeWebSocket: async (_, _event) => {
+          return Promise.resolve();
+        },
+        validateNetwork: async (_, _event) => {
+          return Promise.resolve();
+        },
+      },
+      guards: {
+        invalidPeerId: (_event, _context) => {
+          return true;
+        },
+      }
+    });
+
+    const syncMachine = interpret(MockedFetchMachine);
+
+    let connecting = false;
+    let validating = false;
+    let messageSent = false;
+    syncMachine.onTransition((state) => {
+      if (!connecting && state.matches('CONNECTING')) {
+        connecting = true;
+      }
+      if (connecting && state.matches('CONNECTED.validating')) {
+        validating = true;
+      }
+      if (validating && state.matches('CONNECTED.idle')) {
+        syncMachine.send('FULLNODE_EVENT');
+        messageSent = true;
+      }
+
+      if (messageSent && state.matches('ERROR')) {
         syncMachine.stop();
         done();
       }

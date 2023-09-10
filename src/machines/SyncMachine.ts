@@ -37,24 +37,48 @@ const SyncMachine = Machine<Context, any, Event>({
     },
     CONNECTED: {
       invoke: {
-        src: 'validatePeerId',
+        src: 'validateNetwork',
         onDone: 'CONNECTED.idle',
         onError: 'ERROR',
       },
       initial: 'validating',
       states: {
         validating: {},
-        idle: {}
+        idle: {
+          on: {
+            'FULLNODE_EVENT': [{
+              cond: 'invalidPeerId',
+              target: '#final-error',
+            }, {
+              target: 'handlingMessage',
+            }],
+          },
+        },
+        handlingMessage: {},
       },
       on: {
-        'DISCONNECTED': 'RECONNECTING',
+        'WEBSOCKET_EVENT': [{
+          cond: (_context, event: Event) => {
+            if (event.type === 'WEBSOCKET_EVENT'
+                && event.event.type === 'DISCONNECTED') {
+              return true;
+            }
+
+            return false;
+          },
+          target: 'RECONNECTING',
+        }]
       }
     },
     ERROR: {
+      id: 'final-error',
       type: 'final',
     }
   },
 }, {
+  guards: {
+    invalidPeerId: () => false,
+  },
   delays: {
     BACKOFF_DELAYED_RECONNECT: (context: Context) => {
       if (context.retryAttempt > MAX_BACKOFF_RETRIES) {
@@ -71,12 +95,11 @@ const SyncMachine = Machine<Context, any, Event>({
   }, 
   services: {
     initializeWebSocket: async (_context: Context, _event: Event) => {
-      console.log('Do nothing !')
-
       return Promise.resolve();
     },
-    validatePeerId: async (_context: Context, _event: Event) => {
-      // Here we should request the fullnode API to get the peerId
+    validateNetwork: async (_context: Context, _event: Event) => {
+      // Here we should request the fullnode API to get the network and
+      // validate it.
       return Promise.resolve();
     },
   },

@@ -13,8 +13,8 @@ export type FullNodeEvent = {
 
 export type WebSocketEvent = 
   | { type: 'CONNECTED'; socket: WebSocket }
-  | { type: 'DISCONNECT' };
+  | { type: 'DISCONNECTED' };
 
 export type Event =
-  | WebSocketEvent
-  | FullNodeEvent;
+  | { type: 'WEBSOCKET_EVENT', event: WebSocketEvent }
+  | { type: 'FULLNODE_EVENT', event: FullNodeEvent };
