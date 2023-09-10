@@ -55,6 +55,7 @@ import {
 } from './api/fullnode';
 import { getWalletServiceBestBlock, sendTx, addAlert } from './api/lambda';
 import logger from './logger';
+import * as crypto from 'crypto';
 
 dotenv.config();
 
@@ -899,6 +900,25 @@ export const getAddressBalanceMap = (
   }
 
   return addressBalanceMap;
+};
+
+export const md5Hash = (data: string): string => {
+  const hash = crypto.createHash('md5');
+  hash.update(data);
+  return hash.digest('hex');
+};
+
+export const serializeTxData = (meta: unknown): string => {
+  // @ts-ignore
+  return `${meta.hash}|${meta.voided_by.length > 0}|${meta.first_block}|${meta.height}`;
+};
+
+export const hashTxData = (meta: unknown): string => {
+  // I'm interested in the hash, voided_by, first_block and height, we should
+  // serialize those fields as a string and then hash it
+
+  // @ts-ignore
+  return md5Hash(serializeTxData(meta));
 };
 
 export const globalCache = new LRU(TX_CACHE_SIZE);

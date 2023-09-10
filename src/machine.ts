@@ -22,9 +22,17 @@ import {
   StringMap,
   TokenBalanceMap,
 } from './types';
-import { getAddressBalanceMap, prepareInputs, prepareOutputs } from './utils';
+import {
+  getAddressBalanceMap,
+  prepareInputs,
+  prepareOutputs,
+  LRU,
+  md5Hash,
+  hashTxData,
+} from './utils';
 
 const WS_URL = 'ws://localhost:8083/v1a/event_ws';
+const TxCache = new LRU(10000);
 
 interface Context {
   lastEventId: number | null;
@@ -103,10 +111,15 @@ const websocketMachine = Machine<Context, any, Event>({
               actions: ['storeEvent'],
               target: 'handlingVertexAccepted',
             },
-            VERTEX_METADATA_CHANGED: {
+            VERTEX_METADATA_CHANGED: [{
+              actions: ['storeEvent'],
+              target: 'idle',
+              cond: 'unchanged',
+            }, {
               actions: ['storeEvent'],
               target: 'handlingMetadataChanged',
-            },
+              cond: 'wasVoided',
+            }],
             LOAD_STARTED: {
               actions: ['storeEvent', 'sendAck'],
               target: 'idle',
@@ -186,6 +199,21 @@ const websocketMachine = Machine<Context, any, Event>({
       socket.send(JSON.stringify(message));
     }
   }, 
+  guards: {
+    unchanged: (_context: Context, event: AnyEventObject) => {
+      const txHashFromCache = TxCache.get(event.data.hash);
+      if (!txHashFromCache) {
+        return false;
+      }
+
+      const txHashFromEvent = hashTxData(event.data.metadata);
+
+      return txHashFromCache === txHashFromEvent;
+    },
+    wasVoided: (context: Context, event: AnyEventObject) => {
+      return true;
+    },
+  },
   services: {
     handleMetadataChanged: (_context: Context, receivedEvent: AnyEventObject) => async () => {
       const event = receivedEvent as FullNodeEvent;
@@ -210,7 +238,11 @@ const websocketMachine = Machine<Context, any, Event>({
 
       const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputs);
 
-      await handleVoidedTx(mysql, hash, addressBalanceMap);
+      // @ts-ignore
+      const hashedTxData = hashTxData(event.data.metadata);
+
+      TxCache.set(hash, hashedTxData);
+      // await handleVoidedTx(mysql, hash, addressBalanceMap);
     },
     handleVertexAccepted: (_context: Context, receivedEvent: AnyEventObject) => async () => {
       const event = receivedEvent as FullNodeEvent;
@@ -244,6 +276,11 @@ const websocketMachine = Machine<Context, any, Event>({
         // update address tables (address, address_balance, address_tx_history)
         await updateAddressTablesWithTx(mysql, hash, timestamp, addressBalanceMap);
       }
+
+      // @ts-ignore
+      const hashedTxData = hashTxData(event.data.metadata);
+
+      TxCache.set(hash, hashedTxData);
 
       await mysql.end();
     },

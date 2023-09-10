@@ -5,12 +5,13 @@
  * LICENSE file in the root directory of this source tree.
  */
 
- import { interpret } from 'xstate';
- import WebsocketMachine from './machine';
+import { interpret } from 'xstate';
+// import WebsocketMachine from './machine';
+import { SyncMachine } from './machines';
 
 const main = async () => {
   // Interpret the machine (start it and listen to its state changes)
-  const machine = interpret(WebsocketMachine);
+  const machine = interpret(SyncMachine);
 
   machine.onTransition(state => {
     // You can handle side-effects or logging here if needed
