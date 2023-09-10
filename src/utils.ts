@@ -460,12 +460,20 @@ export async function sendTxHandler (
     }
 
     return { success: true };
-  } catch(e) {
+  } catch(e: unknown) {
     logger.error(e);
-    return {
-      success: false,
-      message: e.message,
-    };
+    if (e instanceof Error) {
+      return {
+        success: false,
+        message: e.message,
+      };
+    } else {
+      console.error(e);
+      return {
+        success: false,
+        message: 'Error sending transaction',
+      };
+    }
   }
 }
 
