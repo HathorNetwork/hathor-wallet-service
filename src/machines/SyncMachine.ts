@@ -9,6 +9,7 @@ import {
   Machine,
   assign,
   spawn,
+  send,
   actions,
   AssignAction,
 } from 'xstate';
@@ -65,12 +66,16 @@ const SyncMachine = Machine<Context, any, Event>({
       },
     },
     CONNECTED: {
+      id: 'CONNECTED',
       initial: 'validateNetwork',
       states: {
         validateNetwork: {
           invoke: {
             src: 'validateNetwork',
-            onDone: 'idle',
+            onDone: {
+              target: 'idle',
+              actions: ['startStream'],
+            },
             onError: '#final-error',
           },
         },
@@ -99,6 +104,7 @@ const SyncMachine = Machine<Context, any, Event>({
         },
         handlingVoidedTx: {
           id: 'handlingVoidedTx',
+          always: [{ target: 'idle' }],
         },
         handlingNewTx: {
           id: 'handlingNewTx',
@@ -107,11 +113,18 @@ const SyncMachine = Machine<Context, any, Event>({
           id: 'handlingFirstBlock',
         },
         handlingMetadataChanged: {
+          id: 'handlingMetadataChanged',
           initial: 'detectingDiff',
           states: {
             detectingDiff: {
               invoke: {
                 src: 'metadataDiff',
+                onDone: {
+                  actions: send((_context, event) => ({ 
+                    type: 'METADATA_DECIDED',
+                    event: event.data,
+                  }))
+                },
               },
               on: {
                 'METADATA_DECIDED': [
@@ -124,7 +137,9 @@ const SyncMachine = Machine<Context, any, Event>({
           }
         },
         // We have the unchanged guard, so it's guaranteed that this is a new tx
-        handlingVertexAccepted: {},
+        handlingVertexAccepted: {
+          always: [{ target: 'idle' }]
+        },
       },
       on: {
         'WEBSOCKET_EVENT': [{
@@ -214,20 +229,42 @@ const SyncMachine = Machine<Context, any, Event>({
     },
   },
   actions: {
+    startStream: send((_context, _event) => ({
+      type: 'WEBSOCKET_SEND_EVENT',
+      event: {
+        message: JSON.stringify({
+          type: 'START_STREAM',
+          window_size: 1,
+        }),
+      },
+    }), {
+      // @ts-ignore
+      to: (context: Context) => context.socket.id,
+    }),
     clearSocket: assign({
       socket: null,
     }),
     storeEvent,
-    sendAck: () => {},
+    sendAck: send((context: Context, _event) => ({
+      type: 'WEBSOCKET_SEND_EVENT',
+      event: {
+        message: JSON.stringify({
+          type: 'ACK',
+          window_size: 1,
+          ack_event_id: context.lastEventId,
+        }),
+      },
+    }), {
+      // @ts-ignore
+      to: (context: Context) => context.socket.id,
+    }),
   }, 
   services: {
     metadataDiff: async (_context: Context, event: Event) => {
-      // Here we should go on the database to detect what changed!
-      actions.respond('METADATA_DECIDED', {
-        // @ts-ignore
+      return {
         type: 'TX_VOIDED',
         originalEvent: event,
-      });
+      };
     },
     initializeWebSocket: async (_context: Context, _event: Event) => {
       return Promise.resolve();
