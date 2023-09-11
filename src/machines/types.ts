@@ -1,5 +1,5 @@
 export interface Context {
-  socket: WebSocket | null;
+  socket: unknown;
   retryAttempt: number;
   lastEventId: null | number;
 }
@@ -44,7 +44,7 @@ export type FullNodeEvent = {
 }
 
 export type WebSocketEvent = 
-  | { type: 'CONNECTED'; socket: WebSocket }
+  | { type: 'CONNECTED' }
   | { type: 'DISCONNECTED' };
 
 export type MetadataDecidedEvent = {
@@ -52,7 +52,13 @@ export type MetadataDecidedEvent = {
   originalEvent: FullNodeEvent;
 }
 
+export type WebSocketSendEvent = {
+  // TODO: Well-defined types here
+  message: string;
+};
+
 export type Event =
   | { type: 'WEBSOCKET_EVENT', event: WebSocketEvent }
   | { type: 'FULLNODE_EVENT', event: FullNodeEvent }
-  | { type: 'METADATA_DECIDED', event: MetadataDecidedEvent };
+  | { type: 'METADATA_DECIDED', event: MetadataDecidedEvent }
+  | { type: 'WEBSOCKET_SEND_EVENT', event: WebSocketSendEvent };

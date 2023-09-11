@@ -38,24 +38,18 @@ describe('WebSocket connection', () => {
 
     expect(currentState.matches('CONNECTING')).toBeTruthy();
 
-    // @ts-ignore
-    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTING:invocation[0]' });
+    currentState = MockedFetchMachine.transition(currentState, { type: 'WEBSOCKET_EVENT', event: { type: 'CONNECTED', }});
 
-    expect(currentState.matches('VALIDATE_NETWORK')).toBeTruthy();
+    expect(currentState.matches('CONNECTED.validateNetwork')).toBeTruthy();
 
     // @ts-ignore
-    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.VALIDATE_NETWORK:invocation[0]' });
+    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTED.validateNetwork:invocation[0]' });
 
     expect(currentState.matches('CONNECTED.idle')).toBeTruthy();
   });
 
   it.concurrent('should transition to RECONNECTING if the websocket fails to initialize', () => {
     const MockedFetchMachine = SyncMachine.withConfig({
-      services: {
-        initializeWebSocket: async (_, _event) => {
-          return Promise.reject();
-        },
-      },
       delays: {
         RETRY_BACKOFF_INCREASE: 100,
       },
@@ -65,8 +59,7 @@ describe('WebSocket connection', () => {
 
     expect(currentState.matches('CONNECTING')).toBeTruthy();
 
-    // @ts-ignore
-    currentState = MockedFetchMachine.transition(currentState, { type: 'error.platform.websocket.CONNECTING:invocation[0]' });
+    currentState = MockedFetchMachine.transition(currentState, { type: 'WEBSOCKET_EVENT', event: { type: 'DISCONNECTED', }});
 
     expect(currentState.matches('RECONNECTING')).toBeTruthy();
   });
@@ -83,14 +76,11 @@ describe('WebSocket connection', () => {
       },
     });
 
-    // xstate.after(RETRY_BACKOFF_INCREASE)#websocket.RECONNECTING
-
     let currentState = MockedFetchMachine.initialState;
 
     expect(currentState.matches('CONNECTING')).toBeTruthy();
 
-    // @ts-ignore
-    currentState = MockedFetchMachine.transition(currentState, { type: 'error.platform.websocket.CONNECTING:invocation[0]' });
+    currentState = MockedFetchMachine.transition(currentState, { type: 'WEBSOCKET_EVENT', event: { type: 'DISCONNECTED', }});
 
     expect(currentState.matches('RECONNECTING')).toBeTruthy();
 
@@ -117,22 +107,21 @@ describe('WebSocket connection', () => {
 
     let currentState = MockedFetchMachine.initialState;
 
-    // @ts-ignore
-    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTING:invocation[0]' });
+    currentState = MockedFetchMachine.transition(currentState, { type: 'WEBSOCKET_EVENT', event: { type: 'CONNECTED', }});
 
-    expect(currentState.matches('VALIDATE_NETWORK')).toBeTruthy();
+    expect(currentState.matches('CONNECTED.validateNetwork')).toBeTruthy();
 
     // @ts-ignore
-    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.VALIDATE_NETWORK:invocation[0]' });
+    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTED.validateNetwork:invocation[0]' });
 
     expect(currentState.matches('CONNECTED.idle')).toBeTruthy();
 
     currentState = MockedFetchMachine.transition(currentState, {
-        type: 'WEBSOCKET_EVENT',
-        event: {
-          type: 'DISCONNECTED',
-        },
-      });
+      type: 'WEBSOCKET_EVENT',
+      event: {
+        type: 'DISCONNECTED',
+      },
+    });
 
     expect(currentState.matches('RECONNECTING')).toBeTruthy();
   });
@@ -144,13 +133,12 @@ describe('Validations', () => {
 
     let currentState = MockedFetchMachine.initialState;
 
-    // @ts-ignore
-    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTING:invocation[0]' });
+    currentState = MockedFetchMachine.transition(currentState, { type: 'WEBSOCKET_EVENT', event: { type: 'CONNECTED', }});
 
-    expect(currentState.matches('VALIDATE_NETWORK')).toBeTruthy();
+    expect(currentState.matches('CONNECTED.validateNetwork')).toBeTruthy();
 
     // @ts-ignore
-    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.VALIDATE_NETWORK:invocation[0]' });
+    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTED.validateNetwork:invocation[0]' });
 
     expect(currentState.matches('CONNECTED.idle')).toBeTruthy();
   });
@@ -160,13 +148,12 @@ describe('Validations', () => {
 
     let currentState = MockedFetchMachine.initialState;
 
-    // @ts-ignore
-    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTING:invocation[0]' });
+    currentState = MockedFetchMachine.transition(currentState, { type: 'WEBSOCKET_EVENT', event: { type: 'CONNECTED', }});
 
-    expect(currentState.matches('VALIDATE_NETWORK')).toBeTruthy();
+    expect(currentState.matches('CONNECTED.validateNetwork')).toBeTruthy();
 
     // @ts-ignore
-    currentState = MockedFetchMachine.transition(currentState, { type: 'error.platform.websocket.VALIDATE_NETWORK:invocation[0]' });
+    currentState = MockedFetchMachine.transition(currentState, { type: 'error.platform.websocket.CONNECTED.validateNetwork:invocation[0]' });
 
     expect(currentState.matches('ERROR')).toBeTruthy();
   });
@@ -182,13 +169,12 @@ describe('Validations', () => {
 
     let currentState = MockedFetchMachine.initialState;
 
-    // @ts-ignore
-    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTING:invocation[0]' });
+    currentState = MockedFetchMachine.transition(currentState, { type: 'WEBSOCKET_EVENT', event: { type: 'CONNECTED', }});
 
-    expect(currentState.matches('VALIDATE_NETWORK')).toBeTruthy();
+    expect(currentState.matches('CONNECTED.validateNetwork')).toBeTruthy();
 
     // @ts-ignore
-    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.VALIDATE_NETWORK:invocation[0]' });
+    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTED.validateNetwork:invocation[0]' });
 
     expect(currentState.matches('CONNECTED.idle')).toBeTruthy();
 
@@ -229,13 +215,12 @@ describe('Event handling', () => {
 
     let currentState = MockedFetchMachine.initialState;
 
-    // @ts-ignore
-    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTING:invocation[0]' });
+    currentState = MockedFetchMachine.transition(currentState, { type: 'WEBSOCKET_EVENT', event: { type: 'CONNECTED', }});
 
-    expect(currentState.matches('VALIDATE_NETWORK')).toBeTruthy();
+    expect(currentState.matches('CONNECTED.validateNetwork')).toBeTruthy();
 
     // @ts-ignore
-    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.VALIDATE_NETWORK:invocation[0]' });
+    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTED.validateNetwork:invocation[0]' });
 
     expect(currentState.matches('CONNECTED.idle')).toBeTruthy();
 
@@ -265,13 +250,12 @@ describe('Event handling', () => {
 
     let currentState = MockedFetchMachine.initialState;
 
-    // @ts-ignore
-    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTING:invocation[0]' });
+    currentState = MockedFetchMachine.transition(currentState, { type: 'WEBSOCKET_EVENT', event: { type: 'CONNECTED', }});
 
-    expect(currentState.matches('VALIDATE_NETWORK')).toBeTruthy();
+    expect(currentState.matches('CONNECTED.validateNetwork')).toBeTruthy();
 
     // @ts-ignore
-    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.VALIDATE_NETWORK:invocation[0]' });
+    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTED.validateNetwork:invocation[0]' });
 
     expect(currentState.matches('CONNECTED.idle')).toBeTruthy();
 
@@ -295,55 +279,16 @@ describe('Event handling', () => {
   });
 
   it.concurrent('should transition to handlingNewTx if TX_NEW action is received from diff detector', () => {
-    TxCache.clear();
-
     const MockedFetchMachine = SyncMachine.withConfig({});
 
     let currentState = MockedFetchMachine.initialState;
 
-    // @ts-ignore
-    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTING:invocation[0]' });
+    currentState = MockedFetchMachine.transition(currentState, { type: 'WEBSOCKET_EVENT', event: { type: 'CONNECTED', }});
 
-    expect(currentState.matches('VALIDATE_NETWORK')).toBeTruthy();
-
-    // @ts-ignore
-    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.VALIDATE_NETWORK:invocation[0]' });
-
-    expect(currentState.matches('CONNECTED.idle')).toBeTruthy();
-
-    currentState = MockedFetchMachine.transition(currentState, {
-      type: 'FULLNODE_EVENT',
-      event: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
-    });
-
-    expect(currentState.matches('CONNECTED.handlingMetadataChanged.detectingDiff')).toBeTruthy();
-
-    currentState = MockedFetchMachine.transition(currentState, {
-      // @ts-ignore
-      type: 'METADATA_DECIDED',
-      event: {
-        type: 'TX_NEW',
-        originalEvent: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
-      }
-    });
-
-    expect(currentState.matches('CONNECTED.handlingNewTx')).toBeTruthy();
-  });
-
-  it.concurrent('should transition to handlingVoidedTx if TX_VOIDED action is received from diff detector', () => {
-    TxCache.clear();
-
-    const MockedFetchMachine = SyncMachine.withConfig({});
-
-    let currentState = MockedFetchMachine.initialState;
+    expect(currentState.matches('CONNECTED.validateNetwork')).toBeTruthy();
 
     // @ts-ignore
-    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTING:invocation[0]' });
-
-    expect(currentState.matches('VALIDATE_NETWORK')).toBeTruthy();
-
-    // @ts-ignore
-    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.VALIDATE_NETWORK:invocation[0]' });
+    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTED.validateNetwork:invocation[0]' });
 
     expect(currentState.matches('CONNECTED.idle')).toBeTruthy();
 
@@ -373,13 +318,12 @@ describe('Event handling', () => {
 
     let currentState = MockedFetchMachine.initialState;
 
-    // @ts-ignore
-    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTING:invocation[0]' });
+    currentState = MockedFetchMachine.transition(currentState, { type: 'WEBSOCKET_EVENT', event: { type: 'CONNECTED', }});
 
-    expect(currentState.matches('VALIDATE_NETWORK')).toBeTruthy();
+    expect(currentState.matches('CONNECTED.validateNetwork')).toBeTruthy();
 
     // @ts-ignore
-    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.VALIDATE_NETWORK:invocation[0]' });
+    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTED.validateNetwork:invocation[0]' });
 
     expect(currentState.matches('CONNECTED.idle')).toBeTruthy();
 

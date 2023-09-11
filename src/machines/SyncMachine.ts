@@ -5,8 +5,15 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { Machine, assign, actions, AssignAction } from 'xstate';
+import {
+  Machine,
+  assign,
+  spawn,
+  actions,
+  AssignAction,
+} from 'xstate';
 import { hashTxData, LRU } from '../utils';
+import { WebSocketActor } from '../actors';
 import {
   Context,
   Event,
@@ -39,15 +46,17 @@ const SyncMachine = Machine<Context, any, Event>({
   },
   states: {
     CONNECTING: {
-      invoke: {
-        src: 'initializeWebSocket',
-        onDone: {
-          target: 'VALIDATE_NETWORK'
-        },
-        onError: {
+      entry: assign({
+        socket: () => spawn(WebSocketActor),
+      }),
+      on: {
+        'WEBSOCKET_EVENT': [{
+          cond: 'websocketDisconnected',
           target: 'RECONNECTING',
-        }
-      },
+        }, {
+          target: 'CONNECTED',
+        }],
+      }
     },
     RECONNECTING: {
       onEntry: ['clearSocket'],
@@ -55,17 +64,16 @@ const SyncMachine = Machine<Context, any, Event>({
         RETRY_BACKOFF_INCREASE: 'CONNECTING',
       },
     },
-    VALIDATE_NETWORK: {
-      invoke: {
-        src: 'validateNetwork',
-        onDone: 'CONNECTED',
-        onError: '#final-error',
-      },
-    },
     CONNECTED: {
-      initial: 'idle',
+      initial: 'validateNetwork',
       states: {
-        validating: {},
+        validateNetwork: {
+          invoke: {
+            src: 'validateNetwork',
+            onDone: 'idle',
+            onError: '#final-error',
+          },
+        },
         idle: {
           on: {
             FULLNODE_EVENT: [{
