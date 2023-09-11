@@ -1,29 +1,33 @@
 export interface Context {
   socket: WebSocket | null;
   retryAttempt: number;
+  lastEventId: null | number;
 }
 
 export type FullNodeEvent = {
   type: string;
-  peer_id: string;
-  id: number;
-  timestamp: number;
-  data: {
-    hash: string;
+  event: {
+    peer_id: string;
+    id: number;
     timestamp: number;
-    version: number;
-    weight: number;
-    inputs: Input[];
-    outputs: Output[];
-    tokens: string[];
-    token_name: null | string;
-    token_symbol: null | string;
-    metadata: {
+    type: string;
+    data: {
       hash: string;
-      voided_by: string[];
-      first_block: null | string;
-      height: number;
-    };
+      timestamp: number;
+      version: number;
+      weight: number;
+      inputs: Input[];
+      outputs: Output[];
+      tokens: string[];
+      token_name: null | string;
+      token_symbol: null | string;
+      metadata: {
+        hash: string;
+        voided_by: string[];
+        first_block: null | string;
+        height: number;
+      };
+    }
   }
 }
 
@@ -34,9 +38,9 @@ export interface Output {
 }
 
 interface Input {
-    tx_id: string;
-    index: number;
-    data: string;
+  tx_id: string;
+  index: number;
+  data: string;
 }
 
 export type WebSocketEvent = 

@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { Machine, assign } from 'xstate';
+import { Machine, assign, AssignAction } from 'xstate';
 import { hashTxData, LRU } from '../utils';
 import {
   Context,
@@ -17,19 +17,36 @@ const MAX_BACKOFF_RETRIES = 10; // The retry backoff will top at 10s
 
 export const TxCache = new LRU(10000);
 
+const storeEvent: AssignAction<Context, Event> = assign({
+  // @ts-ignore
+  lastEventId: (context: Context, event: Event) => {
+    if (event.type !== 'FULLNODE_EVENT') {
+      return context.lastEventId;
+    }
+    if (!('id' in event.event.event)) return;
+
+    return event.event.event.id;
+  },
+});
+
 const SyncMachine = Machine<Context, any, Event>({
   id: 'websocket',
   initial: 'CONNECTING',
   context: {
     socket: null,
     retryAttempt: 0,
+    lastEventId: null,
   },
   states: {
     CONNECTING: {
       invoke: {
         src: 'initializeWebSocket',
-        onDone: 'CONNECTED',
-        onError: 'RECONNECTING',
+        onDone: {
+          target: 'VALIDATE_NETWORK'
+        },
+        onError: {
+          target: 'RECONNECTING',
+        }
       },
     },
     RECONNECTING: {
@@ -38,33 +55,48 @@ const SyncMachine = Machine<Context, any, Event>({
         RETRY_BACKOFF_INCREASE: 'CONNECTING',
       },
     },
-    CONNECTED: {
+    VALIDATE_NETWORK: {
       invoke: {
         src: 'validateNetwork',
-        onDone: 'CONNECTED.idle',
-        onError: 'ERROR',
+        onDone: 'CONNECTED',
+        onError: '#final-error',
       },
-      initial: 'validating',
+    },
+    CONNECTED: {
+      initial: 'idle',
       states: {
         validating: {},
         idle: {
           on: {
-            'FULLNODE_EVENT': [{
+            FULLNODE_EVENT: [{
               cond: 'invalidPeerId',
               target: '#final-error',
             }, {
+              actions: ['storeEvent', 'sendAck'],
               cond: 'unchanged',
+              target: 'idle',
+            }, {
+              actions: ['storeEvent', 'sendAck'],
+              cond: 'metadataChanged',
+              target: 'handlingMetadataChanged',
+            }, {
+              actions: ['storeEvent', 'sendAck'],
+              cond: 'vertexAccepted',
+              target: 'handlingVertexAccepted',
+            }, {
+              actions: ['storeEvent', 'sendAck'],
               target: 'idle',
             }],
           },
         },
-        handleVoidedTx: {},
+        handlingMetadataChanged: {},
+        handlingVertexAccepted: {},
       },
       on: {
         'WEBSOCKET_EVENT': [{
           cond: 'websocketDisconnected',
           target: 'RECONNECTING',
-        }]
+        }],
       }
     },
     ERROR: {
@@ -74,7 +106,22 @@ const SyncMachine = Machine<Context, any, Event>({
   },
 }, {
   guards: {
-    invalidPeerId: () => false,
+    metadataChanged: (_context, event: Event) => {
+      if (event.type !== 'FULLNODE_EVENT') {
+        return false;
+      }
+
+      return event.event.event.type === 'VERTEX_METADATA_CHANGED';
+    },
+    vertexAccepted: (_context, event: Event) => {
+      if (event.type !== 'FULLNODE_EVENT') {
+        return false;
+      }
+      return event.event.event.type === 'NEW_VERTEX_ACCEPTED';
+    },
+    invalidPeerId: () => {
+      return false;
+    },
     websocketDisconnected: (_context, event: Event) => {
       if (event.type === 'WEBSOCKET_EVENT'
           && event.event.type === 'DISCONNECTED') {
@@ -88,12 +135,13 @@ const SyncMachine = Machine<Context, any, Event>({
         return true;
       }
 
-      const txHashFromCache = TxCache.get(event.event.data.hash);
+      const { data } = event.event.event;
+
+      const txHashFromCache = TxCache.get(data.hash);
+      // Not on the cache, it's not unchanged.
       if (!txHashFromCache) {
         return false;
       }
-
-      const { data } = event.event;
 
       const txHashFromEvent = hashTxData(data.metadata);
 
@@ -113,6 +161,8 @@ const SyncMachine = Machine<Context, any, Event>({
     clearSocket: assign({
       socket: null,
     }),
+    storeEvent,
+    sendAck: () => {},
   }, 
   services: {
     initializeWebSocket: async (_context: Context, _event: Event) => {

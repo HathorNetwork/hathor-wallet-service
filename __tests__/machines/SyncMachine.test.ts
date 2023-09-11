@@ -22,7 +22,7 @@ beforeAll(async () => {
 });
 
 describe('WebSocket connection', () => {
-  test('SyncMachine should start at CONNECTING and then transition to CONNECTED.idle if the websocket is successfully initialized', (done) => {
+  it.concurrent('should start at CONNECTING and then transition to CONNECTED.idle if the websocket is successfully initialized', () => {
     const MockedFetchMachine = SyncMachine.withConfig({
       services: {
         initializeWebSocket: async (_, _event) => {
@@ -34,23 +34,22 @@ describe('WebSocket connection', () => {
       },
     });
 
-    const syncMachine = interpret(MockedFetchMachine);
+    let currentState = MockedFetchMachine.initialState;
 
-    let connecting = false;
-    syncMachine.onTransition((state) => {
-      if (!connecting && state.matches('CONNECTING')) {
-        connecting = true;
-      }
-      if (connecting && state.matches('CONNECTED.idle')) {
-        syncMachine.stop();
-        done();
-      }
-    });
+    expect(currentState.matches('CONNECTING')).toBeTruthy();
 
-    syncMachine.start();
+    // @ts-ignore
+    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTING:invocation[0]' });
+
+    expect(currentState.matches('VALIDATE_NETWORK')).toBeTruthy();
+
+    // @ts-ignore
+    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.VALIDATE_NETWORK:invocation[0]' });
+
+    expect(currentState.matches('CONNECTED.idle')).toBeTruthy();
   });
 
-  test('SyncMachine should transition to RECONNECTING if the websocket fails to initialize', (done) => {
+  it.concurrent('should transition to RECONNECTING if the websocket fails to initialize', () => {
     const MockedFetchMachine = SyncMachine.withConfig({
       services: {
         initializeWebSocket: async (_, _event) => {
@@ -62,19 +61,17 @@ describe('WebSocket connection', () => {
       },
     });
 
-    const syncMachine = interpret(MockedFetchMachine);
+    let currentState = MockedFetchMachine.initialState;
 
-    syncMachine.onTransition((state) => {
-      if (state.matches('RECONNECTING')) {
-        syncMachine.stop();
-        done();
-      }
-    });
+    expect(currentState.matches('CONNECTING')).toBeTruthy();
 
-    syncMachine.start();
+    // @ts-ignore
+    currentState = MockedFetchMachine.transition(currentState, { type: 'error.platform.websocket.CONNECTING:invocation[0]' });
+
+    expect(currentState.matches('RECONNECTING')).toBeTruthy();
   });
 
-  test('SyncMachine should transition to CONNECTING to reconnect after a failure in the initial connection', (done) => {
+  it.concurrent('should transition to CONNECTING to reconnect after a failure in the initial connection', () => {
     const MockedFetchMachine = SyncMachine.withConfig({
       services: {
         initializeWebSocket: async (_, _event) => {
@@ -86,24 +83,24 @@ describe('WebSocket connection', () => {
       },
     });
 
-    const syncMachine = interpret(MockedFetchMachine);
+    // xstate.after(RETRY_BACKOFF_INCREASE)#websocket.RECONNECTING
 
-    let isReconnecting = false;
-    syncMachine.onTransition((state) => {
-      if (state.matches('RECONNECTING')) {
-        isReconnecting = true;
-      }
+    let currentState = MockedFetchMachine.initialState;
 
-      if (isReconnecting && state.matches('CONNECTING')) {
-        syncMachine.stop();
-        done();
-      }
-    });
+    expect(currentState.matches('CONNECTING')).toBeTruthy();
 
-    syncMachine.start();
+    // @ts-ignore
+    currentState = MockedFetchMachine.transition(currentState, { type: 'error.platform.websocket.CONNECTING:invocation[0]' });
+
+    expect(currentState.matches('RECONNECTING')).toBeTruthy();
+
+    // @ts-ignore
+    currentState = MockedFetchMachine.transition(currentState, { type: 'xstate.after(RETRY_BACKOFF_INCREASE)#websocket.RECONNECTING' });
+
+    expect(currentState.matches('CONNECTING')).toBeTruthy();
   });
 
-  test('SyncMachine should transition to RECONNECTING to reconnect after a failure', (done) => {
+  it.concurrent('should transition to RECONNECTING to reconnect after a failure', () => {
     const MockedFetchMachine = SyncMachine.withConfig({
       services: {
         initializeWebSocket: async (_, _event) => {
@@ -118,105 +115,64 @@ describe('WebSocket connection', () => {
       },
     });
 
-    const syncMachine = interpret(MockedFetchMachine);
+    let currentState = MockedFetchMachine.initialState;
 
-    let sentDisconnect = false;
-    syncMachine.onTransition((state) => {
-      if (state.matches('CONNECTED.idle')) {
-        sentDisconnect = true;
-        syncMachine.send({
-          type: 'WEBSOCKET_EVENT',
-          event: {
-            type: 'DISCONNECTED',
-          }
-        });
-      }
+    // @ts-ignore
+    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTING:invocation[0]' });
 
-      if (sentDisconnect && state.matches('RECONNECTING')) {
-        syncMachine.stop();
-        done();
-      }
-    });
+    expect(currentState.matches('VALIDATE_NETWORK')).toBeTruthy();
 
-    syncMachine.start();
+    // @ts-ignore
+    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.VALIDATE_NETWORK:invocation[0]' });
+
+    expect(currentState.matches('CONNECTED.idle')).toBeTruthy();
+
+    currentState = MockedFetchMachine.transition(currentState, {
+        type: 'WEBSOCKET_EVENT',
+        event: {
+          type: 'DISCONNECTED',
+        },
+      });
+
+    expect(currentState.matches('RECONNECTING')).toBeTruthy();
   });
 });
 
 describe('Validations', () => {
-  test('SyncMachine should validate the network before starting the stream', (done) => {
-    const MockedFetchMachine = SyncMachine.withConfig({
-      services: {
-        initializeWebSocket: async (_, _event) => {
-          return Promise.resolve();
-        },
-        validateNetwork: async (_, _event) => {
-          return Promise.resolve();
-        },
-      },
-    });
+  it.concurrent('should validate the network before starting the stream', () => {
+    const MockedFetchMachine = SyncMachine.withConfig({});
 
-    const syncMachine = interpret(MockedFetchMachine);
+    let currentState = MockedFetchMachine.initialState;
 
-    let connecting = false;
-    let validating = false;
-    syncMachine.onTransition((state) => {
-      if (!connecting && state.matches('CONNECTING')) {
-        connecting = true;
-      }
-      if (connecting && state.matches('CONNECTED.validating')) {
-        validating = true;
-      }
-      if (validating && state.matches('CONNECTED.idle')) {
-        syncMachine.stop();
-        done();
-      }
-    });
+    // @ts-ignore
+    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTING:invocation[0]' });
 
-    syncMachine.start();
+    expect(currentState.matches('VALIDATE_NETWORK')).toBeTruthy();
+
+    // @ts-ignore
+    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.VALIDATE_NETWORK:invocation[0]' });
+
+    expect(currentState.matches('CONNECTED.idle')).toBeTruthy();
   });
 
-  test('SyncMachine should transition to ERROR final state if the network is incorrect', (done) => {
-    const MockedFetchMachine = SyncMachine.withConfig({
-      services: {
-        initializeWebSocket: async (_, _event) => {
-          return Promise.resolve();
-        },
-        validateNetwork: async (_, _event) => {
-          return Promise.reject();
-        },
-      },
-    });
+  it.concurrent('should transition to ERROR final state if the network is incorrect', () => {
+    const MockedFetchMachine = SyncMachine.withConfig({});
 
-    const syncMachine = interpret(MockedFetchMachine);
+    let currentState = MockedFetchMachine.initialState;
 
-    let connecting = false;
-    let validating = false;
-    syncMachine.onTransition((state) => {
-      if (!connecting && state.matches('CONNECTING')) {
-        connecting = true;
-      }
-      if (connecting && state.matches('CONNECTED.validating')) {
-        validating = true;
-      }
-      if (validating && state.matches('ERROR')) {
-        syncMachine.stop();
-        done();
-      }
-    });
+    // @ts-ignore
+    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTING:invocation[0]' });
 
-    syncMachine.start();
+    expect(currentState.matches('VALIDATE_NETWORK')).toBeTruthy();
+
+    // @ts-ignore
+    currentState = MockedFetchMachine.transition(currentState, { type: 'error.platform.websocket.VALIDATE_NETWORK:invocation[0]' });
+
+    expect(currentState.matches('ERROR')).toBeTruthy();
   });
 
-  test('SyncMachine should validate the peerid on every message', (done) => {
+  it.concurrent('should validate the peerid on every message', () => {
     const MockedFetchMachine = SyncMachine.withConfig({
-      services: {
-        initializeWebSocket: async (_, _event) => {
-          return Promise.resolve();
-        },
-        validateNetwork: async (_, _event) => {
-          return Promise.resolve();
-        },
-      },
       guards: {
         invalidPeerId: (_event, _context) => {
           return true;
@@ -224,35 +180,29 @@ describe('Validations', () => {
       }
     });
 
-    const syncMachine = interpret(MockedFetchMachine);
+    let currentState = MockedFetchMachine.initialState;
 
-    let connecting = false;
-    let validating = false;
-    let messageSent = false;
-    syncMachine.onTransition((state) => {
-      if (!connecting && state.matches('CONNECTING')) {
-        connecting = true;
-      }
-      if (connecting && state.matches('CONNECTED.validating')) {
-        validating = true;
-      }
-      if (validating && state.matches('CONNECTED.idle')) {
-        syncMachine.send('FULLNODE_EVENT');
-        messageSent = true;
-      }
+    // @ts-ignore
+    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTING:invocation[0]' });
 
-      if (messageSent && state.matches('ERROR')) {
-        syncMachine.stop();
-        done();
-      }
+    expect(currentState.matches('VALIDATE_NETWORK')).toBeTruthy();
+
+    // @ts-ignore
+    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.VALIDATE_NETWORK:invocation[0]' });
+
+    expect(currentState.matches('CONNECTED.idle')).toBeTruthy();
+
+    currentState = MockedFetchMachine.transition(currentState, {
+      type: 'FULLNODE_EVENT',
+      event: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
     });
 
-    syncMachine.start();
+    expect(currentState.matches('ERROR')).toBe(true);
   });
 });
 
-describe('Event Handling', () => {
-  test('SyncMachine should ignore already processed transactions', (done) => {
+describe('Event handling', () => {
+  it.concurrent('should ignore already processed transactions', () => {
     const MockedFetchMachine = SyncMachine.withConfig({
       services: {
         initializeWebSocket: async (_, _event) => {
@@ -263,6 +213,7 @@ describe('Event Handling', () => {
         },
       },
       guards: {
+        ...SyncMachine.options.guards,
         invalidPeerId: (_event, _context) => {
           return false;
         },
@@ -270,35 +221,36 @@ describe('Event Handling', () => {
     });
 
     const hashedTx = hashTxData(VERTEX_METADATA_CHANGED.event.data.metadata);
-
     TxCache.set(VERTEX_METADATA_CHANGED.event.data.hash, hashedTx);
 
-    const syncMachine = interpret(MockedFetchMachine);
+    let currentState = MockedFetchMachine.initialState;
 
-    let connecting = false;
-    let validating = false;
-    let messageSent = false;
-    syncMachine.onTransition((state) => {
-      if (!connecting && state.matches('CONNECTING')) {
-        connecting = true;
-      }
-      if (connecting && state.matches('CONNECTED.validating')) {
-        validating = true;
-      }
-      if (validating && state.matches('CONNECTED.idle')) {
-        syncMachine.send({
-          type: 'FULLNODE_EVENT',
-          event: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
-        });
-        messageSent = true;
-      }
+    // @ts-ignore
+    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTING:invocation[0]' });
 
-      if (messageSent && state.matches('CONNECTED.idle')) {
-        syncMachine.stop();
-        done();
-      }
+    expect(currentState.matches('VALIDATE_NETWORK')).toBeTruthy();
+
+    // @ts-ignore
+    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.VALIDATE_NETWORK:invocation[0]' });
+
+    expect(currentState.matches('CONNECTED.idle')).toBeTruthy();
+
+    currentState = MockedFetchMachine.transition(currentState, {
+      type: 'FULLNODE_EVENT',
+      event: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
     });
 
-    syncMachine.start();
+    expect(currentState.matches('CONNECTED.idle')).toBe(true);
+    expect(currentState.context.lastEventId).toStrictEqual(VERTEX_METADATA_CHANGED.event.id);
+
+    TxCache.clear();
+
+    currentState = MockedFetchMachine.transition(currentState, {
+      type: 'FULLNODE_EVENT',
+      event: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
+    });
+
+    expect(currentState.matches('CONNECTED.handlingMetadataChanged')).toBe(true);
+    expect(currentState.context.lastEventId).toStrictEqual(VERTEX_METADATA_CHANGED.event.id);
   });
 });

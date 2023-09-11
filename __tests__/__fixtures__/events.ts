@@ -56,4 +56,47 @@ export default {
     },
     latest_event_id: 38
   },
+  NEW_VERTEX_ACCEPTED: {
+    type: 'EVENT',
+    event: {
+      peer_id: '9083fc84b47a475862b97534296b9713bb05e6dcd6640b804be4c20c3639d3f5',
+      id: 49,
+      timestamp: 1691028449.1147473,
+      type: 'NEW_VERTEX_ACCEPTED',
+      data: {
+        hash: '00000000171cb374cb433745b4080bcc7a44f42c4f563af1a624eea588f3f146',
+        nonce: 297718091,
+        timestamp: 1578077286,
+        version: 0,
+        weight: 34.879398065365535,
+        inputs: [],
+        outputs: [{
+          value: 6400,
+          script: 'dqkUym0SWcUWwA1Du+i9fiZl4MbEfwWIrA==',
+          token_data: 0,
+        }],
+        parents: ['00000000008fe9c79211df3d1e2236202839534e1dab2fce587d7c4360d8b0b4', '0002d4d2a15def7604688e1878ab681142a7b155cbe52a6b4e031250ae96db0a', '0002ad8d1519daaddc8e1a37b14aac0b045129c01832281fb1c02d873c7abbf9'],
+        tokens: [],
+        token_name: null,
+        token_symbol: null,
+        metadata: {
+          hash: '00000000171cb374cb433745b4080bcc7a44f42c4f563af1a624eea588f3f146',
+          spent_outputs: [],
+          conflict_with: [],
+          voided_by: [],
+          received_by: [],
+          children: ['0000000009c21644558a29eb5e89061a993b8241b2580d26071b7d3efd7a9e03'],
+          twins: [],
+          accumulated_weight: 34.879398065365535,
+          score: 42.309318350260796,
+          first_block: null,
+          height: 46,
+          validation: 'full',
+        },
+        aux_pow: null,
+      },
+      group_id: null,
+    },
+    latest_event_id: 5089156
+  } 
 };
