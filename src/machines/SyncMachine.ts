@@ -6,6 +6,7 @@
  */
 
 import { Machine, assign } from 'xstate';
+import { hashTxData, LRU } from '../utils';
 import {
   Context,
   Event,
@@ -13,6 +14,8 @@ import {
 
 const RETRY_BACKOFF_INCREASE = 1000; // 1s increase in the backoff strategy
 const MAX_BACKOFF_RETRIES = 10; // The retry backoff will top at 10s
+
+export const TxCache = new LRU(10000);
 
 const SyncMachine = Machine<Context, any, Event>({
   id: 'websocket',
@@ -50,22 +53,16 @@ const SyncMachine = Machine<Context, any, Event>({
               cond: 'invalidPeerId',
               target: '#final-error',
             }, {
-              target: 'handlingMessage',
+              cond: 'unchanged',
+              target: 'idle',
             }],
           },
         },
-        handlingMessage: {},
+        handleVoidedTx: {},
       },
       on: {
         'WEBSOCKET_EVENT': [{
-          cond: (_context, event: Event) => {
-            if (event.type === 'WEBSOCKET_EVENT'
-                && event.event.type === 'DISCONNECTED') {
-              return true;
-            }
-
-            return false;
-          },
+          cond: 'websocketDisconnected',
           target: 'RECONNECTING',
         }]
       }
@@ -78,6 +75,30 @@ const SyncMachine = Machine<Context, any, Event>({
 }, {
   guards: {
     invalidPeerId: () => false,
+    websocketDisconnected: (_context, event: Event) => {
+      if (event.type === 'WEBSOCKET_EVENT'
+          && event.event.type === 'DISCONNECTED') {
+        return true;
+      }
+
+      return false;
+    },
+    unchanged: (_context: Context, event: Event) => {
+      if (event.type !== 'FULLNODE_EVENT') {
+        return true;
+      }
+
+      const txHashFromCache = TxCache.get(event.event.data.hash);
+      if (!txHashFromCache) {
+        return false;
+      }
+
+      const { data } = event.event;
+
+      const txHashFromEvent = hashTxData(data.metadata);
+
+      return txHashFromCache === txHashFromEvent;
+    },
   },
   delays: {
     BACKOFF_DELAYED_RECONNECT: (context: Context) => {

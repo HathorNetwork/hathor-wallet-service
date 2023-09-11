@@ -8,7 +8,35 @@ export type FullNodeEvent = {
   peer_id: string;
   id: number;
   timestamp: number;
-  data: unknown;
+  data: {
+    hash: string;
+    timestamp: number;
+    version: number;
+    weight: number;
+    inputs: Input[];
+    outputs: Output[];
+    tokens: string[];
+    token_name: null | string;
+    token_symbol: null | string;
+    metadata: {
+      hash: string;
+      voided_by: string[];
+      first_block: null | string;
+      height: number;
+    };
+  }
+}
+
+export interface Output {
+  value: number;
+  script: string;
+  token_data: number;
+}
+
+interface Input {
+    tx_id: string;
+    index: number;
+    data: string;
 }
 
 export type WebSocketEvent = 

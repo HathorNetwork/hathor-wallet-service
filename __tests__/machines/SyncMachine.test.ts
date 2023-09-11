@@ -10,7 +10,12 @@
  */
 
 import { interpret } from 'xstate';
-import { SyncMachine } from '../../src/machines';
+import { SyncMachine, TxCache } from '../../src/machines';
+import EventFixtures from '../__fixtures__/events';
+import { FullNodeEvent } from '../../src/machines/types';
+import { hashTxData } from '../../src/utils';
+
+const { VERTEX_METADATA_CHANGED } = EventFixtures;
 
 beforeAll(async () => {
   jest.clearAllMocks();
@@ -237,6 +242,58 @@ describe('Validations', () => {
       }
 
       if (messageSent && state.matches('ERROR')) {
+        syncMachine.stop();
+        done();
+      }
+    });
+
+    syncMachine.start();
+  });
+});
+
+describe('Event Handling', () => {
+  test('SyncMachine should ignore already processed transactions', (done) => {
+    const MockedFetchMachine = SyncMachine.withConfig({
+      services: {
+        initializeWebSocket: async (_, _event) => {
+          return Promise.resolve();
+        },
+        validateNetwork: async (_, _event) => {
+          return Promise.resolve();
+        },
+      },
+      guards: {
+        invalidPeerId: (_event, _context) => {
+          return false;
+        },
+      }
+    });
+
+    const hashedTx = hashTxData(VERTEX_METADATA_CHANGED.event.data.metadata);
+
+    TxCache.set(VERTEX_METADATA_CHANGED.event.data.hash, hashedTx);
+
+    const syncMachine = interpret(MockedFetchMachine);
+
+    let connecting = false;
+    let validating = false;
+    let messageSent = false;
+    syncMachine.onTransition((state) => {
+      if (!connecting && state.matches('CONNECTING')) {
+        connecting = true;
+      }
+      if (connecting && state.matches('CONNECTED.validating')) {
+        validating = true;
+      }
+      if (validating && state.matches('CONNECTED.idle')) {
+        syncMachine.send({
+          type: 'FULLNODE_EVENT',
+          event: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
+        });
+        messageSent = true;
+      }
+
+      if (messageSent && state.matches('CONNECTED.idle')) {
         syncMachine.stop();
         done();
       }
