@@ -202,6 +202,10 @@ describe('Validations', () => {
 });
 
 describe('Event handling', () => {
+  beforeEach(() => {
+    TxCache.clear();
+  });
+
   it.concurrent('should ignore already processed transactions', () => {
     const MockedFetchMachine = SyncMachine.withConfig({
       services: {
@@ -252,5 +256,149 @@ describe('Event handling', () => {
 
     expect(currentState.matches('CONNECTED.handlingMetadataChanged')).toBe(true);
     expect(currentState.context.lastEventId).toStrictEqual(VERTEX_METADATA_CHANGED.event.id);
+  });
+
+  it.concurrent('should transition to handlingVoidedTx if TX_VOIDED action is received from diff detector', () => {
+    TxCache.clear();
+
+    const MockedFetchMachine = SyncMachine.withConfig({});
+
+    let currentState = MockedFetchMachine.initialState;
+
+    // @ts-ignore
+    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTING:invocation[0]' });
+
+    expect(currentState.matches('VALIDATE_NETWORK')).toBeTruthy();
+
+    // @ts-ignore
+    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.VALIDATE_NETWORK:invocation[0]' });
+
+    expect(currentState.matches('CONNECTED.idle')).toBeTruthy();
+
+    currentState = MockedFetchMachine.transition(currentState, {
+      type: 'FULLNODE_EVENT',
+      event: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
+    });
+
+    expect(currentState.matches('CONNECTED.handlingMetadataChanged.detectingDiff')).toBeTruthy();
+
+    currentState = MockedFetchMachine.transition(currentState, {
+      // @ts-ignore
+      type: 'METADATA_DECIDED',
+      event: {
+        type: 'TX_VOIDED',
+        originalEvent: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
+      }
+    });
+
+    expect(currentState.matches('CONNECTED.handlingVoidedTx')).toBeTruthy();
+  });
+
+  it.concurrent('should transition to handlingNewTx if TX_NEW action is received from diff detector', () => {
+    TxCache.clear();
+
+    const MockedFetchMachine = SyncMachine.withConfig({});
+
+    let currentState = MockedFetchMachine.initialState;
+
+    // @ts-ignore
+    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTING:invocation[0]' });
+
+    expect(currentState.matches('VALIDATE_NETWORK')).toBeTruthy();
+
+    // @ts-ignore
+    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.VALIDATE_NETWORK:invocation[0]' });
+
+    expect(currentState.matches('CONNECTED.idle')).toBeTruthy();
+
+    currentState = MockedFetchMachine.transition(currentState, {
+      type: 'FULLNODE_EVENT',
+      event: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
+    });
+
+    expect(currentState.matches('CONNECTED.handlingMetadataChanged.detectingDiff')).toBeTruthy();
+
+    currentState = MockedFetchMachine.transition(currentState, {
+      // @ts-ignore
+      type: 'METADATA_DECIDED',
+      event: {
+        type: 'TX_NEW',
+        originalEvent: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
+      }
+    });
+
+    expect(currentState.matches('CONNECTED.handlingNewTx')).toBeTruthy();
+  });
+
+  it.concurrent('should transition to handlingVoidedTx if TX_VOIDED action is received from diff detector', () => {
+    TxCache.clear();
+
+    const MockedFetchMachine = SyncMachine.withConfig({});
+
+    let currentState = MockedFetchMachine.initialState;
+
+    // @ts-ignore
+    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTING:invocation[0]' });
+
+    expect(currentState.matches('VALIDATE_NETWORK')).toBeTruthy();
+
+    // @ts-ignore
+    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.VALIDATE_NETWORK:invocation[0]' });
+
+    expect(currentState.matches('CONNECTED.idle')).toBeTruthy();
+
+    currentState = MockedFetchMachine.transition(currentState, {
+      type: 'FULLNODE_EVENT',
+      event: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
+    });
+
+    expect(currentState.matches('CONNECTED.handlingMetadataChanged.detectingDiff')).toBeTruthy();
+
+    currentState = MockedFetchMachine.transition(currentState, {
+      // @ts-ignore
+      type: 'METADATA_DECIDED',
+      event: {
+        type: 'TX_NEW',
+        originalEvent: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
+      }
+    });
+
+    expect(currentState.matches('CONNECTED.handlingNewTx')).toBeTruthy();
+  });
+
+  it.concurrent('should transition to handlingFirstBlock if TX_FIRST_BLOCK action is received from diff detector', () => {
+    TxCache.clear();
+
+    const MockedFetchMachine = SyncMachine.withConfig({});
+
+    let currentState = MockedFetchMachine.initialState;
+
+    // @ts-ignore
+    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.CONNECTING:invocation[0]' });
+
+    expect(currentState.matches('VALIDATE_NETWORK')).toBeTruthy();
+
+    // @ts-ignore
+    currentState = MockedFetchMachine.transition(currentState, { type: 'done.invoke.websocket.VALIDATE_NETWORK:invocation[0]' });
+
+    expect(currentState.matches('CONNECTED.idle')).toBeTruthy();
+
+    currentState = MockedFetchMachine.transition(currentState, {
+      type: 'FULLNODE_EVENT',
+      event: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
+    });
+
+    expect(currentState.matches('CONNECTED.handlingMetadataChanged.detectingDiff')).toBeTruthy();
+
+    currentState = MockedFetchMachine.transition(currentState, {
+      // @ts-ignore
+      type: 'METADATA_DECIDED',
+      event: {
+        type: 'TX_FIRST_BLOCK',
+        originalEvent: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
+      }
+    });
+
+    expect(currentState.matches('CONNECTED.handlingFirstBlock')).toBeTruthy();
   });
 });
