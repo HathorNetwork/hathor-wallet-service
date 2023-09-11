@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { Machine, assign, AssignAction } from 'xstate';
+import { Machine, assign, actions, AssignAction } from 'xstate';
 import { hashTxData, LRU } from '../utils';
 import {
   Context,
@@ -89,7 +89,33 @@ const SyncMachine = Machine<Context, any, Event>({
             }],
           },
         },
-        handlingMetadataChanged: {},
+        handlingVoidedTx: {
+          id: 'handlingVoidedTx',
+        },
+        handlingNewTx: {
+          id: 'handlingNewTx',
+        },
+        handlingFirstBlock: {
+          id: 'handlingFirstBlock',
+        },
+        handlingMetadataChanged: {
+          initial: 'detectingDiff',
+          states: {
+            detectingDiff: {
+              invoke: {
+                src: 'metadataDiff',
+              },
+              on: {
+                'METADATA_DECIDED': [
+                  { target: '#handlingVoidedTx', cond: 'metadataVoided' },
+                  { target: '#handlingNewTx', cond: 'metadataNewTx' },
+                  { target: '#handlingFirstBlock', cond: 'metadataFirstBlock' },
+                ],
+              }
+            },
+          }
+        },
+        // We have the unchanged guard, so it's guaranteed that this is a new tx
         handlingVertexAccepted: {},
       },
       on: {
@@ -106,6 +132,27 @@ const SyncMachine = Machine<Context, any, Event>({
   },
 }, {
   guards: {
+    metadataVoided: (_context, event: Event) => {
+      if (event.type !== 'METADATA_DECIDED') {
+        return false;
+      }
+
+      return event.event.type === 'TX_VOIDED';
+    },
+    metadataNewTx: (_context, event: Event) => {
+      if (event.type !== 'METADATA_DECIDED') {
+        return false;
+      }
+
+      return event.event.type === 'TX_NEW';
+    },
+    metadataFirstBlock: (_context, event: Event) => {
+      if (event.type !== 'METADATA_DECIDED') {
+        return false;
+      }
+
+      return event.event.type === 'TX_FIRST_BLOCK';
+    },
     metadataChanged: (_context, event: Event) => {
       if (event.type !== 'FULLNODE_EVENT') {
         return false;
@@ -117,6 +164,7 @@ const SyncMachine = Machine<Context, any, Event>({
       if (event.type !== 'FULLNODE_EVENT') {
         return false;
       }
+
       return event.event.event.type === 'NEW_VERTEX_ACCEPTED';
     },
     invalidPeerId: () => {
@@ -165,6 +213,14 @@ const SyncMachine = Machine<Context, any, Event>({
     sendAck: () => {},
   }, 
   services: {
+    metadataDiff: async (_context: Context, event: Event) => {
+      // Here we should go on the database to detect what changed!
+      actions.respond('METADATA_DECIDED', {
+        // @ts-ignore
+        type: 'TX_VOIDED',
+        originalEvent: event,
+      });
+    },
     initializeWebSocket: async (_context: Context, _event: Event) => {
       return Promise.resolve();
     },

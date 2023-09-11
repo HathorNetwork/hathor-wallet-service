@@ -4,6 +4,18 @@ export interface Context {
   lastEventId: null | number;
 }
 
+export interface Output {
+  value: number;
+  script: string;
+  token_data: number;
+}
+
+interface Input {
+  tx_id: string;
+  index: number;
+  data: string;
+}
+
 export type FullNodeEvent = {
   type: string;
   event: {
@@ -31,22 +43,16 @@ export type FullNodeEvent = {
   }
 }
 
-export interface Output {
-  value: number;
-  script: string;
-  token_data: number;
-}
-
-interface Input {
-  tx_id: string;
-  index: number;
-  data: string;
-}
-
 export type WebSocketEvent = 
   | { type: 'CONNECTED'; socket: WebSocket }
   | { type: 'DISCONNECTED' };
 
+export type MetadataDecidedEvent = {
+  type: 'TX_VOIDED' | 'TX_NEW' | 'TX_FIRST_BLOCK';
+  originalEvent: FullNodeEvent;
+}
+
 export type Event =
   | { type: 'WEBSOCKET_EVENT', event: WebSocketEvent }
-  | { type: 'FULLNODE_EVENT', event: FullNodeEvent };
+  | { type: 'FULLNODE_EVENT', event: FullNodeEvent }
+  | { type: 'METADATA_DECIDED', event: MetadataDecidedEvent };
