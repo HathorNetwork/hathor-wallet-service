@@ -19,7 +19,6 @@ AWS.config.update({
  * @param fnName - The lambda function name
  * @param payload - The payload to be sent
  */
-console.log('STAGE:', process.env.WALLET_SERVICE_STAGE);
 export const lambdaCall = (fnName: string, payload: any): Promise<any> =>
   new Promise((resolve, reject) => {
     const lambda = new AWS.Lambda({
@@ -51,7 +50,7 @@ export const lambdaCall = (fnName: string, payload: any): Promise<any> =>
           const body = JSON.parse(responsePayload.body);
 
           resolve(body);
-        } catch (e) {
+        } catch (e: unknown) {
           logger.error(
             `Erroed on lambda call to ${fnName} with payload: ${JSON.stringify(
               payload
@@ -59,6 +58,7 @@ export const lambdaCall = (fnName: string, payload: any): Promise<any> =>
           );
           logger.error(e);
 
+          // @ts-ignore
           return reject(e.message);
         }
       }

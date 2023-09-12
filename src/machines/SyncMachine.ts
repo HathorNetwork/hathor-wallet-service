@@ -10,7 +10,6 @@ import {
   assign,
   spawn,
   send,
-  actions,
   AssignAction,
 } from 'xstate';
 import { hashTxData, LRU } from '../utils';
@@ -19,6 +18,12 @@ import {
   Context,
   Event,
 } from './types';
+import {
+  handleVertexAccepted,
+  metadataDiff,
+  handleVoidedTx,
+  handleTxFirstBlock,
+} from '../services';
 
 const RETRY_BACKOFF_INCREASE = 1000; // 1s increase in the backoff strategy
 const MAX_BACKOFF_RETRIES = 10; // The retry backoff will top at 10s
@@ -27,13 +32,13 @@ export const TxCache = new LRU(10000);
 
 const storeEvent: AssignAction<Context, Event> = assign({
   // @ts-ignore
-  lastEventId: (context: Context, event: Event) => {
+  event: (context: Context, event: Event) => {
     if (event.type !== 'FULLNODE_EVENT') {
-      return context.lastEventId;
+      return context.event;
     }
     if (!('id' in event.event.event)) return;
 
-    return event.event.event.id;
+    return event.event;
   },
 });
 
@@ -43,7 +48,7 @@ const SyncMachine = Machine<Context, any, Event>({
   context: {
     socket: null,
     retryAttempt: 0,
-    lastEventId: null,
+    event: null,
   },
   states: {
     CONNECTING: {
@@ -80,6 +85,7 @@ const SyncMachine = Machine<Context, any, Event>({
           },
         },
         idle: {
+          id: 'idle',
           on: {
             FULLNODE_EVENT: [{
               cond: 'invalidPeerId',
@@ -89,11 +95,11 @@ const SyncMachine = Machine<Context, any, Event>({
               cond: 'unchanged',
               target: 'idle',
             }, {
-              actions: ['storeEvent', 'sendAck'],
+              actions: ['storeEvent'],
               cond: 'metadataChanged',
               target: 'handlingMetadataChanged',
             }, {
-              actions: ['storeEvent', 'sendAck'],
+              actions: ['storeEvent'],
               cond: 'vertexAccepted',
               target: 'handlingVertexAccepted',
             }, {
@@ -101,16 +107,6 @@ const SyncMachine = Machine<Context, any, Event>({
               target: 'idle',
             }],
           },
-        },
-        handlingVoidedTx: {
-          id: 'handlingVoidedTx',
-          always: [{ target: 'idle' }],
-        },
-        handlingNewTx: {
-          id: 'handlingNewTx',
-        },
-        handlingFirstBlock: {
-          id: 'handlingFirstBlock',
         },
         handlingMetadataChanged: {
           id: 'handlingMetadataChanged',
@@ -128,9 +124,10 @@ const SyncMachine = Machine<Context, any, Event>({
               },
               on: {
                 'METADATA_DECIDED': [
-                  { target: '#handlingVoidedTx', cond: 'metadataVoided' },
-                  { target: '#handlingNewTx', cond: 'metadataNewTx' },
-                  { target: '#handlingFirstBlock', cond: 'metadataFirstBlock' },
+                  { target: '#handlingVoidedTx', cond: 'metadataVoided', actions: ['unwrapEvent'] },
+                  { target: '#handleVertexAccepted', cond: 'metadataNewTx', actions: ['unwrapEvent'] },
+                  { target: '#handlingFirstBlock', cond: 'metadataFirstBlock', actions: ['unwrapEvent'] },
+                  { target: '#idle', cond: 'metadataIgnore', actions: ['unwrapEvent'] },
                 ],
               }
             },
@@ -138,7 +135,40 @@ const SyncMachine = Machine<Context, any, Event>({
         },
         // We have the unchanged guard, so it's guaranteed that this is a new tx
         handlingVertexAccepted: {
-          always: [{ target: 'idle' }]
+          id: 'handleVertexAccepted',
+          invoke: {
+            src: 'handleVertexAccepted',
+            data: (_context: Context, event: Event) => event,
+            onDone: {
+              target: 'idle',
+              actions: ['sendAck'],
+            },
+            onError: '#final-error',
+          },
+        },
+        handlingVoidedTx: {
+          id: 'handlingVoidedTx',
+          invoke: {
+            src: 'handleVoidedTx',
+            data: (_context: Context, event: Event) => event,
+            onDone: {
+              target: 'idle',
+              actions: ['sendAck'],
+            },
+            onError: '#final-error',
+          },
+        },
+        handlingFirstBlock: {
+          id: 'handlingFirstBlock',
+          invoke: {
+            src: 'handleTxFirstBlock',
+            data: (_context: Context, event: Event) => event,
+            onDone: {
+              target: 'idle',
+              actions: ['sendAck'],
+            },
+            onError: '#final-error',
+          },
         },
       },
       on: {
@@ -155,6 +185,13 @@ const SyncMachine = Machine<Context, any, Event>({
   },
 }, {
   guards: {
+    metadataIgnore: (_context, event: Event) => {
+      if (event.type !== 'METADATA_DECIDED') {
+        return false;
+      }
+
+      return event.event.type === 'IGNORE';
+    },
     metadataVoided: (_context, event: Event) => {
       if (event.type !== 'METADATA_DECIDED') {
         return false;
@@ -229,6 +266,15 @@ const SyncMachine = Machine<Context, any, Event>({
     },
   },
   actions: {
+    unwrapEvent: assign({
+      event: (_context: Context, event: Event) => {
+        if (event.type !== 'METADATA_DECIDED') {
+          return;
+        }
+
+        return event.event.originalEvent.event;
+      },
+    }),
     startStream: send((_context, _event) => ({
       type: 'WEBSOCKET_SEND_EVENT',
       event: {
@@ -245,27 +291,25 @@ const SyncMachine = Machine<Context, any, Event>({
       socket: null,
     }),
     storeEvent,
-    sendAck: send((context: Context, _event) => ({
-      type: 'WEBSOCKET_SEND_EVENT',
-      event: {
-        message: JSON.stringify({
-          type: 'ACK',
-          window_size: 1,
-          ack_event_id: context.lastEventId,
-        }),
-      },
-    }), {
+    sendAck: send((context: Context, _event) => {
+      // @ts-ignore
+      return {
+        type: 'WEBSOCKET_SEND_EVENT',
+        event: {
+          message: JSON.stringify({
+            type: 'ACK',
+            window_size: 1,
+            // @ts-ignore
+            ack_event_id: context.event.event.id,
+          }),
+        },
+      };
+    }, {
       // @ts-ignore
       to: (context: Context) => context.socket.id,
     }),
   }, 
   services: {
-    metadataDiff: async (_context: Context, event: Event) => {
-      return {
-        type: 'TX_VOIDED',
-        originalEvent: event,
-      };
-    },
     initializeWebSocket: async (_context: Context, _event: Event) => {
       return Promise.resolve();
     },
@@ -274,6 +318,10 @@ const SyncMachine = Machine<Context, any, Event>({
       // validate it.
       return Promise.resolve();
     },
+    handleVoidedTx,
+    handleVertexAccepted,
+    handleTxFirstBlock,
+    metadataDiff,
   },
 });
 

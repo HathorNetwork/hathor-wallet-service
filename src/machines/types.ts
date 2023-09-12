@@ -1,7 +1,7 @@
 export interface Context {
   socket: unknown;
   retryAttempt: number;
-  lastEventId: null | number;
+  event: unknown;
 }
 
 export interface Output {
@@ -48,7 +48,7 @@ export type WebSocketEvent =
   | { type: 'DISCONNECTED' };
 
 export type MetadataDecidedEvent = {
-  type: 'TX_VOIDED' | 'TX_NEW' | 'TX_FIRST_BLOCK';
+  type: 'TX_VOIDED' | 'TX_NEW' | 'TX_FIRST_BLOCK' | 'IGNORE';
   originalEvent: FullNodeEvent;
 }
 

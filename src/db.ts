@@ -10,6 +10,7 @@
    TokenBalanceMap,
    DbTxOutput,
    StringMap,
+  Transaction,
  } from './types';
  import { isAuthority } from './utils';
 
@@ -198,7 +199,7 @@ export const getTxOutputs = async (
   return utxos;
 };
 
-export const handleVoidedTx = async (
+export const voidTransaction = async (
   mysql: any,
   txId: string,
   addressBalanceMap: StringMap<TokenBalanceMap>,
@@ -397,4 +398,28 @@ export const updateAddressTablesWithTx = async (
      VALUES ?`,
     [entries],
   );
+};
+
+/**
+ * Get a transaction by its ID.
+ *
+ * @param mysql - Database connection
+ * @param txId - A transaction ID
+ * @returns The requested transaction
+ */
+export const getTransactionById = async (
+  mysql: any,
+  txId: string,
+): Promise<Transaction | null> => {
+  const result = await mysql.query(`
+   SELECT *
+     FROM transaction
+    WHERE tx_id = ?
+  `, [txId]);
+
+  if (result.length <= 0) {
+    return null;
+  }
+
+  return result[0][0] as Transaction;
 };

@@ -735,3 +735,35 @@ export class TokenBalanceMap {
     return obj;
   }
 }
+
+export interface TxByIdToken {
+  txId: string;
+  timestamp: number;
+  version: number;
+  voided: boolean;
+  weight: number;
+  balance: Balance;
+  tokenId: string;
+  tokenName: string;
+  tokenSymbol: string;
+}
+
+export interface Transaction {
+  // eslint-disable-next-line camelcase
+  tx_id: string;
+  nonce: number;
+  timestamp: number;
+  // eslint-disable-next-line camelcase
+  voided: boolean;
+  signal_bits: number;
+  version: number;
+  weight: number;
+  parents: string[];
+  inputs: TxInput[];
+  outputs: TxOutput[];
+  height?: number;
+  // eslint-disable-next-line camelcase
+  token_name?: string;
+  // eslint-disable-next-line camelcase
+  token_symbol?: string;
+}
