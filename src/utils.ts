@@ -4,13 +4,16 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  */
+import { Connection as MysqlConnection } from 'mysql2/promise';
 import dotenv from 'dotenv';
+// @ts-ignore
 import { isNumber, isEmpty } from 'lodash';
-import {
+import hathorLib, {
   wallet,
   constants,
   Output,
   Network,
+  Address,
   scriptsUtils,
   P2PKH,
   P2SH,
@@ -18,6 +21,10 @@ import {
   errors,
 // @ts-ignore
 } from '@hathor/wallet-lib';
+// @ts-ignore
+import { HDPublicKey } from 'bitcore-lib';
+import * as ecc from 'tiny-secp256k1';
+import BIP32Factory from 'bip32';
 
 import {
   Block,
@@ -41,10 +48,13 @@ import {
   TxOutput,
   TxOutputWithIndex,
   TxInput,
-  EventTxInput,
   StringMap,
   TokenBalanceMap,
   DbTxOutput,
+  DecodedOutput,
+  Wallet,
+  EventTxOutput,
+  EventTxInput,
 } from './types';
 import {
   downloadTx,
@@ -56,6 +66,22 @@ import {
 import { getWalletServiceBestBlock, sendTx, addAlert } from './api/lambda';
 import logger from './logger';
 import * as crypto from 'crypto';
+import { getAddressWalletInfo, getExpiredTimelocksUtxos, unlockUtxos as dbUnlockUtxos, updateAddressLockedBalance, updateWalletLockedBalance } from './db';
+
+const bip32 = BIP32Factory(ecc);
+
+const libNetwork = hathorLib.network.getNetwork();
+const hathorNetwork = {
+  messagePrefix: '\x18Hathor Signed Message:\n',
+  bech32: hathorLib.network.bech32prefix,
+  bip32: {
+    public: libNetwork.xpubkey,
+    private: libNetwork.xprivkey,
+  },
+  pubKeyHash: libNetwork.pubkeyhash,
+  scriptHash: libNetwork.scripthash,
+  wif: libNetwork.privatekey,
+};
 
 dotenv.config();
 
@@ -775,35 +801,29 @@ export const isTokenHTR = (tokenData: number): boolean => {
 };
 
 export const prepareInputs = (inputs: EventTxInput[], tokens: string[]): TxInput[] => {
+  console.log('Inputs: ', inputs);
   const preparedInputs: TxInput[] = inputs.reduce(
     (newInputs: TxInput[], _input: EventTxInput): TxInput[] => {
-      const decoded = parseScript(Buffer.from(_input.script, 'base64'));
+      const output = _input.spent_output;
+      const utxo: Output = new Output(output.value, Buffer.from(output.script, 'base64'));
+      let token = '00';
+      if (!utxo.isTokenHTR()) {
+        token = tokens[utxo.getTokenIndex()];
+      }
+
       const input: TxInput = {
         tx_id: _input.tx_id,
         index: _input.index,
-        value: _input.value,
-        token_data: _input.token_data,
-        script: _input.script,
-        token: (() => {
-          if (!isTokenHTR(_input.token_data)) {
-            return tokens[getTokenIndex(_input.token_data)];
-          }
-
-          return '00';
-        })(),
-        decoded: (() => {
-          if (decoded) {
-            return {
-              type: decoded.getType(),
-              address: decoded.address?.base58,
-              timelock: decoded.timelock,
-            };
-          }
-
-          return null;
-        })(),
+        value: utxo.value,
+        token_data: utxo.token_data,
+        script: utxo.script,
+        token,
+        decoded: {
+          type: output.decoded.type,
+          address: output.decoded.address,
+          timelock: output.decoded.timelock,
+        },
       };
-
 
       return [...newInputs, input];
     }, []);
@@ -811,43 +831,38 @@ export const prepareInputs = (inputs: EventTxInput[], tokens: string[]): TxInput
   return preparedInputs;
 };
 
-export const prepareOutputs = (outputs: TxOutput[], tokens: string[]): TxOutputWithIndex[] => {
+export const prepareOutputs = (outputs: EventTxOutput[], tokens: string[]): TxOutputWithIndex[] => {
   const preparedOutputs: [number, TxOutputWithIndex[]] = outputs.reduce(
-    ([currIndex, newOutputs]: [number, TxOutputWithIndex[]], _output: TxOutput): [number, TxOutputWithIndex[]] => {
+    ([currIndex, newOutputs]: [number, TxOutputWithIndex[]], _output: EventTxOutput): [number, TxOutputWithIndex[]] => {
       const output = new Output(_output.value, Buffer.from(_output.script, 'base64'));
+
       let token = '00';
       if (!output.isTokenHTR()) {
         token = tokens[output.getTokenIndex()];
       }
       output.token = token;
 
-      const network = new Network(process.env.NETWORK);
-      const decoded = output.parseScript(network);
 
-      if (decoded) {
-        output.decoded = {
-          type: decoded.getType(),
-          address: decoded.address?.base58,
-          timelock: decoded.timelock,
-        };
-      }
-
-      if (!output.decoded
-          || output.decoded.type === null
-          || output.decoded.type === undefined) {
+      if (!_output.decoded
+          || _output.decoded.type === null
+          || _output.decoded.type === undefined) {
+          console.log('Decode failed, skipping..');
         return [currIndex + 1, newOutputs];
       }
 
       output.locked = false;
 
+      const finalOutput = {
+        ...output,
+        index: currIndex,
+        decoded: _output.decoded,
+      };
+
       return [
         currIndex + 1,
         [
           ...newOutputs,
-          {
-            ...output,
-            index: currIndex,
-          },
+          finalOutput,
         ],
       ];
     },
@@ -874,13 +889,13 @@ export const prepareOutputs = (outputs: TxOutput[], tokens: string[]): TxOutputW
  * @returns A map of addresses and its token balances
  */
 export const getAddressBalanceMap = (
-  inputs: DbTxOutput[],
+  inputs: TxInput[],
   outputs: TxOutput[],
 ): StringMap<TokenBalanceMap> => {
   const addressBalanceMap = {};
 
   for (const input of inputs) {
-    const address = input.address;
+    const address = input.decoded?.address;
 
     // get the TokenBalanceMap from this input
     const tokenBalanceMap = TokenBalanceMap.fromTxInput(input);
@@ -891,7 +906,7 @@ export const getAddressBalanceMap = (
 
   for (const output of outputs) {
     if (!output.decoded) {
-      throw new Error('Outputhas no decoded script');
+      throw new Error('Output has no decoded script');
     }
 
     if (!output.decoded.address) {
@@ -930,3 +945,209 @@ export const hashTxData = (meta: unknown): string => {
 };
 
 export const globalCache = new LRU(TX_CACHE_SIZE);
+
+/**
+ * Get the current Unix timestamp, in seconds.
+ *
+ * @returns The current Unix timestamp in seconds
+ */
+export const getUnixTimestamp = (): number => (
+  Math.round((new Date()).getTime() / 1000)
+);
+
+/**
+ * Get the map of token balances for each wallet.
+ *
+ * @remarks
+ * Different addresses can belong to the same wallet, so this function merges their
+ * token balances.
+ *
+ * @example
+ * Return map has this format:
+ * ```
+ * {
+ *   wallet1: {token1: balance1, token2: balance2},
+ *   wallet2: {token1: balance3}
+ * }
+ * ```
+ *
+ * @param addressWalletMap - Map of addresses and corresponding wallets
+ * @param addressBalanceMap - Map of addresses and corresponding token balances
+ * @returns A map of wallet ids and its token balances
+ */
+export const getWalletBalanceMap = (
+  addressWalletMap: StringMap<Wallet>,
+  addressBalanceMap: StringMap<TokenBalanceMap>,
+): StringMap<TokenBalanceMap> => {
+  const walletBalanceMap = {};
+  for (const [address, balanceMap] of Object.entries(addressBalanceMap)) {
+    const wallet = addressWalletMap[address];
+    const walletId = wallet && wallet.walletId;
+
+    // if this address is not from a started wallet, ignore
+    if (!walletId) continue;
+
+    // @ts-ignore
+    walletBalanceMap[walletId] = TokenBalanceMap.merge(walletBalanceMap[walletId], balanceMap);
+  }
+  return walletBalanceMap;
+};
+
+/**
+ * Update the unlocked/locked balances for addresses and wallets connected to the given UTXOs.
+ *
+ * @param mysql - Database connection
+ * @param utxos - List of UTXOs that are unlocked by height
+ * @param updateTimelocks - If this update is triggered by a timelock expiring, update the next lock expiration
+ */
+export const unlockUtxos = async (mysql: MysqlConnection, utxos: DbTxOutput[], updateTimelocks: boolean): Promise<void> => {
+  if (utxos.length === 0) return;
+
+  const outputs: TxOutput[] = utxos.map((utxo) => {
+    const decoded: DecodedOutput = {
+      type: 'P2PKH',
+      address: utxo.address,
+      timelock: utxo.timelock,
+    };
+
+    return {
+      value: utxo.authorities > 0 ? utxo.authorities : utxo.value,
+      token: utxo.tokenId,
+      decoded,
+      locked: false,
+      // set authority bit if necessary
+      token_data: utxo.authorities > 0 ? hathorLib.constants.TOKEN_AUTHORITY_MASK : 0,
+      // we don't care about spent_by and script
+      spent_by: null,
+      script: '',
+    };
+  });
+
+  // mark as unlocked in database (this just changes the 'locked' flag)
+  await dbUnlockUtxos(mysql, utxos.map((utxo: DbTxOutput): TxInput => ({
+    tx_id: utxo.txId,
+    index: utxo.index,
+    value: utxo.value,
+    token_data: 0,
+    script: '',
+    token: utxo.tokenId,
+    decoded: null,
+  })));
+
+  const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap([], outputs);
+  // update address_balance table
+  await updateAddressLockedBalance(mysql, addressBalanceMap, updateTimelocks);
+
+  // check if addresses belong to any started wallet
+  const addressWalletMap: StringMap<Wallet> = await getAddressWalletInfo(mysql, Object.keys(addressBalanceMap));
+
+  // update wallet_balance table
+  const walletBalanceMap: StringMap<TokenBalanceMap> = getWalletBalanceMap(addressWalletMap, addressBalanceMap);
+  await updateWalletLockedBalance(mysql, walletBalanceMap, updateTimelocks);
+};
+
+/**
+ * Update the unlocked/locked balances for addresses and wallets connected to the UTXOs that were unlocked
+ * because of their timelocks expiring
+ *
+ * @param mysql - Database connection
+ * @param now - Current timestamp
+ */
+export const unlockTimelockedUtxos = async (mysql: MysqlConnection, now: number): Promise<void> => {
+  const utxos: DbTxOutput[] = await getExpiredTimelocksUtxos(mysql, now);
+
+  await unlockUtxos(mysql, utxos, true);
+};
+
+/**
+ * Mark a transaction's outputs that are locked. Modifies the outputs in place.
+ *
+ * @remarks
+ * The timestamp is used to determine if each output is locked by time. On the other hand, `hasHeightLock`
+ * applies to all outputs.
+ *
+ * The idea is that `hasHeightLock = true` should be used for blocks, whose outputs are locked by
+ * height. Timelocks are handled by the `now` parameter.
+ *
+ * @param outputs - The transaction outputs
+ * @param now - Current timestamp
+ * @param hasHeightLock - Flag that tells if outputs are locked by height
+ */
+export const markLockedOutputs = (outputs: EventTxOutput[], now: number, hasHeightLock = false): void => {
+  for (const output of outputs) {
+    output.locked = false;
+    if (hasHeightLock || (output.decoded?.timelock ? output.decoded?.timelock : 0) > now) {
+      output.locked = true;
+    }
+  }
+};
+
+/**
+ * Gets a list of tokens from a list of inputs and outputs
+ *
+ * @param inputs - The transaction inputs
+ * @param outputs - The transaction outputs
+ * @returns A list of tokens present in the inputs and outputs
+ */
+export const getTokenListFromInputsAndOutputs = (inputs: TxInput[], outputs: TxOutputWithIndex[]): string[] => {
+  const tokenIds = new Set<string>([]);
+
+  for (const input of inputs) {
+    tokenIds.add(input.token);
+  }
+
+  for (const output of outputs) {
+    tokenIds.add(output.token);
+  }
+
+  return [...tokenIds];
+};
+
+/**
+ * Derives a xpubkey at a specific index
+ *
+ * @param xpubkey - The xpubkey
+ * @param index - The index to derive
+ *
+ * @returns The derived xpubkey
+ */
+export const xpubDeriveChild = (xpubkey: string, index: number): string => (
+  bip32.fromBase58(xpubkey).derive(index).toBase58()
+);
+
+/**
+ * Get Hathor addresses in bulk, passing the start index and quantity of addresses to be generated
+ *
+ * @example
+ * ```
+ * getAddresses('myxpub', 2, 3, 'mainnet') => {
+ *   'address2': 2,
+ *   'address3': 3,
+ *   'address4': 4,
+ * }
+ * ```
+ *
+ * @param {string} xpubkey The xpubkey
+ * @param {number} startIndex Generate addresses starting from this index
+ * @param {number} quantity Amount of addresses to generate
+ * @param {string} networkName 'mainnet' or 'testnet'
+ *
+ * @return {Object} An object with the generated addresses and corresponding index (string => number)
+ * @throws {XPubError} In case the given xpub key is invalid
+ * @memberof Wallet
+ * @inner
+ */
+export const getAddresses = (xpubkey: string, startIndex: number, quantity: number, networkName: string = 'mainnet'): Object =>  {
+  let xpub;
+  xpub = HDPublicKey(xpubkey);
+
+  const network = new Network(networkName);
+
+  const addrMap: StringMap<number> = {};
+  for (let index = startIndex; index < startIndex + quantity; index++) {
+    const key = xpub.deriveChild(index);
+    const address = Address(key.publicKey, network.bitcoreNetwork);
+    addrMap[address.toString()] = index;
+  }
+  return addrMap;
+}

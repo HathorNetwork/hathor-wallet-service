@@ -710,11 +710,11 @@ export class TokenBalanceMap {
    * @param input - The transaction input
    * @returns The TokenBalanceMap object
    */
-  static fromTxInput(input: DbTxOutput): TokenBalanceMap {
-    const token = input.tokenId;
+  static fromTxInput(input: TxInput): TokenBalanceMap {
+    const token = input.token;
     const obj = new TokenBalanceMap();
 
-    if (isAuthority(input.authorities)) {
+    if (isAuthority(input.token_data)) {
       // for inputs, the authorities will have a value of -1 when set
       const authorities = new Authorities(input.value);
       obj.set(
@@ -766,4 +766,54 @@ export interface Transaction {
   token_name?: string;
   // eslint-disable-next-line camelcase
   token_symbol?: string;
+}
+
+/**
+ * Return type from ServerlessMysql#query after performing a SQL SELECT
+ * (Array of objects containing the requested table fields.)
+ */
+export type DbSelectResult = Array<Record<string, unknown>>;
+
+export enum WalletStatus {
+  CREATING = 'creating',
+  READY = 'ready',
+  ERROR = 'error',
+}
+
+export interface Wallet {
+  walletId: string;
+  xpubkey: string;
+  authXpubkey: string,
+  maxGap: number;
+  status?: WalletStatus;
+  retryCount?: number;
+  createdAt?: number;
+  readyAt?: number;
+}
+
+export interface EventTxOutput {
+  value: number;
+  token_data: number;
+  script: string;
+  locked?: boolean;
+  decoded: {
+    type: string;
+    address: string;
+    timelock: number | null;
+  };
+}
+
+export interface EventTxInput {
+  tx_id: string;
+  index: number;
+  spent_output: EventTxOutput; 
+}
+
+export type AddressIndexMap = StringMap<number>;
+
+export interface GenerateAddresses {
+  addresses: string[];
+  existingAddresses: StringMap<number>;
+  newAddresses: StringMap<number>;
+  lastUsedAddressIndex: number;
 }
