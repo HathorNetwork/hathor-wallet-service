@@ -3,7 +3,10 @@ module.exports = {
   testRegex: ".*\\.test\\.ts$",
   transform: {
     "^.+\\.ts$": ["ts-jest", {
-      tsconfig: "./tsconfig.json"
+      tsconfig: "./tsconfig.json",
+      babelConfig: {
+        sourceMaps: true,
+      }
     }]
   },
   moduleFileExtensions: ["ts", "js", "json", "node"]
