@@ -17,8 +17,6 @@ const main = async () => {
     // You can handle side-effects or logging here if needed
     console.log('Transitioned to state:', state.value);
   }).start();
-
-  machine.start();
 };
 
 main();

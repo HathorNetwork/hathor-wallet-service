@@ -16,9 +16,10 @@ import {
   EventTxInput,
   GenerateAddresses,
   AddressIndexMap,
+  LastSyncedEvent,
 } from '../types';
 import { isAuthority } from '../utils';
-import { TxOutputRow } from './types';
+import { LastSyncedEventRow, TxOutputRow } from './types';
 // @ts-ignore
 import { walletUtils } from '@hathor/wallet-lib';
 
@@ -875,7 +876,6 @@ export const incrementTokensTxCount = async (
   mysql: MysqlConnection,
   tokenList: string[],
 ): Promise<void> => {
-  console.log('incrementing: ', tokenList);
   await mysql.query(`
     UPDATE \`token\`
        SET \`transactions\` = \`transactions\` + 1
@@ -900,7 +900,6 @@ export const generateAddresses = async (mysql: MysqlConnection, xpubkey: string,
   const newAddresses: AddressIndexMap = {};
   const allAddresses: string[] = [];
 
-  console.log('Xpub: ', xpubkey);
   // We currently generate only addresses in change derivation path 0
   // (more details in https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki#Change)
   // so we derive our xpub to this path and use it to get the addresses
@@ -1191,4 +1190,37 @@ export const markUtxosAsVoided = async (
        SET \`voided\` = TRUE
      WHERE \`tx_id\` IN (?)`,
   [txIds]);
+};
+
+export const updateLastSyncedEvent = async (
+  mysql: MysqlConnection,
+  lastEventId: number,
+): Promise<void> => {
+  await mysql.query(`
+     INSERT INTO \`sync_metadata\` (\`id\`, \`last_event_id\`)
+          VALUES (0, ?)
+ON DUPLICATE KEY
+          UPDATE last_event_id = ?`,
+  [lastEventId, lastEventId]);
+};
+
+export const getLastSyncedEvent = async (
+  mysql: MysqlConnection,
+): Promise<LastSyncedEvent | null> => {
+  const [results] = await mysql.query<LastSyncedEventRow[]>(
+    `SELECT * FROM \`sync_metadata\` LIMIT 1`,
+    [],
+  );
+
+  if (!results.length) {
+    return null;
+  }
+
+  const lastSyncedEvent: LastSyncedEvent = {
+    id: results[0].id,
+    last_event_id: results[0].last_event_id,
+    updated_at: results[0].updated_at,
+  };
+
+  return lastSyncedEvent;
 };

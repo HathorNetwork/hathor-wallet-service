@@ -7,7 +7,18 @@ import {
   TxInput,
   Wallet
 } from '../types';
-import { prepareOutputs, getAddressBalanceMap, hashTxData, getUnixTimestamp, unlockUtxos, unlockTimelockedUtxos, prepareInputs, markLockedOutputs, getTokenListFromInputsAndOutputs, getWalletBalanceMap } from '../utils';
+import {
+  prepareOutputs,
+  getAddressBalanceMap,
+  hashTxData,
+  getUnixTimestamp,
+  unlockUtxos,
+  unlockTimelockedUtxos,
+  prepareInputs,
+  markLockedOutputs,
+  getTokenListFromInputsAndOutputs,
+  getWalletBalanceMap,
+} from '../utils';
 // @ts-ignore
 import hathorLib from '@hathor/wallet-lib';
 import {
@@ -27,6 +38,8 @@ import {
   addNewAddresses,
   updateWalletTablesWithTx,
   voidTransaction,
+  updateLastSyncedEvent as dbUpdateLastSyncedEvent,
+  getLastSyncedEvent,
 } from '../db';
 import { TxCache } from '../machines';
 
@@ -177,9 +190,8 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     const lockedInputs = await getLockedUtxoFromInputs(mysql, inputs);
     await unlockUtxos(mysql, lockedInputs, true);
 
-
     // add transaction outputs to the tx_outputs table
-    markLockedOutputs(outputs, now, heightlock !== null);
+    markLockedOutputs(txOutputs, now, heightlock !== null);
 
     // Add the transaction
     await addOrUpdateTx(
@@ -192,7 +204,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     );
 
     // Add utxos
-    await addUtxos(mysql, hash, txOutputs, null);
+    await addUtxos(mysql, hash, txOutputs, heightlock);
     await updateTxOutputSpentBy(mysql, txInputs, hash);
 
     // Handle genesis parent txs:
@@ -235,6 +247,8 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
     TxCache.set(hash, hashedTxData);
 
+    await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
+
     await mysql.end();
   } catch(e) {
     console.log(e);
@@ -265,6 +279,8 @@ export const handleVoidedTx = async (context: Context) => {
 
     await voidTransaction(mysql, hash, addressBalanceMap);
 
+    await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
+
     console.log(`Voided tx ${hash}`);
   } catch(e) {
     console.log(e);
@@ -290,6 +306,7 @@ export const handleTxFirstBlock = async (context: Context) => {
     } = fullNodeEvent.event.data;
 
     await addOrUpdateTx(mysql, hash, height, timestamp, version, weight);
+    await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
     console.log(`Confirmed tx ${hash}`);
   } catch (e) {
     console.error('E: ', e);
@@ -297,4 +314,22 @@ export const handleTxFirstBlock = async (context: Context) => {
   } finally {
     mysql.destroy();
   }
+};
+
+export const updateLastSyncedEvent = async (context: Context) => {
+  const mysql = await getDbConnection();
+  // @ts-ignore
+  const lastEventId = context.event.event.id;
+  await dbUpdateLastSyncedEvent(mysql, lastEventId);
+
+  mysql.destroy();
+};
+
+export const fetchInitialState = async () => {
+  const mysql = await getDbConnection();
+  const lastEvent = await getLastSyncedEvent(mysql);
+
+  mysql.destroy();
+
+  return { lastEventId: lastEvent?.last_event_id };
 };

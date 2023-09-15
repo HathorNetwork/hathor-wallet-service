@@ -801,7 +801,6 @@ export const isTokenHTR = (tokenData: number): boolean => {
 };
 
 export const prepareInputs = (inputs: EventTxInput[], tokens: string[]): TxInput[] => {
-  console.log('Inputs: ', inputs);
   const preparedInputs: TxInput[] = inputs.reduce(
     (newInputs: TxInput[], _input: EventTxInput): TxInput[] => {
       const output = _input.spent_output;
@@ -1073,7 +1072,7 @@ export const unlockTimelockedUtxos = async (mysql: MysqlConnection, now: number)
  * @param now - Current timestamp
  * @param hasHeightLock - Flag that tells if outputs are locked by height
  */
-export const markLockedOutputs = (outputs: EventTxOutput[], now: number, hasHeightLock = false): void => {
+export const markLockedOutputs = (outputs: TxOutput[], now: number, hasHeightLock = false): void => {
   for (const output of outputs) {
     output.locked = false;
     if (hasHeightLock || (output.decoded?.timelock ? output.decoded?.timelock : 0) > now) {

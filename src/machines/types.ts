@@ -1,9 +1,10 @@
-import { WatTxInput, WatTxOutput } from "../types";
+import { EventTxInput, EventTxOutput } from "../types";
 
 export interface Context {
   socket: unknown;
   retryAttempt: number;
   event: unknown;
+  initialEventId: null | number;
 }
 
 export interface DecodedScript {
@@ -43,8 +44,8 @@ export type FullNodeEvent = {
       timestamp: number;
       version: number;
       weight: number;
-      inputs: WatTxInput[];
-      outputs: WatTxOutput[];
+      inputs: EventTxInput[];
+      outputs: EventTxOutput[];
       tokens: string[];
       token_name: null | string;
       token_symbol: null | string;

@@ -23,6 +23,8 @@ import {
   metadataDiff,
   handleVoidedTx,
   handleTxFirstBlock,
+  updateLastSyncedEvent,
+  fetchInitialState,
 } from '../services';
 
 const RETRY_BACKOFF_INCREASE = 1000; // 1s increase in the backoff strategy
@@ -44,13 +46,23 @@ const storeEvent: AssignAction<Context, Event> = assign({
 
 const SyncMachine = Machine<Context, any, Event>({
   id: 'websocket',
-  initial: 'CONNECTING',
+  initial: 'INITIALIZING',
   context: {
     socket: null,
     retryAttempt: 0,
     event: null,
+    initialEventId: null,
   },
   states: {
+    INITIALIZING: {
+      invoke: {
+        src: 'fetchInitialState',
+        onDone: {
+          actions: ['storeInitialState'],
+          target: 'CONNECTING',
+        },
+      },
+    },
     CONNECTING: {
       entry: assign({
         socket: () => spawn(WebSocketActor),
@@ -103,9 +115,19 @@ const SyncMachine = Machine<Context, any, Event>({
               cond: 'vertexAccepted',
               target: 'handlingVertexAccepted',
             }, {
-              actions: ['storeEvent', 'sendAck'],
-              target: 'idle',
+              actions: ['storeEvent'],
+              target: 'handlingUnhandledEvent',
             }],
+          },
+        },
+        handlingUnhandledEvent: {
+          invoke: {
+            src: 'updateLastSyncedEvent',
+            onDone: {
+              actions: ['sendAck'],
+              target: 'idle',
+            },
+            onError: '#final-error',
           },
         },
         handlingMetadataChanged: {
@@ -266,6 +288,14 @@ const SyncMachine = Machine<Context, any, Event>({
     },
   },
   actions: {
+    storeInitialState: assign({
+      initialEventId: (_context: Context, event: Event) => {
+        // @ts-ignore
+        console.log('Storing initial event id: ', event.data);
+        // @ts-ignore
+        return event.data.lastEventId;
+      },
+    }),
     unwrapEvent: assign({
       event: (_context: Context, event: Event) => {
         if (event.type !== 'METADATA_DECIDED') {
@@ -275,12 +305,13 @@ const SyncMachine = Machine<Context, any, Event>({
         return event.event.originalEvent.event;
       },
     }),
-    startStream: send((_context, _event) => ({
+    startStream: send((context: Context, _event) => ({
       type: 'WEBSOCKET_SEND_EVENT',
       event: {
         message: JSON.stringify({
           type: 'START_STREAM',
           window_size: 1,
+          last_ack_event_id: context.initialEventId,
         }),
       },
     }), {
@@ -322,6 +353,8 @@ const SyncMachine = Machine<Context, any, Event>({
     handleVertexAccepted,
     handleTxFirstBlock,
     metadataDiff,
+    updateLastSyncedEvent,
+    fetchInitialState,
   },
 });
 

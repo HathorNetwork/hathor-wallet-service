@@ -817,3 +817,9 @@ export interface GenerateAddresses {
   newAddresses: StringMap<number>;
   lastUsedAddressIndex: number;
 }
+
+export interface LastSyncedEvent {
+  id: number;
+  last_event_id: number;
+  updated_at: number;
+}

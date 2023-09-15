@@ -14,3 +14,9 @@ export interface TxOutputRow extends RowDataPacket {
   tx_proposal_index?: number;
   spent_by?: string;
 }
+
+export interface LastSyncedEventRow extends RowDataPacket {
+  id: number;
+  last_event_id: number;
+  updated_at: number;
+}

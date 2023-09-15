@@ -1,8 +1,8 @@
 import { WebSocket } from 'ws';
 import { Event } from '../machines/types';
 
-// const WS_URL = 'wss://wallet-service-test.private-nodes.hathor.network/v1a/event_ws';
-const WS_URL = 'ws://localhost:8085/v1a/event_ws';
+const WS_URL = 'wss://wallet-service-test.private-nodes.hathor.network/v1a/event_ws';
+// const WS_URL = 'ws://localhost:8083/v1a/event_ws';
 
 // @ts-ignore
 export default (callback, receive) => {
