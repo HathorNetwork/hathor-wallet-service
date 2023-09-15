@@ -42,6 +42,7 @@ import {
   getLastSyncedEvent,
 } from '../db';
 import { TxCache } from '../machines';
+import logger from '../logger';
 
 export const metadataDiff = async (_context: Context, event: Event) => {
   const mysql = await getDbConnection();
@@ -58,7 +59,7 @@ export const metadataDiff = async (_context: Context, event: Event) => {
     }
 
     if (fullNodeEvent.event.data.metadata.voided_by.length > 0) {
-      console.log('Tx was voided.', event);
+      logger.info('Tx was voided.', event);
       if (!dbTx.voided) {
         return {
           type: 'TX_VOIDED',
@@ -75,14 +76,14 @@ export const metadataDiff = async (_context: Context, event: Event) => {
     // TODO: Handle the case where the transaction was voided and is not anymore.
     if (fullNodeEvent.event.data.metadata.voided_by.length > 0) {
       if (!dbTx.voided) {
-        console.log('Transaction was voided..');
+        logger.info('Transaction was voided..');
         return {
           type: 'TX_VOIDED',
           originalEvent: event,
         };
       }
 
-      console.log('Transaction was already voided on the database, ignore.');
+      logger.info('Transaction was already voided on the database, ignore.');
     }
 
     if (fullNodeEvent.event.data.metadata.first_block
@@ -90,21 +91,21 @@ export const metadataDiff = async (_context: Context, event: Event) => {
        && fullNodeEvent.event.data.metadata.first_block.length > 0) {
 
       if (!dbTx.height) {
-        console.log('Transaction got confirmed by a block');
+        logger.info('Transaction got confirmed by a block');
         return {
           type: 'TX_FIRST_BLOCK',
           originalEvent: event,
         };
       }
 
-      console.log('Transaction already had a first_block on the database, ignoring..');
+      logger.info('Transaction already had a first_block on the database, ignoring..');
       return {
         type: 'IGNORE',
         originalEvent: event,
       };
     }
 
-    console.log('No conditions met, we can just ignore it.');
+    logger.info('No conditions met, we can just ignore it.');
     return {
       type: 'IGNORE',
       originalEvent: event,
@@ -148,7 +149,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       const utxos = await getUtxosLockedAtHeight(mysql, now, height);
 
       if (utxos.length > 0) {
-        console.log(`Block transaction, unlocking ${utxos.length} locked utxos at height ${height}`);
+        logger.info(`Block transaction, unlocking ${utxos.length} locked utxos at height ${height}`);
         await unlockUtxos(mysql, utxos, false);
       }
 
@@ -251,7 +252,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
     await mysql.end();
   } catch(e) {
-    console.log(e);
+    logger.info(e);
 
     return Promise.reject(e);
   } finally {
@@ -281,9 +282,9 @@ export const handleVoidedTx = async (context: Context) => {
 
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
 
-    console.log(`Voided tx ${hash}`);
+    logger.info(`Voided tx ${hash}`);
   } catch(e) {
-    console.log(e);
+    logger.info(e);
 
     return Promise.reject(e);
   } finally {
@@ -307,7 +308,7 @@ export const handleTxFirstBlock = async (context: Context) => {
 
     await addOrUpdateTx(mysql, hash, height, timestamp, version, weight);
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
-    console.log(`Confirmed tx ${hash}`);
+    logger.info(`Confirmed tx ${hash}`);
   } catch (e) {
     console.error('E: ', e);
     return Promise.reject(e);

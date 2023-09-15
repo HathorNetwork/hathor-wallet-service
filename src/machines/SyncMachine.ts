@@ -26,6 +26,7 @@ import {
   updateLastSyncedEvent,
   fetchInitialState,
 } from '../services';
+import logger from '../logger';
 
 const RETRY_BACKOFF_INCREASE = 1000; // 1s increase in the backoff strategy
 const MAX_BACKOFF_RETRIES = 10; // The retry backoff will top at 10s
@@ -291,7 +292,7 @@ const SyncMachine = Machine<Context, any, Event>({
     storeInitialState: assign({
       initialEventId: (_context: Context, event: Event) => {
         // @ts-ignore
-        console.log('Storing initial event id: ', event.data);
+        logger.info('Storing initial event id: ', event.data);
         // @ts-ignore
         return event.data.lastEventId;
       },

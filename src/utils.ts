@@ -833,7 +833,9 @@ export const prepareInputs = (inputs: EventTxInput[], tokens: string[]): TxInput
 export const prepareOutputs = (outputs: EventTxOutput[], tokens: string[]): TxOutputWithIndex[] => {
   const preparedOutputs: [number, TxOutputWithIndex[]] = outputs.reduce(
     ([currIndex, newOutputs]: [number, TxOutputWithIndex[]], _output: EventTxOutput): [number, TxOutputWithIndex[]] => {
-      const output = new Output(_output.value, Buffer.from(_output.script, 'base64'));
+      const output = new Output(_output.value, Buffer.from(_output.script, 'base64'), {
+        tokenData: _output.token_data,
+      });
 
       let token = '00';
       if (!output.isTokenHTR()) {

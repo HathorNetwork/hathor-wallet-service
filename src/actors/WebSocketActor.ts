@@ -1,11 +1,14 @@
 import { WebSocket } from 'ws';
 import { Event } from '../machines/types';
+import logger from '../logger';
 
-const WS_URL = 'wss://wallet-service-test.private-nodes.hathor.network/v1a/event_ws';
-// const WS_URL = 'ws://localhost:8083/v1a/event_ws';
+const WS_URL = process.env.WS_URL;
+if (!WS_URL) {
+  logger.error('WS_URL is not defined.');
+  process.exit(1);
+}
 
-// @ts-ignore
-export default (callback, receive) => {
+export default (callback: any, receive: any) => {
   let socket: WebSocket;
 
   receive((event: Event) => {
@@ -35,7 +38,7 @@ export default (callback, receive) => {
 
   socket.onmessage = (socketEvent) => {
     const event = JSON.parse(socketEvent.data.toString());
-    console.log(`Received ${event.event.type} from socket.`);
+    logger.info(`Received ${event.event.type} from socket.`);
 
     callback({
       type: 'FULLNODE_EVENT',

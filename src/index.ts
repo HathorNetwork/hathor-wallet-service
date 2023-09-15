@@ -6,8 +6,8 @@
  */
 
 import { interpret } from 'xstate';
-// import WebsocketMachine from './machine';
 import { SyncMachine } from './machines';
+import logger from './logger';
 
 const main = async () => {
   // Interpret the machine (start it and listen to its state changes)
@@ -15,7 +15,7 @@ const main = async () => {
 
   machine.onTransition(state => {
     // You can handle side-effects or logging here if needed
-    console.log('Transitioned to state:', state.value);
+    logger.info('Transitioned to state:', state.value);
   }).start();
 };
 
