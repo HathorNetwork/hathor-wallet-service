@@ -30,6 +30,7 @@ WS_URL=ws://localhost:3003
 FULLNODE_PEER_ID=74f75f4df6b19856a75dea6ed894441fbee7768bc561806c7a2fe6368ce4db18
 FULLNODE_STREAM_ID=f10ed6b9-8d77-430d-b85f-ae20257af465
 ALERT_QUEUE_URL=...
+TX_CACHE_SIZE=10000
 ```
 
 `NETWORK` - The current hathor network we want to connect to
