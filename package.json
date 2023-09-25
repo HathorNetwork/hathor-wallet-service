@@ -11,39 +11,10 @@
     "node": ">=10"
   },
   "scripts": {
-    "start": "tsdx watch",
-    "build": "tsdx build --format cjs",
-    "test": "tsdx test",
-    "lint": "tsdx lint",
-    "prepare": "tsdx build",
-    "size": "size-limit",
-    "analyze": "size-limit --why"
   },
   "peerDependencies": {},
-  "husky": {
-    "hooks": {
-      "pre-commit": "tsdx lint"
-    }
-  },
-  "prettier": {
-    "printWidth": 80,
-    "semi": true,
-    "singleQuote": true,
-    "trailingComma": "es5"
-  },
   "name": "hathor-wallet-service-sync_daemon",
   "author": "André Abadesso",
-  "module": "dist/hathor-wallet-service-sync_daemon.esm.js",
-  "size-limit": [
-    {
-      "path": "dist/hathor-wallet-service-sync_daemon.cjs.production.min.js",
-      "limit": "10 KB"
-    },
-    {
-      "path": "dist/hathor-wallet-service-sync_daemon.esm.js",
-      "limit": "10 KB"
-    }
-  ],
   "devDependencies": {
     "@size-limit/preset-small-lib": "^4.10.2",
     "@types/lodash": "^4.14.172",
