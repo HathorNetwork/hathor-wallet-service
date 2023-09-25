@@ -1,37 +1,41 @@
 {
   description = "virtual environments";
 
-  inputs.devshell.url = "github:numtide/devshell";
-  inputs.flake-utils.url = "github:numtide/flake-utils";
+  inputs = {
+    devshell.url = "github:numtide/devshell";
+    flake-utils.url = "github:numtide/flake-utils";
+    unstableNixPkgs.url = "nixpkgs/nixos-unstable";
+  };
 
-  outputs = { self, flake-utils, devshell, nixpkgs }:
-
+  outputs = { self, flake-utils, devshell, nixpkgs, unstableNixPkgs, ... }@inputs:
+    let
+      overlays.default = final: prev: 
+        let
+          packages = self.packages.${final.system};
+          inherit (packages) node-packages;
+        in
+        {
+          nodejs = final.nodejs-18_x;
+          nodePackages = prev.nodePackages;
+          yarn = (import unstableNixPkgs { system = final.system; }).yarn-berry;
+        };
+    in
     flake-utils.lib.eachDefaultSystem (system: {
       devShell =
         let pkgs = import nixpkgs {
           inherit system;
 
-          overlays = [ devshell.overlay ];
+          overlays = [
+            devshell.overlays.default
+            overlays.default
+          ];
         };
         in
         pkgs.devshell.mkShell {
-          commands = [
-            {
-              category = "i18n";
-              name = "mkpot";
-              help = "Update translation template";
-              command = "make update_pot";
-            }
-            {
-              category = "i18n";
-              name = "mkpo";
-              help = "Build translations";
-              command = "make i18n";
-            }
-          ];
           packages = with pkgs; [
             nixpkgs-fmt
             nodejs-18_x
+            yarn
           ];
         };
     });
