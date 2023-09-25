@@ -17,9 +17,11 @@ import {
   GenerateAddresses,
   AddressIndexMap,
   LastSyncedEvent,
+  AddressBalance,
+  AddressTotalBalance,
 } from '../types';
 import { isAuthority } from '../utils';
-import { LastSyncedEventRow, TxOutputRow } from './types';
+import { AddressBalanceRow, AddressTxHistorySumRow, LastSyncedEventRow, TxOutputRow } from './types';
 // @ts-ignore
 import { walletUtils } from '@hathor/wallet-lib';
 
@@ -164,6 +166,46 @@ export const updateTxOutputSpentBy = async (mysql: any, inputs: TxInput[], txId:
 };
 
 /**
+ * Get a list of tx outputs from a transaction
+ *
+ * @param mysql - Database connection
+ * @param transaction - The hash of the transaction
+
+ * @returns A list of tx outputs
+ */
+export const getTxOutputsFromTx = async (
+  mysql: any,
+  txId: string,
+): Promise<DbTxOutput[]> => {
+  const [results] = await mysql.query(
+    `SELECT *
+       FROM \`tx_output\`
+      WHERE \`tx_id\` = ?`,
+    [txId],
+  );
+
+  const utxos = [];
+  for (const result of results) {
+    const utxo: DbTxOutput = {
+      txId: result.tx_id as string,
+      index: result.index as number,
+      tokenId: result.token_id as string,
+      address: result.address as string,
+      value: result.value as number,
+      authorities: result.authorities as number,
+      timelock: result.timelock as number,
+      heightlock: result.heightlock as number,
+      locked: result.locked > 0,
+      txProposalId: result.tx_proposal as string,
+      txProposalIndex: result.tx_proposal_index as number,
+      spentBy: result.spent_by ? result.spent_by as string : null,
+    };
+    utxos.push(utxo);
+  }
+
+  return utxos;
+};
+/**
  * Get a list of tx outputs from a list of txId and indexes
  *
  * @param mysql - Database connection
@@ -242,6 +284,51 @@ export const getTxOutput = async (
   return txOutput;
 };
 
+/**
+ * Get tx outputs at a given height
+ *
+ * @param mysql - Database connection
+ * @param height - The height to search for
+ *
+ * @returns The requested tx_outputs
+ */
+export const getTxOutputsAtHeight = async (
+  mysql: MysqlConnection,
+  height: number,
+): Promise<DbTxOutput[]> => {
+  const [results] = await mysql.query<TxOutputRow[]>(
+    `SELECT *
+       FROM \`tx_output\`
+      WHERE \`tx_id\` IN (
+              SELECT tx_id
+                FROM transaction
+               WHERE height = ?
+            )
+        AND \`voided\` = FALSE`,
+    [height],
+  );
+  const rows = results;
+
+  const utxos = [];
+  for (const result of rows) {
+    const utxo: DbTxOutput = {
+      txId: result.tx_id as string,
+      index: result.index as number,
+      tokenId: result.token_id as string,
+      address: result.address as string,
+      value: result.value as number,
+      authorities: result.authorities as number,
+      timelock: result.timelock as number,
+      heightlock: result.heightlock as number,
+      // @ts-ignore
+      locked: result.locked > 0,
+    };
+    utxos.push(utxo);
+  }
+
+  return utxos;
+};
+
 export const voidTransaction = async (
   mysql: any,
   txId: string,
@@ -274,6 +361,7 @@ export const voidTransaction = async (
         timelock_expires: tokenBalance.lockExpires,
         transactions: 1,
       };
+
       // save the smaller value of timelock_expires, when not null
       await mysql.query(
         `INSERT INTO address_balance
@@ -1223,4 +1311,113 @@ export const getLastSyncedEvent = async (
   };
 
   return lastSyncedEvent;
+};
+
+export const getBestBlockHeight = async (
+  mysql: MysqlConnection,
+): Promise<number> => {
+  const [results] = await mysql.query(
+    `SELECT MAX(height) as height FROM \`transaction\` LIMIT 1`,
+    [],
+  );
+
+  // @ts-ignore
+  const maxHeight = results[0].height;
+
+  return maxHeight;
+};
+
+/**
+ * Retrieves a list of `AddressBalance`s from a list of addresses
+ *
+ * @param mysql - Database connection
+ * @param addresses - The addresses to query
+ */
+export const fetchAddressBalance = async (
+  mysql: MysqlConnection,
+  addresses: string[],
+): Promise<AddressBalance[]> => {
+  const [results] = await mysql.query<AddressBalanceRow[]>(
+    `SELECT *
+       FROM \`address_balance\`
+      WHERE \`address\` IN (?)
+   ORDER BY \`address\`, \`token_id\``,
+    [addresses],
+  );
+
+  return results.map((result): AddressBalance => ({
+    address: result.address as string,
+    tokenId: result.token_id as string,
+    unlockedBalance: result.unlocked_balance as number,
+    lockedBalance: result.locked_balance as number,
+    lockedAuthorities: result.locked_authorities as number,
+    unlockedAuthorities: result.unlocked_authorities as number,
+    timelockExpires: result.timelock_expires as number,
+    transactions: result.transactions as number,
+  }));
+};
+
+/**
+ * Retrieves a list of `AddressTotalBalance`s from a list of addresses
+ *
+ * @param mysql - Database connection
+ * @param addresses - The addresses to query
+ */
+export const fetchAddressTxHistorySum = async (
+  mysql: MysqlConnection,
+  addresses: string[],
+): Promise<AddressTotalBalance[]> => {
+  const [results] = await mysql.query<AddressTxHistorySumRow[]>(
+    `SELECT address,
+            token_id,
+            SUM(\`balance\`) AS balance,
+            COUNT(\`tx_id\`) AS transactions
+       FROM \`address_tx_history\`
+      WHERE \`address\` IN (?)
+        AND \`voided\` = FALSE
+   GROUP BY address, token_id
+   ORDER BY address, token_id`,
+    [addresses],
+  );
+
+  return results.map((result): AddressTotalBalance => ({
+    address: result.address as string,
+    tokenId: result.token_id as string,
+    balance: result.balance as number,
+    transactions: result.transactions as number,
+  }));
+};
+
+export const getTxOutputsHeightUnlockedAtHeight = async (
+  mysql: MysqlConnection,
+  height: number,
+): Promise<DbTxOutput[]> => {
+  const [results] = await mysql.query<TxOutputRow[]>(
+    `SELECT *
+       FROM \`tx_output\`
+      WHERE \`heightlock\` = ?
+        AND \`voided\` = FALSE`,
+    [height],
+  );
+
+  const utxos = [];
+  for (const result of results) {
+    const utxo: DbTxOutput = {
+      txId: result.tx_id as string,
+      index: result.index as number,
+      tokenId: result.token_id as string,
+      address: result.address as string,
+      value: result.value as number,
+      authorities: result.authorities as number,
+      timelock: result.timelock as number,
+      heightlock: result.heightlock as number,
+      locked: result.locked ? Boolean(result.locked) : false,
+      txProposalId: result.tx_proposal as string,
+      txProposalIndex: result.tx_proposal_index as number,
+      spentBy: result.spent_by ? result.spent_by as string : null,
+    };
+    utxos.push(utxo);
+  }
+
+  return utxos;
 };

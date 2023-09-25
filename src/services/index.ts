@@ -5,7 +5,8 @@ import {
   TokenBalanceMap,
   Transaction,
   TxInput,
-  Wallet
+  Wallet,
+  DbTxOutput
 } from '../types';
 import {
   prepareOutputs,
@@ -18,6 +19,7 @@ import {
   markLockedOutputs,
   getTokenListFromInputsAndOutputs,
   getWalletBalanceMap,
+  validateAddressBalances,
 } from '../utils';
 // @ts-ignore
 import hathorLib from '@hathor/wallet-lib';
@@ -40,6 +42,10 @@ import {
   voidTransaction,
   updateLastSyncedEvent as dbUpdateLastSyncedEvent,
   getLastSyncedEvent,
+  getTxOutputsFromTx,
+  getTxOutputsAtHeight,
+  markUtxosAsVoided,
+  getTxOutputsHeightUnlockedAtHeight,
 } from '../db';
 import { TxCache } from '../machines';
 import logger from '../logger';
@@ -49,9 +55,18 @@ export const metadataDiff = async (_context: Context, event: Event) => {
 
   try {
     const fullNodeEvent = event.event as FullNodeEvent;
+    const hash = fullNodeEvent.event.data.hash;
+    const eventId = fullNodeEvent.event.id;
     const dbTx: Transaction | null = await getTransactionById(mysql, fullNodeEvent.event.data.hash);
 
     if (!dbTx) {
+      if (fullNodeEvent.event.data.metadata.voided_by.length > 0) {
+        // No need to add voided transactions
+        return {
+          type: 'IGNORE',
+          originalEvent: event,
+        };
+      }
       return {
         type: 'TX_NEW',
         originalEvent: event,
@@ -59,7 +74,6 @@ export const metadataDiff = async (_context: Context, event: Event) => {
     }
 
     if (fullNodeEvent.event.data.metadata.voided_by.length > 0) {
-      logger.info('Tx was voided.', event);
       if (!dbTx.voided) {
         return {
           type: 'TX_VOIDED',
@@ -76,14 +90,11 @@ export const metadataDiff = async (_context: Context, event: Event) => {
     // TODO: Handle the case where the transaction was voided and is not anymore.
     if (fullNodeEvent.event.data.metadata.voided_by.length > 0) {
       if (!dbTx.voided) {
-        logger.info('Transaction was voided..');
         return {
           type: 'TX_VOIDED',
           originalEvent: event,
         };
       }
-
-      logger.info('Transaction was already voided on the database, ignore.');
     }
 
     if (fullNodeEvent.event.data.metadata.first_block
@@ -91,21 +102,18 @@ export const metadataDiff = async (_context: Context, event: Event) => {
        && fullNodeEvent.event.data.metadata.first_block.length > 0) {
 
       if (!dbTx.height) {
-        logger.info('Transaction got confirmed by a block');
         return {
           type: 'TX_FIRST_BLOCK',
           originalEvent: event,
         };
       }
 
-      logger.info('Transaction already had a first_block on the database, ignoring..');
       return {
         type: 'IGNORE',
         originalEvent: event,
       };
     }
 
-    logger.info('No conditions met, we can just ignore it.');
     return {
       type: 'IGNORE',
       originalEvent: event,
@@ -118,6 +126,11 @@ export const metadataDiff = async (_context: Context, event: Event) => {
   }
 };
 
+export const isBlock = (version: number): boolean => {
+  return version === hathorLib.constants.BLOCK_VERSION
+      || version === hathorLib.constants.MERGED_MINED_BLOCK_VERSION;
+};
+
 export const handleVertexAccepted = async (context: Context, _event: Event) => {
   const mysql = await getDbConnection();
   try {
@@ -128,7 +141,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     // @ts-ignore
     const {
       hash,
-      metadata: { height },
+      metadata,
       timestamp,
       version,
       weight,
@@ -139,12 +152,20 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       token_symbol,
     } = fullNodeEvent.event.data;
 
+    let height: number | null = metadata.height;
+
+    if (!isBlock(version) && !metadata.first_block) {
+      height = null;
+    }
+
     const txOutputs: TxOutputWithIndex[] = prepareOutputs(outputs, tokens);
     const txInputs: TxInput[] = prepareInputs(inputs, tokens);
 
     let heightlock = null;
-    if (version === hathorLib.constants.BLOCK_VERSION
-      || version === hathorLib.constants.MERGED_MINED_BLOCK_VERSION) {
+    if (isBlock(version)) {
+      if (typeof height !== 'number' && !height) {
+        throw new Error('Block with no height set in metadata.');
+      }
       // unlock older blocks
       const utxos = await getUtxosLockedAtHeight(mysql, now, height);
 
@@ -195,6 +216,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     markLockedOutputs(txOutputs, now, heightlock !== null);
 
     // Add the transaction
+    logger.info('Will add the tx with height', height);
     await addOrUpdateTx(
       mysql,
       hash,
@@ -245,16 +267,15 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     const hashedTxData = hashTxData(fullNodeEvent.event.data.metadata);
 
     // TODO: Send message on SQS  for real-time update
-
     TxCache.set(hash, hashedTxData);
 
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
 
     await mysql.end();
   } catch(e) {
-    logger.info(e);
+    logger.error(e);
 
-    return Promise.reject(e);
+    throw e;
   } finally {
     mysql.destroy();
   }
@@ -273,12 +294,31 @@ export const handleVoidedTx = async (context: Context) => {
       tokens,
     } = fullNodeEvent.event.data;
 
+    const dbTxOutputs: DbTxOutput[] = await getTxOutputsFromTx(mysql, hash);
     const txOutputs: TxOutputWithIndex[] = prepareOutputs(outputs, tokens);
     const txInputs: TxInput[] = prepareInputs(inputs, tokens);
 
-    const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputs);
+    // Set outputs as locked:
 
+    const txOutputsWithLocked = txOutputs.map((output) => {
+      const dbTxOutput = dbTxOutputs.find((_output) => _output.index === output.index);
+
+      if (!dbTxOutput) {
+        throw new Error('Transaction output different from database output!');
+      }
+
+      return {
+        ...output,
+        locked: dbTxOutput.locked,
+      };
+    });
+
+    const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputsWithLocked);
     await voidTransaction(mysql, hash, addressBalanceMap);
+    await markUtxosAsVoided(mysql, dbTxOutputs);
+
+    const addresses = Object.keys(addressBalanceMap);
+    await validateAddressBalances(mysql, addresses);
 
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
 
@@ -300,11 +340,17 @@ export const handleTxFirstBlock = async (context: Context) => {
 
     const {
       hash,
-      metadata: { height },
+      metadata,
       timestamp,
       version,
       weight,
     } = fullNodeEvent.event.data;
+
+    let height: number | null = metadata.height;
+
+    if (!metadata.first_block) {
+      height = null;
+    }
 
     await addOrUpdateTx(mysql, hash, height, timestamp, version, weight);
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);

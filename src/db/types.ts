@@ -20,3 +20,21 @@ export interface LastSyncedEventRow extends RowDataPacket {
   last_event_id: number;
   updated_at: number;
 }
+
+export interface AddressBalanceRow extends RowDataPacket {
+  address: string;
+  token_id: string;
+  unlocked_balance: number;
+  locked_balance: number;
+  locked_authorities: number;
+  unlocked_authorities: number;
+  timelock_expires: number;
+  transactions: number;
+}
+
+export interface AddressTxHistorySumRow extends RowDataPacket {
+  address: string;
+  token_id: string;
+  balance: number;
+  transactions: number;
+}

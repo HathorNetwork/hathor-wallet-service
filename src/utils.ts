@@ -6,10 +6,8 @@
  */
 import { Connection as MysqlConnection } from 'mysql2/promise';
 import dotenv from 'dotenv';
-// @ts-ignore
-import { isNumber, isEmpty } from 'lodash';
+import { strict as assert } from 'assert';
 import hathorLib, {
-  wallet,
   constants,
   Output,
   Network,
@@ -55,6 +53,8 @@ import {
   Wallet,
   EventTxOutput,
   EventTxInput,
+  AddressBalance,
+  AddressTotalBalance,
 } from './types';
 import {
   downloadTx,
@@ -66,7 +66,7 @@ import {
 import { getWalletServiceBestBlock, sendTx, addAlert } from './api/lambda';
 import logger from './logger';
 import * as crypto from 'crypto';
-import { getAddressWalletInfo, getExpiredTimelocksUtxos, unlockUtxos as dbUnlockUtxos, updateAddressLockedBalance, updateWalletLockedBalance } from './db';
+import { fetchAddressBalance, fetchAddressTxHistorySum, getAddressWalletInfo, getExpiredTimelocksUtxos, unlockUtxos as dbUnlockUtxos, updateAddressLockedBalance, updateWalletLockedBalance } from './db';
 
 const bip32 = BIP32Factory(ecc);
 
@@ -107,608 +107,13 @@ export const IGNORE_TXS: Map<string, string[]> = new Map<string, string[]>([
 const TX_CACHE_SIZE: number =
   parseInt(process.env.TX_CACHE_SIZE as string) || 200;
 
-function getAlertSeverityForReorgSize(reorg_size: number) {
+export function getAlertSeverityForReorgSize(reorg_size: number) {
   if (reorg_size < 3) return Severity.INFO;
   else if (reorg_size < 5) return Severity.WARNING;
   else if (reorg_size < 10) return Severity.MINOR;
   else if (reorg_size < 20) return Severity.MEDIUM;
   else if (reorg_size < 30) return Severity.MAJOR;
   else return Severity.CRITICAL;
-}
-
-/**
- * Download and parse a tx by it's id
- *
- * @param txId - the id of the tx to be downloaded
- */
-export const downloadTxFromId = async (
-  txId: string,
-  noCache: boolean = false
-): Promise<FullTx | null> => {
-  const network: string = process.env.NETWORK || 'mainnet';
-
-  // Do not download genesis transactions
-  if (IGNORE_TXS.has(network)) {
-    const networkTxs: string[] = IGNORE_TXS.get(network) as string[];
-
-    if (networkTxs.includes(txId)) {
-      // Skip
-      return null;
-    }
-  }
-
-  const txData: RawTxResponse = await downloadTx(txId, noCache);
-  const { tx } = txData;
-
-  return parseTx(tx);
-};
-
-/**
- * Recursively downloads all transactions confirmed directly or indirectly by a block
- *
- * This method will go through the parent tree and the inputs tree downloading all transactions,
- * while ignoring transactions confirmed by blocks with height < blockHeight
- *
- * NOTE: This operation will get slower and slower as the BFS dives into the funds and the confirmation DAGs 
- *
- * @param blockId - The blockId to download the transactions
- * @param blockHeight - The block height from the block we are downloading transactions from
- * @param txIds - List of transactions to download
- * @param data - Downloaded transactions, used while being called recursively
- */
-export const recursivelyDownloadTx = async (
-  blockId: string,
-  blockHeight: number,
-  txIds: string[] = [],
-  data = new Map<string, FullTx>()
-): Promise<Map<string, FullTx>> => {
-  if (txIds.length === 0) {
-    return data;
-  }
-
-  const txId: string = txIds.pop() as string;
-  const network: string = process.env.NETWORK || 'mainnet';
-
-  if (IGNORE_TXS.has(network)) {
-    const networkTxs: string[] = IGNORE_TXS.get(network) as string[];
-
-    if (networkTxs.includes(txId)) {
-      // Skip
-      return recursivelyDownloadTx(blockId, blockHeight, txIds, data);
-    }
-  }
-
-  const txData: RawTxResponse = await downloadTx(txId);
-  const { tx, meta } = txData;
-  const parsedTx: FullTx = parseTx(tx);
-
-  if (parsedTx.parents.length > 2) {
-    // We downloaded a block, we should ignore it
-    return recursivelyDownloadTx(blockId, blockHeight, txIds, data);
-  }
-
-  // Transaction was already confirmed by a different block
-  if (meta.first_block && meta.first_block !== blockId) {
-    let firstBlockHeight = meta.first_block_height;
-
-    // This should never happen
-    // Using == to include `undefined` on this check
-    if (firstBlockHeight == null) {
-      throw new Error('Transaction was confirmed by a block but we were unable to detect its height');
-    }
-
-    // If the transaction was confirmed by an older block, ignore it as it was
-    // already sent to the wallet-service
-    if (firstBlockHeight < blockHeight) {
-      return recursivelyDownloadTx(blockId, blockHeight, txIds, data);
-    }
-  }
-
-  const inputList = parsedTx.inputs.map((input) => input.txId);
-  const txList = [...parsedTx.parents, ...inputList];
-  const txIdsSet = new Set(txIds);
-
-  // check if we have already downloaded any of the transactions of the new list
-  const newTxIds = txList.filter(transaction => {
-    return (
-      !txIdsSet.has(transaction) &&
-      /* Removing the current tx from the list of transactions to download: */
-      transaction !== txId &&
-      /* Data works as our return list on the recursion and also as a "seen" list on the BFS.
-       * We don't want to download a transaction that is already on our seen list. */
-      !data.has(transaction)
-    );
-  });
-
-  const newData = data.set(parsedTx.txId, {
-    ...parsedTx,
-    voided: (meta.voided_by && meta.voided_by.length && meta.voided_by.length) > 0,
-  });
-
-  return recursivelyDownloadTx(blockId, blockHeight, [...txIds, ...newTxIds], newData);
-};
-
-/**
- * Prepares a transaction to be sent to the wallet-service `onNewTxRequest`
- *
- * @param tx - `FullTx` or `FullBlock` representing a typed transaction to be prepared
- */
-export const prepareTx = (tx: FullTx | FullBlock): PreparedTx => {
-  const prepared = {
-    tx_id: tx.txId,
-    nonce: tx.nonce,
-    timestamp: tx.timestamp,
-    version: tx.version,
-    weight: tx.weight,
-    parents: tx.parents,
-    token_name: tx.tokenName,
-    token_symbol: tx.tokenSymbol,
-    height: tx.height,
-    inputs: tx.inputs.map(input => {
-      const baseInput: PreparedInput = {
-        tx_id: input.txId,
-        value: input.value,
-        token_data: input.tokenData,
-        script: input.script,
-        decoded: input.decoded as PreparedDecodedScript,
-        index: input.index,
-        token: '',
-      };
-
-      if (input.tokenData === 0) {
-        return {
-          ...baseInput,
-          token: '00',
-        };
-      }
-
-      if (!tx.tokens || tx.tokens.length <= 0) {
-        throw new Error(
-          'Input is a token but there are no tokens in the tokens list.'
-        );
-      }
-
-      const { uid } = tx.tokens[
-        wallet.getTokenIndex(input.decoded.tokenData) - 1
-      ];
-
-      return {
-        ...baseInput,
-        token: uid,
-      };
-    }),
-    outputs: tx.outputs.map(output => {
-      const baseOutput: PreparedOutput = {
-        value: output.value,
-        token_data: output.tokenData,
-        script: output.script,
-        token: '',
-        decoded: output.decoded as PreparedDecodedScript,
-      };
-
-      if (output.tokenData === 0) {
-        return {
-          ...baseOutput,
-          token: '00',
-        };
-      }
-
-      if (!tx.tokens || tx.tokens.length <= 0) {
-        throw new Error(
-          'Output is a token but there are no tokens in the tokens list.'
-        );
-      }
-
-      if (!output.decoded || isEmpty(output.decoded) || !output.decoded.type) {
-        return baseOutput;
-      }
-
-      const { uid } = tx.tokens[
-        wallet.getTokenIndex(output.decoded.tokenData) - 1
-      ];
-
-      return {
-        ...baseOutput,
-        token: uid,
-      };
-    }),
-    tokens: tx.tokens,
-    raw: tx.raw,
-  };
-
-  return prepared;
-};
-
-/**
- * Types a tx that was received from the full_node
- *
- * @param tx - The transaction object as received by the full_node
- */
-export const parseTx = (tx: RawTx): FullTx => {
-  const parsedTx: FullTx = {
-    txId: tx.hash as string,
-    nonce: tx.nonce as string,
-    version: tx.version as number,
-    weight: tx.weight as number,
-    timestamp: tx.timestamp as number,
-    tokenName: tx.token_name ? (tx.token_name as string) : null,
-    tokenSymbol: tx.token_symbol ? (tx.token_symbol as string) : null,
-    inputs: tx.inputs.map((input: RawInput) => {
-      const typedDecodedScript: DecodedScript = {
-        type: input.decoded.type as string,
-        address: input.decoded.address as string,
-        timelock: isNumber(input.decoded.timelock)
-          ? (input.decoded.timelock as number)
-          : null,
-        value: isNumber(input.decoded.value)
-          ? (input.decoded.value as number)
-          : null,
-        tokenData: isNumber(input.decoded.token_data)
-          ? (input.decoded.token_data as number)
-          : null,
-      };
-      const typedInput: Input = {
-        txId: input.tx_id as string,
-        index: input.index as number,
-        value: input.value as number,
-        tokenData: input.token_data as number,
-        script: input.script as string,
-        decoded: typedDecodedScript,
-      };
-
-      return typedInput;
-    }),
-    outputs: tx.outputs.map(
-      (output: RawOutput): Output => {
-        const typedDecodedScript: DecodedScript = {
-          type: output.decoded.type as string,
-          address: output.decoded.address as string,
-          timelock: isNumber(output.decoded.timelock)
-            ? (output.decoded.timelock as number)
-            : null,
-          value: isNumber(output.decoded.value)
-            ? (output.decoded.value as number)
-            : null,
-          tokenData: isNumber(output.decoded.token_data)
-            ? (output.decoded.token_data as number)
-            : null,
-        };
-
-        const typedOutput: Output = {
-          value: output.value as number,
-          tokenData: output.token_data as number,
-          script: output.script as string,
-          decoded: typedDecodedScript,
-        };
-
-        return typedOutput;
-      }
-    ),
-    parents: tx.parents,
-    tokens: tx.tokens,
-    raw: tx.raw as string,
-  };
-
-  return parsedTx;
-};
-
-/**
- * Syncs the latest mempool
- *
- * @generator
- * @yields {MempoolEvent}
- */
-export async function* syncLatestMempool(): AsyncGenerator<MempoolEvent> {
-  logger.info(`Downloading mempool.`);
-  let mempoolResp;
-  try {
-    mempoolResp = await downloadMempool();
-  } catch (e) {
-    yield {
-      success: false,
-      type: 'error',
-      message: 'Could not download from mempool api',
-    };
-    return;
-  }
-
-  for (let i = 0; i < mempoolResp.transactions.length; i++) {
-    const tx = await downloadTxFromId(mempoolResp.transactions[i], true); // we don't want to cache mempool transactions
-
-    if (tx === null) {
-      addAlert(
-        'Failure to download tx from mempool',
-        `Failure to download transaction ${mempoolResp.transactions[i]} from mempool`,
-        Severity.WARNING, // Transaction will be downloaded again when it's confirmed by a block
-        {
-          'MempoolLength': mempoolResp.transactions.length,
-          'TxId': mempoolResp.transactions[i],
-        },
-      );
-      yield {
-        type: 'error',
-        success: false,
-        message: `Failure on transaction ${mempoolResp.transactions[i]} in mempool`,
-      };
-      return;
-    }
-
-    const preparedTx: PreparedTx = prepareTx(tx);
-    const sendTxResponse: TxSendResult = await sendTxHandler(preparedTx);
-
-    if (!sendTxResponse.success) {
-      addAlert(
-        'Failure to send mempool tx to the wallet service',
-        `Failure to send transaction ${tx.txId} from mempool to the wallet service`,
-        Severity.WARNING, // Transaction will be downloaded again when it's confirmed by a block
-        {
-          'MempoolLength': mempoolResp.transactions.length,
-          'TxId': mempoolResp.transactions[i],
-        },
-      );
-
-      yield {
-        type: 'error',
-        success: false,
-        message: `Failure on transaction ${preparedTx.tx_id} in mempool: ${sendTxResponse.message}`,
-      };
-      return;
-    }
-
-    yield {
-      type: 'tx_success',
-      success: true,
-      txId: preparedTx.tx_id,
-    };
-  }
-
-  yield {
-    success: true,
-    type: 'finished',
-  };
-}
-
-/**
- * Sends a transaction to the lambda and handle the response
- */
-export async function sendTxHandler (
-  preparedTx: PreparedTx,
-): Promise<TxSendResult> {
-  try {
-    const sendTxResponse: ApiResponse = await sendTx(preparedTx);
-
-    if (!sendTxResponse.success) {
-      logger.error(sendTxResponse.message);
-      return {
-        success: false,
-        message: sendTxResponse.message,
-      };
-    }
-
-    return { success: true };
-  } catch(e: unknown) {
-    logger.error(e);
-    if (e instanceof Error) {
-      return {
-        success: false,
-        message: e.message,
-      };
-    } else {
-      console.error(e);
-      return {
-        success: false,
-        message: 'Error sending transaction',
-      };
-    }
-  }
-}
-
-/**
- * Syncs to the latest block
- *
- * @generator
- * @yields {StatusEvent} A status event indicating if a block at a height was successfully sent, \
- * if an error ocurred or if a reorg ocurred.
- */
-export async function* syncToLatestBlock(): AsyncGenerator<StatusEvent> {
-  let ourBestBlock: Block | null = null;
-  let fullNodeBestBlock: Block | null = null;
-
-  try {
-    ourBestBlock = await getWalletServiceBestBlock();
-    fullNodeBestBlock = await getFullNodeBestBlock();
-
-  } catch (e) {
-    yield {
-      type: 'error',
-      success: false,
-      message: 'Failure to reach the wallet-service or the fullnode',
-    };
-
-    return;
-  }
-
-  // Check if our best block is still in the fullnode's chain
-  const ourBestBlockInFullNode = await getBlockByTxId(ourBestBlock.txId, true);
-
-  if (!ourBestBlockInFullNode.success) {
-    logger.warn(ourBestBlockInFullNode.message);
-
-    yield {
-      type: 'reorg',
-      success: false,
-      message: 'Best block not found in the full-node. Reorg?',
-    };
-
-    addAlert(
-      `Potential re-org on ${process.env.NETWORK}`,
-      `Best block not found in the full-node.`,
-      Severity.INFO,
-      {
-        'Wallet Service best block': ourBestBlock.txId,
-        'Fullnode best block': fullNodeBestBlock.txId,
-      },
-    );
-
-    return;
-  }
-
-  const { meta } = ourBestBlockInFullNode;
-
-  if (meta.voided_by && meta.voided_by.length && meta.voided_by.length > 0) {
-    const reorgSize = fullNodeBestBlock.height - ourBestBlock.height;
-
-    const severity = getAlertSeverityForReorgSize(reorgSize);
-
-    addAlert(
-      `Re-org on ${process.env.NETWORK}`,
-      `The daemon's best block has been voided, handling re-org`,
-      severity,
-      {
-        'Wallet Service best block': ourBestBlock.txId,
-        'Fullnode best block': fullNodeBestBlock.txId,
-        'Reorg size': reorgSize,
-      },
-    );
-
-    yield {
-      type: 'reorg',
-      success: false,
-      message: 'Our best block was voided, we should reorg.',
-    };
-
-    return;
-  }
-
-  if (ourBestBlock.height > meta.height) {
-    addAlert(
-      `Re-org on ${process.env.NETWORK}`,
-      `The downloaded height (${ourBestBlock.height}) is higher than the wallet service height (${meta.height})`,
-      Severity.INFO,
-      {
-        'Wallet Service best block': ourBestBlock.txId,
-        'Fullnode best block': fullNodeBestBlock.txId,
-      },
-    );
-
-    yield {
-      type: 'reorg',
-      success: false,
-      message: `Our height is higher than the wallet-service\'s height, we should reorg.`,
-    };
-
-    return;
-  }
-
-  logger.info(
-    `Downloading ${fullNodeBestBlock.height - ourBestBlock.height} blocks...`
-  );
-  let success = true;
-
-  blockLoop: for (
-    let i = ourBestBlock.height + 1;
-    i <= fullNodeBestBlock.height;
-    i++
-  ) {
-    const block: FullBlock = await downloadBlockByHeight(i);
-    const preparedBlock: PreparedTx = prepareTx(block);
-
-    // Ignore parents[0] because it is a block
-    const blockTxs = [block.parents[1], block.parents[2]];
-
-    // Download block transactions
-    const txList: Map<string, FullTx> = await recursivelyDownloadTx(
-      block.txId,
-      block.height,
-      blockTxs,
-    );
-
-    const txs: FullTx[] = Array.from(txList.values()).sort(
-      (x, y) => x.timestamp - y.timestamp
-    );
-
-    // Exclude duplicates and voided transactions:
-    const uniqueTxs: Record<string, FullTx> = txs.reduce(
-      (acc: Record<string, FullTx>, tx: FullTx) => {
-        if (tx.voided) {
-          return acc;
-        }
-
-        if (tx.txId in acc) {
-          return acc;
-        }
-
-        return {
-          ...acc,
-          [tx.txId]: tx,
-        };
-      },
-      {}
-    );
-
-    for (const key of Object.keys(uniqueTxs)) {
-      const preparedTx: PreparedTx = prepareTx({
-        ...uniqueTxs[key],
-        height: block.height, // this tx is confirmed by the current block on the loop, we must send its height
-      });
-
-
-      const sendTxResponse: TxSendResult = await sendTxHandler(preparedTx);
-
-      if (!sendTxResponse.success) {
-        addAlert(
-          'Failed to send transaction',
-          `Failure on transaction ${preparedTx.tx_id} from block: ${preparedBlock.tx_id}`,
-          process.env.NETWORK === 'mainnet' ? Severity.CRITICAL : Severity.MAJOR,
-        );
-
-        yield {
-          type: 'transaction_failure',
-          success: false,
-          message: `Failure on transaction ${preparedTx.tx_id} from block: ${preparedBlock.tx_id}`,
-        };
-
-        success = false;
-
-        break blockLoop;
-      }
-    }
-
-    // We will send the block only after all transactions were sent
-    // to be sure that all downloads were succesfull since there is no
-    // ROLLBACK yet on the wallet-service.
-    const sendBlockResponse: TxSendResult = await sendTxHandler(preparedBlock);
-
-    if (!sendBlockResponse.success) {
-      addAlert(
-        'Failed to send block transaction',
-        `Failure on block ${preparedBlock.tx_id}`,
-        process.env.NETWORK === 'mainnet' ? Severity.CRITICAL : Severity.MAJOR,
-      );
-      yield {
-        type: 'error',
-        success: false,
-        message: `Failure on block ${preparedBlock.tx_id}`,
-      };
-
-      success = false;
-
-      break;
-    }
-
-    yield {
-      type: 'block_success',
-      success: true,
-      blockId: preparedBlock.tx_id,
-      height: preparedBlock.height,
-      transactions: Object.keys(uniqueTxs),
-    };
-  }
-
-  yield {
-    success,
-    type: 'finished',
-  };
 }
 
 // Map remembers the insertion order, so we can use it as a FIFO queue
@@ -804,7 +209,9 @@ export const prepareInputs = (inputs: EventTxInput[], tokens: string[]): TxInput
   const preparedInputs: TxInput[] = inputs.reduce(
     (newInputs: TxInput[], _input: EventTxInput): TxInput[] => {
       const output = _input.spent_output;
-      const utxo: Output = new Output(output.value, Buffer.from(output.script, 'base64'));
+      const utxo: Output = new Output(output.value, Buffer.from(output.script, 'base64'), {
+        tokenData: output.token_data,
+      });
       let token = '00';
       if (!utxo.isTokenHTR()) {
         token = tokens[utxo.getTokenIndex()];
@@ -814,7 +221,7 @@ export const prepareInputs = (inputs: EventTxInput[], tokens: string[]): TxInput
         tx_id: _input.tx_id,
         index: _input.index,
         value: utxo.value,
-        token_data: utxo.token_data,
+        token_data: utxo.tokenData,
         script: utxo.script,
         token,
         decoded: {
@@ -843,7 +250,6 @@ export const prepareOutputs = (outputs: EventTxOutput[], tokens: string[]): TxOu
       }
       output.token = token;
 
-
       if (!_output.decoded
           || _output.decoded.type === null
           || _output.decoded.type === undefined) {
@@ -857,6 +263,7 @@ export const prepareOutputs = (outputs: EventTxOutput[], tokens: string[]): TxOu
         ...output,
         index: currIndex,
         decoded: _output.decoded,
+        token_data: output.tokenData,
       };
 
       return [
@@ -1152,3 +559,19 @@ export const getAddresses = (xpubkey: string, startIndex: number, quantity: numb
   }
   return addrMap;
 }
+
+export const validateAddressBalances = async (mysql: MysqlConnection, addresses: string[]): Promise<void> => {
+  const addressBalances: AddressBalance[] = await fetchAddressBalance(mysql, addresses);
+  const addressTxHistorySums: AddressTotalBalance[] = await fetchAddressTxHistorySum(mysql, addresses);
+
+  for (let i = 0; i < addressTxHistorySums.length; i++) {
+    const addressBalance: AddressBalance = addressBalances[i];
+    const addressTxHistorySum: AddressTotalBalance = addressTxHistorySums[i];
+
+
+    assert.strictEqual(addressBalance.tokenId, addressTxHistorySum.tokenId);
+
+    // balances must match
+    assert.strictEqual(Number(addressBalance.unlockedBalance + addressBalance.lockedBalance), Number(addressTxHistorySum.balance));
+  }
+};

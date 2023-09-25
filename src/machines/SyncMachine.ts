@@ -122,6 +122,7 @@ const SyncMachine = Machine<Context, any, Event>({
           },
         },
         handlingUnhandledEvent: {
+          id: 'handlingUnhandledEvent',
           invoke: {
             src: 'updateLastSyncedEvent',
             onDone: {
@@ -150,7 +151,7 @@ const SyncMachine = Machine<Context, any, Event>({
                   { target: '#handlingVoidedTx', cond: 'metadataVoided', actions: ['unwrapEvent'] },
                   { target: '#handleVertexAccepted', cond: 'metadataNewTx', actions: ['unwrapEvent'] },
                   { target: '#handlingFirstBlock', cond: 'metadataFirstBlock', actions: ['unwrapEvent'] },
-                  { target: '#idle', cond: 'metadataIgnore', actions: ['unwrapEvent'] },
+                  { target: '#handlingUnhandledEvent', cond: 'metadataIgnore' },
                 ],
               }
             },

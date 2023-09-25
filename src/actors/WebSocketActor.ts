@@ -38,7 +38,7 @@ export default (callback: any, receive: any) => {
 
   socket.onmessage = (socketEvent) => {
     const event = JSON.parse(socketEvent.data.toString());
-    logger.info(`Received ${event.event.type} from socket.`);
+    logger.info(`Received ${event.event.type}: ${event.event.id} from socket.`);
 
     callback({
       type: 'FULLNODE_EVENT',

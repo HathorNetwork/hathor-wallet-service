@@ -29,6 +29,7 @@
     "@hathor/wallet-lib": "^1.0.2",
     "@types/jest": "^29.5.4",
     "@types/ws": "^8.5.5",
+    "assert": "^2.1.0",
     "aws-sdk": "^2.1454.0",
     "axios": "^0.21.4",
     "bip32": "^4.0.0",

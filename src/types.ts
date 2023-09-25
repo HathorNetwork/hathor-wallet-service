@@ -338,10 +338,26 @@ export interface TxOutput {
   token: string;
   decoded: DecodedOutput | null;
   // eslint-disable-next-line camelcase
-  spent_by: string | null;
+  spent_by?: string | null;
   // eslint-disable-next-line camelcase
   token_data: number;
   locked?: boolean;
+}
+
+export interface DbTxOutput {
+  txId: string;
+  index: number;
+  tokenId: string;
+  address: string;
+  value: number;
+  authorities: number;
+  timelock: number | null;
+  heightlock: number | null;
+  locked: boolean;
+  spentBy?: string | null;
+  txProposalId?: string;
+  txProposalIndex?: number;
+  voided?: boolean | null;
 }
 
 export interface TxOutputWithIndex extends TxOutput {
@@ -646,9 +662,15 @@ export class TokenBalanceMap {
   static fromStringMap(tokenBalanceMap: StringMap<StringMap<number | Authorities>>): TokenBalanceMap {
     const obj = new TokenBalanceMap();
     for (const [tokenId, balance] of Object.entries(tokenBalanceMap)) {
-      // @ts-ignore
-      obj.set(tokenId, new Balance(balance.totalSent as number, balance.unlocked as number, balance.locked as number, balance.lockExpires || null,
-        balance.unlockedAuthorities, balance.lockedAuthorities));
+      obj.set(tokenId, new Balance(
+        balance.totalSent as number,
+        balance.unlocked as number,
+        balance.locked as number,
+        // @ts-ignore
+        balance.lockExpires || null,
+        balance.unlockedAuthorities,
+        balance.lockedAuthorities,
+      ));
     }
     return obj;
   }
@@ -730,6 +752,7 @@ export class TokenBalanceMap {
         ),
       );
     } else {
+      console.log('Not authority!!');
       obj.set(token, new Balance(0, -input.value, 0, null));
     }
     return obj;
@@ -822,4 +845,22 @@ export interface LastSyncedEvent {
   id: number;
   last_event_id: number;
   updated_at: number;
+}
+
+export interface AddressBalance {
+  address: string;
+  tokenId: string;
+  unlockedBalance: number;
+  lockedBalance: number;
+  unlockedAuthorities: number;
+  lockedAuthorities: number;
+  timelockExpires: number;
+  transactions: number;
+}
+
+export interface AddressTotalBalance {
+  address: string;
+  tokenId: string;
+  balance: number;
+  transactions: number;
 }
