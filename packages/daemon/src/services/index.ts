@@ -5,7 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-<<<<<<< HEAD
 // @ts-ignore
 import hathorLib from '@hathor/wallet-lib';
 import {
@@ -503,12 +502,3 @@ export const fetchInitialState = async () => {
 
   return { lastEventId: lastEvent?.last_event_id };
 };
-=======
-export const handleVertexAccepted = async () => Promise.resolve();
-export const metadataDiff = async () => Promise.resolve();
-export const handleVoidedTx = async () => Promise.resolve();
-export const handleTxFirstBlock = async () => Promise.resolve();
-export const updateLastSyncedEvent = async () => Promise.resolve();
-export const fetchInitialState = async () => Promise.resolve();
-export const validateNetwork = async () => Promise.resolve();
->>>>>>> 554cebd (feat: added sync machine to the project with mocked services)
