@@ -5,5 +5,9 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+<<<<<<< HEAD
 export { default as WebSocketActor } from './WebSocketActor';
 export * from './helpers';
+=======
+export const WebSocketActor = () => {};
+>>>>>>> 554cebd (feat: added sync machine to the project with mocked services)
