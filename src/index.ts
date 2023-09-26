@@ -15,7 +15,7 @@ const main = async () => {
 
   machine.onTransition(state => {
     // You can handle side-effects or logging here if needed
-    logger.info('Transitioned to state:', state.value);
+    logger.debug('Transitioned to state:', state.value);
   }).start();
 };
 

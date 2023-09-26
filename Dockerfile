@@ -4,21 +4,28 @@
 # arising from the use of this software.
 # This software cannot be redistributed unless explicitly agreed in writing with the authors.
 
-FROM node:14 AS builder
+# Build phase
+FROM node:18-alpine AS builder
 
-COPY package.json /app/
+WORKDIR /app
 
-RUN cd /app && npm install
+RUN apk update && apk add python3 g++ make
 
-COPY . /app/
+COPY package.json ./
 
-RUN cd /app && npm run build
+RUN npm install --production
 
-FROM node:14-alpine3.13
+COPY . ./
 
-COPY --from=builder /app/dist/ /app/
-COPY --from=builder /app/package.json /app/
+RUN npm run build
 
-RUN cd /app && npm install --production
+# Production phase
+FROM node:18-alpine
 
-CMD node /app/index.js
+WORKDIR /app
+
+COPY --from=builder /app/dist/ ./
+COPY --from=builder /app/package.json ./
+COPY --from=builder /app/node_modules ./node_modules
+
+CMD ["node", "index.js"]
