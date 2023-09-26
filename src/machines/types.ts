@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { EventTxInput, EventTxOutput } from "../types";
+import { EventTxInput, EventTxOutput } from '../types';
 
 export type FullNodeEvent = {
   stream_id: string;
@@ -43,7 +43,7 @@ export interface Context {
   initialEventId: null | number;
 }
 
-export type WebSocketEvent = 
+export type WebSocketEvent =
   | { type: 'CONNECTED' }
   | { type: 'DISCONNECTED' };
 
@@ -62,4 +62,3 @@ export type Event =
   | { type: 'FULLNODE_EVENT', event: FullNodeEvent }
   | { type: 'METADATA_DECIDED', event: MetadataDecidedEvent }
   | { type: 'WEBSOCKET_SEND_EVENT', event: WebSocketSendEvent };
-

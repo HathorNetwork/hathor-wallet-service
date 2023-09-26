@@ -25,7 +25,6 @@ import {
   handleTxFirstBlock,
   updateLastSyncedEvent,
   fetchInitialState,
-  validateNetwork,
 } from '../services';
 import logger from '../logger';
 
@@ -70,13 +69,13 @@ const SyncMachine = Machine<Context, any, Event>({
         socket: () => spawn(WebSocketActor),
       }),
       on: {
-        'WEBSOCKET_EVENT': [{
+        WEBSOCKET_EVENT: [{
           cond: 'websocketDisconnected',
           target: 'RECONNECTING',
         }, {
           target: 'CONNECTED',
         }],
-      }
+      },
     },
     RECONNECTING: {
       onEntry: ['clearSocket'],
@@ -144,22 +143,22 @@ const SyncMachine = Machine<Context, any, Event>({
               invoke: {
                 src: 'metadataDiff',
                 onDone: {
-                  actions: send((_context, event) => ({ 
+                  actions: send((_context, event) => ({
                     type: 'METADATA_DECIDED',
                     event: event.data,
-                  }))
+                  })),
                 },
               },
               on: {
-                'METADATA_DECIDED': [
+                METADATA_DECIDED: [
                   { target: '#handlingVoidedTx', cond: 'metadataVoided', actions: ['unwrapEvent'] },
                   { target: '#handleVertexAccepted', cond: 'metadataNewTx', actions: ['unwrapEvent'] },
                   { target: '#handlingFirstBlock', cond: 'metadataFirstBlock', actions: ['unwrapEvent'] },
                   { target: '#handlingUnhandledEvent', cond: 'metadataIgnore' },
                 ],
-              }
+              },
             },
-          }
+          },
         },
         // We have the unchanged guard, so it's guaranteed that this is a new tx
         handlingVertexAccepted: {
@@ -200,16 +199,16 @@ const SyncMachine = Machine<Context, any, Event>({
         },
       },
       on: {
-        'WEBSOCKET_EVENT': [{
+        WEBSOCKET_EVENT: [{
           cond: 'websocketDisconnected',
           target: 'RECONNECTING',
         }],
-      }
+      },
     },
     ERROR: {
       id: 'final-error',
       type: 'final',
-    }
+    },
   },
 }, {
   guards: {
@@ -255,14 +254,12 @@ const SyncMachine = Machine<Context, any, Event>({
 
       return event.event.event.type === 'NEW_VERTEX_ACCEPTED';
     },
-    invalidPeerId: (_context, event: Event) => {
+    invalidPeerId: (_context, event: Event) =>
       // @ts-ignore
-      return event.event.event.peer_id === process.env.FULLNODE_PEER_ID;
-    },
-    invalidStreamId: (_context, event: Event) => {
+      event.event.event.peer_id === process.env.FULLNODE_PEER_ID,
+    invalidStreamId: (_context, event: Event) =>
       // @ts-ignore
-      return event.event.stream_id === process.env.STREAM_ID;
-    },
+      event.event.stream_id === process.env.STREAM_ID,
     websocketDisconnected: (_context, event: Event) => {
       if (event.type === 'WEBSOCKET_EVENT'
           && event.event.type === 'DISCONNECTED') {
@@ -333,26 +330,28 @@ const SyncMachine = Machine<Context, any, Event>({
       socket: null,
     }),
     storeEvent,
-    sendAck: send((context: Context, _event) => {
+    sendAck: send(
+      (context: Context, _event) =>
       // @ts-ignore
-      return {
-        type: 'WEBSOCKET_SEND_EVENT',
-        event: {
-          message: JSON.stringify({
-            type: 'ACK',
-            window_size: 1,
-            // @ts-ignore
-            ack_event_id: context.event.event.id,
-          }),
-        },
-      };
-    }, {
+        ({
+          type: 'WEBSOCKET_SEND_EVENT',
+          event: {
+            message: JSON.stringify({
+              type: 'ACK',
+              window_size: 1,
+              // @ts-ignore
+              ack_event_id: context.event.event.id,
+            }),
+          },
+        }),
+      {
       // @ts-ignore
-      to: (context: Context) => context.socket.id,
-    }),
-  }, 
+        to: (context: Context) => context.socket.id,
+      },
+    ),
+  },
   services: {
-    validateNetwork,
+    validateNetwork: async () => {},
     handleVoidedTx,
     handleVertexAccepted,
     handleTxFirstBlock,

@@ -1,3 +1,12 @@
+/**
+ * Copyright (c) Hathor Labs and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+// @ts-ignore
+import hathorLib from '@hathor/wallet-lib';
 import { Event, Context, FullNodeEvent } from '../machines/types';
 import {
   TxOutputWithIndex,
@@ -6,7 +15,7 @@ import {
   Transaction,
   TxInput,
   Wallet,
-  DbTxOutput
+  DbTxOutput,
 } from '../types';
 import {
   prepareOutputs,
@@ -22,7 +31,6 @@ import {
   validateAddressBalances,
 } from '../utils';
 // @ts-ignore
-import hathorLib from '@hathor/wallet-lib';
 import {
   getDbConnection,
   addOrUpdateTx,
@@ -96,7 +104,6 @@ export const metadataDiff = async (_context: Context, event: Event) => {
     if (fullNodeEvent.event.data.metadata.first_block
        && fullNodeEvent.event.data.metadata.first_block.length
        && fullNodeEvent.event.data.metadata.first_block.length > 0) {
-
       if (!dbTx.height) {
         return {
           type: 'TX_FIRST_BLOCK',
@@ -114,7 +121,7 @@ export const metadataDiff = async (_context: Context, event: Event) => {
       type: 'IGNORE',
       originalEvent: event,
     };
-  } catch(e) {
+  } catch (e) {
     logger.error('e', e);
     return Promise.reject(e);
   } finally {
@@ -122,10 +129,8 @@ export const metadataDiff = async (_context: Context, event: Event) => {
   }
 };
 
-export const isBlock = (version: number): boolean => {
-  return version === hathorLib.constants.BLOCK_VERSION
+export const isBlock = (version: number): boolean => version === hathorLib.constants.BLOCK_VERSION
       || version === hathorLib.constants.MERGED_MINED_BLOCK_VERSION;
-};
 
 export const handleVertexAccepted = async (context: Context, _event: Event) => {
   const mysql = await getDbConnection();
@@ -193,7 +198,6 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       await unlockTimelockedUtxos(mysql, now);
     }
 
-
     if (version === hathorLib.constants.CREATE_TOKEN_TX_VERSION
        && token_name
        && token_symbol) {
@@ -229,7 +233,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     await updateTxOutputSpentBy(mysql, txInputs, hash);
 
     // Handle genesis parent txs:
-    if (inputs.length > 0 || outputs.length > 0)  {
+    if (inputs.length > 0 || outputs.length > 0) {
       const tokenList: string[] = getTokenListFromInputsAndOutputs(txInputs, txOutputs);
 
       // Update transaction count with the new tx
@@ -270,7 +274,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
 
     await mysql.commit();
-  } catch(e) {
+  } catch (e) {
     await mysql.rollback();
     logger.error(e);
 
@@ -325,7 +329,7 @@ export const handleVoidedTx = async (context: Context) => {
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
 
     logger.debug(`Voided tx ${hash}`);
-  } catch(e) {
+  } catch (e) {
     logger.debug(e);
     await mysql.rollback();
 
