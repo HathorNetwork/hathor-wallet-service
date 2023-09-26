@@ -4,7 +4,10 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  */
+
 import mysql, { Connection as MysqlConnection, Pool } from 'mysql2/promise';
+// @ts-ignore
+import { walletUtils } from '@hathor/wallet-lib';
 import {
   TokenBalanceMap,
   DbTxOutput,
@@ -23,7 +26,6 @@ import {
 import { isAuthority } from '../utils';
 import { AddressBalanceRow, AddressTxHistorySumRow, LastSyncedEventRow, TxOutputRow } from './types';
 // @ts-ignore
-import { walletUtils } from '@hathor/wallet-lib';
 
 let pool: Pool;
 
@@ -661,20 +663,18 @@ export const updateAddressLockedBalance = async (
   for (const [address, tokenBalanceMap] of Object.entries(addressBalanceMap)) {
     for (const [token, tokenBalance] of tokenBalanceMap.iterator()) {
       // @ts-ignore
-      await mysql.query(
-        `UPDATE \`address_balance\`
+      await mysql.query(`UPDATE \`address_balance\`
             SET \`unlocked_balance\` = \`unlocked_balance\` + ?,
                 \`locked_balance\` = \`locked_balance\` - ?,
                 \`unlocked_authorities\` = (unlocked_authorities | ?)
           WHERE \`address\` = ?
             AND \`token_id\` = ?`, [
-          tokenBalance.unlockedAmount,
-          tokenBalance.unlockedAmount,
-          tokenBalance.unlockedAuthorities.toInteger(),
-          address,
-          token,
-        ],
-      );
+        tokenBalance.unlockedAmount,
+        tokenBalance.unlockedAmount,
+        tokenBalance.unlockedAuthorities.toInteger(),
+        address,
+        token,
+      ]);
 
       // if any authority has been unlocked, we have to refresh the locked authorities
       if (tokenBalance.unlockedAuthorities.toInteger() > 0) {
@@ -696,7 +696,8 @@ export const updateAddressLockedBalance = async (
 
       // if this is being unlocked due to a timelock, also update the timelock_expires column
       if (updateTimelocks) {
-        await mysql.query(`
+        await mysql.query(
+          `
           UPDATE \`address_balance\`
              SET \`timelock_expires\` = (
                SELECT MIN(\`timelock\`)
@@ -709,7 +710,8 @@ export const updateAddressLockedBalance = async (
              )
            WHERE \`address\` = ?
              AND \`token_id\` = ?`,
-        [address, token, address, token]);
+          [address, token, address, token],
+        );
       }
     }
   }
@@ -1281,30 +1283,34 @@ export const markUtxosAsVoided = async (
 ): Promise<void> => {
   const txIds = utxos.map((tx) => tx.txId);
 
-  await mysql.query(`
+  await mysql.query(
+    `
     UPDATE \`tx_output\`
        SET \`voided\` = TRUE
      WHERE \`tx_id\` IN (?)`,
-  [txIds]);
+    [txIds],
+  );
 };
 
 export const updateLastSyncedEvent = async (
   mysql: MysqlConnection,
   lastEventId: number,
 ): Promise<void> => {
-  await mysql.query(`
+  await mysql.query(
+    `
      INSERT INTO \`sync_metadata\` (\`id\`, \`last_event_id\`)
           VALUES (0, ?)
 ON DUPLICATE KEY
           UPDATE last_event_id = ?`,
-  [lastEventId, lastEventId]);
+    [lastEventId, lastEventId],
+  );
 };
 
 export const getLastSyncedEvent = async (
   mysql: MysqlConnection,
 ): Promise<LastSyncedEvent | null> => {
   const [results] = await mysql.query<LastSyncedEventRow[]>(
-    `SELECT * FROM \`sync_metadata\` LIMIT 1`,
+    'SELECT * FROM `sync_metadata` LIMIT 1',
     [],
   );
 
@@ -1325,7 +1331,7 @@ export const getBestBlockHeight = async (
   mysql: MysqlConnection,
 ): Promise<number> => {
   const [results] = await mysql.query(
-    `SELECT MAX(height) as height FROM \`transaction\` LIMIT 1`,
+    'SELECT MAX(height) as height FROM `transaction` LIMIT 1',
     [],
   );
 
