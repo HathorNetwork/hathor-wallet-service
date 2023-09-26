@@ -30,7 +30,7 @@ import {
   getExpiredTimelocksUtxos,
   unlockUtxos as dbUnlockUtxos,
   updateAddressLockedBalance,
-  updateWalletLockedBalance
+  updateWalletLockedBalance,
 } from './db';
 
 export const md5Hash = (data: string): string => {
@@ -39,22 +39,21 @@ export const md5Hash = (data: string): string => {
   return hash.digest('hex');
 };
 
-export const serializeTxData = (meta: unknown): string => {
+export const serializeTxData = (meta: unknown): string =>
   // @ts-ignore
-  return `${meta.hash}|${meta.voided_by.length > 0}|${meta.first_block}|${meta.height}`;
-};
-
-export const hashTxData = (meta: unknown): string => {
-  // I'm interested in the hash, voided_by, first_block and height, we should
-  // serialize those fields as a string and then hash it
+  `${meta.hash}|${meta.voided_by.length > 0}|${meta.first_block}|${meta.height}`;
+export const hashTxData = (meta: unknown): string =>
+// I'm interested in the hash, voided_by, first_block and height, we should
+// serialize those fields as a string and then hash it
 
   // @ts-ignore
-  return md5Hash(serializeTxData(meta));
-};
+  md5Hash(serializeTxData(meta))
+;
 
 // Map remembers the insertion order, so we can use it as a FIFO queue
 export class LRU {
   max: number;
+
   cache: Map<string, any>;
 
   constructor(max: number = 10) {
@@ -117,7 +116,7 @@ export const prepareOutputs = (outputs: EventTxOutput[], tokens: string[]): TxOu
       if (!_output.decoded
           || _output.decoded.type === null
           || _output.decoded.type === undefined) {
-          console.log('Decode failed, skipping..');
+        console.log('Decode failed, skipping..');
         return [currIndex + 1, newOutputs];
       }
 
@@ -311,33 +310,32 @@ export const unlockTimelockedUtxos = async (mysql: MysqlConnection, now: number)
 };
 
 export const prepareInputs = (inputs: EventTxInput[], tokens: string[]): TxInput[] => {
-  const preparedInputs: TxInput[] = inputs.reduce(
-    (newInputs: TxInput[], _input: EventTxInput): TxInput[] => {
-      const output = _input.spent_output;
-      const utxo: Output = new Output(output.value, Buffer.from(output.script, 'base64'), {
-        tokenData: output.token_data,
-      });
-      let token = '00';
-      if (!utxo.isTokenHTR()) {
-        token = tokens[utxo.getTokenIndex()];
-      }
+  const preparedInputs: TxInput[] = inputs.reduce((newInputs: TxInput[], _input: EventTxInput): TxInput[] => {
+    const output = _input.spent_output;
+    const utxo: Output = new Output(output.value, Buffer.from(output.script, 'base64'), {
+      tokenData: output.token_data,
+    });
+    let token = '00';
+    if (!utxo.isTokenHTR()) {
+      token = tokens[utxo.getTokenIndex()];
+    }
 
-      const input: TxInput = {
-        tx_id: _input.tx_id,
-        index: _input.index,
-        value: utxo.value,
-        token_data: utxo.tokenData,
-        script: utxo.script,
-        token,
-        decoded: {
-          type: output.decoded.type,
-          address: output.decoded.address,
-          timelock: output.decoded.timelock,
-        },
-      };
+    const input: TxInput = {
+      tx_id: _input.tx_id,
+      index: _input.index,
+      value: utxo.value,
+      token_data: utxo.tokenData,
+      script: utxo.script,
+      token,
+      decoded: {
+        type: output.decoded.type,
+        address: output.decoded.address,
+        timelock: output.decoded.timelock,
+      },
+    };
 
-      return [...newInputs, input];
-    }, []);
+    return [...newInputs, input];
+  }, []);
 
   return preparedInputs;
 };
@@ -393,7 +391,6 @@ export const validateAddressBalances = async (mysql: MysqlConnection, addresses:
   for (let i = 0; i < addressTxHistorySums.length; i++) {
     const addressBalance: AddressBalance = addressBalances[i];
     const addressTxHistorySum: AddressTotalBalance = addressTxHistorySums[i];
-
 
     assert.strictEqual(addressBalance.tokenId, addressTxHistorySum.tokenId);
 

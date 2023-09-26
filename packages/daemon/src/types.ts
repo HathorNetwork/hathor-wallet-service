@@ -12,7 +12,7 @@ import { isAuthority } from './utils';
 export interface EventTxInput {
   tx_id: string;
   index: number;
-  spent_output: EventTxOutput; 
+  spent_output: EventTxOutput;
 }
 
 export interface EventTxOutput {
@@ -449,7 +449,7 @@ export class TokenBalanceMap {
           null,
           // @ts-ignore
           authorities.toNegative(),
-          new Authorities(0)
+          new Authorities(0),
         ),
       );
     } else {
