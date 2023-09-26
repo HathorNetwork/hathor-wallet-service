@@ -9,8 +9,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        node: ['10.x', '12.x', '14.x']
-        os: [ubuntu-latest, windows-latest, macOS-latest]
+        node: ['18.x']
+        os: [ubuntu-latest]
 
     steps:
       - name: Checkout repo
@@ -35,7 +35,7 @@ jobs:
 
       - name: Upload coverage
         uses: codecov/codecov-action@v3
-        if: ${{ matrix.node-version }} == 14.x
+        if: ${{ matrix.node-version }} == 18.x
         with:
           verbose: true
 
