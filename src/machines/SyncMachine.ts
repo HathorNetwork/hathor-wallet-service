@@ -363,4 +363,3 @@ const SyncMachine = Machine<Context, any, Event>({
 });
 
 export default SyncMachine;
-
