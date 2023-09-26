@@ -33,7 +33,9 @@ export interface Input {
 }
 
 export type FullNodeEvent = {
+  stream_id: string;
   type: string;
+  latest_event_id: number;
   event: {
     peer_id: string;
     id: number;
@@ -57,6 +59,13 @@ export type FullNodeEvent = {
       };
     }
   }
+}
+
+export interface Context {
+  socket: unknown;
+  retryAttempt: number;
+  event: unknown;
+  initialEventId: null | number;
 }
 
 export type WebSocketEvent = 

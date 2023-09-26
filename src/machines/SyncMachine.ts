@@ -205,6 +205,9 @@ const SyncMachine = Machine<Context, any, Event>({
     ERROR: {
       id: 'final-error',
       type: 'final',
+      onEntry: (_context, event: Event) => {
+        console.log('Event on error: ', event);
+      },
     }
   },
 }, {
@@ -293,7 +296,7 @@ const SyncMachine = Machine<Context, any, Event>({
     storeInitialState: assign({
       initialEventId: (_context: Context, event: Event) => {
         // @ts-ignore
-        logger.info('Storing initial event id: ', event.data);
+        logger.debug('Storing initial event id: ', event.data);
         // @ts-ignore
         return event.data.lastEventId;
       },

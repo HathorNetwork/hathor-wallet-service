@@ -168,7 +168,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       const utxos = await getUtxosLockedAtHeight(mysql, now, height);
 
       if (utxos.length > 0) {
-        logger.info(`Block transaction, unlocking ${utxos.length} locked utxos at height ${height}`);
+        logger.debug(`Block transaction, unlocking ${utxos.length} locked utxos at height ${height}`);
         await unlockUtxos(mysql, utxos, false);
       }
 
@@ -198,7 +198,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
        && token_name
        && token_symbol) {
       if (!token_name || !token_symbol) {
-        console.error('Processed a token creation event but it did not come with token name and symbol');
+        logger.error('Processed a token creation event but it did not come with token name and symbol');
         process.exit(1);
       }
       await storeTokenInformation(mysql, hash, token_name, token_symbol);
@@ -214,7 +214,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     markLockedOutputs(txOutputs, now, heightlock !== null);
 
     // Add the transaction
-    logger.info('Will add the tx with height', height);
+    logger.debug('Will add the tx with height', height);
     await addOrUpdateTx(
       mysql,
       hash,
@@ -294,6 +294,8 @@ export const handleVoidedTx = async (context: Context) => {
       tokens,
     } = fullNodeEvent.event.data;
 
+    logger.debug(`Will handle voided tx for ${hash}`);
+
     const dbTxOutputs: DbTxOutput[] = await getTxOutputsFromTx(mysql, hash);
     const txOutputs: TxOutputWithIndex[] = prepareOutputs(outputs, tokens);
     const txInputs: TxInput[] = prepareInputs(inputs, tokens);
@@ -322,9 +324,10 @@ export const handleVoidedTx = async (context: Context) => {
 
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
 
-    logger.info(`Voided tx ${hash}`);
+    logger.debug(`Voided tx ${hash}`);
   } catch(e) {
-    logger.info(e);
+    logger.debug(e);
+    await mysql.rollback();
 
     return Promise.reject(e);
   } finally {
@@ -355,7 +358,7 @@ export const handleTxFirstBlock = async (context: Context) => {
 
     await addOrUpdateTx(mysql, hash, height, timestamp, version, weight);
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
-    logger.info(`Confirmed tx ${hash}`);
+    logger.debug(`Confirmed tx ${hash}`);
   } catch (e) {
     logger.error('E: ', e);
     await mysql.rollback();
