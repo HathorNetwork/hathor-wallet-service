@@ -37,7 +37,7 @@ const myFormat = winston.format.printf(
 
     if (Object.keys(args).length > 0) {
       // Adapted from https://github.com/winstonjs/logform/blob/master/pretty-print.js
-      const stripped = Object.assign({}, args);
+      const stripped = { ...args };
 
       argsStr = util.inspect(stripped, {
         compact: true,
@@ -46,7 +46,7 @@ const myFormat = winston.format.printf(
     }
 
     return `${Date.now()} [wallet-service-daemon] ${level}: ${message} ${argsStr}`;
-  }
+  },
 );
 
 const transports = [
@@ -59,10 +59,10 @@ const transports = [
 const logger = winston.createLogger({
   format: winston.format.combine(
     winston.format.timestamp(),
-    winston.format.errors({ stack: true })
+    winston.format.errors({ stack: true }),
   ),
   defaultMeta: { service: 'wallet-service-daemon' },
-  transports: transports,
+  transports,
 });
 
 export default logger;
