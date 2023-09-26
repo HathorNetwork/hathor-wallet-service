@@ -43,9 +43,7 @@ import {
   updateLastSyncedEvent as dbUpdateLastSyncedEvent,
   getLastSyncedEvent,
   getTxOutputsFromTx,
-  getTxOutputsAtHeight,
   markUtxosAsVoided,
-  getTxOutputsHeightUnlockedAtHeight,
 } from '../db';
 import { TxCache } from '../machines';
 import logger from '../logger';
@@ -55,8 +53,6 @@ export const metadataDiff = async (_context: Context, event: Event) => {
 
   try {
     const fullNodeEvent = event.event as FullNodeEvent;
-    const hash = fullNodeEvent.event.data.hash;
-    const eventId = fullNodeEvent.event.id;
     const dbTx: Transaction | null = await getTransactionById(mysql, fullNodeEvent.event.data.hash);
 
     if (!dbTx) {
@@ -119,7 +115,7 @@ export const metadataDiff = async (_context: Context, event: Event) => {
       originalEvent: event,
     };
   } catch(e) {
-    console.error('e', e);
+    logger.error('e', e);
     return Promise.reject(e);
   } finally {
     mysql.destroy();
@@ -133,6 +129,8 @@ export const isBlock = (version: number): boolean => {
 
 export const handleVertexAccepted = async (context: Context, _event: Event) => {
   const mysql = await getDbConnection();
+  await mysql.beginTransaction();
+
   try {
     const fullNodeEvent = context.event as FullNodeEvent;
     const now = getUnixTimestamp();
@@ -271,8 +269,9 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
 
-    await mysql.end();
+    await mysql.commit();
   } catch(e) {
+    await mysql.rollback();
     logger.error(e);
 
     throw e;
@@ -283,6 +282,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
 export const handleVoidedTx = async (context: Context) => {
   const mysql = await getDbConnection();
+  await mysql.beginTransaction();
 
   try {
     const fullNodeEvent = context.event as FullNodeEvent;
@@ -334,6 +334,7 @@ export const handleVoidedTx = async (context: Context) => {
 
 export const handleTxFirstBlock = async (context: Context) => {
   const mysql = await getDbConnection();
+  await mysql.beginTransaction();
 
   try {
     const fullNodeEvent = context.event as FullNodeEvent;
@@ -356,7 +357,8 @@ export const handleTxFirstBlock = async (context: Context) => {
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
     logger.info(`Confirmed tx ${hash}`);
   } catch (e) {
-    console.error('E: ', e);
+    logger.error('E: ', e);
+    await mysql.rollback();
     return Promise.reject(e);
   } finally {
     mysql.destroy();

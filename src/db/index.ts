@@ -4,7 +4,7 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  */
-import mysql, { Connection as MysqlConnection } from 'mysql2/promise';
+import mysql, { Connection as MysqlConnection, Pool } from 'mysql2/promise';
 import {
   TokenBalanceMap,
   DbTxOutput,
@@ -25,20 +25,28 @@ import { AddressBalanceRow, AddressTxHistorySumRow, LastSyncedEventRow, TxOutput
 // @ts-ignore
 import { walletUtils } from '@hathor/wallet-lib';
 
+let pool: Pool;
+
 /**
  * Get a database connection.
  *
  * @returns The database connection
  */
-export const getDbConnection = async (): Promise<MysqlConnection>  => (
-  mysql.createConnection({
-    host: process.env.DB_ENDPOINT,
-    database: process.env.DB_NAME,
-    user: process.env.DB_USER,
-    port: parseInt(process.env.DB_PORT || '3306', 10),
-    password: process.env.DB_PASS,
-  })
-);
+export const getDbConnection = async (): Promise<MysqlConnection> => {
+  if (!pool) {
+    const newPool: Pool = mysql.createPool({
+      host: process.env.DB_ENDPOINT,
+      database: process.env.DB_NAME,
+      user: process.env.DB_USER,
+      port: parseInt(process.env.DB_PORT || '3306', 10),
+      password: process.env.DB_PASS,
+    });
+
+    pool = newPool;
+  }
+
+  return pool.getConnection();
+};
 
 /**
  * Add a tx to the transaction table.
