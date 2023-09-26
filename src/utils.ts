@@ -6,6 +6,7 @@
  */
 import { Connection as MysqlConnection } from 'mysql2/promise';
 import { strict as assert } from 'assert';
+import * as crypto from 'crypto';
 // @ts-ignore
 import hathorLib, { constants, Output } from '@hathor/wallet-lib';
 import {
@@ -22,13 +23,79 @@ import {
   TxOutputWithIndex,
   Wallet,
 } from './types';
-import { fetchAddressBalance, fetchAddressTxHistorySum, getAddressWalletInfo, getExpiredTimelocksUtxos, unlockUtxos as dbUnlockUtxos, updateAddressLockedBalance, updateWalletLockedBalance } from './db';
+import {
+  fetchAddressBalance,
+  fetchAddressTxHistorySum,
+  getAddressWalletInfo,
+  getExpiredTimelocksUtxos,
+  unlockUtxos as dbUnlockUtxos,
+  updateAddressLockedBalance,
+  updateWalletLockedBalance
+} from './db';
 
-export const hashTxData = (_data: unknown): string => { return ''; };
-export class LRU {
-  constructor(_size: number) {}
-  get(_hash: string): string { return ''; }
+export const md5Hash = (data: string): string => {
+  const hash = crypto.createHash('md5');
+  hash.update(data);
+  return hash.digest('hex');
 };
+
+export const serializeTxData = (meta: unknown): string => {
+  // @ts-ignore
+  return `${meta.hash}|${meta.voided_by.length > 0}|${meta.first_block}|${meta.height}`;
+};
+
+export const hashTxData = (meta: unknown): string => {
+  // I'm interested in the hash, voided_by, first_block and height, we should
+  // serialize those fields as a string and then hash it
+
+  // @ts-ignore
+  return md5Hash(serializeTxData(meta));
+};
+
+// Map remembers the insertion order, so we can use it as a FIFO queue
+export class LRU {
+  max: number;
+  cache: Map<string, any>;
+
+  constructor(max: number = 10) {
+    this.max = max;
+    this.cache = new Map();
+  }
+
+  get(txId: string): any {
+    const transaction = this.cache.get(txId);
+
+    if (transaction) {
+      this.cache.delete(txId);
+      // Refresh it in the Map
+      this.cache.set(txId, transaction);
+    }
+
+    return transaction;
+  }
+
+  set(txId: string, transaction: any): void {
+    if (this.cache.has(txId)) {
+      // Refresh it in the map
+      this.cache.delete(txId);
+    }
+
+    // Remove oldest
+    if (this.cache.size === this.max) {
+      this.cache.delete(this.first());
+    }
+
+    this.cache.set(txId, transaction);
+  }
+
+  first(): string {
+    return this.cache.keys().next().value;
+  }
+
+  clear(): void {
+    this.cache = new Map();
+  }
+}
 
 export const isAuthority = (tokenData: number): boolean => (
   (tokenData & constants.TOKEN_AUTHORITY_MASK) > 0    // eslint-disable-line no-bitwise
