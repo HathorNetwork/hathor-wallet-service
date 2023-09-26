@@ -1,10 +1,3 @@
-/**
- * Copyright (c) Hathor Labs and its affiliates.
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
- */
-
 import { Event, Context, FullNodeEvent } from '../machines/types';
 import {
   TxOutputWithIndex,
@@ -50,9 +43,7 @@ import {
   updateLastSyncedEvent as dbUpdateLastSyncedEvent,
   getLastSyncedEvent,
   getTxOutputsFromTx,
-  getTxOutputsAtHeight,
   markUtxosAsVoided,
-  getTxOutputsHeightUnlockedAtHeight,
 } from '../db';
 import { TxCache } from '../machines';
 import logger from '../logger';
@@ -62,8 +53,6 @@ export const metadataDiff = async (_context: Context, event: Event) => {
 
   try {
     const fullNodeEvent = event.event as FullNodeEvent;
-    const hash = fullNodeEvent.event.data.hash;
-    const eventId = fullNodeEvent.event.id;
     const dbTx: Transaction | null = await getTransactionById(mysql, fullNodeEvent.event.data.hash);
 
     if (!dbTx) {
@@ -126,7 +115,7 @@ export const metadataDiff = async (_context: Context, event: Event) => {
       originalEvent: event,
     };
   } catch(e) {
-    console.error('e', e);
+    logger.error('e', e);
     return Promise.reject(e);
   } finally {
     mysql.destroy();
@@ -140,6 +129,8 @@ export const isBlock = (version: number): boolean => {
 
 export const handleVertexAccepted = async (context: Context, _event: Event) => {
   const mysql = await getDbConnection();
+  await mysql.beginTransaction();
+
   try {
     const fullNodeEvent = context.event as FullNodeEvent;
     const now = getUnixTimestamp();
@@ -177,7 +168,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       const utxos = await getUtxosLockedAtHeight(mysql, now, height);
 
       if (utxos.length > 0) {
-        logger.info(`Block transaction, unlocking ${utxos.length} locked utxos at height ${height}`);
+        logger.debug(`Block transaction, unlocking ${utxos.length} locked utxos at height ${height}`);
         await unlockUtxos(mysql, utxos, false);
       }
 
@@ -207,7 +198,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
        && token_name
        && token_symbol) {
       if (!token_name || !token_symbol) {
-        console.error('Processed a token creation event but it did not come with token name and symbol');
+        logger.error('Processed a token creation event but it did not come with token name and symbol');
         process.exit(1);
       }
       await storeTokenInformation(mysql, hash, token_name, token_symbol);
@@ -223,7 +214,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     markLockedOutputs(txOutputs, now, heightlock !== null);
 
     // Add the transaction
-    logger.info('Will add the tx with height', height);
+    logger.debug('Will add the tx with height', height);
     await addOrUpdateTx(
       mysql,
       hash,
@@ -278,8 +269,9 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
 
-    await mysql.end();
+    await mysql.commit();
   } catch(e) {
+    await mysql.rollback();
     logger.error(e);
 
     throw e;
@@ -290,6 +282,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
 export const handleVoidedTx = async (context: Context) => {
   const mysql = await getDbConnection();
+  await mysql.beginTransaction();
 
   try {
     const fullNodeEvent = context.event as FullNodeEvent;
@@ -300,6 +293,8 @@ export const handleVoidedTx = async (context: Context) => {
       inputs,
       tokens,
     } = fullNodeEvent.event.data;
+
+    logger.debug(`Will handle voided tx for ${hash}`);
 
     const dbTxOutputs: DbTxOutput[] = await getTxOutputsFromTx(mysql, hash);
     const txOutputs: TxOutputWithIndex[] = prepareOutputs(outputs, tokens);
@@ -329,11 +324,12 @@ export const handleVoidedTx = async (context: Context) => {
 
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
 
-    logger.info(`Voided tx ${hash}`);
+    logger.debug(`Voided tx ${hash}`);
   } catch(e) {
-    logger.info(e);
+    logger.debug(e);
+    await mysql.rollback();
 
-    return Promise.reject(e);
+    throw e;
   } finally {
     mysql.destroy();
   }
@@ -341,6 +337,7 @@ export const handleVoidedTx = async (context: Context) => {
 
 export const handleTxFirstBlock = async (context: Context) => {
   const mysql = await getDbConnection();
+  await mysql.beginTransaction();
 
   try {
     const fullNodeEvent = context.event as FullNodeEvent;
@@ -361,10 +358,11 @@ export const handleTxFirstBlock = async (context: Context) => {
 
     await addOrUpdateTx(mysql, hash, height, timestamp, version, weight);
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
-    logger.info(`Confirmed tx ${hash}`);
+    logger.debug(`Confirmed tx ${hash}`);
   } catch (e) {
-    console.error('E: ', e);
-    return Promise.reject(e);
+    logger.error('E: ', e);
+    await mysql.rollback();
+    throw e;
   } finally {
     mysql.destroy();
   }
@@ -387,4 +385,3 @@ export const fetchInitialState = async () => {
 
   return { lastEventId: lastEvent?.last_event_id };
 };
-
