@@ -453,7 +453,6 @@ export class TokenBalanceMap {
         ),
       );
     } else {
-      console.log('Not authority!!');
       obj.set(token, new Balance(0, -input.value, 0, null));
     }
     return obj;

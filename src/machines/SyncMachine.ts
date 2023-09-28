@@ -115,6 +115,13 @@ const SyncMachine = Machine<Context, any, Event>({
               cond: 'metadataChanged',
               target: 'handlingMetadataChanged',
             }, {
+              actions: ['storeEvent', 'sendAck'],
+              /* If the transaction is already voided and is not
+               * VERTEX_METADATA_CHANGED, we should ignore it.
+               */
+              cond: 'voided',
+              target: 'idle',
+            }, {
               actions: ['storeEvent'],
               cond: 'vertexAccepted',
               target: 'handlingVertexAccepted',
@@ -267,6 +274,23 @@ const SyncMachine = Machine<Context, any, Event>({
       }
 
       return false;
+    },
+    voided: (_context: Context, event: Event) => {
+      if (event.type !== 'FULLNODE_EVENT') {
+        return false;
+      }
+
+      const fullNodeEvent = event.event.event;
+      const {
+        hash,
+        metadata: { voided_by },
+      } = fullNodeEvent.data;
+
+      if (voided_by.length > 0) {
+        logger.debug(`Ignoring ${hash} as it's already voided.`);
+      }
+
+      return voided_by.length > 0;
     },
     unchanged: (_context: Context, event: Event) => {
       if (event.type !== 'FULLNODE_EVENT') {
