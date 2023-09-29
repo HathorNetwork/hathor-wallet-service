@@ -398,3 +398,10 @@ export const validateAddressBalances = async (mysql: MysqlConnection, addresses:
     assert.strictEqual(Number(addressBalance.unlockedBalance + addressBalance.lockedBalance), Number(addressTxHistorySum.balance));
   }
 };
+
+export interface Miner {
+  address: string;
+  firstBlock: string;
+  lastBlock: string;
+  count: number;
+}
