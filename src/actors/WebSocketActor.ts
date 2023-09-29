@@ -6,6 +6,8 @@
  */
 import { WebSocket } from 'ws';
 import { Event } from '../machines/types';
+// @ts-ignore
+import { get } from 'lodash';
 import logger from '../logger';
 
 const WS_URL = process.env.WS_URL;
@@ -42,7 +44,7 @@ export default (callback: any, receive: any) => {
 
   socket.onmessage = (socketEvent) => {
     const event = JSON.parse(socketEvent.data.toString());
-    logger.debug(`Received ${event.event.type}: ${event.event.id} from socket.`);
+    logger.debug(`Received ${get(event, 'event.type')}: ${get(event, 'event.id')} from socket.`, event);
 
     callback({
       type: 'FULLNODE_EVENT',

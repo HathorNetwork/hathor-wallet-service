@@ -12,7 +12,6 @@ import {
   TxOutputWithIndex,
   StringMap,
   TokenBalanceMap,
-  Transaction,
   TxInput,
   Wallet,
   DbTxOutput,
@@ -59,26 +58,34 @@ import logger from '../logger';
 
 export const metadataDiff = async (_context: Context, event: Event) => {
   const mysql = await getDbConnection();
+  logger.info('Metadata diff!');
 
   try {
     const fullNodeEvent = event.event as FullNodeEvent;
-    const dbTx: DbTransaction | null = await getTransactionById(mysql, fullNodeEvent.event.data.hash);
+    const {
+      hash,
+      metadata: { voided_by, first_block },
+    } = fullNodeEvent.event.data;
+    const dbTx: DbTransaction | null = await getTransactionById(mysql, hash);
 
     if (!dbTx) {
-      if (fullNodeEvent.event.data.metadata.voided_by.length > 0) {
+      if (voided_by.length > 0) {
         // No need to add voided transactions
         return {
           type: 'IGNORE',
           originalEvent: event,
         };
       }
+
       return {
         type: 'TX_NEW',
         originalEvent: event,
       };
     }
 
-    if (fullNodeEvent.event.data.metadata.voided_by.length > 0) {
+    // Tx is voided
+    if (voided_by.length > 0) {
+      // Was it voided on the database?
       if (!dbTx.voided) {
         return {
           type: 'TX_VOIDED',
@@ -92,19 +99,9 @@ export const metadataDiff = async (_context: Context, event: Event) => {
       };
     }
 
-    // TODO: Handle the case where the transaction was voided and is not anymore.
-    if (fullNodeEvent.event.data.metadata.voided_by.length > 0) {
-      if (!dbTx.voided) {
-        return {
-          type: 'TX_VOIDED',
-          originalEvent: event,
-        };
-      }
-    }
-
-    if (fullNodeEvent.event.data.metadata.first_block
-       && fullNodeEvent.event.data.metadata.first_block.length
-       && fullNodeEvent.event.data.metadata.first_block.length > 0) {
+    if (first_block
+       && first_block.length
+       && first_block.length > 0) {
       if (!dbTx.height) {
         return {
           type: 'TX_FIRST_BLOCK',
@@ -155,6 +152,16 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       token_name,
       token_symbol,
     } = fullNodeEvent.event.data;
+
+    const dbTx: DbTransaction | null = await getTransactionById(mysql, hash);
+
+    // Db is already on the database, ignore...
+    if (dbTx) {
+      logger.debug(`Transaction ${hash} already on the database, ignoring..`);
+      mysql.destroy();
+
+      return;
+    }
 
     let height: number | null = metadata.height;
 
@@ -330,6 +337,7 @@ export const handleVoidedTx = async (context: Context) => {
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
 
     logger.debug(`Voided tx ${hash}`);
+    await mysql.commit();
   } catch (e) {
     logger.debug(e);
     await mysql.rollback();
@@ -363,7 +371,9 @@ export const handleTxFirstBlock = async (context: Context) => {
 
     await addOrUpdateTx(mysql, hash, height, timestamp, version, weight);
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
-    logger.debug(`Confirmed tx ${hash}`);
+    logger.debug(`Confirmed tx ${hash}: ${fullNodeEvent.event.id}`);
+
+    await mysql.commit();
   } catch (e) {
     logger.error('E: ', e);
     await mysql.rollback();
