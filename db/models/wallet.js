@@ -12,7 +12,7 @@ module.exports = (sequelize, DataTypes) => {
     static associate(models) {
       // define association here
     }
-  }
+  };
   Wallet.init({
     id: {
       type: DataTypes.STRING(64),

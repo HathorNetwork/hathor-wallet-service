@@ -12,7 +12,7 @@ module.exports = (sequelize, DataTypes) => {
     static associate(models) {
       // define association here
     }
-  }
+  };
   TxProposalOutputs.init({
     tx_proposal_id: {
       type: DataTypes.STRING(36),

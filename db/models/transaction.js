@@ -15,7 +15,7 @@ module.exports = (sequelize, DataTypes) => {
     static associate(models) {
       // define association here
     }
-  }
+  };
   Transaction.init({
     tx_id: {
       type: DataTypes.STRING(64),

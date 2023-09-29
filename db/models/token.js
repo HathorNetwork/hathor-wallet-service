@@ -15,7 +15,7 @@ module.exports = (sequelize, DataTypes) => {
     static associate(models) {
       // define association here
     }
-  }
+  };
   Token.init({
     id: {
       type: DataTypes.STRING(64),
