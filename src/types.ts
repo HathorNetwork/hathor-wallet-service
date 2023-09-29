@@ -56,8 +56,8 @@ export interface DbTxOutput {
   heightlock: number | null;
   locked: boolean;
   spentBy?: string | null;
-  txProposalId?: string;
-  txProposalIndex?: number;
+  txProposalId?: string | null;
+  txProposalIndex?: number | null;
   voided?: boolean | null;
 }
 
@@ -75,30 +75,6 @@ export interface TxInput {
   script: string;
   token: string;
   decoded: DecodedOutput | null;
-}
-
-export interface EventTxInput {
-  tx_id: string;
-  index: number;
-  value: number;
-  script: string;
-  token_data: number;
-}
-
-export interface DbTxOutput {
-  txId: string;
-  index: number;
-  tokenId: string;
-  address: string;
-  value: number;
-  authorities: number;
-  timelock: number | null;
-  heightlock: number | null;
-  locked: boolean;
-  spentBy?: string | null;
-  txProposalId?: string;
-  txProposalIndex?: number;
-  voided?: boolean | null;
 }
 
 export interface StringMap<T> {
@@ -479,6 +455,17 @@ export interface Transaction {
   token_symbol?: string;
 }
 
+export interface DbTransaction {
+  tx_id: string;
+  timestamp: number;
+  version: number;
+  voided: boolean;
+  height?: number | null;
+  weight?: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
 export enum WalletStatus {
   CREATING = 'creating',
   READY = 'ready',
@@ -528,3 +515,35 @@ export interface AddressTotalBalance {
 }
 
 export type AddressIndexMap = StringMap<number>;
+
+export class TokenInfo {
+  id: string;
+
+  name: string;
+
+  symbol: string;
+
+  transactions: number;
+
+  constructor(id: string, name: string, symbol: string, transactions?: number) {
+    this.id = id;
+    this.name = name;
+    this.symbol = symbol;
+    this.transactions = transactions || 0;
+
+    const hathorConfig = hathorLib.constants.HATHOR_TOKEN_CONFIG;
+
+    if (this.id === hathorConfig.uid) {
+      this.name = hathorConfig.name;
+      this.symbol = hathorConfig.symbol;
+    }
+  }
+
+  toJSON(): Record<string, unknown> {
+    return {
+      id: this.id,
+      name: this.name,
+      symbol: this.symbol,
+    };
+  }
+}
