@@ -16,6 +16,7 @@ import {
   TxInput,
   Wallet,
   DbTxOutput,
+  DbTransaction,
 } from '../types';
 import {
   prepareOutputs,
@@ -61,7 +62,7 @@ export const metadataDiff = async (_context: Context, event: Event) => {
 
   try {
     const fullNodeEvent = event.event as FullNodeEvent;
-    const dbTx: Transaction | null = await getTransactionById(mysql, fullNodeEvent.event.data.hash);
+    const dbTx: DbTransaction | null = await getTransactionById(mysql, fullNodeEvent.event.data.hash);
 
     if (!dbTx) {
       if (fullNodeEvent.event.data.metadata.voided_by.length > 0) {
