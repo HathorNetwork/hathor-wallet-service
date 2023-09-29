@@ -62,6 +62,9 @@ const SyncMachine = Machine<Context, any, Event>({
           actions: ['storeInitialState'],
           target: 'CONNECTING',
         },
+        onError: {
+          target: '#final-error',
+        },
       },
     },
     CONNECTING: {
@@ -215,6 +218,9 @@ const SyncMachine = Machine<Context, any, Event>({
     ERROR: {
       id: 'final-error',
       type: 'final',
+      onEntry: (_context: Context, event: Event) => {
+        logger.error('Machine transitioned to error', event);
+      }
     },
   },
 }, {
