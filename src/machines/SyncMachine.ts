@@ -83,7 +83,7 @@ const SyncMachine = Machine<Context, any, Event>({
     RECONNECTING: {
       onEntry: ['clearSocket'],
       after: {
-        RETRY_BACKOFF_INCREASE: 'CONNECTING',
+        BACKOFF_DELAYED_RECONNECT: 'CONNECTING',
       },
     },
     CONNECTED: {
@@ -129,7 +129,6 @@ const SyncMachine = Machine<Context, any, Event>({
               cond: 'vertexAccepted',
               target: 'handlingVertexAccepted',
             }, {
-              actions: ['storeEvent'],
               target: 'handlingUnhandledEvent',
             }],
           },
@@ -139,7 +138,7 @@ const SyncMachine = Machine<Context, any, Event>({
           invoke: {
             src: 'updateLastSyncedEvent',
             onDone: {
-              actions: ['sendAck'],
+              actions: ['sendAck', 'storeEvent'],
               target: 'idle',
             },
             onError: '#final-error',
@@ -178,7 +177,7 @@ const SyncMachine = Machine<Context, any, Event>({
             data: (_context: Context, event: Event) => event,
             onDone: {
               target: 'idle',
-              actions: ['sendAck'],
+              actions: ['sendAck', 'storeEvent'],
             },
             onError: '#final-error',
           },
@@ -190,7 +189,7 @@ const SyncMachine = Machine<Context, any, Event>({
             data: (_context: Context, event: Event) => event,
             onDone: {
               target: 'idle',
-              actions: ['sendAck'],
+              actions: ['storeEvent', 'sendAck'],
             },
             onError: '#final-error',
           },
@@ -202,7 +201,7 @@ const SyncMachine = Machine<Context, any, Event>({
             data: (_context: Context, event: Event) => event,
             onDone: {
               target: 'idle',
-              actions: ['sendAck'],
+              actions: ['storeEvent', 'sendAck'],
             },
             onError: '#final-error',
           },
@@ -212,6 +211,9 @@ const SyncMachine = Machine<Context, any, Event>({
         WEBSOCKET_EVENT: [{
           cond: 'websocketDisconnected',
           target: 'RECONNECTING',
+          actions: (context: Context, event: Event) => {
+            console.log('Websocket disconnected', event, context);
+          },
         }],
       },
     },
@@ -284,6 +286,11 @@ const SyncMachine = Machine<Context, any, Event>({
     voided: (_context: Context, event: Event) => {
       if (event.type !== 'FULLNODE_EVENT') {
         return false;
+      }
+
+      if (event.event.event.type !== 'VERTEX_METADATA_CHANGED'
+          && event.event.event.type !== 'NEW_VERTEX_ACCEPTED') {
+            return false;
       }
 
       const fullNodeEvent = event.event.event;
