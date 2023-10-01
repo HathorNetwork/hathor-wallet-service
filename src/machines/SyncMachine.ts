@@ -9,10 +9,8 @@ import {
   Machine,
   assign,
   spawn,
-  send,
-  AssignAction,
 } from 'xstate';
-import { hashTxData, LRU } from '../utils';
+import { LRU } from '../utils';
 import { WebSocketActor } from '../actors';
 import {
   Context,
@@ -25,29 +23,56 @@ import {
   handleTxFirstBlock,
   updateLastSyncedEvent,
   fetchInitialState,
+  validateNetwork,
 } from '../services';
+import {
+  metadataIgnore,
+  metadataVoided,
+  metadataNewTx,
+  metadataFirstBlock,
+  metadataChanged,
+  vertexAccepted,
+  invalidPeerId,
+  invalidStreamId,
+  websocketDisconnected,
+  voided,
+  unchanged,
+} from '../guards';
+import {
+  storeInitialState,
+  unwrapEvent,
+  startStream,
+  clearSocket,
+  storeEvent,
+  sendAck,
+  metadataDecided,
+} from '../actions';
+import { BACKOFF_DELAYED_RECONNECT } from '../delays';
 import logger from '../logger';
-
-const RETRY_BACKOFF_INCREASE = 1000; // 1s increase in the backoff strategy
-const MAX_BACKOFF_RETRIES = 10; // The retry backoff will top at 10s
 
 export const TxCache = new LRU(parseInt(process.env.TX_CACHE_SIZE || '10000', 10));
 
-const storeEvent: AssignAction<Context, Event> = assign({
-  // @ts-ignore
-  event: (context: Context, event: Event) => {
-    if (event.type !== 'FULLNODE_EVENT') {
-      return context.event;
-    }
-    if (!('id' in event.event.event)) return;
+const SYNC_MACHINE_STATES = {
+  INITIALIZING: 'INITIALIZING',
+  CONNECTING: 'CONNECTING',
+  CONNECTED: 'CONNECTED',
+  RECONNECTING: 'RECONNECTING',
+  ERROR: 'ERROR',
+};
 
-    return event.event;
-  },
-});
+const CONNECTED_STATES = {
+  idle: 'idle',
+  validateNetwork: 'validateNetwork',
+  handlingUnhandledEvent: 'handlingUnhandledEvent',
+  handlingMetadataChanged: 'handlingMetadataChanged',
+  handlingVertexAccepted: 'handlingVertexAccepted',
+  handlingVoidedTx: 'handlingVoidedTx',
+  handlingFirstBlock: 'handlingFirstBlock',
+};
 
 const SyncMachine = Machine<Context, any, Event>({
-  id: 'websocket',
-  initial: 'INITIALIZING',
+  id: 'SyncMachine',
+  initial: SYNC_MACHINE_STATES.INITIALIZING,
   context: {
     socket: null,
     retryAttempt: 0,
@@ -55,7 +80,7 @@ const SyncMachine = Machine<Context, any, Event>({
     initialEventId: null,
   },
   states: {
-    INITIALIZING: {
+    [SYNC_MACHINE_STATES.INITIALIZING]: {
       invoke: {
         src: 'fetchInitialState',
         onDone: {
@@ -63,11 +88,11 @@ const SyncMachine = Machine<Context, any, Event>({
           target: 'CONNECTING',
         },
         onError: {
-          target: '#final-error',
+          target: `#${SYNC_MACHINE_STATES.ERROR}`,
         },
       },
     },
-    CONNECTING: {
+    [SYNC_MACHINE_STATES.CONNECTING]: {
       entry: assign({
         socket: () => spawn(WebSocketActor),
       }),
@@ -80,35 +105,35 @@ const SyncMachine = Machine<Context, any, Event>({
         }],
       },
     },
-    RECONNECTING: {
+    [SYNC_MACHINE_STATES.RECONNECTING]: {
       onEntry: ['clearSocket'],
       after: {
         BACKOFF_DELAYED_RECONNECT: 'CONNECTING',
       },
     },
-    CONNECTED: {
-      id: 'CONNECTED',
-      initial: 'validateNetwork',
+    [SYNC_MACHINE_STATES.CONNECTED]: {
+      id: SYNC_MACHINE_STATES.CONNECTED,
+      initial: CONNECTED_STATES.validateNetwork,
       states: {
-        validateNetwork: {
+        [CONNECTED_STATES.validateNetwork]: {
           invoke: {
             src: 'validateNetwork',
             onDone: {
               target: 'idle',
               actions: ['startStream'],
             },
-            onError: '#final-error',
+            onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
         },
-        idle: {
-          id: 'idle',
+        [CONNECTED_STATES.idle]: {
+          id: CONNECTED_STATES.idle,
           on: {
             FULLNODE_EVENT: [{
               cond: 'invalidStreamId',
-              target: '#final-error',
+              target: `#${SYNC_MACHINE_STATES.ERROR}`,
             }, {
               cond: 'invalidPeerId',
-              target: '#final-error',
+              target: `#${SYNC_MACHINE_STATES.ERROR}`,
             }, {
               actions: ['storeEvent', 'sendAck'],
               cond: 'unchanged',
@@ -133,45 +158,40 @@ const SyncMachine = Machine<Context, any, Event>({
             }],
           },
         },
-        handlingUnhandledEvent: {
-          id: 'handlingUnhandledEvent',
+        [CONNECTED_STATES.handlingUnhandledEvent]: {
+          id: CONNECTED_STATES.handlingUnhandledEvent,
           invoke: {
             src: 'updateLastSyncedEvent',
             onDone: {
               actions: ['sendAck', 'storeEvent'],
               target: 'idle',
             },
-            onError: '#final-error',
+            onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
         },
-        handlingMetadataChanged: {
+        [CONNECTED_STATES.handlingMetadataChanged]: {
           id: 'handlingMetadataChanged',
           initial: 'detectingDiff',
           states: {
             detectingDiff: {
               invoke: {
                 src: 'metadataDiff',
-                onDone: {
-                  actions: send((_context, event) => ({
-                    type: 'METADATA_DECIDED',
-                    event: event.data,
-                  })),
-                },
+                onDone: { actions: ['metadataDecided'] },
               },
               on: {
                 METADATA_DECIDED: [
-                  { target: '#handlingVoidedTx', cond: 'metadataVoided', actions: ['unwrapEvent'] },
-                  { target: '#handleVertexAccepted', cond: 'metadataNewTx', actions: ['unwrapEvent'] },
-                  { target: '#handlingFirstBlock', cond: 'metadataFirstBlock', actions: ['unwrapEvent'] },
-                  { target: '#handlingUnhandledEvent', cond: 'metadataIgnore' },
+                  { target: `#${CONNECTED_STATES.handlingVoidedTx}`, cond: 'metadataVoided', actions: ['unwrapEvent'] },
+                  { target: `#${CONNECTED_STATES.handlingVertexAccepted}`, cond: 'metadataNewTx', actions: ['unwrapEvent'] },
+                  { target: `#${CONNECTED_STATES.handlingFirstBlock}`, cond: 'metadataFirstBlock', actions: ['unwrapEvent'] },
+                  { target: `#${CONNECTED_STATES.handlingUnhandledEvent}`, cond: 'metadataIgnore' },
                 ],
               },
             },
           },
         },
         // We have the unchanged guard, so it's guaranteed that this is a new tx
-        handlingVertexAccepted: {
-          id: 'handleVertexAccepted',
+        [CONNECTED_STATES.handlingVertexAccepted]: {
+          id: CONNECTED_STATES.handlingVertexAccepted,
           invoke: {
             src: 'handleVertexAccepted',
             data: (_context: Context, event: Event) => event,
@@ -179,11 +199,11 @@ const SyncMachine = Machine<Context, any, Event>({
               target: 'idle',
               actions: ['sendAck', 'storeEvent'],
             },
-            onError: '#final-error',
+            onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
         },
-        handlingVoidedTx: {
-          id: 'handlingVoidedTx',
+        [CONNECTED_STATES.handlingVoidedTx]: {
+          id: CONNECTED_STATES.handlingVoidedTx,
           invoke: {
             src: 'handleVoidedTx',
             data: (_context: Context, event: Event) => event,
@@ -191,11 +211,11 @@ const SyncMachine = Machine<Context, any, Event>({
               target: 'idle',
               actions: ['storeEvent', 'sendAck'],
             },
-            onError: '#final-error',
+            onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
         },
-        handlingFirstBlock: {
-          id: 'handlingFirstBlock',
+        [CONNECTED_STATES.handlingFirstBlock]: {
+          id: CONNECTED_STATES.handlingFirstBlock,
           invoke: {
             src: 'handleTxFirstBlock',
             data: (_context: Context, event: Event) => event,
@@ -203,7 +223,7 @@ const SyncMachine = Machine<Context, any, Event>({
               target: 'idle',
               actions: ['storeEvent', 'sendAck'],
             },
-            onError: '#final-error',
+            onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
         },
       },
@@ -217,8 +237,8 @@ const SyncMachine = Machine<Context, any, Event>({
         }],
       },
     },
-    ERROR: {
-      id: 'final-error',
+    [SYNC_MACHINE_STATES.ERROR]: {
+      id: SYNC_MACHINE_STATES.ERROR,
       type: 'final',
       onEntry: (_context: Context, event: Event) => {
         logger.error('Machine transitioned to error', event);
@@ -227,168 +247,30 @@ const SyncMachine = Machine<Context, any, Event>({
   },
 }, {
   guards: {
-    metadataIgnore: (_context, event: Event) => {
-      if (event.type !== 'METADATA_DECIDED') {
-        return false;
-      }
-
-      return event.event.type === 'IGNORE';
-    },
-    metadataVoided: (_context, event: Event) => {
-      if (event.type !== 'METADATA_DECIDED') {
-        return false;
-      }
-
-      return event.event.type === 'TX_VOIDED';
-    },
-    metadataNewTx: (_context, event: Event) => {
-      if (event.type !== 'METADATA_DECIDED') {
-        return false;
-      }
-
-      return event.event.type === 'TX_NEW';
-    },
-    metadataFirstBlock: (_context, event: Event) => {
-      if (event.type !== 'METADATA_DECIDED') {
-        return false;
-      }
-
-      return event.event.type === 'TX_FIRST_BLOCK';
-    },
-    metadataChanged: (_context, event: Event) => {
-      if (event.type !== 'FULLNODE_EVENT') {
-        return false;
-      }
-
-      return event.event.event.type === 'VERTEX_METADATA_CHANGED';
-    },
-    vertexAccepted: (_context, event: Event) => {
-      if (event.type !== 'FULLNODE_EVENT') {
-        return false;
-      }
-
-      return event.event.event.type === 'NEW_VERTEX_ACCEPTED';
-    },
-    invalidPeerId: (_context, event: Event) =>
-      // @ts-ignore
-      event.event.event.peer_id === process.env.FULLNODE_PEER_ID,
-    invalidStreamId: (_context, event: Event) =>
-      // @ts-ignore
-      event.event.stream_id === process.env.STREAM_ID,
-    websocketDisconnected: (_context, event: Event) => {
-      if (event.type === 'WEBSOCKET_EVENT'
-          && event.event.type === 'DISCONNECTED') {
-        return true;
-      }
-
-      return false;
-    },
-    voided: (_context: Context, event: Event) => {
-      if (event.type !== 'FULLNODE_EVENT') {
-        return false;
-      }
-
-      if (event.event.event.type !== 'VERTEX_METADATA_CHANGED'
-          && event.event.event.type !== 'NEW_VERTEX_ACCEPTED') {
-            return false;
-      }
-
-      const fullNodeEvent = event.event.event;
-      const {
-        hash,
-        metadata: { voided_by },
-      } = fullNodeEvent.data;
-
-      if (voided_by.length > 0) {
-        logger.debug(`Ignoring ${hash} as it's already voided.`);
-      }
-
-      return voided_by.length > 0;
-    },
-    unchanged: (_context: Context, event: Event) => {
-      if (event.type !== 'FULLNODE_EVENT') {
-        return true;
-      }
-
-      const { data } = event.event.event;
-
-      const txHashFromCache = TxCache.get(data.hash);
-      // Not on the cache, it's not unchanged.
-      if (!txHashFromCache) {
-        return false;
-      }
-
-      const txHashFromEvent = hashTxData(data.metadata);
-
-      return txHashFromCache === txHashFromEvent;
-    },
+    invalidStreamId,
+    metadataIgnore,
+    metadataVoided,
+    metadataNewTx,
+    metadataFirstBlock,
+    metadataChanged,
+    vertexAccepted,
+    invalidPeerId,
+    websocketDisconnected,
+    voided,
+    unchanged,
   },
-  delays: {
-    BACKOFF_DELAYED_RECONNECT: (context: Context) => {
-      if (context.retryAttempt > MAX_BACKOFF_RETRIES) {
-        return MAX_BACKOFF_RETRIES * RETRY_BACKOFF_INCREASE;
-      }
-
-      return context.retryAttempt * RETRY_BACKOFF_INCREASE;
-    },
-  },
+  delays: { BACKOFF_DELAYED_RECONNECT },
   actions: {
-    storeInitialState: assign({
-      initialEventId: (_context: Context, event: Event) => {
-        // @ts-ignore
-        logger.info('Storing initial event id: ', event.data);
-        // @ts-ignore
-        return event.data.lastEventId;
-      },
-    }),
-    unwrapEvent: assign({
-      event: (_context: Context, event: Event) => {
-        if (event.type !== 'METADATA_DECIDED') {
-          return;
-        }
-
-        return event.event.originalEvent.event;
-      },
-    }),
-    startStream: send((context: Context, _event) => ({
-      type: 'WEBSOCKET_SEND_EVENT',
-      event: {
-        message: JSON.stringify({
-          type: 'START_STREAM',
-          window_size: 1,
-          last_ack_event_id: context.initialEventId,
-        }),
-      },
-    }), {
-      // @ts-ignore
-      to: (context: Context) => context.socket.id,
-    }),
-    clearSocket: assign({
-      socket: null,
-    }),
+    storeInitialState,
+    unwrapEvent,
+    startStream,
+    clearSocket,
     storeEvent,
-    sendAck: send(
-      (context: Context, _event) =>
-      // @ts-ignore
-        ({
-          type: 'WEBSOCKET_SEND_EVENT',
-          event: {
-            message: JSON.stringify({
-              type: 'ACK',
-              window_size: 1,
-              // @ts-ignore
-              ack_event_id: context.event.event.id,
-            }),
-          },
-        }),
-      {
-      // @ts-ignore
-        to: (context: Context) => context.socket.id,
-      },
-    ),
+    sendAck,
+    metadataDecided,
   },
   services: {
-    validateNetwork: async () => {},
+    validateNetwork,
     handleVoidedTx,
     handleVertexAccepted,
     handleTxFirstBlock,
