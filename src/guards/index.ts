@@ -1,3 +1,10 @@
+/**
+ * Copyright (c) Hathor Labs and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
 import { Context, Event } from "../machines/types";
 import { TxCache } from "../machines";
 import { hashTxData } from "../utils";
@@ -49,12 +56,15 @@ export const vertexAccepted = (_context: Context, event: Event) => {
   return event.event.event.type === 'NEW_VERTEX_ACCEPTED';
 };
 
+// --
+
 export const invalidPeerId = (_context: Context, event: Event) =>
   // @ts-ignore
-  event.event.event.peer_id === process.env.FULLNODE_PEER_ID;
-export const invalidStreamId = (_context: Context, event: Event) =>
+  event.event.event.peer_id !== process.env.FULLNODE_PEER_ID;
+export const invalidStreamId = (_context: Context, event: Event) => {
   // @ts-ignore
-  event.event.stream_id === process.env.STREAM_ID;
+  return event.event.stream_id !== process.env.STREAM_ID;
+}
 
 export const websocketDisconnected = (_context: Context, event: Event) => {
   if (event.type === 'WEBSOCKET_EVENT'
