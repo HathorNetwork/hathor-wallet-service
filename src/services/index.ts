@@ -58,7 +58,6 @@ import logger from '../logger';
 
 export const metadataDiff = async (_context: Context, event: Event) => {
   const mysql = await getDbConnection();
-  logger.info('Metadata diff!');
 
   try {
     const fullNodeEvent = event.event as FullNodeEvent;

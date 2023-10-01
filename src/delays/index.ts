@@ -1,3 +1,10 @@
+/**
+ * Copyright (c) Hathor Labs and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
 import { Context } from '../machines/types';
 
 const RETRY_BACKOFF_INCREASE = 1000; // 1s increase in the backoff strategy

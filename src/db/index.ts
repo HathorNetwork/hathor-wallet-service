@@ -20,8 +20,9 @@ import {
   AddressTotalBalance,
   DbTransaction,
   TokenInfo,
+  Miner,
 } from '../types';
-import { isAuthority, Miner } from '../utils';
+import { isAuthority } from '../utils';
 import { AddressBalanceRow, AddressTxHistorySumRow, BestBlockRow, LastSyncedEventRow, MinerRow, TokenInformationRow, TransactionRow, TxOutputRow } from './types';
 // @ts-ignore
 import { walletUtils } from '@hathor/wallet-lib';
