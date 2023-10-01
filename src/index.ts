@@ -11,7 +11,6 @@ import { SyncMachine } from './machines';
 const main = async () => {
   // Interpret the machine (start it and listen to its state changes)
   const machine = interpret(SyncMachine);
-
   machine.start();
 };
 

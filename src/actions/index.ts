@@ -12,8 +12,6 @@ import logger from '../logger';
 export const storeInitialState = assign({
   initialEventId: (_context: Context, event: Event) => {
     // @ts-ignore
-    logger.info('Storing initial event id: ', event.data);
-    // @ts-ignore
     return event.data.lastEventId;
   },
 });
@@ -26,6 +24,10 @@ export const unwrapEvent = assign({
 
     return event.event.originalEvent.event;
   },
+});
+
+export const increaseRetry = assign({
+  retryAttempt: (context: Context) => context.retryAttempt + 1,
 });
 
 export const getSocketRefFromContext = (context: Context) => {
@@ -77,19 +79,10 @@ export const sendAck = sendTo(getSocketRefFromContext,
     },
   }));
 
-export const metadataDecided = raise((_context: Context, event: Event) => {
-  // This should never happen:
-  if (event.type !== 'FULLNODE_EVENT') {
-    logger.error('metadataDecided action called with an event that is not FULLNODE_EVENT');
-    return {
-      type: 'METADATA_DECIDED',
-      event: 'IGNORE',
-    };
-  }
+export const metadataDecided = raise((_context: Context, event: Event) => ({
+  type: 'METADATA_DECIDED',
+  // @ts-ignore
+  event: event.data,
+}));
 
-  return {
-    type: 'METADATA_DECIDED',
-    // @ts-ignore
-    event: event.data,
-  };
-});
+export const logEventError = (_context: Context, event: Event) => logger.error(event);

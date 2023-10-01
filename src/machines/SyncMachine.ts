@@ -46,13 +46,14 @@ import {
   storeEvent,
   sendAck,
   metadataDecided,
+  increaseRetry,
+  logEventError,
 } from '../actions';
 import { BACKOFF_DELAYED_RECONNECT } from '../delays';
-import logger from '../logger';
 
 export const TxCache = new LRU(parseInt(process.env.TX_CACHE_SIZE || '10000', 10));
 
-const SYNC_MACHINE_STATES = {
+export const SYNC_MACHINE_STATES = {
   INITIALIZING: 'INITIALIZING',
   CONNECTING: 'CONNECTING',
   CONNECTED: 'CONNECTED',
@@ -60,7 +61,7 @@ const SYNC_MACHINE_STATES = {
   ERROR: 'ERROR',
 };
 
-const CONNECTED_STATES = {
+export const CONNECTED_STATES = {
   idle: 'idle',
   validateNetwork: 'validateNetwork',
   handlingUnhandledEvent: 'handlingUnhandledEvent',
@@ -106,7 +107,7 @@ const SyncMachine = Machine<Context, any, Event>({
       },
     },
     [SYNC_MACHINE_STATES.RECONNECTING]: {
-      onEntry: ['clearSocket'],
+      onEntry: ['clearSocket', 'increaseRetry'],
       after: {
         BACKOFF_DELAYED_RECONNECT: 'CONNECTING',
       },
@@ -119,7 +120,7 @@ const SyncMachine = Machine<Context, any, Event>({
           invoke: {
             src: 'validateNetwork',
             onDone: {
-              target: 'idle',
+              target: CONNECTED_STATES.idle,
               actions: ['startStream'],
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
@@ -137,24 +138,25 @@ const SyncMachine = Machine<Context, any, Event>({
             }, {
               actions: ['storeEvent', 'sendAck'],
               cond: 'unchanged',
-              target: 'idle',
+              target: CONNECTED_STATES.idle,
             }, {
               actions: ['storeEvent'],
               cond: 'metadataChanged',
-              target: 'handlingMetadataChanged',
+              target: CONNECTED_STATES.handlingMetadataChanged,
             }, {
               actions: ['storeEvent', 'sendAck'],
               /* If the transaction is already voided and is not
                * VERTEX_METADATA_CHANGED, we should ignore it.
                */
               cond: 'voided',
-              target: 'idle',
+              target: CONNECTED_STATES.idle,
             }, {
               actions: ['storeEvent'],
               cond: 'vertexAccepted',
-              target: 'handlingVertexAccepted',
+              target: CONNECTED_STATES.handlingVertexAccepted,
             }, {
-              target: 'handlingUnhandledEvent',
+              actions: ['storeEvent'],
+              target: CONNECTED_STATES.handlingUnhandledEvent,
             }],
           },
         },
@@ -163,7 +165,7 @@ const SyncMachine = Machine<Context, any, Event>({
           invoke: {
             src: 'updateLastSyncedEvent',
             onDone: {
-              actions: ['sendAck', 'storeEvent'],
+              actions: ['sendAck'],
               target: 'idle',
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
@@ -231,18 +233,13 @@ const SyncMachine = Machine<Context, any, Event>({
         WEBSOCKET_EVENT: [{
           cond: 'websocketDisconnected',
           target: 'RECONNECTING',
-          actions: (context: Context, event: Event) => {
-            console.log('Websocket disconnected', event, context);
-          },
         }],
       },
     },
     [SYNC_MACHINE_STATES.ERROR]: {
       id: SYNC_MACHINE_STATES.ERROR,
       type: 'final',
-      onEntry: (_context: Context, event: Event) => {
-        logger.error('Machine transitioned to error', event);
-      }
+      onEntry: ['logEventError'],
     },
   },
 }, {
@@ -268,6 +265,8 @@ const SyncMachine = Machine<Context, any, Event>({
     storeEvent,
     sendAck,
     metadataDecided,
+    increaseRetry,
+    logEventError,
   },
   services: {
     validateNetwork,
