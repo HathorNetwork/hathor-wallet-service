@@ -58,13 +58,13 @@ export const vertexAccepted = (_context: Context, event: Event) => {
 
 // --
 
-export const invalidPeerId = (_context: Context, event: Event) =>
+export const invalidPeerId = (_context: Context, event: Event) => {
   // @ts-ignore
-  event.event.event.peer_id !== process.env.FULLNODE_PEER_ID;
-export const invalidStreamId = (_context: Context, event: Event) => {
-  // @ts-ignore
-  return event.event.stream_id !== process.env.STREAM_ID;
+  return event.event.event.peer_id !== process.env.FULLNODE_PEER_ID;
 }
+export const invalidStreamId = (_context: Context, event: Event) =>
+  // @ts-ignore
+  event.event.stream_id !== process.env.STREAM_ID;
 
 export const websocketDisconnected = (_context: Context, event: Event) => {
   if (event.type === 'WEBSOCKET_EVENT'
@@ -94,6 +94,12 @@ export const voided = (_context: Context, event: Event) => {
 export const unchanged = (_context: Context, event: Event) => {
   if (event.type !== 'FULLNODE_EVENT') {
     return true;
+  }
+
+  if (event.event.event.type !== 'VERTEX_METADATA_CHANGED'
+      && event.event.event.type !== 'NEW_VERTEX_ACCEPTED') {
+    // Not unchanged
+    return false;
   }
 
   const { data } = event.event.event;
