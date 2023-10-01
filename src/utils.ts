@@ -43,8 +43,8 @@ export const serializeTxData = (meta: unknown): string =>
   // @ts-ignore
   `${meta.hash}|${meta.voided_by.length > 0}|${meta.first_block}|${meta.height}`;
 export const hashTxData = (meta: unknown): string =>
-// I'm interested in the hash, voided_by, first_block and height, we should
-// serialize those fields as a string and then hash it
+  // I'm interested in the hash, voided_by, first_block and height, we should
+  // serialize those fields as a string and then hash it
 
   // @ts-ignore
   md5Hash(serializeTxData(meta))
@@ -61,7 +61,7 @@ export class LRU {
     this.cache = new Map();
   }
 
-  get(txId: string): any {
+  get(txId: string): string {
     const transaction = this.cache.get(txId);
 
     if (transaction) {
@@ -73,7 +73,7 @@ export class LRU {
     return transaction;
   }
 
-  set(txId: string, transaction: any): void {
+  set(txId: string, transaction: string): void {
     if (this.cache.has(txId)) {
       // Refresh it in the map
       this.cache.delete(txId);
@@ -398,10 +398,3 @@ export const validateAddressBalances = async (mysql: MysqlConnection, addresses:
     assert.strictEqual(Number(addressBalance.unlockedBalance + addressBalance.lockedBalance), Number(addressTxHistorySum.balance));
   }
 };
-
-export interface Miner {
-  address: string;
-  firstBlock: string;
-  lastBlock: string;
-  count: number;
-}
