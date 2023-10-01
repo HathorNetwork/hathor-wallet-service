@@ -6,6 +6,7 @@
  */
 
 import { EventTxInput, EventTxOutput } from '../types';
+import { ActorRef } from 'xstate';
 
 export type FullNodeEvent = {
   stream_id: string;
@@ -37,7 +38,7 @@ export type FullNodeEvent = {
 }
 
 export interface Context {
-  socket: unknown;
+  socket: ActorRef<any, any> | null;
   retryAttempt: number;
   event: unknown;
   initialEventId: null | number;
