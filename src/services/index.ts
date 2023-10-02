@@ -450,7 +450,3 @@ export const fetchInitialState = async () => {
 
   return { lastEventId: lastEvent?.last_event_id };
 };
-
-export const validateNetwork = async () => {
-  return;
-};
