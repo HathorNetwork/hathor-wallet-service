@@ -16,6 +16,7 @@ import {
   Wallet,
   DbTxOutput,
   DbTransaction,
+  LastSyncedEvent,
 } from '../types';
 import {
   prepareOutputs,
@@ -384,8 +385,19 @@ export const handleTxFirstBlock = async (context: Context) => {
 
 export const updateLastSyncedEvent = async (context: Context) => {
   const mysql = await getDbConnection();
+
+  const lastDbSyncedEvent: LastSyncedEvent | null = await getLastSyncedEvent(mysql);
   // @ts-ignore
   const lastEventId = context.event.event.id;
+
+  if (lastDbSyncedEvent
+     && lastDbSyncedEvent.last_event_id > lastEventId) {
+     logger.error('Tried to store an event lower than the one on the database', {
+       lastEventId,
+       lastDbSyncedEvent,
+     });
+     throw new Error('Event lower than stored one.');
+  }
   await dbUpdateLastSyncedEvent(mysql, lastEventId);
 
   mysql.destroy();

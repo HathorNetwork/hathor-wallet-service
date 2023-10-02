@@ -26,6 +26,7 @@ import { isAuthority } from '../utils';
 import { AddressBalanceRow, AddressTxHistorySumRow, BestBlockRow, LastSyncedEventRow, MinerRow, TokenInformationRow, TransactionRow, TxOutputRow } from './types';
 // @ts-ignore
 import { walletUtils } from '@hathor/wallet-lib';
+import logger from '../logger';
 
 let pool: Pool;
 
@@ -1332,6 +1333,8 @@ export const updateLastSyncedEvent = async (
 ON DUPLICATE KEY
           UPDATE last_event_id = ?`,
   [lastEventId, lastEventId]);
+
+  logger.info('Updated last synced event', lastEventId);
 };
 
 export const getLastSyncedEvent = async ( // OK
