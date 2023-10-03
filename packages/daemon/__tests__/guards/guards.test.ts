@@ -51,8 +51,8 @@ const generateFullNodeEvent = (type: string, data = {} as any): Event => ({
 const generateMetadataDecidedEvent = (type: string): Event => ({
   type: 'METADATA_DECIDED',
   event: {
-    // @ts-ignore
     type,
+    // @ts-ignore
     originalEvent: {} as any,
   },
 });
