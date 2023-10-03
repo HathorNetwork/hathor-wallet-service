@@ -5,5 +5,10 @@
   ],
   "repository": "git@github.com:HathorNetwork/hathor-wallet-service-sync_daemon.git",
   "author": "André Abadesso <andre.abadesso@gmail.com>",
-  "private": true
+  "private": true,
+  "dependencies": {},
+  "devDependencies": {
+    "sequelize": "^6.33.0",
+    "sequelize-cli": "^6.6.1"
+  }
 }
