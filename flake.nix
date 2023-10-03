@@ -15,24 +15,12 @@
         };
         in
         pkgs.devshell.mkShell {
-          commands = [
-            {
-              category = "i18n";
-              name = "mkpot";
-              help = "Update translation template";
-              command = "make update_pot";
-            }
-            {
-              category = "i18n";
-              name = "mkpo";
-              help = "Build translations";
-              command = "make i18n";
-            }
-          ];
           packages = with pkgs; [
             nixpkgs-fmt
             nodejs-18_x
-          ];
+          ] ++ (with pkgs.nodePackages; [
+            yarn
+          ]);
         };
     });
 }
