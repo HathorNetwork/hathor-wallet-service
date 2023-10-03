@@ -9,7 +9,12 @@
   },
   "scripts": {},
   "peerDependencies": {},
-  "author": "André Abadesso",
+  "nohoist": [
+    "**"
+  ],
+  "repository": "git@github.com:HathorNetwork/hathor-wallet-service-sync_daemon.git",
+  "author": "André Abadesso <andre.abadesso@gmail.com>",
+  "private": true,
   "devDependencies": {
     "dotenv": "^16.3.1",
     "mysql2": "^3.6.1",
