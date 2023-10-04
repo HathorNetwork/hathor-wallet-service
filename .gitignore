@@ -7,3 +7,4 @@ dist
 coverage/
 packages/daemon/dist
 packages/daemon/node_modules
+.yarn/

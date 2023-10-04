@@ -1,4 +1,5 @@
 {
+  "name": "sync-daemon",
   "version": "1.4.2-beta",
   "license": "MIT",
   "main": "dist/index.js",
@@ -16,7 +17,6 @@
     "watch": "tsc -w",
     "test": "jest --coverage"
   },
-  "name": "sync-daemon",
   "author": "André Abadesso",
   "module": "dist/index.js",
   "devDependencies": {
