@@ -1,4 +1,5 @@
 {
+  "name": "sync-daemon",
   "version": "1.4.2-beta",
   "license": "MIT",
   "main": "dist/index.js",
@@ -24,7 +25,6 @@
     "test": "jest --coverage",
     "test_integration": "yarn run test_images_up && yarn run test_images_wait_for_db && yarn run test_images_wait_for_ws && yarn run test_images_setup_database && yarn run test_images_migrate && yarn run test_images_integration && yarn run test_images_down"
   },
-  "name": "sync-daemon",
   "author": "André Abadesso",
   "module": "dist/index.js",
   "devDependencies": {
