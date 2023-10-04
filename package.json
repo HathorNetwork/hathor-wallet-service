@@ -1,14 +1,18 @@
 {
   "name": "hathor-wallet-service",
   "workspaces": [
-    "packages/daemon"
+    "packages/daemon",
+    "packages/wallet-service"
+  ],
+  "nohoist": [
+    "**"
   ],
   "repository": "git@github.com:HathorNetwork/hathor-wallet-service-sync_daemon.git",
   "author": "André Abadesso <andre.abadesso@gmail.com>",
   "private": true,
-  "dependencies": {},
   "devDependencies": {
     "sequelize": "^6.33.0",
     "sequelize-cli": "^6.6.1"
-  }
+  },
+  "packageManager": "yarn@3.6.4"
 }
