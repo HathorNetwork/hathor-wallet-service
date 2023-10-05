@@ -26,7 +26,7 @@
           inherit system;
 
           overlays = [
-            devshell.overlay
+            devshell.overlays.default
             overlays.default
           ];
         };
