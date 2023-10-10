@@ -66,7 +66,23 @@ export const storeEvent: AssignAction<Context, Event> = assign({
     if (event.type !== 'FULLNODE_EVENT') {
       return context.event;
     }
-    if (!('id' in event.event.event)) return;
+
+    const eventId = get(event, 'event.event.id', -1);
+    const contextEventId = get(context, 'event.id', -1);
+
+    if (eventId === -1) return;
+
+    if (contextEventId > -1) {
+      // @ts-ignore
+      if (event.event.event.id < context.event.event.id) {
+        throw new Error('Event lower than last event on storeEvent action');
+      }
+
+      // @ts-ignore
+      if (event.event.event.id < context.initialEventId) {
+        throw new Error('Event lower than initial event on storeEvent action');
+      }
+    }
 
     return event.event;
   },
