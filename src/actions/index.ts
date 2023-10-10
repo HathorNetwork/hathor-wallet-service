@@ -7,6 +7,7 @@
 
 import { assign, AssignAction, raise, sendTo } from 'xstate';
 import { Context, Event } from '../machines/types';
+import { get } from 'lodash';
 import logger from '../logger';
 
 export const storeInitialState = assign({
@@ -40,16 +41,21 @@ export const getSocketRefFromContext = (context: Context) => {
 
 export const startStream = sendTo(
   getSocketRefFromContext,
-  (context: Context, _event: Event) => ({
-    type: 'WEBSOCKET_SEND_EVENT',
-    event: {
-      message: JSON.stringify({
-        type: 'START_STREAM',
-        window_size: 1,
-        last_ack_event_id: context.initialEventId,
-      }),
-    },
-  }));
+  (context: Context, _event: Event) => {
+    const lastAckEventId = get(context, 'event.id', context.initialEventId);
+
+    return {
+      type: 'WEBSOCKET_SEND_EVENT',
+      event: {
+        message: JSON.stringify({
+          type: 'START_STREAM',
+          window_size: 1,
+          // @ts-ignore
+          last_ack_event_id: lastAckEventId,
+        }),
+      }
+    };
+  });
 
 export const clearSocket = assign({
   socket: null,
