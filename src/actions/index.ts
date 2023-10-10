@@ -42,7 +42,7 @@ export const getSocketRefFromContext = (context: Context) => {
 export const startStream = sendTo(
   getSocketRefFromContext,
   (context: Context, _event: Event) => {
-    const lastAckEventId = get(context, 'event.id', context.initialEventId);
+    const lastAckEventId = get(context, 'event.event.id', context.initialEventId);
 
     return {
       type: 'WEBSOCKET_SEND_EVENT',
@@ -106,5 +106,6 @@ export const metadataDecided = raise((_context: Context, event: Event) => ({
   // @ts-ignore
   event: event.data,
 }));
+
 
 export const logEventError = (_context: Context, event: Event) => logger.error(event);

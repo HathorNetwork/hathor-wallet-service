@@ -396,6 +396,7 @@ export const updateLastSyncedEvent = async (context: Context) => {
        lastEventId,
        lastDbSyncedEvent: JSON.stringify(lastDbSyncedEvent),
      });
+      mysql.destroy();
      throw new Error('Event lower than stored one.');
   }
   await dbUpdateLastSyncedEvent(mysql, lastEventId);
