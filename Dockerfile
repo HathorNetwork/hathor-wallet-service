@@ -13,7 +13,7 @@ RUN apk update && apk add python3 g++ make
 
 COPY package.json ./
 
-RUN npm install --production
+RUN npm install
 
 COPY . ./
 
@@ -26,6 +26,9 @@ WORKDIR /app
 
 COPY --from=builder /app/dist/ ./
 COPY --from=builder /app/package.json ./
-COPY --from=builder /app/node_modules ./node_modules
+
+# COPY --from=builder /app/node_modules ./node_modules
+
+RUN npm install --production
 
 CMD ["node", "index.js"]
