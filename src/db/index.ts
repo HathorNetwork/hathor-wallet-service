@@ -63,7 +63,7 @@ export const getDbConnection = async (): Promise<MysqlConnection> => {
  * @param version - The transaction version
  * @param weight - the transaction weight
  */
-export const addOrUpdateTx = async ( // OK
+export const addOrUpdateTx = async (
   mysql: any,
   txId: string,
   height: number | null,
@@ -93,7 +93,7 @@ export const addOrUpdateTx = async ( // OK
  * @param outputs - The transaction outputs
  * @param heightlock - Block heightlock
  */
-export const addUtxos = async ( // OK
+export const addUtxos = async (
   mysql: any,
   txId: string,
   outputs: TxOutputWithIndex[],
@@ -144,7 +144,7 @@ export const addUtxos = async ( // OK
  * @param inputs - The transaction inputs
  * @param txId - The transaction that spent these utxos
  */
-export const updateTxOutputSpentBy = async (mysql: any, inputs: TxInput[], txId: string): Promise<void> => { // OK 
+export const updateTxOutputSpentBy = async (mysql: any, inputs: TxInput[], txId: string): Promise<void> => { 
   const entries = inputs.map((input) => [input.tx_id, input.index]);
   // entries might be empty if there are no inputs
   if (entries.length) {
@@ -184,7 +184,7 @@ export const updateTxOutputSpentBy = async (mysql: any, inputs: TxInput[], txId:
 
  * @returns A list of tx outputs
  */
-export const getTxOutputsFromTx = async ( // OK
+export const getTxOutputsFromTx = async (
   mysql: any,
   txId: string,
 ): Promise<DbTxOutput[]> => {
@@ -224,7 +224,7 @@ export const getTxOutputsFromTx = async ( // OK
 
  * @returns A list of tx outputs
  */
-export const getTxOutputs = async ( // OK 
+export const getTxOutputs = async ( 
   mysql: any,
   inputs: {txId: string, index: number}[],
 ): Promise<DbTxOutput[]> => {
@@ -268,7 +268,7 @@ export const getTxOutputs = async ( // OK
  * @param skipSpent - Skip spent tx_output (if we want only utxos)
  * @returns The requested tx_output or null if it is not found
  */
-export const getTxOutput = async ( // OK
+export const getTxOutput = async (
   mysql: MysqlConnection,
   txId: string,
   index: number,
@@ -303,7 +303,7 @@ export const getTxOutput = async ( // OK
  *
  * @returns The requested tx_outputs
  */
-export const getTxOutputsAtHeight = async ( // OK
+export const getTxOutputsAtHeight = async (
   mysql: MysqlConnection,
   height: number,
 ): Promise<DbTxOutput[]> => {
@@ -453,7 +453,7 @@ export const voidTransaction = async (
  * @param timestamp - Transaction timestamp
  * @param addressBalanceMap - Map with the transaction's balance for each address
  */
-export const updateAddressTablesWithTx = async ( // OK
+export const updateAddressTablesWithTx = async (
   mysql: any,
   txId: string,
   timestamp: number,
@@ -559,7 +559,7 @@ export const updateAddressTablesWithTx = async ( // OK
  * @param txId - A transaction ID
  * @returns The requested transaction
  */
-export const getTransactionById = async ( // OK
+export const getTransactionById = async (
   mysql: MysqlConnection,
   txId: string,
 ): Promise<DbTransaction | null> => {
@@ -589,7 +589,7 @@ export const getTransactionById = async ( // OK
  * @param height - The block height queried
  * @returns A list of UTXOs locked at the given height
  */
-export const getUtxosLockedAtHeight = async ( // OK
+export const getUtxosLockedAtHeight = async (
   mysql: MysqlConnection,
   now: number,
   height: number,
@@ -635,7 +635,7 @@ export const getUtxosLockedAtHeight = async ( // OK
  * @param mysql - Database connection
  * @param utxos - List of UTXOs to unlock
  */
-export const unlockUtxos = async (mysql: MysqlConnection, utxos: TxInput[]): Promise<void> => { // OK
+export const unlockUtxos = async (mysql: MysqlConnection, utxos: TxInput[]): Promise<void> => {
   if (utxos.length === 0) return;
   const entries = utxos.map((utxo) => [utxo.tx_id, utxo.index]);
   // @ts-ignore
@@ -659,7 +659,7 @@ export const unlockUtxos = async (mysql: MysqlConnection, utxos: TxInput[]): Pro
  * @param addressBalanceMap - A map of addresses and the unlocked balances
  * @param updateTimelock - If this update is triggered by a timelock expiring, update the next expire timestamp
  */
-export const updateAddressLockedBalance = async ( // OK
+export const updateAddressLockedBalance = async (
   mysql: MysqlConnection,
   addressBalanceMap: StringMap<TokenBalanceMap>,
   updateTimelocks = false,
@@ -732,7 +732,7 @@ export const updateAddressLockedBalance = async ( // OK
  * @param addresses - Addresses to fetch wallet information
  * @returns A map of address and corresponding wallet information
  */
-export const getAddressWalletInfo = async (mysql: MysqlConnection, addresses: string[]): Promise<StringMap<Wallet>> => { // OK
+export const getAddressWalletInfo = async (mysql: MysqlConnection, addresses: string[]): Promise<StringMap<Wallet>> => {
   const addressWalletMap: StringMap<Wallet> = {};
   // @ts-ignore
   const [results] = await mysql.query(
@@ -773,7 +773,7 @@ export const getAddressWalletInfo = async (mysql: MysqlConnection, addresses: st
  * @param walletBalanceMap - A map of walletId and the unlocked balances
  * @param updateTimelocks - If this update is triggered by a timelock expiring, update the next lock expiration
  */
-export const updateWalletLockedBalance = async ( // OK
+export const updateWalletLockedBalance = async (
   mysql: MysqlConnection,
   walletBalanceMap: StringMap<TokenBalanceMap>,
   updateTimelocks = false,
@@ -859,7 +859,7 @@ export const addMiner = async (
 
  * @returns A list of strings with miners addresses
  */
-export const getMinersList = async ( // OK
+export const getMinersList = async (
   mysql: MysqlConnection,
 ): Promise<Miner[]> => {
   const [results] = await mysql.query<MinerRow[]>(`
@@ -889,7 +889,7 @@ export const getMinersList = async ( // OK
 
  * @returns A list of timelocked utxos
  */
-export const getExpiredTimelocksUtxos = async ( // OK
+export const getExpiredTimelocksUtxos = async (
   mysql: MysqlConnection,
   now: number,
 ): Promise<DbTxOutput[]> => {
@@ -937,7 +937,7 @@ export const mapDbResultToDbTxOutput = (result: TxOutputRow): DbTxOutput => ({
  * @param tokenName - The token's name
  * @param tokenSymbol - The token's symbol
  */
-export const storeTokenInformation = async ( // OK
+export const storeTokenInformation = async (
   mysql: MysqlConnection,
   tokenId: string,
   tokenName: string,
@@ -965,7 +965,7 @@ export const storeTokenInformation = async ( // OK
  * @param inputs - The transaction inputs
  * @returns The locked UTXOs
  */
-export const getLockedUtxoFromInputs = async (mysql: MysqlConnection, inputs: EventTxInput[]): Promise<DbTxOutput[]> => { // OK
+export const getLockedUtxoFromInputs = async (mysql: MysqlConnection, inputs: EventTxInput[]): Promise<DbTxOutput[]> => {
   const entries = inputs.map((input) => [input.tx_id, input.index]);
   // entries might be empty if there are no inputs
   if (entries.length) {
@@ -1003,7 +1003,7 @@ export const getLockedUtxoFromInputs = async (mysql: MysqlConnection, inputs: Ev
  * @param mysql - Database connection
  * @param tokenList - The list of tokens to increment
  */
-export const incrementTokensTxCount = async ( // OK
+export const incrementTokensTxCount = async (
   mysql: MysqlConnection,
   tokenList: string[],
 ): Promise<void> => {
@@ -1026,7 +1026,7 @@ export const incrementTokensTxCount = async ( // OK
  * @param maxGap - Number of addresses that should have no transactions before we consider all addresses loaded
  * @returns Object with all addresses for the given xpubkey and corresponding index
  */
-export const generateAddresses = async (mysql: MysqlConnection, xpubkey: string, maxGap: number): Promise<GenerateAddresses> => { // OK (skipped)
+export const generateAddresses = async (mysql: MysqlConnection, xpubkey: string, maxGap: number): Promise<GenerateAddresses> => {
   const existingAddresses: AddressIndexMap = {};
   const newAddresses: AddressIndexMap = {};
   const allAddresses: string[] = [];
@@ -1100,7 +1100,7 @@ export const generateAddresses = async (mysql: MysqlConnection, xpubkey: string,
  * @param walletId - The wallet id
  * @param addresses - A map of addresses and corresponding indexes
  */
-export const addNewAddresses = async ( // OK
+export const addNewAddresses = async (
   mysql: MysqlConnection,
   walletId: string,
   addresses: AddressIndexMap,
@@ -1139,7 +1139,7 @@ export const addNewAddresses = async ( // OK
  * @param timestamp - Transaction timestamp
  * @param walletBalanceMap - Map with the transaction's balance for each wallet (by walletId)
  */
-export const updateWalletTablesWithTx = async ( // OK
+export const updateWalletTablesWithTx = async (
   mysql: MysqlConnection,
   txId: string,
   timestamp: number,
@@ -1250,7 +1250,7 @@ export const updateTx = async (
 
  * @returns A list of tx_outputs
  */
-export const getTxOutputsBySpent = async ( // OK
+export const getTxOutputsBySpent = async (
   mysql: MysqlConnection,
   txIds: string[],
 ): Promise<DbTxOutput[]> => {
@@ -1290,7 +1290,7 @@ export const getTxOutputsBySpent = async ( // OK
  * @param mysql - Database connection
  * @param txOutputs - The list of tx_outputs to unspend
  */
-export const unspendUtxos = async ( // OK
+export const unspendUtxos = async (
   mysql: MysqlConnection,
   txOutputs: DbTxOutput[],
 ): Promise<void> => {
@@ -1310,7 +1310,7 @@ export const unspendUtxos = async ( // OK
  * @param mysql - Database connection
  * @param utxos - The list of utxos to delete from the database
  */
-export const markUtxosAsVoided = async ( // OK
+export const markUtxosAsVoided = async (
   mysql: MysqlConnection,
   utxos: DbTxOutput[],
 ): Promise<void> => {
@@ -1333,11 +1333,9 @@ export const updateLastSyncedEvent = async (
 ON DUPLICATE KEY
           UPDATE last_event_id = ?`,
   [lastEventId, lastEventId]);
-
-  logger.info('Updated last synced event', lastEventId);
 };
 
-export const getLastSyncedEvent = async ( // OK
+export const getLastSyncedEvent = async (
   mysql: MysqlConnection,
 ): Promise<LastSyncedEvent | null> => {
   const [results] = await mysql.query<LastSyncedEventRow[]>(
@@ -1379,7 +1377,7 @@ export const getBestBlockHeight = async (
  * @param mysql - Database connection
  * @param addresses - The addresses to query
  */
-export const fetchAddressBalance = async ( // OK
+export const fetchAddressBalance = async (
   mysql: MysqlConnection,
   addresses: string[],
 ): Promise<AddressBalance[]> => {
@@ -1475,7 +1473,7 @@ export const getTxOutputsHeightUnlockedAtHeight = async (
  * @param tokenId - The token's id
  * @returns The token information (or null if id is not found)
  */
-export const getTokenInformation = async ( // OK
+export const getTokenInformation = async (
   mysql: MysqlConnection,
   tokenId: string,
 ): Promise<TokenInfo | null> => {
@@ -1487,4 +1485,44 @@ export const getTokenInformation = async ( // OK
   if (results.length === 0) return null;
 
   return new TokenInfo(tokenId, results[0].name as string, results[0].symbol as string);
+};
+
+/**
+ * Cleanup all records from a transaction that was voided in the past
+ *
+ * @remarks
+ * This does not re-calculates balances, so it's only supposed to be used to clear
+ * the tx_output, address_tx_history and wallet_tx_history tables
+ *
+ * @param mysql - Database connection
+ * @param txId - The transaction to clear from database
+ */
+export const cleanupVoidedTx = async (mysql: MysqlConnection, txId: string): Promise<void> => {
+  await mysql.query(
+    `DELETE FROM \`transaction\`
+      WHERE tx_id = ?
+        AND voided = true`,
+    [txId],
+  );
+
+  await mysql.query(
+    `DELETE FROM \`tx_output\`
+      WHERE tx_id = ?
+        AND voided = true`,
+    [txId],
+  );
+
+  await mysql.query(
+    `DELETE FROM \`address_tx_history\`
+      WHERE tx_id = ?
+        AND voided = true`,
+    [txId],
+  );
+
+  await mysql.query(
+    `DELETE FROM \`wallet_tx_history\`
+      WHERE tx_id = ?
+        AND voided = true`,
+    [txId],
+  );
 };

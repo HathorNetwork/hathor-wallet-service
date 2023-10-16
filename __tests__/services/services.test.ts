@@ -88,6 +88,10 @@ beforeEach(async () => {
   jest.clearAllMocks();
 });
 
+afterEach(() => {
+  jest.clearAllMocks();
+});
+
 describe('fetchInitialState', () => {
   it('should return the last event id', async () => {
     // Mock the return values of the dependencies
@@ -340,6 +344,7 @@ describe('handleVertexAccepted', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+
     (getDbConnection as jest.Mock).mockResolvedValue(mockDb);
     (getAddressWalletInfo as jest.Mock).mockResolvedValue({});
     (generateAddresses as jest.Mock).mockResolvedValue({
@@ -579,5 +584,22 @@ describe('metadataDiff', () => {
     await expect(metadataDiff({} as any, event as any)).rejects.toThrow('Mock Error');
     expect(mockDb.destroy).toHaveBeenCalled();
     expect(logger.error).toHaveBeenCalledWith('e', new Error('Mock Error'));
+  });
+  it('should handle transaction transactions that are not voided anymore', async () => {
+    const event = {
+      event: {
+        event: {
+          data: {
+            hash: 'mockHash',
+            metadata: { voided_by: [], first_block: [] },
+          },
+        },
+      },
+    };
+    const mockDbTransaction = { voided: true }; // Indicate that the transaction was voided in the database.
+    (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
+
+    const result = await metadataDiff({} as any, event as any);
+    expect(result.type).toBe('TX_UNVOIDED');
   });
 });

@@ -384,6 +384,35 @@ describe('Event handling', () => {
     expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.handlingVoidedTx}`)).toBeTruthy();
   });
 
+  it('should transition to handlingUnvoidedTx if TX_UNVOIDED action is received from diff detector', () => {
+    const MockedFetchMachine = SyncMachine.withConfig({
+      guards: {
+        invalidPeerId: () => false,
+        invalidStreamId: () => false,
+      },
+    });
+
+    let currentState = untilIdle(MockedFetchMachine);
+
+    currentState = MockedFetchMachine.transition(currentState, {
+      type: 'FULLNODE_EVENT',
+      event: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
+    });
+
+    expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.handlingMetadataChanged}.detectingDiff`)).toBeTruthy();
+
+    currentState = MockedFetchMachine.transition(currentState, {
+      // @ts-ignore
+      type: 'METADATA_DECIDED',
+      event: {
+        type: 'TX_UNVOIDED',
+        originalEvent: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
+      },
+    });
+
+    expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.handlingUnvoidedTx}`)).toBeTruthy();
+  });
+
   it('should transition to handlingVertexAccepted if TX_NEW action is received from diff detector', () => {
     const MockedFetchMachine = SyncMachine.withConfig({
       guards: {

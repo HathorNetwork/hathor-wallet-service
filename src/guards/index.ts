@@ -25,6 +25,14 @@ export const metadataVoided = (_context: Context, event: Event) => {
   return event.event.type === 'TX_VOIDED';
 };
 
+export const metadataUnvoided = (_context: Context, event: Event) => {
+  if (event.type !== 'METADATA_DECIDED') {
+    return false;
+  }
+
+  return event.event.type === 'TX_UNVOIDED';
+};
+
 export const metadataNewTx = (_context: Context, event: Event) => {
   if (event.type !== 'METADATA_DECIDED') {
     return false;

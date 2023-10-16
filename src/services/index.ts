@@ -53,6 +53,7 @@ import {
   getLastSyncedEvent,
   getTxOutputsFromTx,
   markUtxosAsVoided,
+  cleanupVoidedTx,
 } from '../db';
 import { TxCache } from '../machines';
 import logger from '../logger';
@@ -95,6 +96,14 @@ export const metadataDiff = async (_context: Context, event: Event) => {
 
       return {
         type: 'IGNORE',
+        originalEvent: event,
+      };
+    }
+
+    // Tx was voided in the database but is not anymore
+    if (dbTx.voided && voided_by.length <= 0) {
+      return {
+        type: 'TX_UNVOIDED',
         originalEvent: event,
       };
     }
@@ -337,6 +346,32 @@ export const handleVoidedTx = async (context: Context) => {
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
 
     logger.debug(`Voided tx ${hash}`);
+    await mysql.commit();
+  } catch (e) {
+    logger.debug(e);
+    await mysql.rollback();
+
+    throw e;
+  } finally {
+    mysql.destroy();
+  }
+};
+
+export const handleUnvoidedTx = async (context: Context) => {
+  const mysql = await getDbConnection();
+  await mysql.beginTransaction();
+
+  try {
+    const fullNodeEvent = context.event as FullNodeEvent;
+
+    const { hash } = fullNodeEvent.event.data;
+
+    logger.debug(`Tx ${hash} got unvoided, cleaning up the database.`);
+
+    await cleanupVoidedTx(mysql, hash);
+
+    logger.debug(`Unvoided tx ${hash}`);
+
     await mysql.commit();
   } catch (e) {
     logger.debug(e);

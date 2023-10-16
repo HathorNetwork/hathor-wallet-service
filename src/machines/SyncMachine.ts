@@ -28,6 +28,7 @@ import {
 import {
   metadataIgnore,
   metadataVoided,
+  metadataUnvoided,
   metadataNewTx,
   metadataFirstBlock,
   metadataChanged,
@@ -68,6 +69,7 @@ export const CONNECTED_STATES = {
   handlingMetadataChanged: 'handlingMetadataChanged',
   handlingVertexAccepted: 'handlingVertexAccepted',
   handlingVoidedTx: 'handlingVoidedTx',
+  handlingUnvoidedTx: 'handlingUnvoidedTx',
   handlingFirstBlock: 'handlingFirstBlock',
 };
 
@@ -183,6 +185,7 @@ const SyncMachine = Machine<Context, any, Event>({
               on: {
                 METADATA_DECIDED: [
                   { target: `#${CONNECTED_STATES.handlingVoidedTx}`, cond: 'metadataVoided', actions: ['unwrapEvent'] },
+                  { target: `#${CONNECTED_STATES.handlingUnvoidedTx}`, cond: 'metadataUnvoided', actions: ['unwrapEvent'] },
                   { target: `#${CONNECTED_STATES.handlingVertexAccepted}`, cond: 'metadataNewTx', actions: ['unwrapEvent'] },
                   { target: `#${CONNECTED_STATES.handlingFirstBlock}`, cond: 'metadataFirstBlock', actions: ['unwrapEvent'] },
                   { target: `#${CONNECTED_STATES.handlingUnhandledEvent}`, cond: 'metadataIgnore' },
@@ -211,6 +214,18 @@ const SyncMachine = Machine<Context, any, Event>({
             data: (_context: Context, event: Event) => event,
             onDone: {
               target: 'idle',
+              actions: ['storeEvent', 'sendAck'],
+            },
+            onError: `#${SYNC_MACHINE_STATES.ERROR}`,
+          },
+        },
+        [CONNECTED_STATES.handlingUnvoidedTx]: {
+          id: CONNECTED_STATES.handlingUnvoidedTx,
+          invoke: {
+            src: 'handleUnvoidedTx',
+            data: (_context: Context, event: Event) => event,
+            onDone: {
+              target: `#${CONNECTED_STATES.handlingVertexAccepted}`,
               actions: ['storeEvent', 'sendAck'],
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
@@ -247,6 +262,7 @@ const SyncMachine = Machine<Context, any, Event>({
     invalidStreamId,
     metadataIgnore,
     metadataVoided,
+    metadataUnvoided,
     metadataNewTx,
     metadataFirstBlock,
     metadataChanged,

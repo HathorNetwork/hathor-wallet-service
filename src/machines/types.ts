@@ -49,7 +49,7 @@ export type WebSocketEvent =
   | { type: 'DISCONNECTED' };
 
 export type MetadataDecidedEvent = {
-  type: 'TX_VOIDED' | 'TX_NEW' | 'TX_FIRST_BLOCK' | 'IGNORE';
+  type: 'TX_VOIDED' | 'TX_UNVOIDED' | 'TX_NEW' | 'TX_FIRST_BLOCK' | 'IGNORE';
   originalEvent: FullNodeEvent;
 }
 
