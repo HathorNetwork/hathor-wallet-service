@@ -1,2 +1,7 @@
 dist/
 node_modules/
+__tests__/
+.git/
+.github/
+.direnv/
+flake.*
