@@ -12,7 +12,7 @@ module.exports = (sequelize, DataTypes) => {
     static associate(models) {
       // define association here
     }
-  };
+  }
   WalletBalance.init({
     wallet_id: {
       type: DataTypes.STRING(64),

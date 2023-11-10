@@ -12,7 +12,7 @@ module.exports = (sequelize, DataTypes) => {
     static associate(models) {
       // define association here
     }
-  };
+  }
   TxOutput.init({
     // tx_id might point to a block
     tx_id: {

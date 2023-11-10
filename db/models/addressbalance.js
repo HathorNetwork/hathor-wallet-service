@@ -12,7 +12,7 @@ module.exports = (sequelize, DataTypes) => {
     static associate(models) {
       // define association here
     }
-  };
+  }
 
   // Unlocked authorities represents:
   // null or 0b00 - Has no authority
