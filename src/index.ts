@@ -7,10 +7,20 @@
 
 import { interpret } from 'xstate';
 import { SyncMachine } from './machines';
+import logger from './logger';
 
 const main = async () => {
   // Interpret the machine (start it and listen to its state changes)
   const machine = interpret(SyncMachine);
+
+  machine.onTransition((state) => {
+    logger.info(`Transitioned to ${JSON.stringify(state.value)}`);
+  });
+
+  machine.onEvent((event) => {
+    logger.info(`Processing event: ${JSON.stringify(event.type)}`);
+  });
+
   machine.start();
 };
 
