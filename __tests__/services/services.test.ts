@@ -83,7 +83,7 @@ jest.mock('../../src/utils', () => ({
   unlockUtxos: jest.fn(),
 }));
 
-beforeEach(async () => {
+beforeEach(() => {
   jest.clearAllMocks();
 });
 
@@ -377,6 +377,7 @@ describe('handleVertexAccepted', () => {
       },
     };
 
+    (addOrUpdateTx as jest.Mock).mockReturnValue(Promise.resolve());
     (getTransactionById as jest.Mock).mockResolvedValue(null); // Transaction is not in the database
     (prepareOutputs as jest.Mock).mockReturnValue([]);
     (prepareInputs as jest.Mock).mockReturnValue([]);
