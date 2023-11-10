@@ -24,6 +24,7 @@ import {
   updateLastSyncedEvent,
   fetchInitialState,
   validateNetwork,
+  handleUnvoidedTx,
 } from '../services';
 import {
   metadataIgnore,
@@ -288,6 +289,7 @@ const SyncMachine = Machine<Context, any, Event>({
   services: {
     validateNetwork,
     handleVoidedTx,
+    handleUnvoidedTx,
     handleVertexAccepted,
     handleTxFirstBlock,
     metadataDiff,
