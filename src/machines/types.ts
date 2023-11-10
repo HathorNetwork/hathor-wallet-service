@@ -7,6 +7,7 @@
 
 import { EventTxInput, EventTxOutput } from '../types';
 import { ActorRef } from 'xstate';
+import { LRU } from '../utils';
 
 export type FullNodeEvent = {
   stream_id: string;
@@ -42,6 +43,7 @@ export interface Context {
   retryAttempt: number;
   event: unknown;
   initialEventId: null | number;
+  txCache: LRU;
 }
 
 export type WebSocketEvent =

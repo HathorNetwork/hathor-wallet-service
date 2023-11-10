@@ -21,7 +21,6 @@ import {
 import {
   prepareOutputs,
   getAddressBalanceMap,
-  hashTxData,
   getUnixTimestamp,
   unlockUtxos,
   unlockTimelockedUtxos,
@@ -31,7 +30,6 @@ import {
   getWalletBalanceMap,
   validateAddressBalances,
 } from '../utils';
-// @ts-ignore
 import {
   getDbConnection,
   addOrUpdateTx,
@@ -55,7 +53,6 @@ import {
   markUtxosAsVoided,
   cleanupVoidedTx,
 } from '../db';
-import { TxCache } from '../machines';
 import logger from '../logger';
 
 export const metadataDiff = async (_context: Context, event: Event) => {
@@ -282,12 +279,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       await updateWalletTablesWithTx(mysql, hash, timestamp, walletBalanceMap);
     }
 
-    // @ts-ignore
-    const hashedTxData = hashTxData(fullNodeEvent.event.data.metadata);
-
     // TODO: Send message on SQS  for real-time update
-    TxCache.set(hash, hashedTxData);
-
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
 
     await mysql.commit();
@@ -346,6 +338,7 @@ export const handleVoidedTx = async (context: Context) => {
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
 
     logger.debug(`Voided tx ${hash}`);
+
     await mysql.commit();
   } catch (e) {
     logger.debug(e);

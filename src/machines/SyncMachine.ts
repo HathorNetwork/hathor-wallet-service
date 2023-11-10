@@ -49,10 +49,9 @@ import {
   metadataDecided,
   increaseRetry,
   logEventError,
+  updateCache,
 } from '../actions';
 import { BACKOFF_DELAYED_RECONNECT } from '../delays';
-
-export const TxCache = new LRU(parseInt(process.env.TX_CACHE_SIZE || '10000', 10));
 
 export const SYNC_MACHINE_STATES = {
   INITIALIZING: 'INITIALIZING',
@@ -81,6 +80,7 @@ const SyncMachine = Machine<Context, any, Event>({
     retryAttempt: 0,
     event: null,
     initialEventId: null,
+    txCache: new LRU(parseInt(process.env.TX_CACHE_SIZE || '10000', 10)),
   },
   states: {
     [SYNC_MACHINE_STATES.INITIALIZING]: {
@@ -202,7 +202,7 @@ const SyncMachine = Machine<Context, any, Event>({
             data: (_context: Context, event: Event) => event,
             onDone: {
               target: 'idle',
-              actions: ['sendAck', 'storeEvent'],
+              actions: ['sendAck', 'storeEvent', 'updateCache'],
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
@@ -214,7 +214,7 @@ const SyncMachine = Machine<Context, any, Event>({
             data: (_context: Context, event: Event) => event,
             onDone: {
               target: 'idle',
-              actions: ['storeEvent', 'sendAck'],
+              actions: ['storeEvent', 'sendAck', 'updateCache'],
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
@@ -226,7 +226,7 @@ const SyncMachine = Machine<Context, any, Event>({
             data: (_context: Context, event: Event) => event,
             onDone: {
               target: `#${CONNECTED_STATES.handlingVertexAccepted}`,
-              actions: ['storeEvent', 'sendAck'],
+              actions: ['storeEvent', 'sendAck', 'updateCache'],
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
@@ -238,7 +238,7 @@ const SyncMachine = Machine<Context, any, Event>({
             data: (_context: Context, event: Event) => event,
             onDone: {
               target: 'idle',
-              actions: ['storeEvent', 'sendAck'],
+              actions: ['storeEvent', 'sendAck', 'updateCache'],
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
@@ -283,6 +283,7 @@ const SyncMachine = Machine<Context, any, Event>({
     metadataDecided,
     increaseRetry,
     logEventError,
+    updateCache,
   },
   services: {
     validateNetwork,

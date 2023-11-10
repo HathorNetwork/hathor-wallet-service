@@ -9,6 +9,7 @@ import { assign, AssignAction, raise, sendTo } from 'xstate';
 import { Context, Event } from '../machines/types';
 import { get } from 'lodash';
 import logger from '../logger';
+import { hashTxData } from '../utils';
 
 export const storeInitialState = assign({
   initialEventId: (_context: Context, event: Event) => {
@@ -107,5 +108,13 @@ export const metadataDecided = raise((_context: Context, event: Event) => ({
   event: event.data,
 }));
 
+export const updateCache = (context: Context) => {
+  const fullNodeEvent = context.event;
+  // @ts-ignore
+  const { metadata, hash }  = fullNodeEvent.event.data;
+  const hashedTxData = hashTxData(metadata);
+
+  context.txCache.set(hash, hashedTxData);
+};
 
 export const logEventError = (_context: Context, event: Event) => logger.error(event);
