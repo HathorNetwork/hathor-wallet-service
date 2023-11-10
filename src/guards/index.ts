@@ -6,7 +6,6 @@
  */
 
 import { Context, Event } from "../machines/types";
-import { TxCache } from "../machines";
 import { hashTxData } from "../utils";
 
 export const metadataIgnore = (_context: Context, event: Event) => {
@@ -99,7 +98,7 @@ export const voided = (_context: Context, event: Event) => {
   return voided_by.length > 0;
 };
 
-export const unchanged = (_context: Context, event: Event) => {
+export const unchanged = (context: Context, event: Event) => {
   if (event.type !== 'FULLNODE_EVENT') {
     return true;
   }
@@ -112,7 +111,8 @@ export const unchanged = (_context: Context, event: Event) => {
 
   const { data } = event.event.event;
 
-  const txHashFromCache = TxCache.get(data.hash);
+  const txCache = context.txCache;
+  const txHashFromCache = txCache.get(data.hash);
   // Not on the cache, it's not unchanged.
   if (!txHashFromCache) {
     return false;

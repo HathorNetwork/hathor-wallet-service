@@ -35,7 +35,6 @@ import {
   prepareOutputs,
   hashTxData,
 } from '../../src/utils';
-import { TxCache } from '../../src/machines';
 
 jest.mock('@hathor/wallet-lib');
 jest.mock('../../src/logger', () => ({
@@ -339,9 +338,6 @@ describe('handleVertexAccepted', () => {
     destroy: jest.fn(),
   };
 
-  const oldTxCacheSet = TxCache.set;
-  const oldTxCacheGet = TxCache.get;
-
   beforeEach(() => {
     jest.clearAllMocks();
 
@@ -351,13 +347,6 @@ describe('handleVertexAccepted', () => {
       newAddresses: ['mockAddress1', 'mockAddress2'],
       lastUsedAddressIndex: 1
     });
-    TxCache.set = jest.fn();
-    TxCache.get = jest.fn();
-  });
-
-  afterEach(() => {
-    TxCache.get = oldTxCacheGet;
-    TxCache.set = oldTxCacheSet;
   });
 
   it('should handle vertex accepted successfully', async () => {
@@ -381,6 +370,10 @@ describe('handleVertexAccepted', () => {
           },
           id: 'idValue',
         },
+      },
+      txCache: {
+        get: jest.fn(),
+        set: jest.fn(),
       },
     };
 
@@ -585,6 +578,7 @@ describe('metadataDiff', () => {
     expect(mockDb.destroy).toHaveBeenCalled();
     expect(logger.error).toHaveBeenCalledWith('e', new Error('Mock Error'));
   });
+
   it('should handle transaction transactions that are not voided anymore', async () => {
     const event = {
       event: {

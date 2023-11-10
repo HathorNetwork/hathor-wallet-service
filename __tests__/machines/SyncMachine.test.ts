@@ -13,7 +13,6 @@ import {
   CONNECTED_STATES,
   SyncMachine,
   SYNC_MACHINE_STATES,
-  TxCache,
 } from '../../src/machines';
 import {
   invalidPeerId,
@@ -21,14 +20,22 @@ import {
   unchanged,
   voided,
 } from '../../src/guards';
+import { LRU } from '../../src/utils';
 import EventFixtures from '../__fixtures__/events';
 import { FullNodeEvent, Event, Context } from '../../src/machines/types';
 import { hashTxData } from '../../src/utils';
 
 const { VERTEX_METADATA_CHANGED, NEW_VERTEX_ACCEPTED, REORG_STARTED } = EventFixtures;
 
+
+const TxCache = new LRU(parseInt(process.env.TX_CACHE_SIZE || '10000', 10));
+
 beforeAll(async () => {
   jest.clearAllMocks();
+});
+
+afterAll(async () => {
+  TxCache.clear();
 });
 
 // @ts-ignore
@@ -253,10 +260,6 @@ describe('Event handling', () => {
     originalStreamId = process.env.STREAM_ID;
   });
 
-  beforeEach(() => {
-    TxCache.clear();
-  });
-
   afterEach(() => {
     // Restore the original values after each test
     process.env.FULLNODE_PEER_ID = originalFullNodePeerId;
@@ -316,6 +319,12 @@ describe('Event handling', () => {
         invalidStreamId: () => false,
         unchanged: unchangedMock,
       },
+    }).withContext({
+      event: null,
+      socket: null,
+      retryAttempt: 0,
+      initialEventId: 0,
+      txCache: TxCache,
     });
 
     unchangedMock.mockImplementation(unchanged);

@@ -13,23 +13,24 @@ import {
   unchanged,
 } from '../../src/guards';
 
-jest.mock('../../src/machines', () => ({
-  TxCache: {
-    get: jest.fn(),
-  }
-}));
 jest.mock('../../src/utils', () => ({
   hashTxData: jest.fn(),
 }));
 
-import { TxCache } from '../../src/machines';
 import { hashTxData } from '../../src/utils';
+
+const TxCache = {
+  get: jest.fn(),
+  set: jest.fn(),
+};
 
 const mockContext: Context = {
   socket: null,
   retryAttempt: 0,
   event: {},
-  initialEventId: null
+  initialEventId: null,
+  // @ts-ignore
+  txCache: TxCache,
 };
 
 const generateFullNodeEvent = (type: string, data = {} as any): Event => ({
@@ -139,6 +140,22 @@ describe('fullnode event guards', () => {
     // Any fullndode event other VERTEX_METADATA_CHANGED and NEW_VERTEX_ACCEPTED
     // should return false
     expect(voided(mockContext, generateFullNodeEvent('SOMETHING_ELSE'))).toBe(false);
+  });
+
+  test('unchanged', () => {
+    const fullNodeEvent = generateFullNodeEvent('VERTEX_METADATA_CHANGED');
+
+    // @ts-ignore
+    TxCache.get.mockReturnValueOnce('mockedTxCache');
+    // @ts-ignore
+    hashTxData.mockReturnValueOnce('mockedTxCache');
+
+    expect(unchanged(mockContext, fullNodeEvent)).toBe(true);
+    // Since I only mocked the return once, this should fail on next call:
+    expect(unchanged(mockContext, fullNodeEvent)).toBe(false);
+
+    // Any event other than FULLNODE_EVENT should return false
+    expect(unchanged(mockContext, generateMetadataDecidedEvent('TX_NEW'))).toBe(true);
   });
 
   test('unchanged', () => {
