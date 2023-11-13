@@ -5,11 +5,12 @@
  * LICENSE file in the root directory of this source tree.
  */
 import { createLogger, format, transports } from 'winston';
+import getConfig from './config';
 
-const SERVICE_NAME = process.env.SERVICE_NAME || 'wallet-service-daemon';
+const { SERVICE_NAME, CONSOLE_LEVEL } = getConfig();
 
 export default createLogger({
-  level: process.env.CONSOLE_LEVEL || 'info',
+  level: CONSOLE_LEVEL,
   format: format.combine(
     format.colorize(),
     format.timestamp(),

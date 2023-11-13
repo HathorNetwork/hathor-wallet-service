@@ -19,6 +19,15 @@ jest.mock('../../src/utils', () => ({
 
 import { hashTxData } from '../../src/utils';
 
+jest.mock('../../src/config', () => {
+  return {
+    __esModule: true, // This property is needed for mocking a default export
+    default: jest.fn(() => ({})),
+  };
+});
+
+import getConfig from '../../src/config';
+
 const TxCache = {
   get: jest.fn(),
   set: jest.fn(),
@@ -176,23 +185,11 @@ describe('fullnode event guards', () => {
 });
 
 describe('fullnode validation guards', () => {
-  let originalFullNodePeerId: string | undefined;
-  let originalStreamId: string | undefined;
-
-  beforeAll(() => {
-    originalFullNodePeerId = process.env.FULLNODE_PEER_ID;
-    originalStreamId = process.env.STREAM_ID;
-  });
-
-  afterEach(() => {
-    // Restore the original values after each test
-    process.env.FULLNODE_PEER_ID = originalFullNodePeerId;
-    process.env.STREAM_ID = originalStreamId;
-  });
-
   test('invalidStreamId', () => {
-    process.env.STREAM_ID = 'mockStreamId';
-
+    // @ts-ignore
+    getConfig.mockReturnValueOnce({
+      STREAM_ID: 'mockStreamId',
+    });
     const fullNodeEvent = generateFullNodeEvent('NEW_VERTEX_ACCEPTED');
     // @ts-ignore
     fullNodeEvent.event.stream_id = 'mockStreamId';
@@ -203,7 +200,10 @@ describe('fullnode validation guards', () => {
   });
 
   test('invalidPeerId', () => {
-    process.env.FULLNODE_PEER_ID = 'mockPeerId';
+    // @ts-ignore
+    getConfig.mockReturnValueOnce({
+      FULLNODE_PEER_ID: 'mockPeerId',
+    });
 
     const fullNodeEvent = generateFullNodeEvent('NEW_VERTEX_ACCEPTED');
     // @ts-ignore

@@ -8,8 +8,10 @@
 import { interpret } from 'xstate';
 import { SyncMachine } from './machines';
 import logger from './logger';
+import { checkEnvVariables } from './config';
 
 const main = async () => {
+  checkEnvVariables();
   // Interpret the machine (start it and listen to its state changes)
   const machine = interpret(SyncMachine);
 

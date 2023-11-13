@@ -53,6 +53,7 @@ import {
   updateCache,
 } from '../actions';
 import { BACKOFF_DELAYED_RECONNECT } from '../delays';
+import getConfig from '../config';
 
 export const SYNC_MACHINE_STATES = {
   INITIALIZING: 'INITIALIZING',
@@ -73,6 +74,8 @@ export const CONNECTED_STATES = {
   handlingFirstBlock: 'handlingFirstBlock',
 };
 
+const { TX_CACHE_SIZE } = getConfig();
+
 const SyncMachine = Machine<Context, any, Event>({
   id: 'SyncMachine',
   initial: SYNC_MACHINE_STATES.INITIALIZING,
@@ -81,7 +84,7 @@ const SyncMachine = Machine<Context, any, Event>({
     retryAttempt: 0,
     event: null,
     initialEventId: null,
-    txCache: new LRU(parseInt(process.env.TX_CACHE_SIZE || '10000', 10)),
+    txCache: new LRU(TX_CACHE_SIZE),
   },
   states: {
     [SYNC_MACHINE_STATES.INITIALIZING]: {

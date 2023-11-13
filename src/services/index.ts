@@ -53,6 +53,7 @@ import {
   markUtxosAsVoided,
   cleanupVoidedTx,
 } from '../db';
+import getConfig from '../config';
 import logger from '../logger';
 
 export const metadataDiff = async (_context: Context, event: Event) => {
@@ -143,7 +144,8 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
   try {
     const fullNodeEvent = context.event as FullNodeEvent;
     const now = getUnixTimestamp();
-    const blockRewardLock = parseInt(process.env.BLOCK_REWARD_LOCK || '10', 10);
+    const { BLOCK_REWARD_LOCK } = getConfig();
+    const blockRewardLock = BLOCK_REWARD_LOCK;
 
     // @ts-ignore
     const {

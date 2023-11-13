@@ -26,7 +26,7 @@ import { isAuthority } from '../utils';
 import { AddressBalanceRow, AddressTxHistorySumRow, BestBlockRow, LastSyncedEventRow, MinerRow, TokenInformationRow, TransactionRow, TxOutputRow } from './types';
 // @ts-ignore
 import { walletUtils } from '@hathor/wallet-lib';
-import logger from '../logger';
+import getConfig from '../config';
 
 let pool: Pool;
 
@@ -37,12 +37,19 @@ let pool: Pool;
  */
 export const getDbConnection = async (): Promise<MysqlConnection> => {
   if (!pool) {
+    const {
+      DB_ENDPOINT,
+      DB_NAME,
+      DB_USER,
+      DB_PORT,
+      DB_PASS,
+    } = getConfig();
     const newPool: Pool = mysql.createPool({
-      host: process.env.DB_ENDPOINT,
-      database: process.env.DB_NAME,
-      user: process.env.DB_USER,
-      port: parseInt(process.env.DB_PORT || '3306', 10),
-      password: process.env.DB_PASS,
+      host: DB_ENDPOINT,
+      database: DB_NAME,
+      user: DB_USER,
+      port: DB_PORT,
+      password: DB_PASS,
     });
 
     pool = newPool;
@@ -1039,7 +1046,8 @@ export const generateAddresses = async (mysql: MysqlConnection, xpubkey: string,
   let highestCheckedIndex = -1;
   let lastUsedAddressIndex = -1;
   do {
-    const addrMap = walletUtils.getAddresses(derivedXpub, highestCheckedIndex + 1, maxGap, process.env.NETWORK);
+    const { NETWORK } = getConfig();
+    const addrMap = walletUtils.getAddresses(derivedXpub, highestCheckedIndex + 1, maxGap, NETWORK);
     allAddresses.push(...Object.keys(addrMap));
 
     const [results] = await mysql.query(

@@ -24,11 +24,13 @@ import { LRU } from '../../src/utils';
 import EventFixtures from '../__fixtures__/events';
 import { FullNodeEvent, Event, Context } from '../../src/machines/types';
 import { hashTxData } from '../../src/utils';
+import getConfig from '../../src/config';
 
+const { TX_CACHE_SIZE, FULLNODE_PEER_ID, STREAM_ID } = getConfig();
 const { VERTEX_METADATA_CHANGED, NEW_VERTEX_ACCEPTED, REORG_STARTED } = EventFixtures;
 
 
-const TxCache = new LRU(parseInt(process.env.TX_CACHE_SIZE || '10000', 10));
+const TxCache = new LRU(TX_CACHE_SIZE);
 
 beforeAll(async () => {
   jest.clearAllMocks();
@@ -256,8 +258,8 @@ describe('Event handling', () => {
   let originalStreamId: string | undefined;
 
   beforeAll(() => {
-    originalFullNodePeerId = process.env.FULLNODE_PEER_ID;
-    originalStreamId = process.env.STREAM_ID;
+    originalFullNodePeerId = FULLNODE_PEER_ID;
+    originalStreamId = STREAM_ID;
   });
 
   afterEach(() => {

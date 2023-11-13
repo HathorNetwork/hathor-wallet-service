@@ -10,14 +10,11 @@ import { Event } from '../machines/types';
 // @ts-ignore
 import { get } from 'lodash';
 import logger from '../logger';
-
-const WS_URL = process.env.WS_URL;
-if (!WS_URL) {
-  logger.error('WS_URL is not defined.');
-  process.exit(1);
-}
+import getConfig from '../config';
 
 export default (callback: any, receive: any) => {
+  const { WS_URL } = getConfig();
+  // @ts-ignore: We already check for missing envs in startup
   const socket: WebSocket = new WebSocket(WS_URL);
 
   receive((event: Event) => {

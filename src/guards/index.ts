@@ -7,7 +7,7 @@
 
 import { Context, Event } from "../machines/types";
 import { hashTxData } from "../utils";
-import { STREAM_ID, FULLNODE_PEER_ID } from '../config';
+import getConfig from '../config';
 
 /*
  * This guard is used during the `handlingMetadataChanged` to check if
@@ -103,6 +103,7 @@ export const vertexAccepted = (_context: Context, event: Event) => {
  * if the received peer_id is the same as we expect (from an env var)
  */
 export const invalidPeerId = (_context: Context, event: Event) => {
+  const { FULLNODE_PEER_ID } = getConfig();
   // @ts-ignore
   return event.event.event.peer_id !== FULLNODE_PEER_ID;
 };
@@ -112,9 +113,12 @@ export const invalidPeerId = (_context: Context, event: Event) => {
  * if the received stream_id is the same as we expect (from an env var).
  * This makes sure that the order of the events is the same.
  */
-export const invalidStreamId = (_context: Context, event: Event) =>
+export const invalidStreamId = (_context: Context, event: Event) => {
+  const { STREAM_ID } = getConfig();
+
   // @ts-ignore
-  event.event.stream_id !== STREAM_ID;
+  return event.event.stream_id !== STREAM_ID;
+}
 
 export const websocketDisconnected = (_context: Context, event: Event) => {
   if (event.type === 'WEBSOCKET_EVENT'
