@@ -248,7 +248,7 @@ const SyncMachine = Machine<Context, any, Event>({
       on: {
         WEBSOCKET_EVENT: [{
           cond: 'websocketDisconnected',
-          target: 'RECONNECTING',
+          target: SYNC_MACHINE_STATES.RECONNECTING,
         }],
       },
     },
