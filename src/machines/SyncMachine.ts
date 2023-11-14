@@ -229,8 +229,11 @@ const SyncMachine = Machine<Context, any, Event>({
             src: 'handleUnvoidedTx',
             data: (_context: Context, event: Event) => event,
             onDone: {
+              // The handleUnvoidedTx will remove the tx from the database, we should
+              // re-add it:
               target: `#${CONNECTED_STATES.handlingVertexAccepted}`,
-              actions: ['storeEvent', 'sendAck', 'updateCache'],
+              // We shouldn't send ACK, as we'll send the ACK after handlingVertexAccepted
+              actions: ['storeEvent', 'updateCache'],
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
