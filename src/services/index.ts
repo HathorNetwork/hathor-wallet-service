@@ -241,7 +241,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     await addUtxos(mysql, hash, txOutputs, heightlock);
     await updateTxOutputSpentBy(mysql, txInputs, hash);
 
-    // Handle genesis parent txs:
+    // Genesis tx has no inputs and outputs, so nothing to be updated, avoid it
     if (inputs.length > 0 || outputs.length > 0) {
       const tokenList: string[] = getTokenListFromInputsAndOutputs(txInputs, txOutputs);
 
