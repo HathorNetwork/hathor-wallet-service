@@ -41,7 +41,7 @@ export type FullNodeEvent = {
 export interface Context {
   socket: ActorRef<any, any> | null;
   retryAttempt: number;
-  event: unknown;
+  event?: FullNodeEvent | null;
   initialEventId: null | number;
   txCache: LRU;
 }

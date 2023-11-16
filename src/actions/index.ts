@@ -68,15 +68,20 @@ export const storeEvent: AssignAction<Context, Event> = assign({
     const eventId = get(event, 'event.event.id', -1);
     const contextEventId = get(context, 'event.id', -1);
 
-    if (eventId === -1) return;
+    if (eventId === -1) {
+      return;
+    }
 
-    if (contextEventId > -1) {
-      // @ts-ignore
+    if (context.event && contextEventId > -1) {
       if (event.event.event.id < context.event.event.id) {
         throw new Error('Event lower than last event on storeEvent action');
       }
 
-      // @ts-ignore
+      if (!context.initialEventId) {
+        // This should never happen
+        throw new Error('No initialEventId on context');
+      }
+
       if (event.event.event.id < context.initialEventId) {
         throw new Error('Event lower than initial event on storeEvent action');
       }
@@ -87,15 +92,20 @@ export const storeEvent: AssignAction<Context, Event> = assign({
 });
 
 export const sendAck = sendTo(getSocketRefFromContext,
-  (context: Context, _event) => ({
-    type: 'WEBSOCKET_SEND_EVENT',
-    event: {
-      type: 'ACK',
-      window_size: 1,
-      // @ts-ignore
-      ack_event_id: context.event.event.id,
-    },
-  }));
+  (context: Context, _event) => {
+    if (!context.event) {
+      throw new Error('No event in context, can\'t send ack');
+    }
+
+    return {
+      type: 'WEBSOCKET_SEND_EVENT',
+      event: {
+        type: 'ACK',
+        window_size: 1,
+        ack_event_id: context.event.event.id,
+      },
+    }
+  });
 
 export const metadataDecided = raise((_context: Context, event: Event) => ({
   type: 'METADATA_DECIDED',
@@ -105,7 +115,9 @@ export const metadataDecided = raise((_context: Context, event: Event) => ({
 
 export const updateCache = (context: Context) => {
   const fullNodeEvent = context.event;
-  // @ts-ignore
+  if (!fullNodeEvent) {
+    return;
+  }
   const { metadata, hash }  = fullNodeEvent.event.data;
   const hashedTxData = hashTxData(metadata);
 

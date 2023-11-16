@@ -147,7 +147,6 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     const { BLOCK_REWARD_LOCK } = getConfig();
     const blockRewardLock = BLOCK_REWARD_LOCK;
 
-    // @ts-ignore
     const {
       hash,
       metadata,
@@ -185,6 +184,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       if (typeof height !== 'number' && !height) {
         throw new Error('Block with no height set in metadata.');
       }
+
       // unlock older blocks
       const utxos = await getUtxosLockedAtHeight(mysql, now, height);
 
@@ -200,7 +200,6 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       const blockRewardOutput = outputs[0];
 
       // add miner to the miners table
-      // @ts-ignore
       await addMiner(mysql, blockRewardOutput.decoded.address, hash);
 
       // here we check if we have any utxos on our database that is locked but
@@ -316,7 +315,6 @@ export const handleVoidedTx = async (context: Context) => {
     const txInputs: TxInput[] = prepareInputs(inputs, tokens);
 
     // Set outputs as locked:
-
     const txOutputsWithLocked = txOutputs.map((output) => {
       const dbTxOutput = dbTxOutputs.find((_output) => _output.index === output.index);
 
@@ -417,7 +415,11 @@ export const updateLastSyncedEvent = async (context: Context) => {
   const mysql = await getDbConnection();
 
   const lastDbSyncedEvent: LastSyncedEvent | null = await getLastSyncedEvent(mysql);
-  // @ts-ignore
+
+  if (!context.event) {
+    throw new Error('Tried to update last synced event but no event in context');
+  }
+
   const lastEventId = context.event.event.id;
 
   if (lastDbSyncedEvent

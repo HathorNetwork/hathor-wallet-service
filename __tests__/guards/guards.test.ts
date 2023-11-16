@@ -36,6 +36,7 @@ const TxCache = {
 const mockContext: Context = {
   socket: null,
   retryAttempt: 0,
+  // @ts-ignore
   event: {},
   initialEventId: null,
   // @ts-ignore
@@ -61,8 +62,8 @@ const generateFullNodeEvent = (type: string, data = {} as any): Event => ({
 const generateMetadataDecidedEvent = (type: string): Event => ({
   type: 'METADATA_DECIDED',
   event: {
-    // @ts-ignore
     type,
+    // @ts-ignore
     originalEvent: {} as any,
   },
 });
