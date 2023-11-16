@@ -210,12 +210,9 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       await unlockTimelockedUtxos(mysql, now);
     }
 
-    if (version === hathorLib.constants.CREATE_TOKEN_TX_VERSION
-       && token_name
-       && token_symbol) {
+    if (version === hathorLib.constants.CREATE_TOKEN_TX_VERSION) {
       if (!token_name || !token_symbol) {
-        logger.error('Processed a token creation event but it did not come with token name and symbol');
-        process.exit(1);
+        throw new Error('Processed a token creation event but it did not come with token name and symbol');
       }
       await storeTokenInformation(mysql, hash, token_name, token_symbol);
     }
