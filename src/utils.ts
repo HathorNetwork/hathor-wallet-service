@@ -202,6 +202,10 @@ export const getAddressBalanceMap = (
   const addressBalanceMap = {};
 
   for (const input of inputs) {
+    if (!input.decoded) {
+      throw new Error('Input has no decoded script');
+    }
+
     const address = input.decoded?.address;
 
     // get the TokenBalanceMap from this input
