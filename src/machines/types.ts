@@ -55,10 +55,17 @@ export type MetadataDecidedEvent = {
   originalEvent: FullNodeEvent;
 }
 
-export type WebSocketSendEvent = {
-  // TODO: Well-defined types here
-  message: string;
-};
+export type WebSocketSendEvent = 
+  | {
+      type: 'START_STREAM';
+      window_size: number;
+      last_ack_event_id?: number;
+  }
+  | {
+      type: 'ACK';
+      window_size: number;
+      ack_event_id?: number;
+  };
 
 export type Event =
   | { type: 'WEBSOCKET_EVENT', event: WebSocketEvent }

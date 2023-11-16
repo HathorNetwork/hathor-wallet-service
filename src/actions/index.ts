@@ -48,12 +48,9 @@ export const startStream = sendTo(
     return {
       type: 'WEBSOCKET_SEND_EVENT',
       event: {
-        message: JSON.stringify({
-          type: 'START_STREAM',
-          window_size: 1,
-          // @ts-ignore
-          last_ack_event_id: lastAckEventId,
-        }),
+        type: 'START_STREAM',
+        window_size: 1,
+        last_ack_event_id: lastAckEventId,
       }
     };
   });
@@ -93,12 +90,10 @@ export const sendAck = sendTo(getSocketRefFromContext,
   (context: Context, _event) => ({
     type: 'WEBSOCKET_SEND_EVENT',
     event: {
-      message: JSON.stringify({
-        type: 'ACK',
-        window_size: 1,
-        // @ts-ignore
-        ack_event_id: context.event.event.id,
-      }),
+      type: 'ACK',
+      window_size: 1,
+      // @ts-ignore
+      ack_event_id: context.event.event.id,
     },
   }));
 

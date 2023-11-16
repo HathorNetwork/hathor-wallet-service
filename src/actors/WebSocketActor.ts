@@ -28,7 +28,11 @@ export default (callback: any, receive: any) => {
       logger.error('Received event but no socket yet');
     }
 
-    socket.send(event.event.message);
+    const payload = JSON.stringify(event.event);
+
+    logger.debug('Sending:')
+    logger.debug(payload);
+    socket.send(payload);
   });
 
   socket.onopen = () => {
