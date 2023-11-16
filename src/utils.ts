@@ -33,20 +33,37 @@ import {
   updateWalletLockedBalance,
 } from './db';
 
+/**
+ * Generates an MD5 hash of the provided string data.
+ * 
+ * @param data - The string data to hash.
+ * @returns - The MD5 hash of the data in hexadecimal format.
+ */
 export const md5Hash = (data: string): string => {
   const hash = crypto.createHash('md5');
   hash.update(data);
   return hash.digest('hex');
 };
 
+/**
+ * Serializes select transaction metadata attributes into a string format.
+ * 
+ * @param meta - The transaction metadata to serialize.
+ * @returns - A serialized string representing specific fields of the metadata.
+ */
 export const serializeTxData = (meta: unknown): string =>
   // @ts-ignore
   `${meta.hash}|${meta.voided_by.length > 0}|${meta.first_block}|${meta.height}`;
-export const hashTxData = (meta: unknown): string =>
-  // I'm interested in the hash, voided_by, first_block and height, we should
-  // serialize those fields as a string and then hash it
 
-  // @ts-ignore
+/**
+ * Hashes transaction metadata using MD5.
+ * 
+ * Serializes the relevant fields of transaction metadata and then computes its MD5 hash.
+ * 
+ * @param meta - The transaction metadata to hash.
+ * @returns - The MD5 hash of the serialized metadata.
+ */
+export const hashTxData = (meta: unknown): string =>
   md5Hash(serializeTxData(meta))
 ;
 
@@ -96,10 +113,32 @@ export class LRU {
   }
 }
 
+/**
+ * Checks if a given tokenData has any authority bit set
+ *
+ * tokenData merges two fields: first bit is the authority flag, while remaining
+ * bits represent the token index. If the first bit is 0, this is a regular
+ * output, if it's 1, it's an authority output
+ */
 export const isAuthority = (tokenData: number): boolean => (
-  (tokenData & constants.TOKEN_AUTHORITY_MASK) > 0    // eslint-disable-line no-bitwise
+  (tokenData & constants.TOKEN_AUTHORITY_MASK) > 0
 );
 
+/**
+ * Prepares transaction outputs with additional metadata and indexing.
+ *
+ * This function expects a list  of EventTxOutput objects as inputs and an array
+ * of tokens to produce an array of TxOutputWithIndex objects. Each output is
+ * enhanced with additional data like the token it represents, its index in the
+ * transaction, and its decoded information.
+ *
+ * @param outputs - An array of transaction outputs, each containing data like value, 
+ *                                    script, and token data.
+ * @param tokens - An array of token identifiers corresponding to different tokens involved 
+ *                            in the transaction.
+ * @returns - An array of outputs, each augmented with index and additional 
+ *                                  metadata.
+ */
 export const prepareOutputs = (outputs: EventTxOutput[], tokens: string[]): TxOutputWithIndex[] => {
   const preparedOutputs: [number, TxOutputWithIndex[]] = outputs.reduce(
     ([currIndex, newOutputs]: [number, TxOutputWithIndex[]], _output: EventTxOutput): [number, TxOutputWithIndex[]] => {
@@ -111,6 +150,7 @@ export const prepareOutputs = (outputs: EventTxOutput[], tokens: string[]): TxOu
       if (!output.isTokenHTR()) {
         token = tokens[output.getTokenIndex()];
       }
+      // @ts-ignore
       output.token = token;
 
       if (!_output.decoded
@@ -120,6 +160,7 @@ export const prepareOutputs = (outputs: EventTxOutput[], tokens: string[]): TxOu
         return [currIndex + 1, newOutputs];
       }
 
+      // @ts-ignore
       output.locked = false;
 
       const finalOutput = {
@@ -129,13 +170,8 @@ export const prepareOutputs = (outputs: EventTxOutput[], tokens: string[]): TxOu
         token_data: output.tokenData,
       };
 
-      return [
-        currIndex + 1,
-        [
-          ...newOutputs,
-          finalOutput,
-        ],
-      ];
+      // @ts-ignore
+      return [ currIndex + 1, [ ...newOutputs, finalOutput, ], ];
     },
     [0, []],
   );
@@ -309,6 +345,19 @@ export const unlockTimelockedUtxos = async (mysql: MysqlConnection, now: number)
   await unlockUtxos(mysql, utxos, true);
 };
 
+/**
+ * Prepares transaction input data for processing or display.
+ *
+ * This function takes an array of EventTxInput objects and an array of token identifiers 
+ * to prepare an array of TxInput objects. Each input is processed to include additional information 
+ * such as the token involved and the decoded output data.
+ *
+ * @param inputs - An array of transaction inputs, each containing data like 
+ *                                  transaction hash, index, and spent output information.
+ * @param tokens - An array of token identifiers corresponding to different tokens involved 
+ *                            in the transaction.
+ * @returns - An array of prepared inputs, each enriched with additional data.
+ */
 export const prepareInputs = (inputs: EventTxInput[], tokens: string[]): TxInput[] => {
   const preparedInputs: TxInput[] = inputs.reduce((newInputs: TxInput[], _input: EventTxInput): TxInput[] => {
     const output = _input.spent_output;
@@ -325,6 +374,7 @@ export const prepareInputs = (inputs: EventTxInput[], tokens: string[]): TxInput
       index: _input.index,
       value: utxo.value,
       token_data: utxo.tokenData,
+      // @ts-ignore
       script: utxo.script,
       token,
       decoded: {
@@ -384,6 +434,20 @@ export const getTokenListFromInputsAndOutputs = (inputs: TxInput[], outputs: TxO
   return [...tokenIds];
 };
 
+/**
+ * Validates the consistency of address balances.
+ * 
+ * This method is designed to validate that the sum of unlocked and locked balances 
+ * for each address in a given set matches the corresponding total balance from the address's 
+ * transaction history.
+ *
+ * If any of these conditions are not met, the function will throw an assertion error, indicating a mismatch.
+ * 
+ * @param mysql - The MySQL connection object to perform database operations.
+ * @param addresses - An array of addresses whose balances need to be validated.
+ * @returns - The function returns a promise that resolves to void. It does not return 
+ *                              any value but serves the purpose of validation.
+ */
 export const validateAddressBalances = async (mysql: MysqlConnection, addresses: string[]): Promise<void> => {
   const addressBalances: AddressBalance[] = await fetchAddressBalance(mysql, addresses);
   const addressTxHistorySums: AddressTotalBalance[] = await fetchAddressTxHistorySum(mysql, addresses);
