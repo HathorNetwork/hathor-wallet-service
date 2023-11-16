@@ -308,7 +308,6 @@ export const handleVoidedTx = async (context: Context) => {
     const txOutputs: TxOutputWithIndex[] = prepareOutputs(outputs, tokens);
     const txInputs: TxInput[] = prepareInputs(inputs, tokens);
 
-    // Set outputs as locked:
     const txOutputsWithLocked = txOutputs.map((output) => {
       const dbTxOutput = dbTxOutputs.find((_output) => _output.index === output.index);
 
