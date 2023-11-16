@@ -384,10 +384,10 @@ export const handleTxFirstBlock = async (context: Context) => {
       weight,
     } = fullNodeEvent.event.data;
 
-    let height: number | null = metadata.height;
+    const height: number | null = metadata.height;
 
     if (!metadata.first_block) {
-      height = null;
+      throw new Error('HandleTxFirstBlock called but no first block on metadata');
     }
 
     await addOrUpdateTx(mysql, hash, height, timestamp, version, weight);
