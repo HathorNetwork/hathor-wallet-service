@@ -23,7 +23,16 @@ import {
   Miner,
 } from '../types';
 import { isAuthority } from '../utils';
-import { AddressBalanceRow, AddressTxHistorySumRow, BestBlockRow, LastSyncedEventRow, MinerRow, TokenInformationRow, TransactionRow, TxOutputRow } from './types';
+import {
+  AddressBalanceRow,
+  AddressTxHistorySumRow,
+  BestBlockRow,
+  LastSyncedEventRow,
+  MinerRow,
+  TokenInformationRow,
+  TransactionRow,
+  TxOutputRow,
+} from '../types';
 // @ts-ignore
 import { walletUtils } from '@hathor/wallet-lib';
 import getConfig from '../config';
@@ -645,7 +654,6 @@ export const getUtxosLockedAtHeight = async (
 export const unlockUtxos = async (mysql: MysqlConnection, utxos: TxInput[]): Promise<void> => {
   if (utxos.length === 0) return;
   const entries = utxos.map((utxo) => [utxo.tx_id, utxo.index]);
-  // @ts-ignore
   await mysql.query(
     `UPDATE \`tx_output\`
         SET \`locked\` = FALSE
@@ -673,7 +681,6 @@ export const updateAddressLockedBalance = async (
 ): Promise<void> => {
   for (const [address, tokenBalanceMap] of Object.entries(addressBalanceMap)) {
     for (const [token, tokenBalance] of tokenBalanceMap.iterator()) {
-      // @ts-ignore
       await mysql.query(
         `UPDATE \`address_balance\`
             SET \`unlocked_balance\` = \`unlocked_balance\` + ?,
@@ -741,7 +748,6 @@ export const updateAddressLockedBalance = async (
  */
 export const getAddressWalletInfo = async (mysql: MysqlConnection, addresses: string[]): Promise<StringMap<Wallet>> => {
   const addressWalletMap: StringMap<Wallet> = {};
-  // @ts-ignore
   const [results] = await mysql.query(
     `SELECT DISTINCT a.\`address\`,
                      a.\`wallet_id\`,
@@ -787,7 +793,6 @@ export const updateWalletLockedBalance = async (
 ): Promise<void> => {
   for (const [walletId, tokenBalanceMap] of Object.entries(walletBalanceMap)) {
     for (const [token, tokenBalance] of tokenBalanceMap.iterator()) {
-      // @ts-ignore
       await mysql.query(
         `UPDATE \`wallet_balance\`
             SET \`unlocked_balance\` = \`unlocked_balance\` + ?,
@@ -801,7 +806,6 @@ export const updateWalletLockedBalance = async (
 
       // if any authority has been unlocked, we have to refresh the locked authorities
       if (tokenBalance.unlockedAuthorities.toInteger() > 0) {
-        // @ts-ignore
         await mysql.query(
           `UPDATE \`wallet_balance\`
               SET \`locked_authorities\` = (
@@ -820,7 +824,6 @@ export const updateWalletLockedBalance = async (
 
       // if this is being unlocked due to a timelock, also update the timelock_expires column
       if (updateTimelocks) {
-        // @ts-ignore
         await mysql.query(
           `UPDATE \`wallet_balance\`
               SET \`timelock_expires\` = (
@@ -850,7 +853,6 @@ export const addMiner = async (
   address: string,
   txId: string,
 ): Promise<void> => {
-  // @ts-ignore
   await mysql.query(
     `INSERT INTO \`miner\` (address, first_block, last_block, count)
      VALUES (?, ?, ?, 1)
@@ -900,7 +902,6 @@ export const getExpiredTimelocksUtxos = async (
   mysql: MysqlConnection,
   now: number,
 ): Promise<DbTxOutput[]> => {
-  // @ts-ignore
   const [results] = await mysql.query<TxOutputRow[]>(`
     SELECT *
       FROM tx_output
@@ -909,7 +910,6 @@ export const getExpiredTimelocksUtxos = async (
        AND timelock < ?
   `, [now]);
 
-  // @ts-ignore
   const lockedUtxos: DbTxOutput[] = results.map(mapDbResultToDbTxOutput);
 
   return lockedUtxos;
@@ -1060,8 +1060,6 @@ export const generateAddresses = async (mysql: MysqlConnection, xpubkey: string,
       [Object.keys(addrMap)],
     );
 
-    // TODO: type the response
-    // @ts-ignore
     for (const entry of results) {
       const address = entry.address as string;
       // get index from addrMap as the one from entry might be null

@@ -7,7 +7,6 @@
 
 // @ts-ignore
 import hathorLib from '@hathor/wallet-lib';
-import { Event, Context, FullNodeEvent } from '../machines/types';
 import {
   TxOutputWithIndex,
   StringMap,
@@ -17,6 +16,9 @@ import {
   DbTxOutput,
   DbTransaction,
   LastSyncedEvent,
+  Event,
+  Context,
+  FullNodeEvent,
 } from '../types';
 import {
   prepareOutputs,

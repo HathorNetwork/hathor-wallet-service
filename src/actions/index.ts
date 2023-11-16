@@ -6,7 +6,7 @@
  */
 
 import { assign, AssignAction, raise, sendTo } from 'xstate';
-import { Context, Event } from '../machines/types';
+import { Context, Event } from '../types';
 import { get } from 'lodash';
 import logger from '../logger';
 import { hashTxData } from '../utils';

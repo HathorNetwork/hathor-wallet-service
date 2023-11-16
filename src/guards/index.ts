@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { Context, Event } from "../machines/types";
+import { Context, Event } from '../types';
 import { hashTxData } from "../utils";
 import getConfig from '../config';
 

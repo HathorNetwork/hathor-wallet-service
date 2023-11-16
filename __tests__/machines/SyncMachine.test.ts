@@ -22,7 +22,7 @@ import {
 } from '../../src/guards';
 import { LRU } from '../../src/utils';
 import EventFixtures from '../__fixtures__/events';
-import { FullNodeEvent, Event, Context } from '../../src/machines/types';
+import { FullNodeEvent, Event, Context } from '../../src/types';
 import { hashTxData } from '../../src/utils';
 import getConfig from '../../src/config';
 

@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { Context } from '../machines/types';
+import { Context } from '../types';
 
 const RETRY_BACKOFF_INCREASE = 1000; // 1s increase in the backoff strategy
 const MAX_BACKOFF_RETRIES = 10; // The retry backoff will top at 10s

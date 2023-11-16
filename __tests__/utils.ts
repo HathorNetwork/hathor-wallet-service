@@ -7,9 +7,23 @@
 
 import { Connection as MysqlConnection, RowDataPacket } from 'mysql2/promise';
 import { DbTxOutput, EventTxInput, TxInput, TxOutputWithIndex } from "../src/types";
-import { AddressBalanceRow, AddressTableRow, AddressTxHistoryRow, TokenInformationRow, TxOutputRow, WalletBalanceRow, WalletTxHistoryRow } from '../src/db/types';
-import { Token, AddressTableEntry, TokenTableEntry, WalletBalanceEntry, WalletTableEntry, AddressTxHistoryTableEntry } from './types';
-// @ts-ignore
+import {
+  AddressBalanceRow,
+  AddressTableRow,
+  AddressTxHistoryRow,
+  TokenInformationRow,
+  TxOutputRow,
+  WalletBalanceRow,
+  WalletTxHistoryRow,
+} from '../src/types';
+import {
+  Token,
+  AddressTableEntry,
+  TokenTableEntry,
+  WalletBalanceEntry,
+  WalletTableEntry,
+  AddressTxHistoryTableEntry
+} from './types';
 import { isEqual } from 'lodash';
 
 export const XPUBKEY = 'xpub6CsZPtBWMkwxVxyBTKT8AWZcYqzwZ5K2qMkqjFpibMbBZ72JAvLMz7LquJNs4svfTiNYy6GbLo8gqECWsC6hTRt7imnphUFNEMz6VuRSjww';

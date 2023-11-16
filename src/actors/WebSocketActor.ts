@@ -6,8 +6,7 @@
  */
 
 import { WebSocket } from 'ws';
-import { Event } from '../machines/types';
-// @ts-ignore
+import { Event } from '../types';
 import { get } from 'lodash';
 import logger from '../logger';
 import getConfig from '../config';

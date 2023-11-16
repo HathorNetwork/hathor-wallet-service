@@ -1,4 +1,4 @@
-import { Context, Event } from '../../src/machines/types';
+import { Context, Event } from '../../src/types';
 import {
   metadataIgnore,
   metadataVoided,

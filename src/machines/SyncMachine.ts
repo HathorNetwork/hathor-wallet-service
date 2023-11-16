@@ -15,7 +15,7 @@ import { WebSocketActor } from '../actors';
 import {
   Context,
   Event,
-} from './types';
+} from '../types';
 import {
   handleVertexAccepted,
   metadataDiff,
