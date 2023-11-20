@@ -9,6 +9,8 @@ export default {
   VERTEX_METADATA_CHANGED: {
     type: 'EVENT',
     event: {
+      stream_id: 'f7d9157c-9906-4bd2-bc84-cfb9f5b607d1',
+      network: 'mainnet',
       peer_id: 'bdf4fa876f5cdba84be0cab53b21fc9eb45fe4b3d6ede99f493119d37df4e560',
       id: 37,
       timestamp: 1572653409.0,

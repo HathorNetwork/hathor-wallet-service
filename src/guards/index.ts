@@ -15,7 +15,7 @@ import getConfig from '../config';
  */
 export const metadataIgnore = (_context: Context, event: Event) => {
   if (event.type !== 'METADATA_DECIDED') {
-    return false;
+    throw new Error(`Invalid event type on metadataIgnore guard: ${event.type}`);
   }
 
   return event.event.type === 'IGNORE';
@@ -27,7 +27,7 @@ export const metadataIgnore = (_context: Context, event: Event) => {
  */
 export const metadataVoided = (_context: Context, event: Event) => {
   if (event.type !== 'METADATA_DECIDED') {
-    return false;
+    throw new Error(`Invalid event type on metadataVoided guard: ${event.type}`);
   }
 
   return event.event.type === 'TX_VOIDED';
@@ -40,7 +40,7 @@ export const metadataVoided = (_context: Context, event: Event) => {
  */
 export const metadataUnvoided = (_context: Context, event: Event) => {
   if (event.type !== 'METADATA_DECIDED') {
-    return false;
+    throw new Error(`Invalid event type on metadataUnvoided guard: ${event.type}`);
   }
 
   return event.event.type === 'TX_UNVOIDED';
@@ -53,7 +53,7 @@ export const metadataUnvoided = (_context: Context, event: Event) => {
  */
 export const metadataNewTx = (_context: Context, event: Event) => {
   if (event.type !== 'METADATA_DECIDED') {
-    return false;
+    throw new Error(`Invalid event type on metadataNewTx guard: ${event.type}`);
   }
 
   return event.event.type === 'TX_NEW';
@@ -66,7 +66,7 @@ export const metadataNewTx = (_context: Context, event: Event) => {
  */
 export const metadataFirstBlock = (_context: Context, event: Event) => {
   if (event.type !== 'METADATA_DECIDED') {
-    return false;
+    throw new Error(`Invalid event type on metadataFirstBlock guard: ${event.type}`);
   }
 
   return event.event.type === 'TX_FIRST_BLOCK';
@@ -79,7 +79,7 @@ export const metadataFirstBlock = (_context: Context, event: Event) => {
  */
 export const metadataChanged = (_context: Context, event: Event) => {
   if (event.type !== 'FULLNODE_EVENT') {
-    return false;
+    throw new Error(`Invalid event type on metadataChanged guard ${event.type}`);
   }
 
   return event.event.event.type === 'VERTEX_METADATA_CHANGED';
@@ -92,7 +92,7 @@ export const metadataChanged = (_context: Context, event: Event) => {
  */
 export const vertexAccepted = (_context: Context, event: Event) => {
   if (event.type !== 'FULLNODE_EVENT') {
-    return false;
+    throw new Error(`Invalid event type on vertexAccepted guard ${event.type}`);
   }
 
   return event.event.event.type === 'NEW_VERTEX_ACCEPTED';
@@ -139,8 +139,11 @@ export const invalidStreamId = (_context: Context, event: Event) => {
 }
 
 export const websocketDisconnected = (_context: Context, event: Event) => {
-  if (event.type === 'WEBSOCKET_EVENT'
-      && event.event.type === 'DISCONNECTED') {
+  if (event.type !== 'WEBSOCKET_EVENT') {
+    throw new Error(`Invalid event type on websocketDisconnected guard ${event.type}`);
+  }
+
+  if (event.event.type === 'DISCONNECTED') {
     return true;
   }
 
@@ -154,7 +157,7 @@ export const websocketDisconnected = (_context: Context, event: Event) => {
  */
 export const voided = (_context: Context, event: Event) => {
   if (event.type !== 'FULLNODE_EVENT') {
-    return false;
+    throw new Error(`Invalid event type on voided guard ${event.type}`);
   }
 
   if (event.event.event.type !== 'VERTEX_METADATA_CHANGED'
@@ -177,7 +180,7 @@ export const voided = (_context: Context, event: Event) => {
  */
 export const unchanged = (context: Context, event: Event) => {
   if (event.type !== 'FULLNODE_EVENT') {
-    return true;
+    throw new Error(`Invalid event type on unchanged guard ${event.type}`);
   }
 
   if (event.event.event.type !== 'VERTEX_METADATA_CHANGED'

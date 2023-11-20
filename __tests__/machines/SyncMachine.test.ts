@@ -260,6 +260,7 @@ describe('Event handling', () => {
       guards: {
         invalidPeerId: () => false,
         invalidStreamId: () => false,
+        invalidNetwork: () => false,
         unchanged: unchangedMock,
       },
     }).withContext({
@@ -286,6 +287,7 @@ describe('Event handling', () => {
 
     // Should still be in the idle state:
     expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.idle}`)).toBeTruthy();
+
     // Should have called the unchanged guard
     expect(unchangedMock).toHaveBeenCalledTimes(1);
     expect(unchangedMock).toHaveReturnedWith(true);
@@ -312,6 +314,7 @@ describe('Event handling', () => {
       guards: {
         invalidPeerId: () => false,
         invalidStreamId: () => false,
+        invalidNetwork: () => false,
       },
     });
 
@@ -341,6 +344,7 @@ describe('Event handling', () => {
       guards: {
         invalidPeerId: () => false,
         invalidStreamId: () => false,
+        invalidNetwork: () => false,
       },
     });
 
@@ -370,6 +374,7 @@ describe('Event handling', () => {
       guards: {
         invalidPeerId: () => false,
         invalidStreamId: () => false,
+        invalidNetwork: () => false,
       },
     });
 
@@ -399,6 +404,7 @@ describe('Event handling', () => {
       guards: {
         invalidPeerId: () => false,
         invalidStreamId: () => false,
+        invalidNetwork: () => false,
       },
     });
 
@@ -428,6 +434,7 @@ describe('Event handling', () => {
       guards: {
         invalidPeerId: () => false,
         invalidStreamId: () => false,
+        invalidNetwork: () => false,
       },
     });
 
@@ -459,6 +466,7 @@ describe('Event handling', () => {
         voided: voidedGuardMock,
         invalidPeerId: () => false,
         invalidStreamId: () => false,
+        invalidNetwork: () => false,
       },
     });
 
@@ -486,6 +494,7 @@ describe('Event handling', () => {
       guards: {
         invalidPeerId: () => false,
         invalidStreamId: () => false,
+        invalidNetwork: () => false,
       },
     });
 
@@ -512,6 +521,7 @@ describe('Event handling', () => {
       guards: {
         invalidPeerId: () => false,
         invalidStreamId: () => false,
+        invalidNetwork: () => false,
       },
     });
 
