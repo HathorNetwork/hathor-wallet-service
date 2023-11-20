@@ -357,7 +357,9 @@ export class TokenBalanceMap {
    * @returns The TokenBalanceMap object
    */
   static fromTxOutput(output: TxOutput): TokenBalanceMap {
-    // TODO check if output.decoded exists, else return null
+    if (!output.decoded) {
+      throw new Error('Output has no decoded script');
+    }
     const token = output.token;
     const value = output.value;
     const obj = new TokenBalanceMap();
