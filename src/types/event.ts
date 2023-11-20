@@ -33,6 +33,14 @@ export enum EventTypes {
   WEBSOCKET_SEND_EVENT = 'WEBSOCKET_SEND_EVENT',
 }
 
+export enum FullNodeEventTypes {
+  VERTEX_METADATA_CHANGED = 'VERTEX_METADATA_CHANGED',
+  NEW_VERTEX_ACCEPTED = 'NEW_VERTEX_ACCEPTED',
+  LOAD_STARTED = 'LOAD_STARTED',
+  LOAD_FINISHED = 'LOAD_FINISHED',
+  REORG_STARTED = 'REORG_FINISHED',
+}
+
 export type Event =
   | { type: EventTypes.WEBSOCKET_EVENT, event: WebSocketEvent }
   | { type: EventTypes.FULLNODE_EVENT, event: FullNodeEvent }
@@ -48,7 +56,7 @@ export type FullNodeEvent = {
   event: {
     id: number;
     timestamp: number;
-    type: string;
+    type: FullNodeEventTypes;
     data: {
       hash: string;
       timestamp: number;
