@@ -101,7 +101,8 @@ export const storeEvent: AssignAction<Context, Event> = assign({
     }
 
     if (context.event && contextEventId > -1) {
-      if (event.event.event.id < context.event.event.id) {
+
+      if (eventId < contextEventId) {
         throw new Error('Event lower than last event on storeEvent action');
       }
 
