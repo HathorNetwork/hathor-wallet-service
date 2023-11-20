@@ -13,7 +13,7 @@ import {
   unchanged,
   invalidNetwork,
 } from '../../src/guards';
-import { EventTypes } from '../../src/types';
+import { EventTypes, MetadataDecidedEvent } from '../../src/types';
 
 jest.mock('../../src/utils', () => ({
   hashTxData: jest.fn(),

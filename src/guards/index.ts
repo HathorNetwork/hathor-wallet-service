@@ -5,8 +5,9 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { Context, Event } from '../types';
-import { hashTxData } from "../utils";
+import { Context, Event, EventTypes } from '../types';
+import { hashTxData } from '../utils';
+import { METADATA_DIFF_EVENT_TYPES } from '../services';
 import getConfig from '../config';
 
 /*
@@ -14,11 +15,11 @@ import getConfig from '../config';
  * the result was an IGNORE event
  */
 export const metadataIgnore = (_context: Context, event: Event) => {
-  if (event.type !== 'METADATA_DECIDED') {
+  if (event.type !== EventTypes.METADATA_DECIDED) {
     throw new Error(`Invalid event type on metadataIgnore guard: ${event.type}`);
   }
 
-  return event.event.type === 'IGNORE';
+  return event.event.type === METADATA_DIFF_EVENT_TYPES.IGNORE;
 };
 
 /*
@@ -26,11 +27,11 @@ export const metadataIgnore = (_context: Context, event: Event) => {
  * the result was a TX_VOIDED event
  */
 export const metadataVoided = (_context: Context, event: Event) => {
-  if (event.type !== 'METADATA_DECIDED') {
+  if (event.type !== EventTypes.METADATA_DECIDED) {
     throw new Error(`Invalid event type on metadataVoided guard: ${event.type}`);
   }
 
-  return event.event.type === 'TX_VOIDED';
+  return event.event.type === METADATA_DIFF_EVENT_TYPES.TX_VOIDED;
 };
 
 /*
@@ -39,11 +40,11 @@ export const metadataVoided = (_context: Context, event: Event) => {
  * and then got unvoided
  */
 export const metadataUnvoided = (_context: Context, event: Event) => {
-  if (event.type !== 'METADATA_DECIDED') {
+  if (event.type !== EventTypes.METADATA_DECIDED) {
     throw new Error(`Invalid event type on metadataUnvoided guard: ${event.type}`);
   }
 
-  return event.event.type === 'TX_UNVOIDED';
+  return event.event.type === METADATA_DIFF_EVENT_TYPES.TX_UNVOIDED;
 };
 
 /*
@@ -52,11 +53,11 @@ export const metadataUnvoided = (_context: Context, event: Event) => {
  * this transaction on the database
  */
 export const metadataNewTx = (_context: Context, event: Event) => {
-  if (event.type !== 'METADATA_DECIDED') {
+  if (event.type !== EventTypes.METADATA_DECIDED) {
     throw new Error(`Invalid event type on metadataNewTx guard: ${event.type}`);
   }
 
-  return event.event.type === 'TX_NEW';
+  return event.event.type === METADATA_DIFF_EVENT_TYPES.TX_NEW;
 };
 
 /*
@@ -65,11 +66,11 @@ export const metadataNewTx = (_context: Context, event: Event) => {
  * the height of this transaction to the database
  */
 export const metadataFirstBlock = (_context: Context, event: Event) => {
-  if (event.type !== 'METADATA_DECIDED') {
+  if (event.type !== EventTypes.METADATA_DECIDED) {
     throw new Error(`Invalid event type on metadataFirstBlock guard: ${event.type}`);
   }
 
-  return event.event.type === 'TX_FIRST_BLOCK';
+  return event.event.type === METADATA_DIFF_EVENT_TYPES.TX_FIRST_BLOCK;
 };
 
 /*
@@ -78,8 +79,8 @@ export const metadataFirstBlock = (_context: Context, event: Event) => {
  * event
  */
 export const metadataChanged = (_context: Context, event: Event) => {
-  if (event.type !== 'FULLNODE_EVENT') {
-    throw new Error(`Invalid event type on metadataChanged guard ${event.type}`);
+  if (event.type !== EventTypes.FULLNODE_EVENT) {
+    throw new Error(`Invalid event type on metadataChanged guard: ${event.type}`);
   }
 
   return event.event.event.type === 'VERTEX_METADATA_CHANGED';
@@ -91,8 +92,8 @@ export const metadataChanged = (_context: Context, event: Event) => {
  * event
  */
 export const vertexAccepted = (_context: Context, event: Event) => {
-  if (event.type !== 'FULLNODE_EVENT') {
-    throw new Error(`Invalid event type on vertexAccepted guard ${event.type}`);
+  if (event.type !== EventTypes.FULLNODE_EVENT) {
+    throw new Error(`Invalid event type on vertexAccepted guard: ${event.type}`);
   }
 
   return event.event.event.type === 'NEW_VERTEX_ACCEPTED';
@@ -103,12 +104,13 @@ export const vertexAccepted = (_context: Context, event: Event) => {
  * if the received peer_id is the same as we expect (from an env var)
  */
 export const invalidPeerId = (_context: Context, event: Event) => {
-  if (event.type !== 'FULLNODE_EVENT') {
-    throw new Error(`Invalid event type on invalidPeerId guard ${event.type}`);
+  if (event.type !== EventTypes.FULLNODE_EVENT) {
+    throw new Error(`Invalid event type on invalidPeerId guard: ${event.type}`);
   }
   const { FULLNODE_PEER_ID } = getConfig();
 
-  return event.event.event.peer_id !== FULLNODE_PEER_ID;
+  // @ts-ignore
+  return event.event.peer_id !== FULLNODE_PEER_ID;
 };
 
 /*
@@ -116,12 +118,12 @@ export const invalidPeerId = (_context: Context, event: Event) => {
  * if the received network is the same as we expect (from an env var)
  */
 export const invalidNetwork = (_context: Context, event: Event) => {
-  if (event.type !== 'FULLNODE_EVENT') {
-    throw new Error(`Invalid event type on invalidNetwork guard ${event.type}`);
+  if (event.type !== EventTypes.FULLNODE_EVENT) {
+    throw new Error(`Invalid event type on invalidNetwork guard: ${event.type}`);
   }
   const { NETWORK } = getConfig();
 
-  return event.event.event.network !== NETWORK;
+  return event.event.network !== NETWORK;
 };
 
 /*
@@ -130,8 +132,8 @@ export const invalidNetwork = (_context: Context, event: Event) => {
  * This makes sure that the order of the events is the same.
  */
 export const invalidStreamId = (_context: Context, event: Event) => {
-  if (event.type !== 'FULLNODE_EVENT') {
-    throw new Error(`Invalid event type on invalidStreamId guard ${event.type}`);
+  if (event.type !== EventTypes.FULLNODE_EVENT) {
+    throw new Error(`Invalid event type on invalidStreamId guard: ${event.type}`);
   }
   const { STREAM_ID } = getConfig();
 
@@ -139,8 +141,8 @@ export const invalidStreamId = (_context: Context, event: Event) => {
 }
 
 export const websocketDisconnected = (_context: Context, event: Event) => {
-  if (event.type !== 'WEBSOCKET_EVENT') {
-    throw new Error(`Invalid event type on websocketDisconnected guard ${event.type}`);
+  if (event.type !== EventTypes.WEBSOCKET_EVENT) {
+    throw new Error(`Invalid event type on websocketDisconnected guard: ${event.type}`);
   }
 
   if (event.event.type === 'DISCONNECTED') {
@@ -156,8 +158,8 @@ export const websocketDisconnected = (_context: Context, event: Event) => {
  * ignore transactions that we don't have on our database but are already voided
  */
 export const voided = (_context: Context, event: Event) => {
-  if (event.type !== 'FULLNODE_EVENT') {
-    throw new Error(`Invalid event type on voided guard ${event.type}`);
+  if (event.type !== EventTypes.FULLNODE_EVENT) {
+    throw new Error(`Invalid event type on voided guard: ${event.type}`);
   }
 
   if (event.event.event.type !== 'VERTEX_METADATA_CHANGED'
@@ -179,12 +181,13 @@ export const voided = (_context: Context, event: Event) => {
  * any of the fields we are interested on
  */
 export const unchanged = (context: Context, event: Event) => {
-  if (event.type !== 'FULLNODE_EVENT') {
-    throw new Error(`Invalid event type on unchanged guard ${event.type}`);
+  if (event.type !== EventTypes.FULLNODE_EVENT) {
+    throw new Error(`Invalid event type on unchanged guard: ${event.type}`);
   }
 
   if (event.event.event.type !== 'VERTEX_METADATA_CHANGED'
       && event.event.event.type !== 'NEW_VERTEX_ACCEPTED') {
+
     // Not unchanged
     return false;
   }
