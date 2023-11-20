@@ -25,6 +25,8 @@ export default (callback: any, receive: any) => {
 
     if (!socket) {
       logger.error('Received event but no socket yet');
+
+      return;
     }
 
     const payload = JSON.stringify(event.event);
