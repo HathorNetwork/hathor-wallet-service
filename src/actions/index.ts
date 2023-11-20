@@ -11,6 +11,9 @@ import { get } from 'lodash';
 import logger from '../logger';
 import { hashTxData } from '../utils';
 
+/*
+ * This action is used to store the initial event id on the context
+ */
 export const storeInitialState = assign({
   initialEventId: (_context: Context, event: Event) => {
     // @ts-ignore
@@ -18,6 +21,14 @@ export const storeInitialState = assign({
   },
 });
 
+/*
+ * This action is used to set the context event to the event that comes on the
+ * event.
+ *
+ * This is used after the metadataDiff service detects what is the type of the
+ * event, so the state is transitioned to the right place and the event is set
+ * to the original event (that initiated the metadata diff check)
+ */
 export const unwrapEvent = assign({
   event: (_context: Context, event: Event) => {
     if (event.type !== 'METADATA_DECIDED') {
@@ -28,10 +39,17 @@ export const unwrapEvent = assign({
   },
 });
 
+/*
+ * This action is used to increase the retry count on the context
+ */
 export const increaseRetry = assign({
   retryAttempt: (context: Context) => context.retryAttempt + 1,
 });
 
+/*
+ * This is a helper to get the socket ref from the context and throw if it's not
+ * found.
+ */
 export const getSocketRefFromContext = (context: Context) => {
   if (!context.socket) {
     throw new Error('No socket');
@@ -40,6 +58,9 @@ export const getSocketRefFromContext = (context: Context) => {
   return context.socket;
 };
 
+/*
+ * This action sends an event to the socket actor
+ */
 export const startStream = sendTo(
   getSocketRefFromContext,
   (context: Context, _event: Event) => {
@@ -55,10 +76,17 @@ export const startStream = sendTo(
     };
   });
 
+/*
+ * This action clears the socket ref from context
+ */
 export const clearSocket = assign({
   socket: null,
 });
 
+/*
+ * This action stores the event on the machine's context. It also asserts that
+ * the event being saved is higher than the last one and fails if it's not.
+ */
 export const storeEvent: AssignAction<Context, Event> = assign({
   event: (context: Context, event: Event) => {
     if (event.type !== 'FULLNODE_EVENT') {
@@ -91,6 +119,9 @@ export const storeEvent: AssignAction<Context, Event> = assign({
   },
 });
 
+/*
+ * This action is used to send an ACK event to the socket actor
+ */
 export const sendAck = sendTo(getSocketRefFromContext,
   (context: Context, _event) => {
     if (!context.event) {
@@ -107,12 +138,20 @@ export const sendAck = sendTo(getSocketRefFromContext,
     }
   });
 
+/*
+ * This action is used to raise the metadataDecided event on the machine.
+ * This is currently used to indicate that the metadataDiff service finished and
+ * yielded a result
+ */
 export const metadataDecided = raise((_context: Context, event: Event) => ({
   type: 'METADATA_DECIDED',
   // @ts-ignore
   event: event.data,
 }));
 
+/*
+ * Updates the cache with the last processed event (from the context)
+ */
 export const updateCache = (context: Context) => {
   const fullNodeEvent = context.event;
   if (!fullNodeEvent) {
@@ -124,4 +163,7 @@ export const updateCache = (context: Context) => {
   context.txCache.set(hash, hashedTxData);
 };
 
+/*
+ * Logs the event as an error log
+ */
 export const logEventError = (_context: Context, event: Event) => logger.error(event);
