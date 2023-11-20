@@ -103,9 +103,25 @@ export const vertexAccepted = (_context: Context, event: Event) => {
  * if the received peer_id is the same as we expect (from an env var)
  */
 export const invalidPeerId = (_context: Context, event: Event) => {
+  if (event.type !== 'FULLNODE_EVENT') {
+    throw new Error(`Invalid event type on invalidPeerId guard ${event.type}`);
+  }
   const { FULLNODE_PEER_ID } = getConfig();
-  // @ts-ignore
+
   return event.event.event.peer_id !== FULLNODE_PEER_ID;
+};
+
+/*
+ * This guard is used on each event that is received from the fullnode to detect
+ * if the received network is the same as we expect (from an env var)
+ */
+export const invalidNetwork = (_context: Context, event: Event) => {
+  if (event.type !== 'FULLNODE_EVENT') {
+    throw new Error(`Invalid event type on invalidNetwork guard ${event.type}`);
+  }
+  const { NETWORK } = getConfig();
+
+  return event.event.event.network !== NETWORK;
 };
 
 /*
@@ -114,9 +130,11 @@ export const invalidPeerId = (_context: Context, event: Event) => {
  * This makes sure that the order of the events is the same.
  */
 export const invalidStreamId = (_context: Context, event: Event) => {
+  if (event.type !== 'FULLNODE_EVENT') {
+    throw new Error(`Invalid event type on invalidStreamId guard ${event.type}`);
+  }
   const { STREAM_ID } = getConfig();
 
-  // @ts-ignore
   return event.event.stream_id !== STREAM_ID;
 }
 
