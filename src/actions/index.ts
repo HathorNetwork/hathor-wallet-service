@@ -6,10 +6,11 @@
  */
 
 import { assign, AssignAction, raise, sendTo } from 'xstate';
-import { Context, Event } from '../types';
+import { Context, Event, EventTypes } from '../types';
 import { get } from 'lodash';
 import logger from '../logger';
 import { hashTxData } from '../utils';
+import { createStartStreamMessage, createSendAckMessage } from '../actors';
 
 /*
  * This action is used to store the initial event id on the context
@@ -68,11 +69,8 @@ export const startStream = sendTo(
 
     return {
       type: 'WEBSOCKET_SEND_EVENT',
-      event: {
-        type: 'START_STREAM',
-        window_size: 1,
-        last_ack_event_id: lastAckEventId,
-      }
+      // @ts-ignore
+      event: createStartStreamMessage(lastAckEventId),
     };
   });
 
@@ -130,12 +128,8 @@ export const sendAck = sendTo(getSocketRefFromContext,
     }
 
     return {
-      type: 'WEBSOCKET_SEND_EVENT',
-      event: {
-        type: 'ACK',
-        window_size: 1,
-        ack_event_id: context.event.event.id,
-      },
+      type: EventTypes.WEBSOCKET_SEND_EVENT,
+      event: createSendAckMessage(context.event.event.id),
     }
   });
 
@@ -145,7 +139,7 @@ export const sendAck = sendTo(getSocketRefFromContext,
  * yielded a result
  */
 export const metadataDecided = raise((_context: Context, event: Event) => ({
-  type: 'METADATA_DECIDED',
+  type: EventTypes.METADATA_DECIDED,
   // @ts-ignore
   event: event.data,
 }));
