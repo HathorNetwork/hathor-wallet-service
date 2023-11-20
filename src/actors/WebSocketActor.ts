@@ -45,7 +45,14 @@ export default (callback: any, receive: any) => {
 
   socket.onmessage = (socketEvent) => {
     const event = JSON.parse(socketEvent.data.toString());
-    logger.debug(`Received ${get(event, 'event.type')}: ${get(event, 'event.id')} from socket.`, event);
+    const type = get(event, 'event.type');
+
+    logger.debug(`Received ${type}: ${get(event, 'event.id')} from socket.`, event);
+
+    if (!type) {
+      logger.error(JSON.stringify(event));
+      throw new Error('Received an event with no defined type');
+    }
 
     callback({
       type: 'FULLNODE_EVENT',
