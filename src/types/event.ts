@@ -5,6 +5,63 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+export type WebSocketEvent =
+  | { type: 'CONNECTED' }
+  | { type: 'DISCONNECTED' };
+
+export type MetadataDecidedEvent = {
+  type: 'TX_VOIDED' | 'TX_UNVOIDED' | 'TX_NEW' | 'TX_FIRST_BLOCK' | 'IGNORE';
+  originalEvent: FullNodeEvent;
+}
+
+export type WebSocketSendEvent = 
+  | {
+      type: 'START_STREAM';
+      window_size: number;
+      last_ack_event_id?: number;
+  }
+  | {
+      type: 'ACK';
+      window_size: number;
+      ack_event_id?: number;
+  };
+
+export type Event =
+  | { type: 'WEBSOCKET_EVENT', event: WebSocketEvent }
+  | { type: 'FULLNODE_EVENT', event: FullNodeEvent }
+  | { type: 'METADATA_DECIDED', event: MetadataDecidedEvent }
+  | { type: 'WEBSOCKET_SEND_EVENT', event: WebSocketSendEvent };
+
+export type FullNodeEvent = {
+  stream_id: string;
+  type: string;
+  latest_event_id: number;
+  event: {
+    peer_id: string;
+    network: string;
+    id: number;
+    timestamp: number;
+    type: string;
+    data: {
+      hash: string;
+      timestamp: number;
+      version: number;
+      weight: number;
+      inputs: EventTxInput[];
+      outputs: EventTxOutput[];
+      tokens: string[];
+      token_name: null | string;
+      token_symbol: null | string;
+      metadata: {
+        hash: string;
+        voided_by: string[];
+        first_block: null | string;
+        height: number;
+      };
+    }
+  }
+}
+
 export interface EventTxInput {
   tx_id: string;
   index: number;
