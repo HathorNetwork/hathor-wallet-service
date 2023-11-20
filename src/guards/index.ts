@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { Context, Event, EventTypes } from '../types';
+import { Context, Event, EventTypes, FullNodeEventTypes } from '../types';
 import { hashTxData } from '../utils';
 import { METADATA_DIFF_EVENT_TYPES } from '../services';
 import getConfig from '../config';
@@ -83,7 +83,7 @@ export const metadataChanged = (_context: Context, event: Event) => {
     throw new Error(`Invalid event type on metadataChanged guard: ${event.type}`);
   }
 
-  return event.event.event.type === 'VERTEX_METADATA_CHANGED';
+  return event.event.event.type === FullNodeEventTypes.VERTEX_METADATA_CHANGED;
 };
 
 /*
@@ -96,7 +96,7 @@ export const vertexAccepted = (_context: Context, event: Event) => {
     throw new Error(`Invalid event type on vertexAccepted guard: ${event.type}`);
   }
 
-  return event.event.event.type === 'NEW_VERTEX_ACCEPTED';
+  return event.event.event.type === FullNodeEventTypes.NEW_VERTEX_ACCEPTED;
 };
 
 /*
@@ -162,8 +162,8 @@ export const voided = (_context: Context, event: Event) => {
     throw new Error(`Invalid event type on voided guard: ${event.type}`);
   }
 
-  if (event.event.event.type !== 'VERTEX_METADATA_CHANGED'
-      && event.event.event.type !== 'NEW_VERTEX_ACCEPTED') {
+  if (event.event.event.type !== FullNodeEventTypes.VERTEX_METADATA_CHANGED
+      && event.event.event.type !== FullNodeEventTypes.NEW_VERTEX_ACCEPTED) {
         return false;
   }
 
@@ -185,8 +185,8 @@ export const unchanged = (context: Context, event: Event) => {
     throw new Error(`Invalid event type on unchanged guard: ${event.type}`);
   }
 
-  if (event.event.event.type !== 'VERTEX_METADATA_CHANGED'
-      && event.event.event.type !== 'NEW_VERTEX_ACCEPTED') {
+  if (event.event.event.type !== FullNodeEventTypes.VERTEX_METADATA_CHANGED
+      && event.event.event.type !== FullNodeEventTypes.NEW_VERTEX_ACCEPTED) {
 
     // Not unchanged
     return false;
