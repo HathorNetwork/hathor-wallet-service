@@ -91,7 +91,7 @@ const SyncMachine = Machine<Context, any, Event>({
         src: 'fetchInitialState',
         onDone: {
           actions: ['storeInitialState'],
-          target: 'CONNECTING',
+          target: SYNC_MACHINE_STATES.CONNECTING,
         },
         onError: {
           target: `#${SYNC_MACHINE_STATES.ERROR}`,
@@ -105,16 +105,16 @@ const SyncMachine = Machine<Context, any, Event>({
       on: {
         WEBSOCKET_EVENT: [{
           cond: 'websocketDisconnected',
-          target: 'RECONNECTING',
+          target: SYNC_MACHINE_STATES.RECONNECTING,
         }, {
-          target: 'CONNECTED',
+          target: SYNC_MACHINE_STATES.CONNECTED,
         }],
       },
     },
     [SYNC_MACHINE_STATES.RECONNECTING]: {
       onEntry: ['clearSocket', 'increaseRetry'],
       after: {
-        BACKOFF_DELAYED_RECONNECT: 'CONNECTING',
+        BACKOFF_DELAYED_RECONNECT: SYNC_MACHINE_STATES.CONNECTING,
       },
     },
     [SYNC_MACHINE_STATES.CONNECTED]: {
