@@ -11,6 +11,7 @@ import {
   websocketDisconnected,
   voided,
   unchanged,
+  invalidNetwork,
 } from '../../src/guards';
 
 jest.mock('../../src/utils', () => ({
@@ -48,6 +49,7 @@ const generateFullNodeEvent = (type: string, data = {} as any): Event => ({
   event: {
     type: 'EVENT',
     event: {
+      network: 'mainnet',
       peer_id: '',
       id: 0,
       timestamp: 0,
@@ -198,6 +200,20 @@ describe('fullnode validation guards', () => {
     // @ts-ignore
     fullNodeEvent.event.stream_id = 'invalidStreamId';
     expect(invalidStreamId(mockContext, fullNodeEvent)).toBe(true);
+  });
+
+  test('invalidNetwork', () => {
+    // @ts-ignore
+    getConfig.mockReturnValue({
+      NETWORK: 'mainnet',
+    });
+    const fullNodeEvent = generateFullNodeEvent('NEW_VERTEX_ACCEPTED');
+    // @ts-ignore
+    fullNodeEvent.event.event.network = 'mainnet';
+    expect(invalidNetwork(mockContext, fullNodeEvent)).toBe(false);
+    // @ts-ignore
+    fullNodeEvent.event.event.network = 'testnet';
+    expect(invalidNetwork(mockContext, fullNodeEvent)).toBe(true);
   });
 
   test('invalidPeerId', () => {

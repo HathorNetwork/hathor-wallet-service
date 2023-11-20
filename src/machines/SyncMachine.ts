@@ -23,7 +23,6 @@ import {
   handleTxFirstBlock,
   updateLastSyncedEvent,
   fetchInitialState,
-  validateNetwork,
   handleUnvoidedTx,
 } from '../services';
 import {
@@ -36,6 +35,7 @@ import {
   vertexAccepted,
   invalidPeerId,
   invalidStreamId,
+  invalidNetwork,
   websocketDisconnected,
   voided,
   unchanged,
@@ -65,7 +65,6 @@ export const SYNC_MACHINE_STATES = {
 
 export const CONNECTED_STATES = {
   idle: 'idle',
-  validateNetwork: 'validateNetwork',
   handlingUnhandledEvent: 'handlingUnhandledEvent',
   handlingMetadataChanged: 'handlingMetadataChanged',
   handlingVertexAccepted: 'handlingVertexAccepted',
@@ -120,18 +119,9 @@ const SyncMachine = Machine<Context, any, Event>({
     },
     [SYNC_MACHINE_STATES.CONNECTED]: {
       id: SYNC_MACHINE_STATES.CONNECTED,
-      initial: CONNECTED_STATES.validateNetwork,
+      initial: CONNECTED_STATES.idle,
+      entry: ['startStream'],
       states: {
-        [CONNECTED_STATES.validateNetwork]: {
-          invoke: {
-            src: 'validateNetwork',
-            onDone: {
-              target: CONNECTED_STATES.idle,
-              actions: ['startStream'],
-            },
-            onError: `#${SYNC_MACHINE_STATES.ERROR}`,
-          },
-        },
         [CONNECTED_STATES.idle]: {
           id: CONNECTED_STATES.idle,
           on: {
@@ -140,6 +130,9 @@ const SyncMachine = Machine<Context, any, Event>({
               target: `#${SYNC_MACHINE_STATES.ERROR}`,
             }, {
               cond: 'invalidPeerId',
+              target: `#${SYNC_MACHINE_STATES.ERROR}`,
+            }, {
+              cond: 'invalidNetwork',
               target: `#${SYNC_MACHINE_STATES.ERROR}`,
             }, {
               actions: ['storeEvent', 'sendAck'],
@@ -267,6 +260,8 @@ const SyncMachine = Machine<Context, any, Event>({
 }, {
   guards: {
     invalidStreamId,
+    invalidPeerId,
+    invalidNetwork,
     metadataIgnore,
     metadataVoided,
     metadataUnvoided,
@@ -274,7 +269,6 @@ const SyncMachine = Machine<Context, any, Event>({
     metadataFirstBlock,
     metadataChanged,
     vertexAccepted,
-    invalidPeerId,
     websocketDisconnected,
     voided,
     unchanged,
@@ -293,7 +287,6 @@ const SyncMachine = Machine<Context, any, Event>({
     updateCache,
   },
   services: {
-    validateNetwork,
     handleVoidedTx,
     handleUnvoidedTx,
     handleVertexAccepted,

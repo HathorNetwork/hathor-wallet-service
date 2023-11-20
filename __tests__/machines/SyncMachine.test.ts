@@ -61,13 +61,6 @@ const untilIdle = (machine: Machine<Context, any, Event>) => {
     event: { type: 'CONNECTED' },
   });
 
-  expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.validateNetwork}`)).toBeTruthy();
-
-  currentState = machine.transition(currentState, {
-    // @ts-ignore
-    type: `done.invoke.SyncMachine.${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.validateNetwork}:invocation[0]`
-  });
-
   expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.idle}`)).toBeTruthy();
 
   return currentState;
@@ -98,13 +91,6 @@ describe('machine initialization', () => {
     currentState = MockedFetchMachine.transition(currentState, {
       type: 'WEBSOCKET_EVENT',
       event: { type: 'CONNECTED' },
-    });
-
-    expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.validateNetwork}`)).toBeTruthy();
-
-    currentState = MockedFetchMachine.transition(currentState, {
-      // @ts-ignore
-      type: `done.invoke.SyncMachine.${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.validateNetwork}:invocation[0]`
     });
 
     expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.idle}`)).toBeTruthy();
@@ -195,13 +181,6 @@ describe('machine initialization', () => {
       event: { type: 'CONNECTED' },
     });
 
-    expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.validateNetwork}`)).toBeTruthy();
-
-    currentState = MockedFetchMachine.transition(currentState, {
-      // @ts-ignore
-      type: `done.invoke.SyncMachine.${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.validateNetwork}:invocation[0]`
-    });
-
     expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.idle}`)).toBeTruthy();
 
     currentState = MockedFetchMachine.transition(currentState, {
@@ -212,44 +191,6 @@ describe('machine initialization', () => {
     });
 
     expect(currentState.matches(`${SYNC_MACHINE_STATES.RECONNECTING}`)).toBeTruthy();
-  });
-});
-
-describe('Validations', () => {
-  it('should transition to ERROR final state if the network is incorrect', () => {
-    const MockedFetchMachine = SyncMachine.withConfig({
-      actions: {
-        startStream: () => {},
-      },
-    });
-
-    let currentState = MockedFetchMachine.initialState;
-
-    expect(currentState.matches(SYNC_MACHINE_STATES.INITIALIZING)).toBeTruthy();
-
-    currentState = MockedFetchMachine.transition(currentState, {
-      // @ts-ignore
-      type: `done.invoke.SyncMachine.${SYNC_MACHINE_STATES.INITIALIZING}:invocation[0]`,
-      // @ts-ignore
-      data: { lastEventId: 999 },
-    });
-
-    expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTING}`)).toBeTruthy();
-    expect(currentState.context.initialEventId).toStrictEqual(999);
-
-    currentState = MockedFetchMachine.transition(currentState, {
-      type: 'WEBSOCKET_EVENT',
-      event: { type: 'CONNECTED' },
-    });
-
-    expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.validateNetwork}`)).toBeTruthy();
-
-    currentState = MockedFetchMachine.transition(currentState, {
-      // @ts-ignore
-      type: `error.platform.SyncMachine.${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.validateNetwork}:invocation[0]`
-    });
-
-    expect(currentState.matches('ERROR')).toBeTruthy();
   });
 });
 
