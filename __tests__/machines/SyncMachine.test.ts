@@ -22,7 +22,7 @@ import {
 } from '../../src/guards';
 import { LRU } from '../../src/utils';
 import EventFixtures from '../__fixtures__/events';
-import { FullNodeEvent, Event, Context } from '../../src/types';
+import { FullNodeEvent, Event, Context, EventTypes } from '../../src/types';
 import { hashTxData } from '../../src/utils';
 import getConfig from '../../src/config';
 
@@ -57,7 +57,7 @@ const untilIdle = (machine: Machine<Context, any, Event>) => {
   expect(currentState.context.initialEventId).toStrictEqual(999);
 
   currentState = machine.transition(currentState, {
-    type: 'WEBSOCKET_EVENT',
+    type: EventTypes.WEBSOCKET_EVENT,
     event: { type: 'CONNECTED' },
   });
 
@@ -89,7 +89,7 @@ describe('machine initialization', () => {
     expect(currentState.context.initialEventId).toStrictEqual(999);
 
     currentState = MockedFetchMachine.transition(currentState, {
-      type: 'WEBSOCKET_EVENT',
+      type: EventTypes.WEBSOCKET_EVENT,
       event: { type: 'CONNECTED' },
     });
 
@@ -117,7 +117,10 @@ describe('machine initialization', () => {
     expect(currentState.matches(SYNC_MACHINE_STATES.CONNECTING)).toBeTruthy();
     expect(currentState.context.initialEventId).toStrictEqual(999);
 
-    currentState = MockedFetchMachine.transition(currentState, { type: 'WEBSOCKET_EVENT', event: { type: 'DISCONNECTED', }});
+    currentState = MockedFetchMachine.transition(currentState, {
+      type: EventTypes.WEBSOCKET_EVENT,
+      event: { type: 'DISCONNECTED',
+    }});
 
     expect(currentState.matches(SYNC_MACHINE_STATES.RECONNECTING)).toBeTruthy();
   });
@@ -143,7 +146,10 @@ describe('machine initialization', () => {
     expect(currentState.matches(SYNC_MACHINE_STATES.CONNECTING)).toBeTruthy();
     expect(currentState.context.initialEventId).toStrictEqual(999);
 
-    currentState = MockedFetchMachine.transition(currentState, { type: 'WEBSOCKET_EVENT', event: { type: 'DISCONNECTED', }});
+    currentState = MockedFetchMachine.transition(currentState, {
+      type: EventTypes.WEBSOCKET_EVENT,
+      event: { type: 'DISCONNECTED', }
+    });
 
     expect(currentState.matches(SYNC_MACHINE_STATES.RECONNECTING)).toBeTruthy();
 
@@ -177,14 +183,14 @@ describe('machine initialization', () => {
     expect(currentState.context.initialEventId).toStrictEqual(999);
 
     currentState = MockedFetchMachine.transition(currentState, {
-      type: 'WEBSOCKET_EVENT',
+      type: EventTypes.WEBSOCKET_EVENT,
       event: { type: 'CONNECTED' },
     });
 
     expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.idle}`)).toBeTruthy();
 
     currentState = MockedFetchMachine.transition(currentState, {
-      type: 'WEBSOCKET_EVENT',
+      type: EventTypes.WEBSOCKET_EVENT,
       event: {
         type: 'DISCONNECTED',
       },
@@ -224,7 +230,7 @@ describe('Event handling', () => {
     process.env.FULLNODE_PEER_ID = 'invalidPeerId';
 
     currentState = MockedFetchMachine.transition(currentState, {
-      type: 'FULLNODE_EVENT',
+      type: EventTypes.FULLNODE_EVENT,
       event: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
     });
 
@@ -243,7 +249,7 @@ describe('Event handling', () => {
     process.env.STREAM_ID  = 'invalidStreamId';
 
     currentState = MockedFetchMachine.transition(currentState, {
-      type: 'FULLNODE_EVENT',
+      type: EventTypes.FULLNODE_EVENT,
       event: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
     });
 
@@ -281,7 +287,7 @@ describe('Event handling', () => {
     TxCache.set(VERTEX_METADATA_CHANGED.event.data.hash, hashedTx);
 
     currentState = MockedFetchMachine.transition(currentState, {
-      type: 'FULLNODE_EVENT',
+      type: EventTypes.FULLNODE_EVENT,
       event: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
     });
 
@@ -298,7 +304,7 @@ describe('Event handling', () => {
     TxCache.clear();
 
     currentState = MockedFetchMachine.transition(currentState, {
-      type: 'FULLNODE_EVENT',
+      type: EventTypes.FULLNODE_EVENT,
       event: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
     });
 
@@ -321,15 +327,14 @@ describe('Event handling', () => {
     let currentState = untilIdle(MockedFetchMachine);
 
     currentState = MockedFetchMachine.transition(currentState, {
-      type: 'FULLNODE_EVENT',
+      type: EventTypes.FULLNODE_EVENT,
       event: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
     });
 
     expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.handlingMetadataChanged}.detectingDiff`)).toBeTruthy();
 
     currentState = MockedFetchMachine.transition(currentState, {
-      // @ts-ignore
-      type: 'METADATA_DECIDED',
+      type: EventTypes.METADATA_DECIDED,
       event: {
         type: 'TX_VOIDED',
         originalEvent: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
@@ -351,15 +356,14 @@ describe('Event handling', () => {
     let currentState = untilIdle(MockedFetchMachine);
 
     currentState = MockedFetchMachine.transition(currentState, {
-      type: 'FULLNODE_EVENT',
+      type: EventTypes.FULLNODE_EVENT,
       event: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
     });
 
     expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.handlingMetadataChanged}.detectingDiff`)).toBeTruthy();
 
     currentState = MockedFetchMachine.transition(currentState, {
-      // @ts-ignore
-      type: 'METADATA_DECIDED',
+      type: EventTypes.METADATA_DECIDED,
       event: {
         type: 'TX_UNVOIDED',
         originalEvent: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
@@ -381,15 +385,14 @@ describe('Event handling', () => {
     let currentState = untilIdle(MockedFetchMachine);
 
     currentState = MockedFetchMachine.transition(currentState, {
-      type: 'FULLNODE_EVENT',
+      type: EventTypes.FULLNODE_EVENT,
       event: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
     });
 
     expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.handlingMetadataChanged}.detectingDiff`)).toBeTruthy();
 
     currentState = MockedFetchMachine.transition(currentState, {
-      // @ts-ignore
-      type: 'METADATA_DECIDED',
+      type: EventTypes.METADATA_DECIDED,
       event: {
         type: 'TX_NEW',
         originalEvent: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
@@ -411,7 +414,7 @@ describe('Event handling', () => {
     let currentState = untilIdle(MockedFetchMachine);
 
     currentState = MockedFetchMachine.transition(currentState, {
-      type: 'FULLNODE_EVENT',
+      type: EventTypes.FULLNODE_EVENT,
       event: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
     });
 
@@ -419,7 +422,7 @@ describe('Event handling', () => {
 
     currentState = MockedFetchMachine.transition(currentState, {
       // @ts-ignore
-      type: 'METADATA_DECIDED',
+      type: EventTypes.METADATA_DECIDED,
       event: {
         type: 'TX_FIRST_BLOCK',
         originalEvent: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
@@ -441,7 +444,7 @@ describe('Event handling', () => {
     let currentState = untilIdle(MockedFetchMachine);
 
     currentState = MockedFetchMachine.transition(currentState, {
-      type: 'FULLNODE_EVENT',
+      type: EventTypes.FULLNODE_EVENT,
       event: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
     });
 
@@ -449,7 +452,7 @@ describe('Event handling', () => {
 
     currentState = MockedFetchMachine.transition(currentState, {
       // @ts-ignore
-      type: 'METADATA_DECIDED',
+      type: EventTypes.METADATA_DECIDED,
       event: {
         type: 'IGNORE',
         originalEvent: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
@@ -479,7 +482,7 @@ describe('Event handling', () => {
     VOIDED_NEW_VERTEX_ACCEPTED.event.data.metadata.voided_by = ['tx1'];
 
     currentState = MockedFetchMachine.transition(currentState, {
-      type: 'FULLNODE_EVENT',
+      type: EventTypes.FULLNODE_EVENT,
       event: VOIDED_NEW_VERTEX_ACCEPTED as unknown as FullNodeEvent,
     });
 
@@ -501,7 +504,7 @@ describe('Event handling', () => {
     let currentState = untilIdle(MockedFetchMachine);
 
     currentState = MockedFetchMachine.transition(currentState, {
-      type: 'FULLNODE_EVENT',
+      type: EventTypes.FULLNODE_EVENT,
       event: {
         type: 'EVENT',
         event: {
@@ -528,7 +531,7 @@ describe('Event handling', () => {
     let currentState = untilIdle(MockedFetchMachine);
 
     currentState = MockedFetchMachine.transition(currentState, {
-      type: 'FULLNODE_EVENT',
+      type: EventTypes.FULLNODE_EVENT,
       event: REORG_STARTED as unknown as FullNodeEvent,
     });
 

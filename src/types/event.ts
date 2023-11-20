@@ -26,19 +26,26 @@ export type WebSocketSendEvent =
       ack_event_id?: number;
   };
 
+export enum EventTypes {
+  WEBSOCKET_EVENT = 'WEBSOCKET_EVENT',
+  FULLNODE_EVENT = 'FULLNODE_EVENT',
+  METADATA_DECIDED = 'METADATA_DECIDED',
+  WEBSOCKET_SEND_EVENT = 'WEBSOCKET_SEND_EVENT',
+}
+
 export type Event =
-  | { type: 'WEBSOCKET_EVENT', event: WebSocketEvent }
-  | { type: 'FULLNODE_EVENT', event: FullNodeEvent }
-  | { type: 'METADATA_DECIDED', event: MetadataDecidedEvent }
-  | { type: 'WEBSOCKET_SEND_EVENT', event: WebSocketSendEvent };
+  | { type: EventTypes.WEBSOCKET_EVENT, event: WebSocketEvent }
+  | { type: EventTypes.FULLNODE_EVENT, event: FullNodeEvent }
+  | { type: EventTypes.METADATA_DECIDED, event: MetadataDecidedEvent }
+  | { type: EventTypes.WEBSOCKET_SEND_EVENT, event: WebSocketSendEvent };
 
 export type FullNodeEvent = {
   stream_id: string;
+  peer_id: string;
+  network: string;
   type: string;
   latest_event_id: number;
   event: {
-    peer_id: string;
-    network: string;
     id: number;
     timestamp: number;
     type: string;

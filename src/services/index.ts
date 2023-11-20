@@ -58,6 +58,14 @@ import {
 import getConfig from '../config';
 import logger from '../logger';
 
+export const METADATA_DIFF_EVENT_TYPES = {
+  IGNORE: 'IGNORE',
+  TX_VOIDED: 'TX_VOIDED',
+  TX_UNVOIDED: 'TX_UNVOIDED',
+  TX_NEW: 'TX_NEW',
+  TX_FIRST_BLOCK: 'TX_FIRST_BLOCK',
+};
+
 export const metadataDiff = async (_context: Context, event: Event) => {
   const mysql = await getDbConnection();
 
@@ -73,13 +81,13 @@ export const metadataDiff = async (_context: Context, event: Event) => {
       if (voided_by.length > 0) {
         // No need to add voided transactions
         return {
-          type: 'IGNORE',
+          type: METADATA_DIFF_EVENT_TYPES.IGNORE,
           originalEvent: event,
         };
       }
 
       return {
-        type: 'TX_NEW',
+        type: METADATA_DIFF_EVENT_TYPES.TX_NEW,
         originalEvent: event,
       };
     }
@@ -89,13 +97,13 @@ export const metadataDiff = async (_context: Context, event: Event) => {
       // Was it voided on the database?
       if (!dbTx.voided) {
         return {
-          type: 'TX_VOIDED',
+          type: METADATA_DIFF_EVENT_TYPES.TX_VOIDED,
           originalEvent: event,
         };
       }
 
       return {
-        type: 'IGNORE',
+        type: METADATA_DIFF_EVENT_TYPES.IGNORE,
         originalEvent: event,
       };
     }
@@ -103,7 +111,7 @@ export const metadataDiff = async (_context: Context, event: Event) => {
     // Tx was voided in the database but is not anymore
     if (dbTx.voided && voided_by.length <= 0) {
       return {
-        type: 'TX_UNVOIDED',
+        type: METADATA_DIFF_EVENT_TYPES.TX_UNVOIDED,
         originalEvent: event,
       };
     }
@@ -113,19 +121,19 @@ export const metadataDiff = async (_context: Context, event: Event) => {
        && first_block.length > 0) {
       if (!dbTx.height) {
         return {
-          type: 'TX_FIRST_BLOCK',
+          type: METADATA_DIFF_EVENT_TYPES.TX_FIRST_BLOCK,
           originalEvent: event,
         };
       }
 
       return {
-        type: 'IGNORE',
+        type: METADATA_DIFF_EVENT_TYPES.IGNORE,
         originalEvent: event,
       };
     }
 
     return {
-      type: 'IGNORE',
+      type: METADATA_DIFF_EVENT_TYPES.IGNORE,
       originalEvent: event,
     };
   } catch (e) {

@@ -13,6 +13,7 @@ import {
   unchanged,
   invalidNetwork,
 } from '../../src/guards';
+import { EventTypes } from '../../src/types';
 
 jest.mock('../../src/utils', () => ({
   hashTxData: jest.fn(),
@@ -45,7 +46,7 @@ const mockContext: Context = {
 };
 
 const generateFullNodeEvent = (type: string, data = {} as any): Event => ({
-  type: 'FULLNODE_EVENT',
+  type: EventTypes.FULLNODE_EVENT,
   event: {
     type: 'EVENT',
     network: 'mainnet',
@@ -62,7 +63,7 @@ const generateFullNodeEvent = (type: string, data = {} as any): Event => ({
 });
 
 const generateMetadataDecidedEvent = (type: string): Event => ({
-  type: 'METADATA_DECIDED',
+  type: EventTypes.METADATA_DECIDED,
   event: {
     type,
     // @ts-ignore
@@ -219,11 +220,11 @@ describe('fullnode validation guards', () => {
 describe('websocket guards', () => {
   test('websocketDisconnected', () => {
     const mockDisconnectedEvent: Event = {
-      type: 'WEBSOCKET_EVENT',
+      type: EventTypes.WEBSOCKET_EVENT,
       event: { type: 'DISCONNECTED' }
     };
     const mockConnectedEvent: Event = {
-      type: 'WEBSOCKET_EVENT',
+      type: EventTypes.WEBSOCKET_EVENT,
       event: { type: 'CONNECTED' }
     };
 
