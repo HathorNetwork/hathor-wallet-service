@@ -32,6 +32,7 @@ import {
   updateAddressLockedBalance,
   updateWalletLockedBalance,
 } from '../db';
+import logger from '../logger';
 
 /**
  * Checks if a given tokenData has any authority bit set
@@ -367,8 +368,23 @@ export const validateAddressBalances = async (mysql: MysqlConnection, addresses:
   const addressBalances: AddressBalance[] = await fetchAddressBalance(mysql, addresses);
   const addressTxHistorySums: AddressTotalBalance[] = await fetchAddressTxHistorySum(mysql, addresses);
 
+  logger.debug(`Validating address balances for ${JSON.stringify(addresses)}`);
+
+  /* We need to filter out zero transactions address balances as we won't have
+   * any records in the address_tx_history table and the assertion ahead will
+   * fail.
+   *
+   * This might happen after a re-org for an address that only had one transaction
+   * as this transaction will be removed from the address_tx_history table (or
+   * marked as voided) and the address_balance table will be updated, removing
+   * one from the transactions column.
+   */
+  const filteredAddressBalances = addressBalances.filter(
+    (addressBalance: AddressBalance) => addressBalance.transactions > 0
+  );
+
   for (let i = 0; i < addressTxHistorySums.length; i++) {
-    const addressBalance: AddressBalance = addressBalances[i];
+    const addressBalance: AddressBalance = filteredAddressBalances[i];
     const addressTxHistorySum: AddressTotalBalance = addressTxHistorySums[i];
 
     assert.strictEqual(addressBalance.tokenId, addressTxHistorySum.tokenId);
