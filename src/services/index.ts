@@ -172,9 +172,12 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
     const dbTx: DbTransaction | null = await getTransactionById(mysql, hash);
 
-    // Db is already on the database, this should never happen
     if (dbTx) {
-      throw new Error(`Transaction ${hash} already in the database, this should never happen`);
+      logger.error(`Transaction ${hash} already in the database, this should only happen if the service has been recently restarted`);
+
+      // This might happen if the service has been recently restarted,
+      // so we should raise the alert and just ignore the tx
+      return;
     }
 
     let height: number | null = metadata.height;
