@@ -9,8 +9,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        node: ['10.x', '12.x', '14.x']
-        os: [ubuntu-latest, windows-latest, macOS-latest]
+        node: ['18.x']
+        os: [ubuntu-latest]
 
     steps:
       - name: Checkout repo
@@ -25,17 +25,17 @@ jobs:
         uses: bahmutov/npm-install@c67aaab58a864ea2873950cde9c1c9379f9f711a
 
       - name: Lint
-        run: yarn lint
+        run: npm run lint
 
       - name: Test
-        run: yarn test --ci --coverage --maxWorkers=2
+        run: npm run test
 
       - name: Build
-        run: yarn build
+        run: npm run build
 
       - name: Upload coverage
         uses: codecov/codecov-action@v3
-        if: ${{ matrix.node-version }} == 14.x
+        if: ${{ matrix.node-version }} == 18.x
         with:
           verbose: true
 
