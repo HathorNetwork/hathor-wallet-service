@@ -1,40 +1,59 @@
 name: CI
 on: [push]
-env:
-  NODE_OPTIONS: --max_old_space_size=4096
 jobs:
-  build:
-    name: Build, lint, and test on Node ${{ matrix.node }} and ${{ matrix.os }}
-
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        node: ['18.x']
-        os: [ubuntu-latest]
-
+  test:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        # We are using this image because the official one didn't
+        # support settings default-authentication-plugin using env var
+        # About the --default-authentication-plugin: https://stackoverflow.com/questions/50093144/mysql-8-0-client-does-not-support-authentication-protocol-requested-by-server/56509065#56509065
+        image: centos/mysql-80-centos7
+        env:
+          MYSQL_DATABASE: wallet_service_ci
+          MYSQL_USER: wallet_service_user
+          MYSQL_PASSWORD: password
+          MYSQL_DEFAULT_AUTHENTICATION_PLUGIN: mysql_native_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 3
+      redis:
+        image: redis:6.2
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v2
+    - name: Checkout code
+      uses: actions/checkout@v3
 
-      - name: Use Node ${{ matrix.node }}
-        uses: actions/setup-node@v1
-        with:
-          node-version: ${{ matrix.node }}
+    - name: Install Nix
+      uses: cachix/install-nix-action@v20
+      with:
+        nix_path: nixpkgs=channel:nixos-unstable
+        extra_nix_config: |
+          experimental-features = nix-command flakes
+          
+    - name: Cache Nix
+      uses: DeterminateSystems/magic-nix-cache-action@v2
 
-      - name: Install deps and build (with cache)
-        uses: bahmutov/npm-install@c67aaab58a864ea2873950cde9c1c9379f9f711a
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Test
-        run: npm run test
-
-      - name: Build
-        run: npm run build
-
-      - name: Upload coverage
-        uses: codecov/codecov-action@v3
-        if: ${{ matrix.node-version }} == 18.x
-        with:
-          verbose: true
+    - name: Install dependencies
+      run: |
+        nix develop . -c yarn install
+    - name: Initialize DB
+      run: |
+        nix develop . -c yarn sequelize db:migrate
+      env:
+        NODE_ENV: test
+        CI_DB_NAME: wallet_service_ci
+        CI_DB_USERNAME: wallet_service_user
+        CI_DB_PASSWORD: password
+        CI_DB_HOST: 127.0.0.1
+        CI_DB_PORT: 3306
