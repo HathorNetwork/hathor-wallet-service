@@ -16,7 +16,7 @@
     "watch": "tsc -w",
     "test": "jest --coverage"
   },
-  "name": "hathor-wallet-service-sync_daemon",
+  "name": "sync-daemon",
   "author": "André Abadesso",
   "module": "dist/index.js",
   "devDependencies": {
