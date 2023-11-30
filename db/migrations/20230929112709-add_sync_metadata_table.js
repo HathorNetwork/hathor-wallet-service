@@ -13,7 +13,7 @@ module.exports = {
       },
       updated_at: {
         type: Sequelize.STRING(64),
-        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
+        defaultValue: 0,
       },
     });
   },

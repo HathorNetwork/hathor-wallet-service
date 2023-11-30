@@ -74,7 +74,7 @@ beforeAll(async () => {
     mysql = await getDbConnection();
   } catch(e) {
     console.error('Failed to establish db connection', e);
-    process.exit(1);
+    throw e;
   }
 });
 

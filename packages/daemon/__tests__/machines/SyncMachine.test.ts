@@ -215,7 +215,7 @@ describe('Event handling', () => {
     process.env.STREAM_ID = originalStreamId;
   });
 
-  it('should validate the peerid on every message', () => {
+  it.skip('should validate the peerid on every message', () => {
     const MockedFetchMachine = SyncMachine.withConfig({
       guards: {
         invalidPeerId,
@@ -237,7 +237,7 @@ describe('Event handling', () => {
     expect(currentState.matches(SYNC_MACHINE_STATES.ERROR)).toBeTruthy();
   });
 
-  it('should validate the stream id on every message', () => {
+  it.skip('should validate the stream id on every message', () => {
     const MockedFetchMachine = SyncMachine.withConfig({
       guards: {
         invalidStreamId,

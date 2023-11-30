@@ -30,6 +30,14 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      unvoided-scenario:
+        image: hathornetwork/hathor-core
+        ports:
+          - 8081:8080
+        options: >-
+          --entrypoint /bin/bash
+          hathornetwork/hathor-core
+          -c "events_simulator --scenario UNVOIDED_TRANSACTION"
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
@@ -47,6 +55,7 @@ jobs:
     - name: Install dependencies
       run: |
         nix develop . -c yarn install
+
     - name: Initialize DB
       run: |
         nix develop . -c yarn sequelize db:migrate
@@ -57,3 +66,17 @@ jobs:
         CI_DB_PASSWORD: password
         CI_DB_HOST: 127.0.0.1
         CI_DB_PORT: 3306
+
+    - name: Run tests on the daemon
+      run: |
+        nix develop . -c yarn workspace sync-daemon run test
+      env:
+        DB_ENDPOINT: 127.0.0.1
+        DB_NAME: wallet_service_ci
+        DB_USER: wallet_service_user
+        DB_PASS: password
+        DB_PORT: 3306
+
+    - name: Get fullnode status
+      run: |
+        curl -X GET http://127.0.0.1:8081/v1a/event?last_ack_event_id=1&size=1
