@@ -9,4 +9,5 @@ packages/daemon/dist
 packages/daemon/node_modules
 packages/wallet-service/node_modules
 packages/wallet-service/.serverless
+packages/wallet-service/.webpack
 .yarn/
