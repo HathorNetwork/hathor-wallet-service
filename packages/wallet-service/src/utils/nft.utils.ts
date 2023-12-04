@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { Lambda } from 'aws-sdk';
+import { LambdaClient, InvokeCommand, InvokeCommandOutput } from '@aws-sdk/client-lambda';
 import { addAlert } from '@src/utils/alerting.utils';
 import { Transaction, Severity } from '@src/types';
 import hathorLib from '@hathor/wallet-lib';
@@ -83,25 +83,24 @@ export class NftUtils {
    * @param {Record<string, unknown>} metadata
    */
   static async _updateMetadata(nftUid: string, metadata: Record<string, unknown>): Promise<unknown> {
-  // invoke lambda asynchronously to metadata update
-    const lambda = new Lambda({
-      apiVersion: '2015-03-31',
+    const client = new LambdaClient({
       endpoint: process.env.EXPLORER_SERVICE_LAMBDA_ENDPOINT,
+      region: 'local',
     });
-
-    const params = {
+   const command = new InvokeCommand({
       FunctionName: `hathor-explorer-service-${process.env.EXPLORER_SERVICE_STAGE}-create_or_update_dag_metadata`,
       InvocationType: 'Event',
       Payload: JSON.stringify({
         id: nftUid,
         metadata,
       }),
-    };
+    });
 
     const logger = createDefaultLogger();
     let retryCount = 0;
     while (retryCount < MAX_METADATA_UPDATE_RETRIES) {
-      const response = await lambda.invoke(params).promise();
+      // invoke lambda asynchronously to metadata update
+      const response: InvokeCommandOutput = await client.send(command);
 
       // Event InvocationType returns 202 for a successful invokation
       if (response.StatusCode === 202) {
@@ -141,19 +140,18 @@ export class NftUtils {
    * This is to improve the failure tolerance on this non-critical step of the sync loop.
    */
   static async invokeNftHandlerLambda(txId: string): Promise<void> {
-  // invoke lambda asynchronously to handle NFT metadata addition
-    const lambda = new Lambda({
-      apiVersion: '2015-03-31',
+    const client = new LambdaClient({
       endpoint: process.env.WALLET_SERVICE_LAMBDA_ENDPOINT,
+      region: 'local',
     });
-
-    const params = {
+    // invoke lambda asynchronously to metadata update
+   const command = new InvokeCommand({
       FunctionName: `hathor-wallet-service-${process.env.STAGE}-onNewNftEvent`,
       InvocationType: 'Event',
       Payload: JSON.stringify({ nftUid: txId }),
-    };
+    });
 
-    const response = await lambda.invoke(params).promise();
+    const response: InvokeCommandOutput = await client.send(command);
 
     // Event InvocationType returns 202 for a successful invokation
     if (response.StatusCode !== 202) {

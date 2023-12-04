@@ -5,7 +5,9 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import AWS from 'aws-sdk';
+
+
+import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 import { APIGatewayProxyHandler, APIGatewayProxyResult, Handler, SQSEvent } from 'aws-lambda';
 import 'source-map-support/register';
 import hathorLib from '@hathor/wallet-lib';
@@ -450,16 +452,16 @@ const _unsafeAddNewTx = async (_logger: Logger, tx: Transaction, now: number, bl
   const queueUrl = process.env.NEW_TX_SQS;
   if (!queueUrl) return;
 
-  const sqs = new AWS.SQS({ apiVersion: '2012-11-05' });
-  const params = {
+  const client = new SQSClient({});
+  const command = new SendMessageCommand({
+    QueueUrl: queueUrl,
     MessageBody: JSON.stringify({
       wallets: Array.from(seenWallets),
       tx,
     }),
-    QueueUrl: queueUrl,
-  };
+  });
 
-  await sqs.sendMessage(params).promise();
+  await client.send(command);
 };
 
 /**

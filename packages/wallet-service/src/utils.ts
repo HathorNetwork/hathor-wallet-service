@@ -7,6 +7,7 @@
 
 import { BinaryToTextEncoding, createHash } from 'crypto';
 
+import { Logger } from 'winston';
 import serverlessMysql, { ServerlessMysql } from 'serverless-mysql';
 import hathorLib from '@hathor/wallet-lib';
 import fullnode from '@src/fullnode';

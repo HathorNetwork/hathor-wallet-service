@@ -1,4 +1,11 @@
-import { Lambda } from 'aws-sdk';
+/**
+ * Copyright (c) Hathor Labs and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+import { LambdaClient, InvokeCommand, InvokeCommandOutput } from '@aws-sdk/client-lambda';
 import { PushProvider, Severity, SendNotificationToDevice, StringMap, WalletBalanceValue } from '@src/types';
 import fcmAdmin, { credential, messaging, ServiceAccount } from 'firebase-admin';
 import { MulticastMessage } from 'firebase-admin/messaging';
@@ -219,18 +226,18 @@ export class PushNotificationUtils {
       throw new Error('Environment variables WALLET_SERVICE_LAMBDA_ENDPOINT and STAGE are not set.');
     }
 
-    const lambda = new Lambda({
-      apiVersion: '2015-03-31',
+    const client = new LambdaClient({
       endpoint: WALLET_SERVICE_LAMBDA_ENDPOINT,
+      region: 'local',
     });
 
-    const params = {
+    const command = new InvokeCommand({
       FunctionName: SEND_NOTIFICATION_FUNCTION_NAME,
       InvocationType: 'Event',
       Payload: JSON.stringify(notification),
-    };
+    });
 
-    const response = await lambda.invoke(params).promise();
+    const response: InvokeCommandOutput = await client.send(command);
 
     // Event InvocationType returns 202 for a successful invokation
     if (response.StatusCode !== 202) {
@@ -254,18 +261,18 @@ export class PushNotificationUtils {
       return;
     }
 
-    const lambda = new Lambda({
-      apiVersion: '2015-03-31',
+    const client = new LambdaClient({
       endpoint: WALLET_SERVICE_LAMBDA_ENDPOINT,
+      region: 'local',
     });
 
-    const params = {
+    const command = new InvokeCommand({
       FunctionName: ON_TX_PUSH_NOTIFICATION_REQUESTED_FUNCTION_NAME,
       InvocationType: 'Event',
       Payload: JSON.stringify(walletBalanceValueMap),
-    };
+    });
 
-    const response = await lambda.invoke(params).promise();
+    const response: InvokeCommandOutput = await client.send(command);
 
     // Event InvocationType returns 202 for a successful invokation
     const walletIdList = Object.keys(walletBalanceValueMap);
