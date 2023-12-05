@@ -312,10 +312,10 @@ describe('success', () => {
       // first argument of the first call
       const notificationSentOnSpy = spyOnInvokeSendNotification.mock.calls[0][0];
       expect(notificationSentOnSpy).toMatchInlineSnapshot(`
-Object {
+{
   "deviceId": "device1",
-  "metadata": Object {
-    "bodyLocArgs": "[\\"10 T2\\"]",
+  "metadata": {
+    "bodyLocArgs": "["10 T2"]",
     "bodyLocKey": "new_transaction_received_description_with_tokens",
     "titleLocKey": "new_transaction_received_title",
     "txId": "txId1",
@@ -373,10 +373,10 @@ Object {
       // first argument of the first call
       const notificationSentOnSpy = spyOnInvokeSendNotification.mock.calls[0][0];
       expect(notificationSentOnSpy).toMatchInlineSnapshot(`
-Object {
+{
   "deviceId": "device1",
-  "metadata": Object {
-    "bodyLocArgs": "[\\"10 T2\\",\\"5 T1\\"]",
+  "metadata": {
+    "bodyLocArgs": "["10 T2","5 T1"]",
     "bodyLocKey": "new_transaction_received_description_with_tokens",
     "titleLocKey": "new_transaction_received_title",
     "txId": "txId1",
@@ -451,10 +451,10 @@ Object {
       // first argument of the first call
       const notificationSentOnSpy = spyOnInvokeSendNotification.mock.calls[0][0];
       expect(notificationSentOnSpy).toMatchInlineSnapshot(`
-Object {
+{
   "deviceId": "device1",
-  "metadata": Object {
-    "bodyLocArgs": "[\\"10 T2\\",\\"5 T1\\",\\"1\\"]",
+  "metadata": {
+    "bodyLocArgs": "["10 T2","5 T1","1"]",
     "bodyLocKey": "new_transaction_received_description_with_tokens",
     "titleLocKey": "new_transaction_received_title",
     "txId": "txId1",
@@ -546,10 +546,10 @@ Object {
       // first argument of the first call
       const notificationSentOnSpy = spyOnInvokeSendNotification.mock.calls[0][0];
       expect(notificationSentOnSpy).toMatchInlineSnapshot(`
-Object {
+{
   "deviceId": "device1",
-  "metadata": Object {
-    "bodyLocArgs": "[\\"10 T2\\",\\"5 T1\\",\\"2\\"]",
+  "metadata": {
+    "bodyLocArgs": "["10 T2","5 T1","2"]",
     "bodyLocKey": "new_transaction_received_description_with_tokens",
     "titleLocKey": "new_transaction_received_title",
     "txId": "txId1",

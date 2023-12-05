@@ -181,7 +181,7 @@ test('GET /addresses', async () => {
   expect(result.statusCode).toBe(STATUS_CODE_TABLE[ApiError.INVALID_PAYLOAD]);
   expect(returnBody.details).toHaveLength(1);
   expect(returnBody.details[0].message)
-    .toMatchInlineSnapshot('"\\"index\\" must be greater than or equal to 0"');
+    .toMatchInlineSnapshot('"\"index\" must be greater than or equal to 0"');
 
   // we should be able to filter for a specific index
   event = makeGatewayEventWithAuthorizer('my-wallet', {
@@ -1571,10 +1571,10 @@ test('GET /wallet/tokens/token_id/details', async () => {
   expect(result.statusCode).toBe(400);
   expect(returnBody.success).toBe(false);
   expect(returnBody.details).toMatchInlineSnapshot(`
-  Array [
-    Object {
-      "message": "\\"token_id\\" length must be at least 64 characters long",
-      "path": Array [
+  [
+    {
+      "message": "\"token_id\" length must be at least 64 characters long",
+      "path": [
         "token_id",
       ],
     },
@@ -1749,11 +1749,11 @@ test('GET /wallet/proxy/transactions/{txId}', async () => {
   expect(result.statusCode).toBe(400);
   expect(returnBody.success).toBe(false);
   expect(returnBody).toMatchInlineSnapshot(`
-    Object {
-      "details": Array [
-        Object {
-          "message": "\\"txId\\" is required",
-          "path": Array [
+    {
+      "details": [
+        {
+          "message": "\"txId\" is required",
+          "path": [
             "txId",
           ],
         },
@@ -1798,11 +1798,11 @@ test('GET /wallet/proxy/{txId}/confirmation_data', async () => {
   expect(result.statusCode).toBe(400);
   expect(returnBody.success).toBe(false);
   expect(returnBody).toMatchInlineSnapshot(`
-    Object {
-      "details": Array [
-        Object {
-          "message": "\\"txId\\" is required",
-          "path": Array [
+    {
+      "details": [
+        {
+          "message": "\"txId\" is required",
+          "path": [
             "txId",
           ],
         },
@@ -1844,11 +1844,11 @@ test('GET /wallet/proxy/graphviz/neighbours', async () => {
   returnBody = JSON.parse(result.body as string);
   expect(result.statusCode).toBe(400);
   expect(returnBody).toMatchInlineSnapshot(`
-    Object {
-      "details": Array [
-        Object {
-          "message": "\\"maxLevel\\" is required",
-          "path": Array [
+    {
+      "details": [
+        {
+          "message": "\"maxLevel\" is required",
+          "path": [
             "maxLevel",
           ],
         },
@@ -1864,23 +1864,23 @@ test('GET /wallet/proxy/graphviz/neighbours', async () => {
   returnBody = JSON.parse(result.body as string);
   expect(result.statusCode).toBe(400);
   expect(returnBody).toMatchInlineSnapshot(`
-    Object {
-      "details": Array [
-        Object {
-          "message": "\\"txId\\" is required",
-          "path": Array [
+    {
+      "details": [
+        {
+          "message": "\"txId\" is required",
+          "path": [
             "txId",
           ],
         },
-        Object {
-          "message": "\\"graphType\\" is required",
-          "path": Array [
+        {
+          "message": "\"graphType\" is required",
+          "path": [
             "graphType",
           ],
         },
-        Object {
-          "message": "\\"maxLevel\\" is required",
-          "path": Array [
+        {
+          "message": "\"maxLevel\" is required",
+          "path": [
             "maxLevel",
           ],
         },

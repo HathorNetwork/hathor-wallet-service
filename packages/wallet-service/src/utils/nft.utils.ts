@@ -50,7 +50,7 @@ export class NftUtils {
 
     // Continue with a deeper validation
     const logger = createDefaultLogger();
-    let isNftCreationTx;
+    let isNftCreationTx: boolean;
     let libTx: hathorLib.CreateTokenTransaction;
 
     // Transaction parsing failures should be alerted
