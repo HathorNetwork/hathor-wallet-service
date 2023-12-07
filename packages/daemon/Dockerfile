@@ -13,11 +13,15 @@ RUN apk update && apk add python3 g++ make
 
 COPY package.json ./
 
-RUN npm install
+RUN which python
+
+RUN yarn set version berry
+
+RUN yarn install
 
 COPY . ./
 
-RUN npm run build
+RUN yarn run build
 
 # Production phase
 FROM node:18-alpine
@@ -27,8 +31,6 @@ WORKDIR /app
 COPY --from=builder /app/dist/ ./
 COPY --from=builder /app/package.json ./
 
-# COPY --from=builder /app/node_modules ./node_modules
-
-RUN npm install --production
+COPY --from=builder /app/node_modules ./node_modules
 
 CMD ["node", "index.js"]
