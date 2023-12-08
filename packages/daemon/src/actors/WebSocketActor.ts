@@ -9,12 +9,13 @@ import { WebSocket } from 'ws';
 import { Event } from '../types';
 import { get } from 'lodash';
 import logger from '../logger';
-import getConfig from '../config';
+import { getFullnodeWsUrl } from '../utils';
 
 export default (callback: any, receive: any) => {
-  const { WS_URL } = getConfig();
+  const wsUrl = getFullnodeWsUrl();
+
   // @ts-ignore: We already check for missing envs in startup
-  const socket: WebSocket = new WebSocket(WS_URL);
+  const socket: WebSocket = new WebSocket(wsUrl);
 
   receive((event: Event) => {
     if (event.type !== 'WEBSOCKET_SEND_EVENT') {
