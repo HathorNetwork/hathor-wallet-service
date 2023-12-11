@@ -101,7 +101,6 @@ export class NftUtils {
     while (retryCount < MAX_METADATA_UPDATE_RETRIES) {
       // invoke lambda asynchronously to metadata update
       const response: InvokeCommandOutput = await client.send(command);
-
       // Event InvocationType returns 202 for a successful invokation
       if (response.StatusCode === 202) {
       // End the loop successfully

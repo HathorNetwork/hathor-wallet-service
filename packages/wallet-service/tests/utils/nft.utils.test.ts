@@ -172,6 +172,7 @@ describe('_updateMetadata', () => {
       StatusCode: 202,
       Payload: 'sampleData',
     };
+
     const mLambdaClient = new LambdaClientMock({});
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (mLambdaClient.send as jest.Mocked<any>).mockImplementation(
@@ -198,7 +199,6 @@ describe('_updateMetadata', () => {
     (mLambdaClient.send as jest.Mocked<any>).mockImplementation(async () => {
         if (failureCount < MAX_METADATA_UPDATE_RETRIES - 1) {
           ++failureCount;
-
           return {
             StatusCode: 500,
             Payload: 'failurePayload',

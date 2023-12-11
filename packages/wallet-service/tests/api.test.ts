@@ -1171,11 +1171,7 @@ test('PUT /wallet/auth should change the auth_xpub only after validating both th
   const derivedPrivKey = walletUtils.deriveXpriv(xpriv, accountDerivationIndex);
   const address = derivedPrivKey.publicKey.toAddress(network.getNetwork()).toString();
   const message = new bitcore.Message(String(now).concat(walletId).concat(address));
-  const xibata = new bitcore.PrivateKey(derivedPrivKey.privateKey.toString(), 'livenet');
-  console.log(derivedPrivKey.privateKey);
-  console.log(derivedPrivKey.privateKey.prototype);
-  // const xpubkeySignature = message.sign(xibata);
-
+  
   expect(1).toStrictEqual(1);
 }, 30000);
 

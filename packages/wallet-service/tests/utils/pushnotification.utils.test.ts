@@ -501,7 +501,6 @@ describe('PushNotificationUtils', () => {
       sendMock.mockReturnValueOnce({
         StatusCode: 202,
       });
-
       const { PushNotificationUtils } = await import('@src/utils/pushnotification.utils');
 
       const walletMap = buildWalletBalanceValueMap();

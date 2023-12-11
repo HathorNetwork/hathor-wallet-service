@@ -10,7 +10,6 @@ jest.mock('@aws-sdk/client-lambda', () => ({
   LambdaClient: lambdaClientMock,
   InvokeCommand: lambdaInvokeCommandMock,
 }));
-
 export const newLambdaMock = jest.fn().mockReturnValue({
   invoke: invokeMock.mockReturnValue({
     promise: promiseMock.mockReturnValue({
@@ -18,4 +17,3 @@ export const newLambdaMock = jest.fn().mockReturnValue({
     }),
   }),
 });
-
