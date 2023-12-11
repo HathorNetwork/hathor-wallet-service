@@ -3,11 +3,18 @@ import { mockedAddAlert } from '@tests/utils/alerting.utils.mock';
 import { Severity } from '@src/types';
 import { MAX_METADATA_UPDATE_RETRIES, NftUtils } from '@src/utils/nft.utils';
 import { getHandlerContext, getTransaction } from '@events/nftCreationTx';
-import { Lambda as LambdaMock } from 'aws-sdk';
+import {
+  LambdaClient as LambdaClientMock,
+  InvokeCommandOutput,
+} from '@aws-sdk/client-lambda';
 
-jest.mock('aws-sdk', () => {
-  const mLambda = { invoke: jest.fn() };
-  return { Lambda: jest.fn(() => mLambda) };
+jest.mock('@aws-sdk/client-lambda', () => {
+  const mLambda = { send: jest.fn() };
+  const mInvokeCommand = jest.fn();
+  return {
+    LambdaClient: jest.fn(() => mLambda),
+    InvokeCommand: mInvokeCommand,
+  };
 });
 
 describe('shouldInvokeNftHandlerForTx', () => {
@@ -165,11 +172,12 @@ describe('_updateMetadata', () => {
       StatusCode: 202,
       Payload: 'sampleData',
     };
-    const mLambda = new LambdaMock();
+
+    const mLambdaClient = new LambdaClientMock({});
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (mLambda.invoke as jest.Mocked<any>).mockImplementationOnce(() => ({
-      promise: async () => expectedLambdaResponse,
-    }));
+    (mLambdaClient.send as jest.Mocked<any>).mockImplementation(
+      async () => Promise.resolve(expectedLambdaResponse),
+    );
     const oldStage = process.env.STAGE;
     process.env.STAGE = 'dev'; // Testing all code branches, including the developer ones, for increased coverage
 
@@ -187,10 +195,8 @@ describe('_updateMetadata', () => {
       StatusCode: 202,
       Payload: 'sampleData',
     };
-    const mLambda = new LambdaMock();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (mLambda.invoke as jest.Mocked<any>).mockImplementation(() => ({
-      promise: async () => {
+    const mLambdaClient = new LambdaClientMock({});
+    (mLambdaClient.send as jest.Mocked<any>).mockImplementation(async () => {
         if (failureCount < MAX_METADATA_UPDATE_RETRIES - 1) {
           ++failureCount;
           return {
@@ -199,8 +205,7 @@ describe('_updateMetadata', () => {
           };
         }
         return expectedLambdaResponse;
-      },
-    }));
+    });
 
     const result = await NftUtils._updateMetadata('sampleUid', { sampleData: 'fake' });
     expect(result).toStrictEqual(expectedLambdaResponse);
@@ -211,23 +216,20 @@ describe('_updateMetadata', () => {
 
     // Building the mock lambda
     let failureCount = 0;
-    const mLambda = new LambdaMock();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (mLambda.invoke as jest.Mocked<any>).mockImplementation(() => ({
-      promise: async () => {
-        if (failureCount < MAX_METADATA_UPDATE_RETRIES) {
-          ++failureCount;
-          return {
-            StatusCode: 500,
-            Payload: 'failurePayload',
-          };
-        }
+    const mLambdaClient = new LambdaClientMock({});
+    (mLambdaClient.send as jest.Mocked<any>).mockImplementation(() => {
+      if (failureCount < MAX_METADATA_UPDATE_RETRIES) {
+        ++failureCount;
         return {
-          StatusCode: 202,
-          Payload: 'sampleData',
+          StatusCode: 500,
+          Payload: 'failurePayload',
         };
-      },
-    }));
+      }
+      return {
+        StatusCode: 202,
+        Payload: 'sampleData',
+      };
+    });
 
     // eslint-disable-next-line jest/valid-expect
     expect(NftUtils._updateMetadata('sampleUid', { sampleData: 'fake' }))
@@ -240,15 +242,12 @@ describe('invokeNftHandlerLambda', () => {
     expect.hasAssertions();
 
     // Building the mock lambda
-    const expectedLambdaResponse: LambdaMock.InvocationResponse = {
+    const expectedLambdaResponse: InvokeCommandOutput = {
       StatusCode: 202,
-      Payload: '',
+      $metadata: {}
     };
-    const mLambda = new LambdaMock();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (mLambda.invoke as jest.Mocked<any>).mockImplementationOnce(() => ({
-      promise: async () => expectedLambdaResponse,
-    }));
+    const mLambdaClient = new LambdaClientMock({});
+    (mLambdaClient.send as jest.Mocked<any>).mockImplementationOnce(async () => expectedLambdaResponse);
 
     await expect(NftUtils.invokeNftHandlerLambda('sampleUid')).resolves.toBeUndefined();
   });
@@ -257,18 +256,12 @@ describe('invokeNftHandlerLambda', () => {
     expect.hasAssertions();
 
     // Building the mock lambda
-    const mLambda = new LambdaMock();
-    const expectedLambdaResponse: LambdaMock.InvocationResponse = {
+    const mLambdaClient = new LambdaClientMock({});
+    const expectedLambdaResponse: InvokeCommandOutput = {
       StatusCode: 500,
-      Payload: {
-        success: false,
-        message: 'had a failure',
-      },
+      $metadata: {}
     };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (mLambda.invoke as jest.Mocked<any>).mockImplementation(() => ({
-      promise: async () => expectedLambdaResponse,
-    }));
+    (mLambdaClient.send as jest.Mocked<any>).mockImplementation(() => expectedLambdaResponse);
 
     await expect(NftUtils.invokeNftHandlerLambda('sampleUid'))
       .rejects.toThrow(new Error('onNewNftEvent lambda invoke failed for tx: sampleUid'));

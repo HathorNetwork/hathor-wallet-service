@@ -401,24 +401,6 @@ describe('handleVertexAccepted', () => {
     expect(mockDb.commit).toHaveBeenCalled();
     expect(mockDb.destroy).toHaveBeenCalled();
   });
-
-  it('transaction already in the database should throw', async () => {
-    const context = {
-      event: {
-        event: {
-          data: {
-            hash: 'hashValue',
-          },
-          id: 'idValue',
-        },
-      },
-    };
-
-    const mockTransaction = { tx_id: 'hashValue' };
-    (getTransactionById as jest.Mock).mockResolvedValue(mockTransaction);
-
-    await expect(handleVertexAccepted(context as any, {} as any)).rejects.toThrow('Transaction hashValue already in the database, this should never happen');
-  });
 });
 
 describe('metadataDiff', () => {

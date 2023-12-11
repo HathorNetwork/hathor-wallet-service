@@ -3,12 +3,12 @@
 // mocks should be imported first
 import { mockedAddAlert } from '@tests/utils/alerting.utils.mock';
 import { sendMulticastMock, messaging, initFirebaseAdminMock } from '@tests/utils/firebase-admin.mock';
-import { invokeMock, promiseMock } from '@tests/utils/aws-sdk.mock';
 import { logger } from '@tests/winston.mock';
 import { PushNotificationUtils, PushNotificationError, buildFunctionName, FunctionName } from '@src/utils/pushnotification.utils';
 import * as pushnotificationUtils from '@src/utils/pushnotification.utils';
 import { SendNotificationToDevice, Severity } from '@src/types';
-import { Lambda } from 'aws-sdk';
+import { sendMock, lambdaInvokeCommandMock } from '@tests/utils/aws-sdk.mock';
+import { LambdaClient } from '@aws-sdk/client-lambda';
 import { buildWalletBalanceValueMap } from '@tests/utils';
 
 const isFirebaseInitializedMock = jest.spyOn(pushnotificationUtils, 'isFirebaseInitialized');
@@ -385,9 +385,9 @@ describe('PushNotificationUtils', () => {
 
   describe('invokeSendNotificationHandlerLambda(notification)', () => {
     beforeEach(() => {
-      promiseMock.mockReset();
+      sendMock.mockReset();
       // default mock return value
-      promiseMock.mockReturnValue({
+      sendMock.mockReturnValue({
         StatusCode: 202,
       });
     });
@@ -419,15 +419,15 @@ describe('PushNotificationUtils', () => {
       expect(result).toBeUndefined();
 
       // assert Lambda constructor call
-      expect(Lambda).toHaveBeenCalledTimes(1);
-      expect(Lambda).toHaveBeenCalledWith({
-        apiVersion: '2015-03-31',
+      expect(LambdaClient).toHaveBeenCalledTimes(1);
+      expect(LambdaClient).toHaveBeenCalledWith({
         endpoint: fakeEndpoint,
+        region: 'local',
       });
 
       // assert lambda invoke call
-      expect(invokeMock).toHaveBeenCalledTimes(1);
-      expect(invokeMock).toHaveBeenCalledWith({
+      expect(sendMock).toHaveBeenCalledTimes(1);
+      expect(lambdaInvokeCommandMock).toHaveBeenCalledWith({
         FunctionName: `hathor-wallet-service-${fakeStage}-sendNotificationToDevice`,
         InvocationType: 'Event',
         Payload: JSON.stringify(notification),
@@ -456,7 +456,7 @@ describe('PushNotificationUtils', () => {
       } as SendNotificationToDevice;
 
       // simulate a failing lambda invokation
-      promiseMock.mockReturnValue({
+      sendMock.mockReturnValue({
         StatusCode: 500,
       });
 
@@ -498,6 +498,9 @@ describe('PushNotificationUtils', () => {
       jest.clearAllMocks();
       // reload module
       process.env.PUSH_NOTIFICATION_ENABLED = 'true';
+      sendMock.mockReturnValueOnce({
+        StatusCode: 202,
+      });
       const { PushNotificationUtils } = await import('@src/utils/pushnotification.utils');
 
       const walletMap = buildWalletBalanceValueMap();
@@ -507,15 +510,16 @@ describe('PushNotificationUtils', () => {
       expect(result).toBeUndefined();
 
       // assert Lambda constructor call
-      expect(Lambda).toHaveBeenCalledTimes(1);
-      expect(Lambda).toHaveBeenCalledWith({
-        apiVersion: '2015-03-31',
+      expect(LambdaClient).toHaveBeenCalledTimes(1);
+      expect(LambdaClient).toHaveBeenCalledWith({
         endpoint: process.env.ON_TX_PUSH_NOTIFICATION_REQUESTED_LAMBDA_ENDPOINT,
+        region: 'local',
       });
 
       // assert lambda invoke call
-      expect(invokeMock).toHaveBeenCalledTimes(1);
-      expect(invokeMock).toHaveBeenCalledWith({
+      expect(sendMock).toHaveBeenCalledTimes(1);
+      expect(lambdaInvokeCommandMock).toHaveBeenCalledTimes(1);
+      expect(lambdaInvokeCommandMock).toHaveBeenCalledWith({
         FunctionName: buildFunctionName(FunctionName.ON_TX_PUSH_NOTIFICATION_REQUESTED),
         InvocationType: 'Event',
         Payload: JSON.stringify(walletMap),
@@ -539,10 +543,10 @@ describe('PushNotificationUtils', () => {
       expect(result).toBeUndefined();
 
       // assert Lambda constructor call
-      expect(Lambda).toHaveBeenCalledTimes(0);
+      expect(LambdaClient).toHaveBeenCalledTimes(0);
 
       // assert lambda invoke call
-      expect(invokeMock).toHaveBeenCalledTimes(0);
+      expect(sendMock).toHaveBeenCalledTimes(0);
 
       // assert log message
       expect(logger.debug).toHaveBeenCalledWith('Push notification is disabled. Skipping invocation of OnTxPushNotificationRequestedLambda lambda.');
@@ -553,7 +557,7 @@ describe('PushNotificationUtils', () => {
 
       const not202Code = 500;
       // simulate a failing lambda invokation
-      promiseMock.mockReturnValue({
+      sendMock.mockReturnValue({
         StatusCode: not202Code,
       });
 

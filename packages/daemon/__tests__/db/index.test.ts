@@ -74,7 +74,7 @@ beforeAll(async () => {
     mysql = await getDbConnection();
   } catch(e) {
     console.error('Failed to establish db connection', e);
-    process.exit(1);
+    throw e;
   }
 });
 
@@ -763,7 +763,7 @@ describe('address and wallet related tests', () => {
     await expect(checkWalletBalanceTable(mysql, 3, wallet1, tokenId, 25, 5, now, 5, 0b11, 0b01)).resolves.toBe(true);
   });
 
-  test.skip('generateAddresses', async () => {
+  test('generateAddresses', async () => {
     expect.hasAssertions();
     const maxGap = 5;
     const address0 = ADDRESSES[0];
@@ -843,7 +843,7 @@ describe('address and wallet related tests', () => {
     for (const [index, address] of addressesInfo.addresses.entries()) {
       expect(ADDRESSES[index]).toBe(address);
     }
-  } );
+  }, 15000);
 
   test('addNewAddresses', async () => {
     expect.hasAssertions();

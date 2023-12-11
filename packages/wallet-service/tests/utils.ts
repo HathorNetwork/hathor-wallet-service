@@ -12,7 +12,7 @@ import {
   DbTxOutput,
 } from '@src/types';
 import { getWalletId } from '@src/utils';
-import { walletUtils, network, HathorWalletServiceWallet } from '@hathor/wallet-lib';
+import { walletUtils, Network, network, HathorWalletServiceWallet } from '@hathor/wallet-lib';
 import {
   AddressTxHistoryTableEntry,
   AddressTableEntry,
@@ -22,6 +22,7 @@ import {
 } from '@tests/types';
 import { RedisClient } from 'redis';
 import bitcore from 'bitcore-lib';
+import Mnemonic from 'bitcore-mnemonic';
 
 export const TEST_SEED = 'neither image nasty party brass oyster treat twelve olive menu invest title fan only rack draw call impact use curtain winner horn juice unlock';
 // we'll use this xpubkey and corresponding addresses in some tests
@@ -923,14 +924,13 @@ export const getAuthData = (now: number): any => {
 
   // we need signatures for both the account path and the purpose path:
   const walletId = getWalletId(XPUBKEY);
-  const xpriv = walletUtils.getXPrivKeyFromSeed(TEST_SEED, {
+  const xpriv = getXPrivKeyFromSeed(TEST_SEED, {
     passphrase: '',
     networkName: process.env.NETWORK,
   });
 
   // account path
   const accountDerivationIndex = '0\'';
-
   const derivedPrivKey = walletUtils.deriveXpriv(xpriv, accountDerivationIndex);
   const address = derivedPrivKey.publicKey.toAddress(network.getNetwork()).toString();
   const message = new bitcore.Message(String(now).concat(walletId).concat(address));
@@ -1121,3 +1121,22 @@ export const insertPushDevice = async (mysql: ServerlessMysql, pushRegister: {
 };
 
 export const daysAgo = (days) => new Date(new Date().getTime() - days * 24 * 60 * 60 * 1000);
+
+bitcore.Networks.add({
+  ...network.bitcoreNetwork,
+  networkMagic: network.bitcoreNetwork.networkMagic.readUInt32BE(),
+});
+
+export const getXPrivKeyFromSeed = (
+  seed: string,
+  options: {
+    passphrase?: string,
+    networkName?: string
+  } = {}): bitcore.HDPrivateKey => {
+  const methodOptions = Object.assign({passphrase: '', networkName: 'mainnet'}, options);
+  const { passphrase, networkName } = methodOptions;
+
+  const network = new Network(networkName);
+  const code = new Mnemonic(seed);
+  return code.toHDPrivateKey(passphrase, network.bitcoreNetwork);
+};

@@ -1,8 +1,13 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { RedisClient } from 'redis';
 import { addAlert } from '@src/utils/alerting.utils';
-
-import AWS from 'aws-sdk';
+import {
+  ApiGatewayManagementApiClient,
+  PostToConnectionCommand,
+  PostToConnectionCommandOutput,
+  DeleteConnectionCommand,
+  DeleteConnectionCommandOutput,
+} from '@aws-sdk/client-apigatewaymanagementapi';
 import util from 'util';
 
 import { WsConnectionInfo, Severity } from '@src/types';
@@ -45,51 +50,41 @@ export const sendMessageToClient = async (
   connInfo: WsConnectionInfo,
   payload: any, // eslint-disable-line @typescript-eslint/explicit-module-boundary-types, @typescript-eslint/no-explicit-any
 ): Promise<any> => { // eslint-disable-line @typescript-eslint/no-explicit-any
-  const apiGwClient = new AWS.ApiGatewayManagementApi({
-    apiVersion: '2018-11-29',
+  const apiGwClient = new ApiGatewayManagementApiClient({
     endpoint: connInfo.url,
   });
-  // AWS.Request.promise() will make the request and return a thenable with the response
-  // https://docs.aws.amazon.com/AWSJavaScriptSDK/latest/AWS/Request.html#promise-property
-  return apiGwClient.postToConnection(
-    {
-      ConnectionId: connInfo.id,
-      Data: JSON.stringify(payload),
-    },
-  ).promise().catch(
-    (err) => {
-      // http GONE(410) means client is disconnected, but still exists on our connection store
-      if (err.statusCode === 410) {
-        // cleanup connection and subscriptions from redis if GONE
-        return endWsConnection(client, connInfo.id);
-      }
-      throw err;
-    },
-  );
+
+  const command = new PostToConnectionCommand({
+    ConnectionId: connInfo.id,
+    Data: JSON.stringify(payload),
+  });
+
+  const response: PostToConnectionCommandOutput = await apiGwClient.send(command);
+  // http GONE(410) means client is disconnected, but still exists on our connection store
+  if (response.$metadata.httpStatusCode === 410) {
+    // cleanup connection and subscriptions from redis if GONE
+    return endWsConnection(client, connInfo.id);
+  }
 };
 
 export const disconnectClient = async (
   client: RedisClient,
   connInfo: WsConnectionInfo,
 ): Promise<any> => { // eslint-disable-line @typescript-eslint/no-explicit-any
-  const apiGwClient = new AWS.ApiGatewayManagementApi({
-    apiVersion: '2018-11-29',
+  const apiGwClient = new ApiGatewayManagementApiClient({
     endpoint: connInfo.url,
   });
-  return apiGwClient.deleteConnection(
-    {
-      ConnectionId: connInfo.id,
-    },
-  ).promise().catch(
-    (err) => {
-      // http GONE(410) means client is disconnected, but still exists on our connection store
-      if (err.statusCode === 410) {
-        // cleanup connection and subscriptions from redis if GONE
-        return endWsConnection(client, connInfo.id);
-      }
-      throw err;
-    },
-  );
+
+  const command = new DeleteConnectionCommand({
+    ConnectionId: connInfo.id,
+  });
+
+  const response: DeleteConnectionCommandOutput = await apiGwClient.send(command);
+
+  if (response.$metadata.httpStatusCode === 410) {
+    // cleanup connection and subscriptions from redis if GONE
+    return endWsConnection(client, connInfo.id);
+  }
 };
 
 export const DEFAULT_API_GATEWAY_RESPONSE: APIGatewayProxyResult = {

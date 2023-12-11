@@ -6,7 +6,7 @@
  */
 
 import { APIGatewayProxyHandler, Handler } from 'aws-lambda';
-import { Lambda } from 'aws-sdk';
+import { LambdaClient, InvokeCommand, InvokeCommandOutput } from '@aws-sdk/client-lambda';
 import 'source-map-support/register';
 
 import { ApiError } from '@src/api/errors';
@@ -89,22 +89,20 @@ const loadBodySchema = Joi.object({
  */
 /* istanbul ignore next */
 export const invokeLoadWalletAsync = async (xpubkey: string, maxGap: number): Promise<void> => {
-  // invoke lambda asynchronously to handle wallet creation
-  const lambda = new Lambda({
-    apiVersion: '2015-03-31',
+  const client = new LambdaClient({
     endpoint: process.env.STAGE === 'dev'
       ? 'http://localhost:3002'
       : `https://lambda.${process.env.AWS_REGION}.amazonaws.com`,
+    region: 'local',
   });
-
-  const params = {
+  const command = new InvokeCommand({
     // FunctionName is composed of: service name - stage - function name
     FunctionName: `${process.env.SERVICE_NAME}-${process.env.STAGE}-loadWalletAsync`,
     InvocationType: 'Event',
     Payload: JSON.stringify({ xpubkey, maxGap }),
-  };
+  });
 
-  const response = await lambda.invoke(params).promise();
+  const response: InvokeCommandOutput = await client.send(command);
 
   // Event InvocationType returns 202 for a successful invokation
   if (response.StatusCode !== 202) {

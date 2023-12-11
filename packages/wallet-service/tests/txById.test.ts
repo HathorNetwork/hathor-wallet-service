@@ -102,10 +102,10 @@ describe('statusCode:400', () => {
     expect(returnBody.success).toStrictEqual(false);
     expect(returnBody.error).toStrictEqual(ApiError.INVALID_PAYLOAD);
     expect(returnBody.details).toMatchInlineSnapshot(`
-Array [
-  Object {
-    "message": "\\"txId\\" is not allowed to be empty",
-    "path": Array [
+[
+  {
+    "message": "\"txId\" is not allowed to be empty",
+    "path": [
       "txId",
     ],
   },

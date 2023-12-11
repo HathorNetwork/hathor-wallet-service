@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import AWS from 'aws-sdk';
+import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 import { Severity } from '@src/types';
 import { assertEnvVariablesExistence } from '@src/utils';
 import createDefaultLogger from '@src/logger';
@@ -40,7 +40,6 @@ export const addAlert = async (
     application: process.env.APPLICATION_NAME,
   };
 
-  const sqs = new AWS.SQS({ apiVersion: '2015-03-31' });
   const {
     ACCOUNT_ID,
     ALERT_MANAGER_REGION,
@@ -48,24 +47,22 @@ export const addAlert = async (
   } = process.env;
 
   const QUEUE_URL = `https://sqs.${ALERT_MANAGER_REGION}.amazonaws.com/${ACCOUNT_ID}/${ALERT_MANAGER_TOPIC}`;
-  const params = {
-    MessageBody: JSON.stringify(preparedMessage),
+
+  const client = new SQSClient({});
+  const command = new SendMessageCommand({
     QueueUrl: QUEUE_URL,
+    MessageBody: JSON.stringify(preparedMessage),
     MessageAttributes: {
       None: {
         DataType: 'String',
         StringValue: '--',
       },
     },
-  };
-
-  await new Promise<void>((resolve) => {
-    sqs.sendMessage(params, (err) => {
-      if (err) {
-        logger.error('[ALERT] Erroed while sending message to the alert sqs queue', err);
-      }
-
-      resolve();
-    });
   });
+
+  try {
+    await client.send(command);
+  } catch(err) {
+    logger.error('[ALERT] Erroed while sending message to the alert sqs queue', err);
+  }
 };
