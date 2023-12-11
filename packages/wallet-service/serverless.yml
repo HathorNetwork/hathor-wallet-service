@@ -198,33 +198,11 @@ provider:
     ALERT_MANAGER_TOPIC: ${env:ALERT_MANAGER_TOPIC}
 
 functions:
-  onHandleOldVoidedTxs:
-    handler: src/mempool.onHandleOldVoidedTxs
-    events:
-      - schedule: rate(${env:VOIDED_TX_OFFSET} minutes)
-    warmup:
-      walletWarmer:
-        enabled: false
   getLatestBlock:
     handler: src/height.getLatestBlock
     warmup:
       walletWarmer:
         enabled: false
-  onNewTxRequest:
-    handler: src/txProcessor.onNewTxRequest
-    timeout: 12 # seconds
-    warmup:
-      walletWarmer:
-        enabled: false
-    iamRoleStatementsInherit: true
-    iamRoleStatements:
-      - Effect: Allow
-        Action:
-          - lambda:InvokeFunction
-          - lambda:InvokeAsync
-        Resource:
-          - Fn::GetAtt: [ OnNewNftEventLambdaFunction, Arn ]
-          - Fn::GetAtt: [ TxPushRequestedLambdaFunction, Arn ]
   onMinersListRequest:
     handler: src/api/miners.onMinersListRequest
     warmup:
