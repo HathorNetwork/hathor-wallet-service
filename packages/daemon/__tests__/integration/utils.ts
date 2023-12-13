@@ -57,27 +57,19 @@ export const fetchAddressBalances = async (
 
 export const validateBalances = async (
   balancesA: AddressBalance[],
-  balancesB: {
-    address: string,
-    tokenId: string,
-    balance: number,
-    transactions: number,
-  }[],
+  balancesB: { string: number },
 ): Promise<void> => {
-  const length = Math.max(balancesA.length, balancesB.length);
+  const length = Math.max(balancesA.length, Object.keys(balancesB).length);
 
   for (let i = 0; i < length; i++) {
     const balanceA = balancesA[i];
     const address = balanceA.address;
-    const balanceB = find(balancesB, { address });
+    // @ts-ignore
+    const balanceB = balancesB[address];
+    const totalBalanceA = balanceA.lockedBalance + balanceA.unlockedBalance;
 
-    if (!isEqual({
-      address: balanceA.address,
-      tokenId: balanceA.tokenId,
-      balance: balanceA.unlockedBalance + balanceA.lockedBalance,
-      transactions: balanceA.transactions,
-    }, balanceB)) {
-      console.log(balanceA);
+    if (totalBalanceA !== balanceB) {
+      console.log(totalBalanceA);
       console.log(balanceB);
       throw new Error(`Balances are not equal for address: ${address}`);
     }

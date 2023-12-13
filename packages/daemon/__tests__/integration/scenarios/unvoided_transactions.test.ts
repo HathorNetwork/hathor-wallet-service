@@ -72,6 +72,7 @@ describe('unvoided transaction scenario', () => {
           const lastSyncedEvent = await getLastSyncedEvent(mysql);
           if (lastSyncedEvent?.last_event_id === UNVOIDED_SCENARIO_LAST_EVENT) {
             const addressBalances = await fetchAddressBalances(mysql);
+            // @ts-ignore
             expect(validateBalances(addressBalances, scenarioBalances));
 
             machine.stop();
