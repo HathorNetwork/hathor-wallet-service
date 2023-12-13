@@ -10,11 +10,17 @@ import { USE_SSL, FULLNODE_HOST } from '../config';
 export const getFullnodeHttpUrl = () => {
   const protocol = USE_SSL ? 'https://' : 'http://';
 
-  return `${protocol}${FULLNODE_HOST}/v1a/`;
+  const fullNodeUrl = new URL(`${protocol}${FULLNODE_HOST}`);
+  fullNodeUrl.pathname = '/v1a';
+
+  return fullNodeUrl.toString();
 };
 
 export const getFullnodeWsUrl = () => {
   const protocol = USE_SSL ? 'wss://' : 'ws://';
 
-  return `${protocol}${FULLNODE_HOST}/v1a/event_ws`;
+  const fullNodeUrl = new URL(`${protocol}${FULLNODE_HOST}`);
+  fullNodeUrl.pathname = '/v1a/event_ws';
+  
+  return fullNodeUrl.toString();
 };
