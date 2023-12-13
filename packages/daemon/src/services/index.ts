@@ -468,12 +468,12 @@ export const fetchMinRewardBlocks = async () => {
 export const fetchInitialState = async () => {
   const mysql = await getDbConnection();
   const lastEvent = await getLastSyncedEvent(mysql);
-  const minRewardBlocks = await fetchMinRewardBlocks();
+  const rewardMinBlocks = await fetchMinRewardBlocks();
 
   mysql.destroy();
 
   return {
     lastEventId: lastEvent?.last_event_id,
-    minRewardBlocks,
+    rewardMinBlocks,
   };
 };

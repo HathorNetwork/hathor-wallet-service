@@ -139,7 +139,7 @@ describe('fetchInitialState', () => {
 
     expect(result).toEqual({
       lastEventId: 123,
-      minRewardBlocks: expect.any(Number),
+      rewardMinBlocks: expect.any(Number),
     });
     expect(mockDb.destroy).toHaveBeenCalled();
   });
@@ -161,7 +161,7 @@ describe('fetchInitialState', () => {
 
     expect(result).toEqual({
       lastEventId: expect.any(Number),
-      minRewardBlocks: 300,
+      rewardMinBlocks: 300,
     });
 
     expect(mockDb.destroy).toHaveBeenCalled();
@@ -178,7 +178,7 @@ describe('fetchInitialState', () => {
 
     expect(result).toEqual({
       lastEventId: undefined,
-      minRewardBlocks: expect.any(Number),
+      rewardMinBlocks: expect.any(Number),
     });
     expect(mockDb.destroy).toHaveBeenCalled();
   });
