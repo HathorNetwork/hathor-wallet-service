@@ -6,7 +6,7 @@
  */
 
 import {
-    addMiner,
+  addMiner,
   addNewAddresses,
   addOrUpdateTx,
   addUtxos,
@@ -42,8 +42,8 @@ import {
 } from '../../src/db';
 import { Connection } from 'mysql2/promise';
 import {
-    ADDRESSES,
-    addToAddressBalanceTable,
+  ADDRESSES,
+  addToAddressBalanceTable,
   addToAddressTable,
   addToAddressTxHistoryTable,
   addToTokenTable,

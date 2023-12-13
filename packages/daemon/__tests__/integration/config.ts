@@ -7,3 +7,4 @@ export const DB_ENDPOINT = '127.0.0.1';
 
 // Scenarios
 export const UNVOIDED_SCENARIO_PORT = 8081;
+export const UNVOIDED_SCENARIO_LAST_EVENT = 38;
