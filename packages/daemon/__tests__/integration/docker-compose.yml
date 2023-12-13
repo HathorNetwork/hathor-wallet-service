@@ -1,0 +1,12 @@
+version: "3.9"
+
+services:
+  fullnode:
+    image: hathornetwork/hathor-core
+    command: [
+      "events_simulator",
+      "--scenario", "UNVOIDED_TRANSACTION",
+      "--seed", "1"
+    ]
+    ports:
+      - "8081:8080"

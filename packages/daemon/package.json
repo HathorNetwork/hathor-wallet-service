@@ -14,7 +14,11 @@
     "lint": "eslint .",
     "build": "tsc",
     "watch": "tsc -w",
-    "test": "jest --coverage"
+    "test_images_up": "docker-compose -f ./__tests__/integration/docker-compose.yml up -d",
+    "test_images_down": "docker-compose -f ./__tests__/integration/docker-compose.yml down",
+    "test_images_integration": "jest --config ./jest_integration.config.js",
+    "test": "jest --coverage",
+    "test_integration": "yarn run test_images_up && yarn run test_images_integration && yarn run test_images_down"
   },
   "name": "sync-daemon",
   "author": "André Abadesso",

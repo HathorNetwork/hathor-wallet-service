@@ -9,5 +9,6 @@ module.exports = {
       }
     }]
   },
+  testPathIgnorePatterns: ['<rootDir>/__tests__/integration/'],
   moduleFileExtensions: ["ts", "js", "json", "node"]
 };
