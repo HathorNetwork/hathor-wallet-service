@@ -18,6 +18,15 @@ services:
     ]
     ports:
       - "8081:8080"
+  reorg:
+    image: hathornetwork/hathor-core
+    command: [
+      "events_simulator",
+      "--scenario", "REORG",
+      "--seed", "1"
+    ]
+    ports:
+      - "8082:8080"
 
 networks:
   database:

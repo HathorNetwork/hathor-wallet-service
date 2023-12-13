@@ -5,6 +5,10 @@ export const DB_NAME = 'hathor';
 export const DB_PORT = 3380;
 export const DB_ENDPOINT = '127.0.0.1';
 
-// Scenarios
+// unvoided
 export const UNVOIDED_SCENARIO_PORT = 8081;
 export const UNVOIDED_SCENARIO_LAST_EVENT = 38;
+
+// reorg
+export const REORG_SCENARIO_PORT = 8082;
+export const REORG_SCENARIO_LAST_EVENT = 20;
