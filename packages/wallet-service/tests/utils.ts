@@ -932,7 +932,6 @@ export const getAuthData = (now: number): any => {
   // account path
   const accountDerivationIndex = '0\'';
   const derivedPrivKey = walletUtils.deriveXpriv(xpriv, accountDerivationIndex);
-
   const address = derivedPrivKey.publicKey.toAddress(network.getNetwork()).toString();
   const message = new bitcore.Message(String(now).concat(walletId).concat(address));
   const xpubkeySignature = message.sign(derivedPrivKey.privateKey);

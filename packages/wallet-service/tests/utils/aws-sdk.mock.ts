@@ -18,4 +18,3 @@ export const newLambdaMock = jest.fn().mockReturnValue({
     }),
   }),
 });
-
