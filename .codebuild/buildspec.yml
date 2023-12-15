@@ -172,7 +172,7 @@ phases:
     commands:
       - npm install -g yarn
       - corepack enable
-      - yarn set version berry
+      - yarn set version 3.4.1
       - yarn install
   pre_build:
     commands:
