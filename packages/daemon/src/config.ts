@@ -15,6 +15,7 @@ const requiredEnvs = [
   'STREAM_ID',
   'NETWORK',
   'WS_URL',
+  'NEW_TX_SQS',
 ];
 
 
@@ -48,6 +49,8 @@ export const DB_USER = process.env.DB_USER;
 export const DB_PASS = process.env.DB_PASS;
 export const DB_PORT = parseInt(process.env.DB_PORT ?? '3306', 10);
 
+// Lambdas info
+export const NEW_TX_SQS = process.env.NEW_TX_SQS;
 
 export default () => ({
   SERVICE_NAME,
@@ -63,4 +66,5 @@ export default () => ({
   DB_USER,
   DB_PASS,
   DB_PORT,
+  NEW_TX_SQS,
 });

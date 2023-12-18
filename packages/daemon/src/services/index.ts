@@ -157,7 +157,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
   try {
     const fullNodeEvent = context.event as FullNodeEvent;
     const now = getUnixTimestamp();
-    const { BLOCK_REWARD_LOCK } = getConfig();
+    const { BLOCK_REWARD_LOCK, NEW_TX_SQS } = getConfig();
     const blockRewardLock = BLOCK_REWARD_LOCK;
 
     const {
@@ -291,10 +291,8 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       const walletBalanceMap: StringMap<TokenBalanceMap> = getWalletBalanceMap(addressWalletMap, addressBalanceMap);
       await updateWalletTablesWithTx(mysql, hash, timestamp, walletBalanceMap);
 
-      const queueUrl = process.env.NEW_TX_SQS;
-      if (!queueUrl) return;
-
       try {
+        const queueUrl = NEW_TX_SQS;
         const tx: Transaction = {
           tx_id: hash,
           nonce,
