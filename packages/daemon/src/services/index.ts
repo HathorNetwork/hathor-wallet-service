@@ -12,6 +12,7 @@ import {
   StringMap,
   TokenBalanceMap,
   TxInput,
+  TxOutput,
   Wallet,
   DbTxOutput,
   DbTransaction,
@@ -19,6 +20,7 @@ import {
   Event,
   Context,
   FullNodeEvent,
+  Transaction,
 } from '../types';
 import {
   prepareOutputs,
@@ -57,6 +59,7 @@ import {
 } from '../db';
 import getConfig from '../config';
 import logger from '../logger';
+import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 
 export const METADATA_DIFF_EVENT_TYPES = {
   IGNORE: 'IGNORE',
@@ -165,9 +168,11 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       weight,
       outputs,
       inputs,
+      nonce,
       tokens,
       token_name,
       token_symbol,
+      parents,
     } = fullNodeEvent.event.data;
 
     const dbTx: DbTransaction | null = await getTransactionById(mysql, hash);
@@ -285,6 +290,38 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       // update wallet_balance and wallet_tx_history tables
       const walletBalanceMap: StringMap<TokenBalanceMap> = getWalletBalanceMap(addressWalletMap, addressBalanceMap);
       await updateWalletTablesWithTx(mysql, hash, timestamp, walletBalanceMap);
+
+      const queueUrl = process.env.NEW_TX_SQS;
+      if (!queueUrl) return;
+
+      try {
+        const tx: Transaction = {
+          tx_id: hash,
+          nonce,
+          timestamp,
+          voided: metadata.voided_by.length > 0,
+          weight,
+          parents,
+          version,
+          inputs: inputs as unknown as TxInput[],
+          outputs: outputs as unknown as TxOutput[],
+          height: metadata.height,
+          token_name,
+          token_symbol,
+        };
+        const client = new SQSClient({});
+        const command = new SendMessageCommand({
+          QueueUrl: queueUrl,
+          MessageBody: JSON.stringify({
+            wallets: Array.from(seenWallets),
+            tx,
+          }),
+        });
+
+        await client.send(command);
+      } catch (e) {
+        logger.error('Failed to send transaction to SQS queue');
+      }
     }
 
     // TODO: Send message on SQS  for real-time update

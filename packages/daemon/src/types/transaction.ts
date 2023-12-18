@@ -424,7 +424,6 @@ export interface Transaction {
   timestamp: number;
   // eslint-disable-next-line camelcase
   voided: boolean;
-  signal_bits: number;
   version: number;
   weight: number;
   parents: string[];
@@ -432,9 +431,9 @@ export interface Transaction {
   outputs: TxOutput[];
   height?: number;
   // eslint-disable-next-line camelcase
-  token_name?: string;
+  token_name?: string | null;
   // eslint-disable-next-line camelcase
-  token_symbol?: string;
+  token_symbol?: string | null;
 }
 
 export interface DbTransaction {
