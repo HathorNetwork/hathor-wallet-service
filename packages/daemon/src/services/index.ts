@@ -33,6 +33,7 @@ import {
   getTokenListFromInputsAndOutputs,
   getWalletBalanceMap,
   validateAddressBalances,
+  getWalletBalancesForTx,
 } from '../utils';
 import {
   getDbConnection,
@@ -60,6 +61,7 @@ import {
 import getConfig from '../config';
 import logger from '../logger';
 import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
+import { invokeOnTxPushNotificationRequestedLambda } from '../utils/aws';
 
 export const METADATA_DIFF_EVENT_TYPES = {
   IGNORE: 'IGNORE',
@@ -157,7 +159,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
   try {
     const fullNodeEvent = context.event as FullNodeEvent;
     const now = getUnixTimestamp();
-    const { BLOCK_REWARD_LOCK, NEW_TX_SQS } = getConfig();
+    const { BLOCK_REWARD_LOCK, NEW_TX_SQS, PUSH_NOTIFICATION_ENABLED } = getConfig();
     const blockRewardLock = BLOCK_REWARD_LOCK;
 
     const {
@@ -291,22 +293,23 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       const walletBalanceMap: StringMap<TokenBalanceMap> = getWalletBalanceMap(addressWalletMap, addressBalanceMap);
       await updateWalletTablesWithTx(mysql, hash, timestamp, walletBalanceMap);
 
+      const tx: Transaction = {
+        tx_id: hash,
+        nonce,
+        timestamp,
+        voided: metadata.voided_by.length > 0,
+        weight,
+        parents,
+        version,
+        inputs: inputs as unknown as TxInput[],
+        outputs: outputs as unknown as TxOutput[],
+        height: metadata.height,
+        token_name,
+        token_symbol,
+      };
+
       try {
         const queueUrl = NEW_TX_SQS;
-        const tx: Transaction = {
-          tx_id: hash,
-          nonce,
-          timestamp,
-          voided: metadata.voided_by.length > 0,
-          weight,
-          parents,
-          version,
-          inputs: inputs as unknown as TxInput[],
-          outputs: outputs as unknown as TxOutput[],
-          height: metadata.height,
-          token_name,
-          token_symbol,
-        };
         const client = new SQSClient({});
         const command = new SendMessageCommand({
           QueueUrl: queueUrl,
@@ -319,6 +322,21 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         await client.send(command);
       } catch (e) {
         logger.error('Failed to send transaction to SQS queue');
+        logger.error(e);
+      }
+
+      try {
+        if (PUSH_NOTIFICATION_ENABLED) {
+          const walletBalanceMap = await getWalletBalancesForTx(mysql, tx);
+          const { length: hasAffectWallets } = Object.keys(walletBalanceMap);
+          if (hasAffectWallets) {
+            invokeOnTxPushNotificationRequestedLambda(walletBalanceMap)
+              .catch((err: Error) => logger.error('Errored on invokeOnTxPushNotificationRequestedLambda invocation', err));
+          }
+        }
+      } catch (e) {
+        logger.error('Failed to send push notification to wallet-service lambda');
+        logger.error(e);
       }
     }
 

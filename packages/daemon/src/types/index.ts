@@ -13,3 +13,5 @@
  export * from './wallet';
  export * from './db';
  export * from './machine';
+ export * from './push_notification';
+ export * from './alerting';

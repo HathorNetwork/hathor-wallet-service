@@ -21,6 +21,7 @@ import {
   getLockedUtxoFromInputs,
   getMinersList,
   getTokenInformation,
+  getTokenSymbols,
   getTransactionById,
   getTxOutput,
   getTxOutputs,
@@ -1104,5 +1105,61 @@ describe('sync metadata', () => {
     await expect(updateLastSyncedEvent(mysql, 5)).resolves.not.toThrow();
     const lastSyncedEvent = await getLastSyncedEvent(mysql);
     expect(lastSyncedEvent?.last_event_id).toStrictEqual(5);
+  });
+});
+
+// TODO: This test is duplicated from the wallet-service package, we should 
+// have methods shared between the two projects
+describe('getTokenSymbols', () => {
+  it('should return a map of token symbol by token id', async () => {
+    expect.hasAssertions();
+
+    const tokensToPersist = [
+      new TokenInfo('token1', 'tokenName1', 'TKN1'),
+      new TokenInfo('token2', 'tokenName2', 'TKN2'),
+      new TokenInfo('token3', 'tokenName3', 'TKN3'),
+      new TokenInfo('token4', 'tokenName4', 'TKN4'),
+      new TokenInfo('token5', 'tokenName5', 'TKN5'),
+    ];
+
+    // persist tokens
+    for (const eachToken of tokensToPersist) {
+      await storeTokenInformation(mysql, eachToken.id, eachToken.name, eachToken.symbol);
+    }
+
+    const tokenIdList = tokensToPersist.map((each: TokenInfo) => each.id);
+    const tokenSymbolMap = await getTokenSymbols(mysql, tokenIdList);
+
+    expect(tokenSymbolMap).toStrictEqual({
+      token1: 'TKN1',
+      token2: 'TKN2',
+      token3: 'TKN3',
+      token4: 'TKN4',
+      token5: 'TKN5',
+    });
+  });
+
+  it('should return null when no token is found', async () => {
+    expect.hasAssertions();
+
+    const tokensToPersist = [
+      new TokenInfo('token1', 'tokenName1', 'TKN1'),
+      new TokenInfo('token2', 'tokenName2', 'TKN2'),
+      new TokenInfo('token3', 'tokenName3', 'TKN3'),
+      new TokenInfo('token4', 'tokenName4', 'TKN4'),
+      new TokenInfo('token5', 'tokenName5', 'TKN5'),
+    ];
+
+    // no token persistence
+
+    let tokenIdList = tokensToPersist.map((each: TokenInfo) => each.id);
+    let tokenSymbolMap = await getTokenSymbols(mysql, tokenIdList);
+
+    expect(tokenSymbolMap).toBeNull();
+
+    tokenIdList = [];
+    tokenSymbolMap = await getTokenSymbols(mysql, tokenIdList);
+
+    expect(tokenSymbolMap).toBeNull();
   });
 });

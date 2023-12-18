@@ -4,7 +4,7 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  */
-import mysql, { Connection as MysqlConnection, Pool } from 'mysql2/promise';
+import mysql, { Connection as MysqlConnection, Pool, RowDataPacket } from 'mysql2/promise';
 import {
   TokenBalanceMap,
   DbTxOutput,
@@ -21,6 +21,7 @@ import {
   DbTransaction,
   TokenInfo,
   Miner,
+  TokenSymbolsRow,
 } from '../types';
 import { isAuthority } from '../utils';
 import {
@@ -1531,4 +1532,33 @@ export const cleanupVoidedTx = async (mysql: MysqlConnection, txId: string): Pro
         AND voided = true`,
     [txId],
   );
+};
+
+/**
+ * Get token symbol map, correlating token id to its symbol.
+ *
+ * @param mysql - Database connection
+ * @param tokenIdList - A list of token id
+ * @returns The token information (or null if id is not found)
+ *
+ * TODO: This method is duplicated from the wallet-service lambdas,
+ * we should have common methods for both packages
+ */
+export const getTokenSymbols = async (
+  mysql: MysqlConnection,
+  tokenIdList: string[],
+): Promise<StringMap<string> | null> => {
+  if (tokenIdList.length === 0) return null;
+
+  const [results] = await mysql.query<TokenSymbolsRow[]>(
+    'SELECT `id`, `symbol` FROM `token` WHERE `id` IN (?)',
+    [tokenIdList],
+  );
+
+  if (results.length === 0) return null;
+  return results.reduce((prev: Record<string, string>, token: { id: string, symbol: string }) => {
+    // eslint-disable-next-line no-param-reassign
+    prev[token.id] = token.symbol;
+    return prev;
+  }, {}) as unknown as StringMap<string>;
 };

@@ -127,3 +127,8 @@ export interface WalletTxHistoryRow extends RowDataPacket {
 export interface BestBlockRow extends RowDataPacket {
   height: number;
 }
+
+export interface TokenSymbolsRow extends RowDataPacket {
+  id: string;
+  symbol: string;
+}
