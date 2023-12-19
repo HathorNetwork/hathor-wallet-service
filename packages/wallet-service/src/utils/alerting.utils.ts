@@ -5,8 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-
-
 import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 import { Severity } from '@src/types';
 import { assertEnvVariablesExistence } from '@src/utils';

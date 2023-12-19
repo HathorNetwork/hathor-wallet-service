@@ -5,8 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-
-
 import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 import { APIGatewayProxyHandler, APIGatewayProxyResult, Handler, SQSEvent } from 'aws-lambda';
 import 'source-map-support/register';

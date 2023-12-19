@@ -167,11 +167,12 @@ phases:
     #If you use the Ubuntu standard image 2.0 or later, you must specify runtime-versions.
     #If you specify runtime-versions and use an image other than Ubuntu standard image 2.0, the build fails.
     runtime-versions:
-      nodejs: 16
+      nodejs: 18
       # name: version
     commands:
       - npm install -g yarn
-      - yarn set version berry
+      - corepack enable
+      - yarn set version 3.4.1
       - yarn install
   pre_build:
     commands:

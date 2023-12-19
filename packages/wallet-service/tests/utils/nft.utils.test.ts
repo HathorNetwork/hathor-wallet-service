@@ -172,6 +172,7 @@ describe('_updateMetadata', () => {
       StatusCode: 202,
       Payload: 'sampleData',
     };
+
     const mLambdaClient = new LambdaClientMock({});
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (mLambdaClient.send as jest.Mocked<any>).mockImplementation(
