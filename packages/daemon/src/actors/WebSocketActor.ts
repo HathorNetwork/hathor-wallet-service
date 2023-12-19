@@ -11,10 +11,29 @@ import { get } from 'lodash';
 import logger from '../logger';
 import getConfig from '../config';
 
+const PING_TIMEOUT = 30000; // 30s timeout
+const PING_INTERVAL = 5000; // Will ping every 5s
+
 export default (callback: any, receive: any) => {
   const { WS_URL } = getConfig();
+  const createPingTimeout = (): NodeJS.Timeout => setTimeout(() => {
+    socket.terminate();
+  }, PING_TIMEOUT);
+  const createPingTimer = (): NodeJS.Timer => setInterval(() => {
+    logger.debug('Sending ping to server');
+    socket.ping();
+  }, PING_INTERVAL);
+
   // @ts-ignore: We already check for missing envs in startup
   const socket: WebSocket = new WebSocket(WS_URL);
+  let pingTimeout: NodeJS.Timeout = createPingTimeout();
+  let pingTimer: NodeJS.Timer;
+
+  const heartbeat = () => {
+    logger.debug('Pong received from server');
+    clearTimeout(pingTimeout);
+    pingTimeout = createPingTimeout();
+  };
 
   receive((event: Event) => {
     if (event.type !== 'WEBSOCKET_SEND_EVENT') {
@@ -36,7 +55,11 @@ export default (callback: any, receive: any) => {
     socket.send(payload);
   });
 
+  socket.on('pong', heartbeat);
+
   socket.onopen = () => {
+    // Start pinging
+    pingTimer = createPingTimer();
     callback({
       type: 'WEBSOCKET_EVENT',
       event: {
@@ -62,7 +85,14 @@ export default (callback: any, receive: any) => {
     });
   };
 
+  socket.onerror = (e) => {
+    logger.error('Socket erroed');
+    logger.error(e);
+  };
+
   socket.onclose = () => {
+    clearTimeout(pingTimeout);
+    clearInterval(pingTimer);
     callback({
       type: 'WEBSOCKET_EVENT',
       event: {
