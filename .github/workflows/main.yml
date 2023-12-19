@@ -113,4 +113,5 @@ jobs:
 
     - name: Run integration tests on the daemon
       run: |
+        export NODE_ENV=test
         nix develop . -c yarn workspace sync-daemon run test_integration
