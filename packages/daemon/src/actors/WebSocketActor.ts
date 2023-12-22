@@ -9,7 +9,7 @@ import { WebSocket } from 'ws';
 import { Event } from '../types';
 import { get } from 'lodash';
 import logger from '../logger';
-import getConfig from '../config';
+import { getFullnodeWsUrl } from '../utils';
 
 const PING_TIMEOUT = 30000; // 30s timeout
 const PING_INTERVAL = 5000; // Will ping every 5s
