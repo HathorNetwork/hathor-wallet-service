@@ -15,4 +15,5 @@ export interface Context {
   event?: FullNodeEvent | null;
   initialEventId: null | number;
   txCache: LRU;
+  rewardMinBlocks?: number | null;
 }

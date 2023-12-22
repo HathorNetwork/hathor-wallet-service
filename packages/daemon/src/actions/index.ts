@@ -20,6 +20,10 @@ export const storeInitialState = assign({
     // @ts-ignore
     return event.data.lastEventId;
   },
+  rewardMinBlocks: (_context: Context, event: Event) => {
+    // @ts-ignore
+    return event.data.rewardMinBlocks;
+  },
 });
 
 /*
@@ -31,7 +35,7 @@ export const storeInitialState = assign({
  * to the original event (that initiated the metadata diff check)
  */
 export const unwrapEvent = assign({
-  event: (context: Context, event: Event) => {
+  event: (_context: Context, event: Event) => {
     if (event.type !== 'METADATA_DECIDED') {
       throw new Error(`Received unhandled ${event.type} on unwrapEvent action`);
     }
