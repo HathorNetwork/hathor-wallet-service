@@ -11,4 +11,6 @@ export const UNVOIDED_SCENARIO_LAST_EVENT = 38;
 
 // reorg
 export const REORG_SCENARIO_PORT = 8082;
-export const REORG_SCENARIO_LAST_EVENT = 20;
+export const REORG_SCENARIO_LAST_EVENT = 19;
+
+export const SCENARIOS = ['UNVOIDED_SCENARIO', 'REORG_SCENARIO'];

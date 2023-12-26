@@ -19,9 +19,10 @@
     "test_images_integration": "jest --config ./jest_integration.config.js --runInBand --forceExit",
     "test_images_migrate": "DB_NAME=hathor DB_PORT=3380 DB_PASS=hathor DB_USER=hathor yarn run sequelize-cli --migrations-path ../../db/migrations --config ./__tests__/integration/sequelize-db-config.js db:migrate",
     "test_images_wait_for_db": "yarn dlx ts-node ./__tests__/integration/wait-for-db-up.ts",
+    "test_images_wait_for_ws": "yarn dlx ts-node ./__tests__/integration/wait-for-ws-up.ts",
     "test_images_setup_database": "yarn dlx ts-node ./__tests__/integration/setup-database.ts",
     "test": "jest --coverage",
-    "test_integration": "yarn run test_images_up && yarn run test_images_wait_for_db && yarn run test_images_setup_database && yarn run test_images_migrate && yarn run test_images_integration && yarn run test_images_down"
+    "test_integration": "yarn run test_images_up && yarn run test_images_wait_for_db && yarn run test_images_wait_for_ws && yarn run test_images_setup_database && yarn run test_images_migrate && yarn run test_images_integration && yarn run test_images_down"
   },
   "name": "sync-daemon",
   "author": "André Abadesso",
