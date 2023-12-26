@@ -9,7 +9,8 @@ import { interpret } from 'xstate';
 import { getLastSyncedEvent, getDbConnection } from '../../../src/db';
 import { Connection } from 'mysql2/promise';
 import { cleanDatabase, fetchAddressBalances, validateBalances } from '../utils';
-import scenarioBalances from './unvoided_transactions.balances';
+import unvoidedScenarioBalances from './unvoided_transactions.balances';
+import reorgScenarioBalances from './reorg.balances';
 import {
   DB_NAME,
   DB_USER,
@@ -96,7 +97,7 @@ describe('unvoided transaction scenario', () => {
           if (lastSyncedEvent?.last_event_id === UNVOIDED_SCENARIO_LAST_EVENT) {
             const addressBalances = await fetchAddressBalances(mysql);
             // @ts-ignore
-            expect(validateBalances(addressBalances, scenarioBalances));
+            expect(validateBalances(addressBalances, unvoidedScenarioBalances));
 
             machine.stop();
 
@@ -139,7 +140,7 @@ describe('reorg scenario', () => {
           if (lastSyncedEvent?.last_event_id === REORG_SCENARIO_LAST_EVENT) {
             const addressBalances = await fetchAddressBalances(mysql);
             // @ts-ignore
-            expect(validateBalances(addressBalances, scenarioBalances));
+            expect(validateBalances(addressBalances, reorgScenarioBalances));
 
             machine.stop();
 
