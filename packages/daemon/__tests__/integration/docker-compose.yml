@@ -27,6 +27,15 @@ services:
     ]
     ports:
       - "8082:8080"
+  single_chain_blocks_and_transactions:
+    image: hathornetwork/hathor-core
+    command: [
+      "events_simulator",
+      "--scenario", "SINGLE_CHAIN_BLOCKS_AND_TRANSACTIONS",
+      "--seed", "1"
+    ]
+    ports:
+      - "8083:8080"
 
 networks:
   database:

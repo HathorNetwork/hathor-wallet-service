@@ -11,6 +11,7 @@ import { Connection } from 'mysql2/promise';
 import { cleanDatabase, fetchAddressBalances, validateBalances } from '../utils';
 import unvoidedScenarioBalances from './unvoided_transactions.balances';
 import reorgScenarioBalances from './reorg.balances';
+import singleChainBlocksAndTransactionsBalances from './single_chain_blocks_and_transactions.balances';
 import {
   DB_NAME,
   DB_USER,
@@ -21,6 +22,8 @@ import {
   UNVOIDED_SCENARIO_LAST_EVENT,
   REORG_SCENARIO_PORT,
   REORG_SCENARIO_LAST_EVENT,
+  SINGLE_CHAIN_BLOCKS_AND_TRANSACTIONS_PORT,
+  SINGLE_CHAIN_BLOCKS_AND_TRANSACTIONS_LAST_EVENT,
 } from '../config';
 
 jest.mock('../../../src/config', () => {
@@ -141,6 +144,49 @@ describe('reorg scenario', () => {
             const addressBalances = await fetchAddressBalances(mysql);
             // @ts-ignore
             expect(validateBalances(addressBalances, reorgScenarioBalances));
+
+            machine.stop();
+
+            resolve();
+          }
+        }
+      });
+
+      machine.start();
+    });
+  });
+});
+
+describe('single chain blocks and transactions scenario', () => {
+  it('should do a full sync and the balances should match', async () => {
+    // @ts-ignore
+    getConfig.mockReturnValue({
+      SERVICE_NAME: 'daemon-test',
+      CONSOLE_LEVEL: 'debug',
+      TX_CACHE_SIZE: 100,
+      BLOCK_REWARD_LOCK: 300,
+      FULLNODE_PEER_ID: 'simulator_peer_id',
+      STREAM_ID: 'simulator_stream_id',
+      NETWORK: 'simulator_network',
+      WS_URL: `ws://127.0.0.1:${SINGLE_CHAIN_BLOCKS_AND_TRANSACTIONS_PORT}/v1a/event_ws`,
+      DB_ENDPOINT,
+      DB_NAME,
+      DB_USER,
+      DB_PASS,
+      DB_PORT,
+    });
+
+    const machine = interpret(SyncMachine);
+
+    await new Promise<void>((resolve) => {
+      machine.onTransition(async (state) => {
+        if (state.matches('CONNECTED.idle')) {
+          // @ts-ignore
+          const lastSyncedEvent = await getLastSyncedEvent(mysql);
+          if (lastSyncedEvent?.last_event_id === SINGLE_CHAIN_BLOCKS_AND_TRANSACTIONS_LAST_EVENT) {
+            const addressBalances = await fetchAddressBalances(mysql);
+            // @ts-ignore
+            expect(validateBalances(addressBalances, singleChainBlocksAndTransactionsBalances));
 
             machine.stop();
 
