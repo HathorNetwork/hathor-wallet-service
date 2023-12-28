@@ -10,7 +10,7 @@ services:
     ports:
       - "3380:3306"
   unvoided_transaction:
-    image: hathornetwork/hathor-core
+    image: hathornetwork/hathor-core:stable
     command: [
       "events_simulator",
       "--scenario", "UNVOIDED_TRANSACTION",
@@ -19,7 +19,7 @@ services:
     ports:
       - "8081:8080"
   reorg:
-    image: hathornetwork/hathor-core
+    image: hathornetwork/hathor-core:stable
     command: [
       "events_simulator",
       "--scenario", "REORG",
@@ -28,7 +28,7 @@ services:
     ports:
       - "8082:8080"
   single_chain_blocks_and_transactions:
-    image: hathornetwork/hathor-core
+    image: hathornetwork/hathor-core:stable
     command: [
       "events_simulator",
       "--scenario", "SINGLE_CHAIN_BLOCKS_AND_TRANSACTIONS",

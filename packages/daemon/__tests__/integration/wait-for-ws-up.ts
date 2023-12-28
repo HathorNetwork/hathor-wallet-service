@@ -55,7 +55,7 @@ const main = async () => {
       // @ts-ignore
       const port = config[`${SCENARIOS[i]}_PORT`];
       // Attempt to connect
-      await attemptConnection(port, 10, 5000);
+      await attemptConnection(port, 30, 10000);
     } catch (err) {
       console.log(err);
       process.exit(1);
