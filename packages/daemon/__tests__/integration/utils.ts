@@ -6,7 +6,6 @@
  */
 import { Connection } from 'mysql2/promise';
 import { AddressBalance, AddressBalanceRow } from '../../src/types';
-import { find, isEqual } from 'lodash';
 
 export const cleanDatabase = async (mysql: Connection): Promise<void> => {
   const TABLES = [
@@ -75,22 +74,3 @@ export const validateBalances = async (
     }
   }
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
