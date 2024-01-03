@@ -7,4 +7,6 @@
 
  import { StringMap } from '../types';
 
-export const stringMapIterator = (stringMap: StringMap<unknown>): [string, unknown][] => (Object.entries(stringMap));
+export function stringMapIterator<T>(stringMap: StringMap<T>): [string, T][] {
+  return Object.entries(stringMap);
+}
