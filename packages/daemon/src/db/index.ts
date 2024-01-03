@@ -4,7 +4,7 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  */
-import mysql, { Connection as MysqlConnection, Pool, RowDataPacket } from 'mysql2/promise';
+import mysql, { Connection as MysqlConnection, Pool } from 'mysql2/promise';
 import {
   TokenBalanceMap,
   DbTxOutput,
@@ -1541,7 +1541,7 @@ export const cleanupVoidedTx = async (mysql: MysqlConnection, txId: string): Pro
  * @param tokenIdList - A list of token id
  * @returns The token information (or null if id is not found)
  *
- * TODO: This method is duplicated from the wallet-service lambdas,
+ * @todo This method is duplicated from the wallet-service lambdas,
  * we should have common methods for both packages
  */
 export const getTokenSymbols = async (
