@@ -1538,7 +1538,7 @@ export const cleanupVoidedTx = async (mysql: MysqlConnection, txId: string): Pro
  * Get token symbol map, correlating token id to its symbol.
  *
  * @param mysql - Database connection
- * @param tokenIdList - A list of token id
+ * @param tokenIdList - A list of token ids
  * @returns The token information (or null if id is not found)
  *
  * @todo This method is duplicated from the wallet-service lambdas,
