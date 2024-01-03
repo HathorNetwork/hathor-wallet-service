@@ -1,5 +1,6 @@
 import { SendNotificationToDevice, Severity, WalletBalanceValue } from "../types";
 import { LambdaClient, InvokeCommand, InvokeCommandOutput } from '@aws-sdk/client-lambda';
+import { SendMessageCommand, SendMessageCommandOutput, SQSClient } from '@aws-sdk/client-sqs';
 import { StringMap } from '../types';
 import getConfig from '../config';
 import logger from '../logger';
@@ -51,3 +52,19 @@ export const invokeOnTxPushNotificationRequestedLambda = async (walletBalanceVal
     throw new Error(`${ON_TX_PUSH_NOTIFICATION_REQUESTED_FUNCTION_NAME} lambda invoke failed for wallets: ${walletIdList}`);
   }
 }
+
+/**
+ * Sends a message to a specific SQS queue
+*
+ * @param messageBody - A string with the message body
+ * @param queueUrl - The queue URL
+ */
+export const sendMessageSQS = async (messageBody: string, queueUrl: string): Promise<SendMessageCommandOutput> => {
+  const client = new SQSClient({});
+  const command = new SendMessageCommand({
+    QueueUrl: queueUrl,
+    MessageBody: messageBody,
+  });
+
+  return client.send(command);
+};

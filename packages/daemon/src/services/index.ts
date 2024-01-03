@@ -60,8 +60,7 @@ import {
 } from '../db';
 import getConfig from '../config';
 import logger from '../logger';
-import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
-import { invokeOnTxPushNotificationRequestedLambda } from '../utils/aws';
+import { invokeOnTxPushNotificationRequestedLambda, sendMessageSQS } from '../utils/aws';
 
 export const METADATA_DIFF_EVENT_TYPES = {
   IGNORE: 'IGNORE',
@@ -310,16 +309,18 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
       try {
         const queueUrl = NEW_TX_SQS;
-        const client = new SQSClient({});
-        const command = new SendMessageCommand({
+        if (!queueUrl) {
+          throw new Error('Queue URL is invalid');
+        }
+
+        await sendMessageSQS(JSON.stringify({
           QueueUrl: queueUrl,
           MessageBody: JSON.stringify({
             wallets: Array.from(seenWallets),
             tx,
           }),
-        });
+        }), queueUrl);
 
-        await client.send(command);
       } catch (e) {
         logger.error('Failed to send transaction to SQS queue');
         logger.error(e);
