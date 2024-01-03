@@ -13,13 +13,15 @@ import logger from '../logger';
 /**
  * Adds a message to the SQS alerting queue
  *
- * @param fnName - The lambda function name
- * @param payload - The payload to be sent
+ * @param title - The alert's title
+ * @param message - The alert's message
+ * @param severity - The alert's severity (critical, major, medium, minor, warning or info)
+ * @param metadata - Key value object being the key the title
  */
 export const addAlert = async (
   title: string,
   message: string,
-  severity: Severity,
+  severity: Severity = Severity.INFO,
   metadata?: unknown,
 ): Promise<void> => {
   const {
