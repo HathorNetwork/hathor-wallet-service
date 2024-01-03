@@ -22,7 +22,7 @@ export const invokeOnTxPushNotificationRequestedLambda = async (walletBalanceVal
     ON_TX_PUSH_NOTIFICATION_REQUESTED_FUNCTION_NAME,
   } = getConfig();
 
-  if (PUSH_NOTIFICATION_ENABLED) {
+  if (!PUSH_NOTIFICATION_ENABLED) {
     logger.debug('Push notification is disabled. Skipping invocation of OnTxPushNotificationRequestedLambda lambda.');
     return;
   }
