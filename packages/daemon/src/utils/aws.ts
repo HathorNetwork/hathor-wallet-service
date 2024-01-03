@@ -40,9 +40,10 @@ export const invokeOnTxPushNotificationRequestedLambda = async (walletBalanceVal
 
   const response: InvokeCommandOutput = await client.send(command);
 
-  // Event InvocationType returns 202 for a successful invokation
-  const walletIdList = Object.keys(walletBalanceValueMap);
   if (response.StatusCode !== 202) {
+    // Event InvocationType returns 202 for a successful invokation
+    const walletIdList = Object.keys(walletBalanceValueMap);
+
     await addAlert(
       'Error on PushNotificationUtils',
       `${ON_TX_PUSH_NOTIFICATION_REQUESTED_FUNCTION_NAME} lambda invoke failed for wallets`,
