@@ -419,7 +419,7 @@ export const getWalletBalancesForTx = async (mysql: MysqlConnection, tx: Transac
   const tokenIdAccumulation = [];
 
   // Iterates all the addresses to populate the map's data
-  const addressWalletEntries = stringMapIterator(addressWalletMap) as [string, Wallet][];
+  const addressWalletEntries = stringMapIterator(addressWalletMap);
   for (const [address, wallet] of addressWalletEntries) {
     // Create a new walletId entry if it does not exist
     if (!walletsMap[wallet.walletId]) {
