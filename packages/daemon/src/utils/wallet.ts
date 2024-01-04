@@ -18,21 +18,27 @@ import {
   EventTxOutput,
   StringMap,
   TokenBalanceMap,
+  TokenBalanceValue,
+  Transaction,
   TxInput,
   TxOutput,
   TxOutputWithIndex,
   Wallet,
+  WalletBalance,
+  WalletBalanceValue,
 } from '../types';
 import {
   fetchAddressBalance,
   fetchAddressTxHistorySum,
   getAddressWalletInfo,
   getExpiredTimelocksUtxos,
+  getTokenSymbols,
   unlockUtxos as dbUnlockUtxos,
   updateAddressLockedBalance,
   updateWalletLockedBalance,
 } from '../db';
 import logger from '../logger';
+import { stringMapIterator } from './helpers';
 
 /**
  * Checks if a given tokenData has any authority bit set
@@ -393,3 +399,114 @@ export const validateAddressBalances = async (mysql: MysqlConnection, addresses:
     assert.strictEqual(Number(addressBalance.unlockedBalance + addressBalance.lockedBalance), Number(addressTxHistorySum.balance));
   }
 };
+
+/**
+ * Get a list of wallet balance per token by informed transaction.
+ *
+ * @param mysql
+ * @param tx - The transaction to get related wallets and their token balances
+ * @returns
+ */
+export const getWalletBalancesForTx = async (mysql: MysqlConnection, tx: Transaction): Promise<StringMap<WalletBalanceValue>> => {
+  const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(tx.inputs, tx.outputs);
+  // return only wallets that were started
+  const addressWalletMap: StringMap<Wallet> = await getAddressWalletInfo(mysql, Object.keys(addressBalanceMap));
+
+  // Create a new map focused on the walletId and storing its balance variation from this tx
+  const walletsMap: StringMap<WalletBalance> = {};
+
+  // Accumulation of tokenId to be used to extract its symbols.
+  const tokenIdAccumulation = [];
+
+  // Iterates all the addresses to populate the map's data
+  const addressWalletEntries = stringMapIterator(addressWalletMap);
+  for (const [address, wallet] of addressWalletEntries) {
+    // Create a new walletId entry if it does not exist
+    if (!walletsMap[wallet.walletId]) {
+      walletsMap[wallet.walletId] = {
+        txId: tx.tx_id,
+        walletId: wallet.walletId,
+        addresses: [],
+        walletBalanceForTx: new TokenBalanceMap(),
+      };
+    }
+    const walletData = walletsMap[wallet.walletId];
+
+    // Add this address to the wallet's affected addresses list
+    walletData.addresses.push(address);
+
+    // Merge the balance of this address with the total balance of the wallet
+    const mergedBalance = TokenBalanceMap.merge(walletData.walletBalanceForTx, addressBalanceMap[address]);
+    walletData.walletBalanceForTx = mergedBalance;
+
+    const tokenIdList = Object.keys(mergedBalance.map);
+    tokenIdAccumulation.push(tokenIdList);
+  }
+
+  const tokenIdSet = new Set<string>(tokenIdAccumulation.reduce((prev, eachGroup) => [...prev, ...eachGroup], []));
+  const tokenSymbolsMap = await getTokenSymbols(mysql, Array.from(tokenIdSet.values()));
+
+  // @ts-ignore
+  return WalletBalanceMapConverter.toValue(walletsMap, tokenSymbolsMap);
+};
+
+export class FromTokenBalanceMapToBalanceValueList {
+  /**
+   * Convert the map of token balance instance into a map of token balance value.
+   * It also hydrate each token balance value with token symbol.
+   *
+   * @param tokenBalanceMap - Map of token balance instance
+   * @param tokenSymbolsMap - Map token's id to its symbol
+   * @returns a map of token balance value
+   */
+  static convert(tokenBalanceMap: TokenBalanceMap, tokenSymbolsMap: StringMap<string>): TokenBalanceValue[] {
+    const entryBalances = Object.entries(tokenBalanceMap.map);
+    const balances = entryBalances.map(([tokenId, balance]) => ({
+      tokenId,
+      tokenSymbol: tokenSymbolsMap[tokenId],
+      lockedAmount: balance.lockedAmount,
+      lockedAuthorities: balance.lockedAuthorities.toJSON(),
+      lockExpires: balance.lockExpires,
+      unlockedAmount: balance.unlockedAmount,
+      unlockedAuthorities: balance.unlockedAuthorities.toJSON(),
+      totalAmountSent: balance.totalAmountSent,
+      total: balance.total(),
+    } as TokenBalanceValue));
+    return balances;
+  }
+}
+
+export const sortBalanceValueByAbsTotal = (balanceA: TokenBalanceValue, balanceB: TokenBalanceValue): number => {
+  if (Math.abs(balanceA.total) - Math.abs(balanceB.total) >= 0) return -1;
+  return 0;
+};
+
+export class WalletBalanceMapConverter {
+  /**
+   * Convert the map of wallet balance instance into a map of wallet balance value.
+   *
+   * @param walletBalanceMap - Map wallet's id to its balance
+   * @param tokenSymbolsMap - Map token's id to its symbol
+   * @returns a map of wallet id to its balance value
+   */
+  static toValue(walletBalanceMap: StringMap<WalletBalance>, tokenSymbolsMap: StringMap<string>): StringMap<WalletBalanceValue> {
+    const walletBalanceEntries = Object.entries(walletBalanceMap);
+
+    const walletBalanceValueMap: StringMap<WalletBalanceValue> = {};
+    for (const [walletId, walletBalance] of walletBalanceEntries) {
+      const sortedTokenBalanceList = FromTokenBalanceMapToBalanceValueList
+        // hydrate token balance value with token symbol while convert to value
+        .convert(walletBalance.walletBalanceForTx, tokenSymbolsMap)
+        .sort(sortBalanceValueByAbsTotal);
+
+      walletBalanceValueMap[walletId] = {
+        addresses: walletBalance.addresses,
+        txId: walletBalance.txId,
+        walletId: walletBalance.walletId,
+        walletBalanceForTx: sortedTokenBalanceList,
+      };
+    }
+
+    return walletBalanceValueMap;
+  }
+}

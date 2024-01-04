@@ -358,6 +358,7 @@ describe('handleVertexAccepted', () => {
             metadata: {
               height: 123,
               first_block: true,
+              voided_by: [],
             },
             timestamp: 'timestampValue',
             version: 'versionValue',

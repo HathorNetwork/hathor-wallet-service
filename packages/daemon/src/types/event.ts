@@ -62,8 +62,10 @@ export type FullNodeEvent = {
       timestamp: number;
       version: number;
       weight: number;
+      nonce: number;
       inputs: EventTxInput[];
       outputs: EventTxOutput[];
+      parents: string[];
       tokens: string[];
       token_name: null | string;
       token_symbol: null | string;

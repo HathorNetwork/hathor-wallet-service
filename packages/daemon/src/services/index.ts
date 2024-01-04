@@ -12,6 +12,7 @@ import {
   StringMap,
   TokenBalanceMap,
   TxInput,
+  TxOutput,
   Wallet,
   DbTxOutput,
   DbTransaction,
@@ -19,6 +20,7 @@ import {
   Event,
   Context,
   FullNodeEvent,
+  Transaction,
 } from '../types';
 import {
   prepareOutputs,
@@ -31,6 +33,7 @@ import {
   getTokenListFromInputsAndOutputs,
   getWalletBalanceMap,
   validateAddressBalances,
+  getWalletBalancesForTx,
 } from '../utils';
 import {
   getDbConnection,
@@ -57,6 +60,7 @@ import {
 } from '../db';
 import getConfig from '../config';
 import logger from '../logger';
+import { invokeOnTxPushNotificationRequestedLambda, sendMessageSQS } from '../utils/aws';
 
 export const METADATA_DIFF_EVENT_TYPES = {
   IGNORE: 'IGNORE',
@@ -154,7 +158,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
   try {
     const fullNodeEvent = context.event as FullNodeEvent;
     const now = getUnixTimestamp();
-    const { BLOCK_REWARD_LOCK } = getConfig();
+    const { BLOCK_REWARD_LOCK, NEW_TX_SQS, PUSH_NOTIFICATION_ENABLED } = getConfig();
     const blockRewardLock = BLOCK_REWARD_LOCK;
 
     const {
@@ -165,9 +169,11 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       weight,
       outputs,
       inputs,
+      nonce,
       tokens,
       token_name,
       token_symbol,
+      parents,
     } = fullNodeEvent.event.data;
 
     const dbTx: DbTransaction | null = await getTransactionById(mysql, hash);
@@ -285,6 +291,54 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       // update wallet_balance and wallet_tx_history tables
       const walletBalanceMap: StringMap<TokenBalanceMap> = getWalletBalanceMap(addressWalletMap, addressBalanceMap);
       await updateWalletTablesWithTx(mysql, hash, timestamp, walletBalanceMap);
+
+      const tx: Transaction = {
+        tx_id: hash,
+        nonce,
+        timestamp,
+        voided: metadata.voided_by.length > 0,
+        weight,
+        parents,
+        version,
+        inputs: inputs as unknown as TxInput[],
+        outputs: outputs as unknown as TxOutput[],
+        height: metadata.height,
+        token_name,
+        token_symbol,
+      };
+
+      try {
+        const queueUrl = NEW_TX_SQS;
+        if (!queueUrl) {
+          throw new Error('Queue URL is invalid');
+        }
+
+        await sendMessageSQS(JSON.stringify({
+          QueueUrl: queueUrl,
+          MessageBody: JSON.stringify({
+            wallets: Array.from(seenWallets),
+            tx,
+          }),
+        }), queueUrl);
+
+      } catch (e) {
+        logger.error('Failed to send transaction to SQS queue');
+        logger.error(e);
+      }
+
+      try {
+        if (PUSH_NOTIFICATION_ENABLED) {
+          const walletBalanceMap = await getWalletBalancesForTx(mysql, tx);
+          const { length: hasAffectWallets } = Object.keys(walletBalanceMap);
+          if (hasAffectWallets) {
+            invokeOnTxPushNotificationRequestedLambda(walletBalanceMap)
+              .catch((err: Error) => logger.error('Errored on invokeOnTxPushNotificationRequestedLambda invocation', err));
+          }
+        }
+      } catch (e) {
+        logger.error('Failed to send push notification to wallet-service lambda');
+        logger.error(e);
+      }
     }
 
     // TODO: Send message on SQS  for real-time update
