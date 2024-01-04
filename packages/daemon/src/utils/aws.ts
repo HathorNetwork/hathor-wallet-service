@@ -1,10 +1,10 @@
-import { SendNotificationToDevice, Severity, WalletBalanceValue } from "../types";
+import { Severity, WalletBalanceValue } from '../types';
 import { LambdaClient, InvokeCommand, InvokeCommandOutput } from '@aws-sdk/client-lambda';
-import { SendMessageCommand, SendMessageCommandOutput, SQSClient } from '@aws-sdk/client-sqs';
+import { SendMessageCommand, SendMessageCommandOutput, SQSClient, MessageAttributeValue } from '@aws-sdk/client-sqs';
 import { StringMap } from '../types';
 import getConfig from '../config';
 import logger from '../logger';
-import { addAlert } from "./alerting";
+import { addAlert } from './alerting';
 
 export function buildFunctionName(functionName: string): string {
   const { STAGE } = getConfig();
@@ -60,11 +60,12 @@ export const invokeOnTxPushNotificationRequestedLambda = async (walletBalanceVal
  * @param messageBody - A string with the message body
  * @param queueUrl - The queue URL
  */
-export const sendMessageSQS = async (messageBody: string, queueUrl: string): Promise<SendMessageCommandOutput> => {
+export const sendMessageSQS = async (messageBody: string, queueUrl: string, messageAttributes?: Record<string, MessageAttributeValue>): Promise<SendMessageCommandOutput> => {
   const client = new SQSClient({});
   const command = new SendMessageCommand({
     QueueUrl: queueUrl,
     MessageBody: messageBody,
+    MessageAttributes: messageAttributes,
   });
 
   return client.send(command);
