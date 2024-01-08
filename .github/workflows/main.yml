@@ -73,10 +73,6 @@ jobs:
 
     - name: Run tests on the wallet-service
       run: |
-        nix develop . -c node --version && nix develop . -c yarn --version
-
-    - name: Run tests on the wallet-service
-      run: |
         nix develop . -c yarn workspace wallet-service jest
       env:
         NODE_ENV: test
@@ -114,3 +110,8 @@ jobs:
         ALERT_MANAGER_REGION: us-east-1
         ALERT_MANAGER_TOPIC: alert-topic
         PUSH_ALLOWED_PROVIDERS: ""
+
+    - name: Run integration tests on the daemon
+      run: |
+        export NODE_ENV=test
+        nix develop . -c yarn workspace sync-daemon run test_integration

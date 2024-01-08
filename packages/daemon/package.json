@@ -14,7 +14,15 @@
     "lint": "eslint .",
     "build": "tsc",
     "watch": "tsc -w",
-    "test": "jest --coverage"
+    "test_images_up": "docker-compose -f ./__tests__/integration/scripts/docker-compose.yml up -d",
+    "test_images_down": "docker-compose -f ./__tests__/integration/scripts/docker-compose.yml down",
+    "test_images_integration": "jest --config ./jest_integration.config.js --runInBand --forceExit",
+    "test_images_migrate": "DB_NAME=hathor DB_PORT=3380 DB_PASS=hathor DB_USER=hathor yarn run sequelize-cli --migrations-path ../../db/migrations --config ./__tests__/integration/scripts/sequelize-db-config.js db:migrate",
+    "test_images_wait_for_db": "yarn dlx ts-node ./__tests__/integration/scripts/wait-for-db-up.ts",
+    "test_images_wait_for_ws": "yarn dlx ts-node ./__tests__/integration/scripts/wait-for-ws-up.ts",
+    "test_images_setup_database": "yarn dlx ts-node ./__tests__/integration/scripts/setup-database.ts",
+    "test": "jest --coverage",
+    "test_integration": "yarn run test_images_up && yarn run test_images_wait_for_db && yarn run test_images_wait_for_ws && yarn run test_images_setup_database && yarn run test_images_migrate && yarn run test_images_integration && yarn run test_images_down"
   },
   "name": "sync-daemon",
   "author": "André Abadesso",
