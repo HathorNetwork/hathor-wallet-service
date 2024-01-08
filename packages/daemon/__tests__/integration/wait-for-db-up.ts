@@ -17,6 +17,8 @@ const attemptConnection = async (maxAttempts: number, interval: number): Promise
         password: DB_PASS,
         port: DB_PORT,
       });
+      await conn.query('SELECT 1');
+
       console.log('Successfully connected to the database!');
       await conn.end();
       return;
