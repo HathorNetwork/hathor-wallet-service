@@ -1,6 +1,6 @@
 import { WebSocket } from 'ws';
-import { SCENARIOS } from './config';
-import * as config from './config';
+import { SCENARIOS } from '../config';
+import * as config from '../config';
 
 const attemptConnection = async (port: number, maxAttempts: number, interval: number): Promise<void> => {
   let attempts = 0;

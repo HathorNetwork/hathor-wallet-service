@@ -4,7 +4,7 @@ import {
   DB_PASS,
   DB_PORT,
   DB_ENDPOINT,
-} from './config';
+} from '../config';
 
 const attemptConnection = async (maxAttempts: number, interval: number): Promise<void> => {
   let attempts = 0;

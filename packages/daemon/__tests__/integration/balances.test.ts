@@ -4,14 +4,14 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  */
-import { SyncMachine } from '../../../src/machines';
+import { SyncMachine } from '../../src/machines';
 import { interpret } from 'xstate';
-import { getLastSyncedEvent, getDbConnection } from '../../../src/db';
+import { getLastSyncedEvent, getDbConnection } from '../../src/db';
 import { Connection } from 'mysql2/promise';
-import { cleanDatabase, fetchAddressBalances, validateBalances } from '../utils';
-import unvoidedScenarioBalances from './unvoided_transactions.balances';
-import reorgScenarioBalances from './reorg.balances';
-import singleChainBlocksAndTransactionsBalances from './single_chain_blocks_and_transactions.balances';
+import { cleanDatabase, fetchAddressBalances, validateBalances } from './utils';
+import unvoidedScenarioBalances from './scenario_configs/unvoided_transactions.balances';
+import reorgScenarioBalances from './scenario_configs/reorg.balances';
+import singleChainBlocksAndTransactionsBalances from './scenario_configs/single_chain_blocks_and_transactions.balances';
 import {
   DB_NAME,
   DB_USER,
@@ -24,7 +24,7 @@ import {
   REORG_SCENARIO_LAST_EVENT,
   SINGLE_CHAIN_BLOCKS_AND_TRANSACTIONS_PORT,
   SINGLE_CHAIN_BLOCKS_AND_TRANSACTIONS_LAST_EVENT,
-} from '../config';
+} from './config';
 
 jest.mock('../../../src/config', () => {
   return {
@@ -33,7 +33,7 @@ jest.mock('../../../src/config', () => {
   };
 });
 
-import getConfig from '../../../src/config';
+import getConfig from '../../src/config';
 
 // @ts-ignore
 getConfig.mockReturnValue({

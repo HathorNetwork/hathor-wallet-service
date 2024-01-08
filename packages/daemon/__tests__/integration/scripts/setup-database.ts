@@ -5,7 +5,7 @@ import {
   DB_PORT,
   DB_NAME,
   DB_ENDPOINT,
-} from './config';
+} from '../config';
 
 const main = async () => {
   const conn = await mysql.createConnection({
