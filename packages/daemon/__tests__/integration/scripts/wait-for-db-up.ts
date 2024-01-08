@@ -28,12 +28,11 @@ const attemptConnection = async (maxAttempts: number, interval: number): Promise
       if (attempts < maxAttempts) {
         console.log(`Retrying connection... Attempt ${attempts} of ${maxAttempts}`);
         await new Promise(resolve => setTimeout(resolve, interval));
-      } else {
-        console.error('Maximum connection attempts reached. Exiting.');
-        throw err;
       }
     }
   }
+
+  throw new Error('Maximum connection attempts reached. Exiting.');;
 };
 
 // Attempt to connect

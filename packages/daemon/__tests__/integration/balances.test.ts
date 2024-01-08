@@ -26,7 +26,7 @@ import {
   SINGLE_CHAIN_BLOCKS_AND_TRANSACTIONS_LAST_EVENT,
 } from './config';
 
-jest.mock('../../../src/config', () => {
+jest.mock('../../src/config', () => {
   return {
     __esModule: true, // This property is needed for mocking a default export
     default: jest.fn(() => ({})),

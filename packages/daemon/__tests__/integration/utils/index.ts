@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 import { Connection } from 'mysql2/promise';
-import { AddressBalance, AddressBalanceRow } from '../../src/types';
+import { AddressBalance, AddressBalanceRow } from '../../../src/types';
 
 export const cleanDatabase = async (mysql: Connection): Promise<void> => {
   const TABLES = [
