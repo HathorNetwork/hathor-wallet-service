@@ -92,6 +92,7 @@ custom:
       - minorFunctionErrors
 
 plugins:
+  - serverless-better-credentials
   - serverless-offline
   - serverless-plugin-monorepo
   - serverless-webpack
@@ -243,6 +244,11 @@ functions:
     warmup:
       walletWarmer:
         enabled: false
+    events:
+      - http:
+          path: wallet/wtf
+          method: get
+          cors: true
   loadWalletApi:
     role: arn:aws:iam::${self:provider.environment.ACCOUNT_ID}:role/WalletServiceLoadWalletLambda
     handler: src/api/wallet.load
