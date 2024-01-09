@@ -58,10 +58,10 @@ export const onNewTx: SQSHandler = async (event) => {
     });
 
     if (error) {
+      // invalid event bodies will noop
       logger.error('Error parsing body');
       logger.error(error);
-      // invalid event bodies will noop
-      // maybe log errors
+
       continue;
     }
 
