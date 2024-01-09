@@ -6,6 +6,7 @@
  */
 
 import { SQSHandler } from 'aws-lambda';
+import createDefaultLogger from '@src/logger';
 import Joi from 'joi';
 
 import { sendMessageToClient } from '@src/ws/utils';
@@ -14,6 +15,8 @@ import {
   getRedisClient,
   closeRedisClient,
 } from '@src/redis';
+
+const logger = createDefaultLogger();
 
 const parseBody = (body: string) => {
   try {
@@ -55,6 +58,8 @@ export const onNewTx: SQSHandler = async (event) => {
     });
 
     if (error) {
+      logger.error('Error parsing body');
+      logger.error(error);
       // invalid event bodies will noop
       // maybe log errors
       continue;
