@@ -300,24 +300,25 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         weight,
         parents,
         version,
-        inputs: inputs as unknown as TxInput[],
-        outputs: outputs as unknown as TxOutput[],
+        inputs: txInputs,
+        outputs: txOutputs,
         height: metadata.height,
         token_name,
         token_symbol,
       };
 
       try {
-        const queueUrl = NEW_TX_SQS;
-        if (!queueUrl) {
-          throw new Error('Queue URL is invalid');
+        if (seenWallets.size > 0) {
+          const queueUrl = NEW_TX_SQS;
+          if (!queueUrl) {
+            throw new Error('Queue URL is invalid');
+          }
+
+          await sendMessageSQS(JSON.stringify({
+            wallets: Array.from(seenWallets),
+            tx,
+          }), queueUrl);
         }
-
-        await sendMessageSQS(JSON.stringify({
-          wallets: Array.from(seenWallets),
-          tx,
-        }), queueUrl);
-
       } catch (e) {
         logger.error('Failed to send transaction to SQS queue');
         logger.error(e);
