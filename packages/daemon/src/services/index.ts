@@ -12,7 +12,6 @@ import {
   StringMap,
   TokenBalanceMap,
   TxInput,
-  TxOutput,
   Wallet,
   DbTxOutput,
   DbTransaction,
