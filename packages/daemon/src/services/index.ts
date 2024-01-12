@@ -161,7 +161,6 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     const fullNodeEvent = context.event as FullNodeEvent;
     const now = getUnixTimestamp();
     const { NEW_TX_SQS, PUSH_NOTIFICATION_ENABLED } = getConfig();
-    const blockRewardLock = BLOCK_REWARD_LOCK;
     const blockRewardLock = context.rewardMinBlocks;
 
     if (!blockRewardLock) {

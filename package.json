@@ -7,8 +7,6 @@
   "engines": {
     "node": ">=18"
   },
-  "scripts": {},
-  "peerDependencies": {},
   "nohoist": [
     "**"
   ],

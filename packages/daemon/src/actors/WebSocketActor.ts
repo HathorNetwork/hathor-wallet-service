@@ -15,7 +15,6 @@ const PING_TIMEOUT = 30000; // 30s timeout
 const PING_INTERVAL = 5000; // Will ping every 5s
 
 export default (callback: any, receive: any) => {
-  const { WS_URL } = getConfig();
   const createPingTimeout = (): NodeJS.Timeout => setTimeout(() => {
     socket.terminate();
   }, PING_TIMEOUT);
@@ -25,7 +24,7 @@ export default (callback: any, receive: any) => {
   }, PING_INTERVAL);
 
   // @ts-ignore: We already check for missing envs in startup
-  const socket: WebSocket = new WebSocket(WS_URL);
+  const socket: WebSocket = new WebSocket(getFullnodeWsUrl());
   let pingTimeout: NodeJS.Timeout = createPingTimeout();
   let pingTimer: NodeJS.Timer;
 
