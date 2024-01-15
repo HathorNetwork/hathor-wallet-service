@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { USE_SSL, FULLNODE_HOST } from '../config';
+import getConfig from '../config';
 import { StringMap } from '../types';
 
 export function stringMapIterator<T>(stringMap: StringMap<T>): [string, T][] {
@@ -13,6 +13,7 @@ export function stringMapIterator<T>(stringMap: StringMap<T>): [string, T][] {
 }
 
 export const getFullnodeHttpUrl = () => {
+  const { USE_SSL, FULLNODE_HOST } = getConfig();
   const protocol = USE_SSL ? 'https://' : 'http://';
 
   const fullNodeUrl = new URL(`${protocol}${FULLNODE_HOST}`);
@@ -22,6 +23,7 @@ export const getFullnodeHttpUrl = () => {
 };
 
 export const getFullnodeWsUrl = () => {
+  const { USE_SSL, FULLNODE_HOST } = getConfig();
   const protocol = USE_SSL ? 'wss://' : 'ws://';
 
   const fullNodeUrl = new URL(`${protocol}${FULLNODE_HOST}`);

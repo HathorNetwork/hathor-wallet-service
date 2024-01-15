@@ -4,6 +4,7 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  */
+import * as Services from '../../src/services';
 import { SyncMachine } from '../../src/machines';
 import { interpret } from 'xstate';
 import { getLastSyncedEvent, getDbConnection } from '../../src/db';
@@ -26,15 +27,6 @@ import {
   SINGLE_CHAIN_BLOCKS_AND_TRANSACTIONS_LAST_EVENT,
 } from './config';
 
-jest.mock('../../src/services', () => {
-  const originalModule = jest.requireActual('../../src/services');
-
-  return {
-    ...originalModule,
-    fetchMinRewardBlocks: jest.fn(async () => 300),
-  };
-});
-
 jest.mock('../../src/config', () => {
   return {
     __esModule: true, // This property is needed for mocking a default export
@@ -53,7 +45,8 @@ getConfig.mockReturnValue({
   FULLNODE_PEER_ID: 'simulator_peer_id',
   STREAM_ID: 'simulator_stream_id',
   NETWORK: 'simulator_network',
-  WS_URL: `ws://127.0.0.1:${UNVOIDED_SCENARIO_PORT}/v1a/event_ws`,
+  FULLNODE_HOST: `127.0.0.1:${UNVOIDED_SCENARIO_PORT}`,
+  USE_SSL: false,
   DB_ENDPOINT,
   DB_NAME,
   DB_USER,
@@ -77,6 +70,10 @@ beforeEach(async () => {
 });
 
 describe('unvoided transaction scenario', () => {
+  beforeAll(() => {
+    jest.spyOn(Services, 'fetchMinRewardBlocks').mockImplementation(async () => 300);
+  });
+
   afterAll(() => {
     jest.resetAllMocks();
   });
@@ -91,7 +88,8 @@ describe('unvoided transaction scenario', () => {
       FULLNODE_PEER_ID: 'simulator_peer_id',
       STREAM_ID: 'simulator_stream_id',
       NETWORK: 'simulator_network',
-      WS_URL: `ws://127.0.0.1:${UNVOIDED_SCENARIO_PORT}/v1a/event_ws`,
+      FULLNODE_HOST: `127.0.0.1:${UNVOIDED_SCENARIO_PORT}`,
+      USE_SSL: false,
       DB_ENDPOINT,
       DB_NAME,
       DB_USER,
@@ -124,6 +122,10 @@ describe('unvoided transaction scenario', () => {
 });
 
 describe('reorg scenario', () => {
+  beforeAll(() => {
+    jest.spyOn(Services, 'fetchMinRewardBlocks').mockImplementation(async () => 300);
+  });
+
   it('should do a full sync and the balances should match', async () => {
     // @ts-ignore
     getConfig.mockReturnValue({
@@ -134,7 +136,8 @@ describe('reorg scenario', () => {
       FULLNODE_PEER_ID: 'simulator_peer_id',
       STREAM_ID: 'simulator_stream_id',
       NETWORK: 'simulator_network',
-      WS_URL: `ws://127.0.0.1:${REORG_SCENARIO_PORT}/v1a/event_ws`,
+      FULLNODE_HOST: `127.0.0.1:${REORG_SCENARIO_PORT}`,
+      USE_SSL: false,
       DB_ENDPOINT,
       DB_NAME,
       DB_USER,
@@ -167,6 +170,10 @@ describe('reorg scenario', () => {
 });
 
 describe('single chain blocks and transactions scenario', () => {
+  beforeAll(() => {
+    jest.spyOn(Services, 'fetchMinRewardBlocks').mockImplementation(async () => 300);
+  });
+
   it('should do a full sync and the balances should match', async () => {
     // @ts-ignore
     getConfig.mockReturnValue({
@@ -177,7 +184,8 @@ describe('single chain blocks and transactions scenario', () => {
       FULLNODE_PEER_ID: 'simulator_peer_id',
       STREAM_ID: 'simulator_stream_id',
       NETWORK: 'simulator_network',
-      WS_URL: `ws://127.0.0.1:${SINGLE_CHAIN_BLOCKS_AND_TRANSACTIONS_PORT}/v1a/event_ws`,
+      FULLNODE_HOST: `127.0.0.1:${SINGLE_CHAIN_BLOCKS_AND_TRANSACTIONS_PORT}`,
+      USE_SSL: false,
       DB_ENDPOINT,
       DB_NAME,
       DB_USER,
