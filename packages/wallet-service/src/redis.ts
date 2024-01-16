@@ -22,6 +22,13 @@ export const closeRedisClient = (
   return quit();
 };
 
+export const ping = (
+  client: redis.RedisClient,
+): Promise<string> => {
+  const pingAsync = promisify(client.ping).bind(client);
+  return pingAsync();
+};
+
 export const scanAll = async (
   client: redis.RedisClient,
   pattern: string,

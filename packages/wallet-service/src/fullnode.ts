@@ -54,11 +54,31 @@ export const create = (baseURL = BASE_URL): any => {
     return response.data;
   };
 
+  const getStatus = async () => {
+    const response = await api.get('status', {
+      data: null,
+      headers: { 'content-type': 'application/json' },
+    });
+
+    return response.data;
+  }
+
+  const getHealth = async () => {
+    const response = await api.get('health', {
+      data: null,
+      headers: { 'content-type': 'application/json' },
+    });
+
+    return response.data;
+  }
+
   return {
     api, // exported so we can mock it on the tests
     downloadTx,
     getConfirmationData,
     queryGraphvizNeighbours,
+    getStatus,
+    getHealth
   };
 };
 
