@@ -20,6 +20,7 @@ export const invokeOnTxPushNotificationRequestedLambda = async (walletBalanceVal
     PUSH_NOTIFICATION_ENABLED,
     WALLET_SERVICE_LAMBDA_ENDPOINT,
     ON_TX_PUSH_NOTIFICATION_REQUESTED_FUNCTION_NAME,
+    PUSH_NOTIFICATION_LAMBDA_REGION,
   } = getConfig();
 
   if (!PUSH_NOTIFICATION_ENABLED) {
@@ -29,7 +30,7 @@ export const invokeOnTxPushNotificationRequestedLambda = async (walletBalanceVal
 
   const client = new LambdaClient({
     endpoint: WALLET_SERVICE_LAMBDA_ENDPOINT,
-    region: 'local',
+    region: PUSH_NOTIFICATION_LAMBDA_REGION,
   });
 
   const command = new InvokeCommand({
