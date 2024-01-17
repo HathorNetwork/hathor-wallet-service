@@ -1,4 +1,4 @@
-import middy from "@middy/core";
+import middy from '@middy/core';
 import {
     Healthcheck,
     HealthcheckInternalComponent,
@@ -6,12 +6,12 @@ import {
     HealthcheckHTTPComponent,
     HealthcheckCallbackResponse,
     HealthcheckStatus,
-} from "@hathor/healthcheck-lib";
-import { getLatestHeight } from "@src/db";
-import fullnode from "@src/fullnode";
-import { closeDbConnection, getDbConnection } from "@src/utils";
-import { APIGatewayProxyHandler } from "aws-lambda";
-import { getRedisClient, ping } from "@src/redis";
+} from '@hathor/healthcheck-lib';
+import { getLatestHeight } from '@src/db';
+import fullnode from '@src/fullnode';
+import { closeDbConnection, getDbConnection } from '@src/utils';
+import { APIGatewayProxyHandler } from 'aws-lambda';
+import { getRedisClient, ping } from '@src/redis';
 
 const mysql = getDbConnection();
 
@@ -22,7 +22,7 @@ const checkDatabaseHeight: HealthcheckCallbackResponse = async () => {
             fullnode.getStatus()
         ]);
 
-        const currentFullnodeHeight = fullnodeStatus["dag"]["best_block"]["height"];
+        const currentFullnodeHeight = fullnodeStatus['dag']['best_block']['height'];
 
         if (currentHeight === currentFullnodeHeight) {
             return new HealthcheckCallbackResponse({
@@ -50,7 +50,7 @@ const checkRedisConnection: HealthcheckCallbackResponse = async () => {
     try {
         const pingResult = await ping(client);
 
-        if (pingResult === "PONG") {
+        if (pingResult === 'PONG') {
             return new HealthcheckCallbackResponse({
                 status: HealthcheckStatus.PASS,
                 output: `Redis connection is up`,
@@ -75,12 +75,12 @@ const checkFullnodeHealth: HealthcheckCallbackResponse = async () => {
     try {
         const health = await fullnode.getHealth();
 
-        if (health["status"] === HealthcheckStatus.PASS) {
+        if (health['status'] === HealthcheckStatus.PASS) {
             return new HealthcheckCallbackResponse({
                 status: HealthcheckStatus.PASS,
                 output: `Fullnode is healthy`,
             });
-        } else if (health["status"] === HealthcheckStatus.WARN) {
+        } else if (health['status'] === HealthcheckStatus.WARN) {
             return new HealthcheckCallbackResponse({
                 status: HealthcheckStatus.WARN,
                 output: `Fullnode has health warnings: ${health}`,
@@ -102,23 +102,23 @@ const checkFullnodeHealth: HealthcheckCallbackResponse = async () => {
 };
 
 const setupHealthcheck: Healthcheck = () => {
-    const healthcheck = new Healthcheck({ name: "hathor-wallet-service", warnIsUnhealthy: true });
+    const healthcheck = new Healthcheck({ name: 'hathor-wallet-service', warnIsUnhealthy: true });
 
     // Height healthcheck component
     const heightHealthcheck = new HealthcheckInternalComponent({
-        name: "mysql:block_height",
+        name: 'mysql:block_height',
     });
     heightHealthcheck.add_healthcheck(checkDatabaseHeight);
 
     // Redis healthcheck component
     const redisHealthcheck = new HealthcheckDatastoreComponent({
-        name: "redis:connection",
+        name: 'redis:connection',
     });
     redisHealthcheck.add_healthcheck(checkRedisConnection);
 
     // Fullnode healthcheck component
     const fullnodeHealthcheck = new HealthcheckHTTPComponent({
-        name: "fullnode:health",
+        name: 'fullnode:health',
     });
     fullnodeHealthcheck.add_healthcheck(checkFullnodeHealth);
 
