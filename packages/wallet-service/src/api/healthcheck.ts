@@ -15,6 +15,8 @@ import { getRedisClient, ping } from '@src/redis';
 
 const mysql = getDbConnection();
 
+const HEALTHCHECK_MAXIMUM_HEIGHT_DIFFERENCE = Number(process.env.HEALTHCHECK_MAXIMUM_HEIGHT_DIFFERENCE) || 5;
+
 const checkDatabaseHeight: HealthcheckCallbackResponse = async () => {
     try {
         const [currentHeight, fullnodeStatus] = await Promise.all([
@@ -24,10 +26,10 @@ const checkDatabaseHeight: HealthcheckCallbackResponse = async () => {
 
         const currentFullnodeHeight = fullnodeStatus['dag']['best_block']['height'];
 
-        if (currentHeight === currentFullnodeHeight) {
+        if (currentFullnodeHeight - currentHeight < HEALTHCHECK_MAXIMUM_HEIGHT_DIFFERENCE) {
             return new HealthcheckCallbackResponse({
                 status: HealthcheckStatus.PASS,
-                output: `Database and fullnode are in sync at height ${currentHeight}`,
+                output: `Database and fullnode heaights are within ${HEALTHCHECK_MAXIMUM_HEIGHT_DIFFERENCE} blocks difference`,
             });
         } else {
             return new HealthcheckCallbackResponse({

@@ -1891,7 +1891,7 @@ describe('GET /health', () => {
           'affectsServiceHealth': true,
           'componentName': 'mysql:block_height',
           'componentType': 'internal',
-          'output': 'Database and fullnode are in sync at height 321',
+          'output': 'Database and fullnode heaights are within 5 blocks difference',
           'status': 'pass',
           'time': expect.any(String),
         }],
@@ -1918,11 +1918,14 @@ describe('GET /health', () => {
   test('height mismatch between db and fullnode', async () => {
     expect.hasAssertions();
 
+    const FULLNODE_HEIGHT = 456;
+    const DB_HEIGHT = FULLNODE_HEIGHT - 6;
+
     // Mock fullnode response
     const mockStatus = {
       'dag': {
         'best_block': {
-          'height': 456,
+          'height': FULLNODE_HEIGHT,
         }
       }
     };
@@ -1936,8 +1939,8 @@ describe('GET /health', () => {
 
     // Mock database content
     await addToTransactionTable(mysql, [
-      ['tx1', 100, 2, false, 123, 60],
-      ['tx2', 100, 3, false, 321, 60],
+      ['tx1', 100, 2, false, DB_HEIGHT - 1, 60],
+      ['tx2', 100, 3, false, DB_HEIGHT, 60],
     ]);
 
     // Run healthcheck
@@ -1956,7 +1959,7 @@ describe('GET /health', () => {
           'affectsServiceHealth': true,
           'componentName': 'mysql:block_height',
           'componentType': 'internal',
-          'output': 'Database height is 321 but fullnode height is 456',
+          'output': 'Database height is 450 but fullnode height is 456',
           'status': 'fail',
           'time': expect.any(String),
         }],
@@ -2076,7 +2079,7 @@ describe('GET /health', () => {
           'affectsServiceHealth': true,
           'componentName': 'mysql:block_height',
           'componentType': 'internal',
-          'output': 'Database and fullnode are in sync at height 321',
+          'output': 'Database and fullnode heaights are within 5 blocks difference',
           'status': 'pass',
           'time': expect.any(String),
         }],
@@ -2148,7 +2151,7 @@ describe('GET /health', () => {
           'affectsServiceHealth': true,
           'componentName': 'mysql:block_height',
           'componentType': 'internal',
-          'output': 'Database and fullnode are in sync at height 321',
+          'output': 'Database and fullnode heaights are within 5 blocks difference',
           'status': 'pass',
           'time': expect.any(String),
         }],
