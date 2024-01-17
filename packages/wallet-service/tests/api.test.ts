@@ -2144,7 +2144,7 @@ describe('GET /health', () => {
       description: "Health status of hathor-wallet-service",
       httpStatusCode: 503,
       checks: {
-        "mysVql:block_height": [{
+        "mysql:block_height": [{
           "affectsServiceHealth": true,
           "componentName": "mysql:block_height",
           "componentType": "internal",
