@@ -29,7 +29,7 @@ const checkDatabaseHeight: HealthcheckCallbackResponse = async () => {
         if (currentFullnodeHeight - currentHeight < HEALTHCHECK_MAXIMUM_HEIGHT_DIFFERENCE) {
             return new HealthcheckCallbackResponse({
                 status: HealthcheckStatus.PASS,
-                output: `Database and fullnode heaights are within ${HEALTHCHECK_MAXIMUM_HEIGHT_DIFFERENCE} blocks difference`,
+                output: `Database and fullnode heights are within ${HEALTHCHECK_MAXIMUM_HEIGHT_DIFFERENCE} blocks difference`,
             });
         } else {
             return new HealthcheckCallbackResponse({
