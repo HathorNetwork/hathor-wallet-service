@@ -179,7 +179,7 @@ export const updateCache = (context: Context) => {
 */
 export const startHealthcheckPing = sendTo(
   getHealthcheckRefFromContext,
-  { type: 'START_HEALTHCHECK_PING_EVENT' },
+  { type: EventTypes.HEALTHCHECK_EVENT, event: { type: 'START' } },
 );
 
 /*
@@ -187,7 +187,7 @@ export const startHealthcheckPing = sendTo(
 */
 export const stopHealthcheckPing = sendTo(
   getHealthcheckRefFromContext,
-  { type: 'STOP_HEALTHCHECK_PING_EVENT' },
+  { type: EventTypes.HEALTHCHECK_EVENT, event: { type: 'STOP' } },
 );
 
 /*

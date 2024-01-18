@@ -8,7 +8,7 @@
 import axios from 'axios';
 import logger from '../logger';
 import getConfig from '../config';
-import { clear } from 'console';
+import { Event, EventTypes } from '../types';
 
 const sendPing = async () => {
   const { HEALTHCHECK_SERVER_URL, HEALTHCHECK_SERVER_API_KEY } = getConfig();
@@ -70,12 +70,18 @@ export default (callback: any, receive: any) => {
   };
 
   receive((event: Event) => {
-    if (event.type === 'STOP_HEALTHCHECK_PING_EVENT') {
+    if (event.type !== EventTypes.HEALTHCHECK_EVENT) {
+      logger.warn('Event of a different type than HEALTHCHECK_EVENT reached the healthcheck actor');
+
+      return;
+    }
+
+    if (event.event.type === 'STOP') {
       logger.info('Stopping healthcheck ping');
       clearPingTimer();
     }
 
-    if (event.type === 'START_HEALTHCHECK_PING_EVENT') {
+    if (event.event.type === 'START') {
       logger.info('Starting healthcheck ping');
       createPingTimer();
     }
