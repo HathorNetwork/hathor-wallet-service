@@ -15,7 +15,7 @@ import { getRedisClient, ping } from '@src/redis';
 
 const mysql = getDbConnection();
 
-const HEALTHCHECK_MAXIMUM_HEIGHT_DIFFERENCE = Number(process.env.HEALTHCHECK_MAXIMUM_HEIGHT_DIFFERENCE) || 5;
+const HEALTHCHECK_MAXIMUM_HEIGHT_DIFFERENCE = Number(process.env.HEALTHCHECK_MAXIMUM_HEIGHT_DIFFERENCE ?? 5)
 
 const checkDatabaseHeight: HealthcheckCallbackResponse = async () => {
   try {

@@ -22,6 +22,10 @@ export const closeRedisClient = (
   return quit();
 };
 
+/*
+ * Ping the redis server. If it responds with PONG, it's alive.
+ * Reference: https://redis.io/commands/ping/
+ */
 export const ping = (
   client: redis.RedisClient,
 ): Promise<string> => {
