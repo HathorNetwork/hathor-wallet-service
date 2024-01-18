@@ -64,6 +64,18 @@ export const getSocketRefFromContext = (context: Context) => {
 };
 
 /*
+ * This is a helper to get the healthcheck ref from the context and throw if it's not
+ * found.
+ */
+export const getHealthcheckRefFromContext = (context: Context) => {
+  if (!context.healthcheck) {
+    throw new Error('No healthcheck');
+  }
+
+  return context.healthcheck;
+};
+
+/*
  * This action sends an event to the socket actor
  */
 export const startStream = sendTo(
@@ -163,6 +175,22 @@ export const updateCache = (context: Context) => {
 };
 
 /*
+ * Starts the ping timer in the healthcheck actor
+*/
+export const startHealthcheckPing = sendTo(
+  getHealthcheckRefFromContext,
+  { type: 'START_HEALTHCHECK_PING_EVENT' },
+);
+
+/*
+ * Stops the ping timer in the healthcheck actor
+*/
+export const stopHealthcheckPing = sendTo(
+  getHealthcheckRefFromContext,
+  { type: 'STOP_HEALTHCHECK_PING_EVENT' },
+);
+
+/*
  * Logs the event as an error log
  */
-export const logEventError = (_context: Context, event: Event) => logger.error(event);
+export const logEventError = (_context: Context, event: Event) => logger.error(JSON.stringify(event));

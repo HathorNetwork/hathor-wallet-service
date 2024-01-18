@@ -11,7 +11,7 @@ import {
   spawn,
 } from 'xstate';
 import { LRU } from '../utils';
-import { WebSocketActor } from '../actors';
+import { WebSocketActor, HealthCheckActor } from '../actors';
 import {
   Context,
   Event,
@@ -51,6 +51,8 @@ import {
   increaseRetry,
   logEventError,
   updateCache,
+  startHealthcheckPing,
+  stopHealthcheckPing,
 } from '../actions';
 import { BACKOFF_DELAYED_RECONNECT } from '../delays';
 import getConfig from '../config';
@@ -80,6 +82,7 @@ const SyncMachine = Machine<Context, any, Event>({
   initial: SYNC_MACHINE_STATES.INITIALIZING,
   context: {
     socket: null,
+    healthcheck: null,
     retryAttempt: 0,
     event: null,
     initialEventId: null,
@@ -87,6 +90,9 @@ const SyncMachine = Machine<Context, any, Event>({
   },
   states: {
     [SYNC_MACHINE_STATES.INITIALIZING]: {
+      entry: assign({
+        healthcheck: () => spawn(HealthCheckActor),
+      }),
       invoke: {
         src: 'fetchInitialState',
         onDone: {
@@ -112,7 +118,7 @@ const SyncMachine = Machine<Context, any, Event>({
       },
     },
     [SYNC_MACHINE_STATES.RECONNECTING]: {
-      onEntry: ['clearSocket', 'increaseRetry'],
+      onEntry: ['clearSocket', 'increaseRetry', 'stopHealthcheckPing'],
       after: {
         BACKOFF_DELAYED_RECONNECT: SYNC_MACHINE_STATES.CONNECTING,
       },
@@ -120,7 +126,7 @@ const SyncMachine = Machine<Context, any, Event>({
     [SYNC_MACHINE_STATES.CONNECTED]: {
       id: SYNC_MACHINE_STATES.CONNECTED,
       initial: CONNECTED_STATES.idle,
-      entry: ['startStream'],
+      entry: ['startStream', 'startHealthcheckPing'],
       states: {
         [CONNECTED_STATES.idle]: {
           id: CONNECTED_STATES.idle,
@@ -254,7 +260,7 @@ const SyncMachine = Machine<Context, any, Event>({
     [SYNC_MACHINE_STATES.ERROR]: {
       id: SYNC_MACHINE_STATES.ERROR,
       type: 'final',
-      onEntry: ['logEventError'],
+      onEntry: ['logEventError', 'stopHealthcheckPing'],
     },
   },
 }, {
@@ -285,6 +291,8 @@ const SyncMachine = Machine<Context, any, Event>({
     increaseRetry,
     logEventError,
     updateCache,
+    startHealthcheckPing,
+    stopHealthcheckPing,
   },
   services: {
     handleVoidedTx,
