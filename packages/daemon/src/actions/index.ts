@@ -57,7 +57,7 @@ export const increaseRetry = assign({
  */
 export const getSocketRefFromContext = (context: Context) => {
   if (!context.socket) {
-    throw new Error('No socket');
+    throw new Error('No socket in context');
   }
 
   return context.socket;
@@ -69,7 +69,7 @@ export const getSocketRefFromContext = (context: Context) => {
  */
 export const getHealthcheckRefFromContext = (context: Context) => {
   if (!context.healthcheck) {
-    throw new Error('No healthcheck');
+    throw new Error('No healthcheck in context');
   }
 
   return context.healthcheck;
