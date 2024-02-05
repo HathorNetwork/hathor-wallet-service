@@ -28,6 +28,8 @@
   "author": "André Abadesso",
   "module": "dist/index.js",
   "devDependencies": {
+    "@lavamoat/allow-scripts": "^3.0.1",
+    "@lavamoat/preinstall-always-fail": "^2.0.0",
     "@types/jest": "^29.5.4",
     "@types/lodash": "^4.14.199",
     "@types/mysql": "^2.15.21",
@@ -50,6 +52,7 @@
     "aws-sdk": "^2.1454.0",
     "axios": "^0.21.4",
     "dotenv": "^8.2.0",
+    "lavamoat": "^8.0.2",
     "lodash": "^4.17.21",
     "mysql2": "^3.5.2",
     "sequelize": "^6.33.0",
@@ -58,5 +61,14 @@
     "winston": "^3.3.3",
     "ws": "^8.13.0",
     "xstate": "^4.38.2"
+  },
+  "lavamoat": {
+    "allowScripts": {
+      "@lavamoat/preinstall-always-fail": false,
+      "sequelize-cli>cli-color>es5-ext": false,
+      "websocket>bufferutil": false,
+      "websocket>es5-ext": false,
+      "websocket>utf-8-validate": false
+    }
   }
 }

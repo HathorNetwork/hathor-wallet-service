@@ -11,10 +11,16 @@
   "author": "André Abadesso <andre.abadesso@gmail.com>",
   "private": true,
   "devDependencies": {
+    "@lavamoat/allow-scripts": "^3.0.1",
     "dotenv": "^16.3.1",
     "mysql2": "^3.6.1",
     "sequelize": "^6.33.0",
     "sequelize-cli": "^6.6.1"
   },
-  "packageManager": "yarn@3.6.4"
+  "packageManager": "yarn@3.6.4",
+  "lavamoat": {
+    "allowScripts": {
+      "sequelize-cli>cli-color>es5-ext": false
+    }
+  }
 }
