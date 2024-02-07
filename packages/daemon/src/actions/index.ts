@@ -57,10 +57,22 @@ export const increaseRetry = assign({
  */
 export const getSocketRefFromContext = (context: Context) => {
   if (!context.socket) {
-    throw new Error('No socket');
+    throw new Error('No socket in context');
   }
 
   return context.socket;
+};
+
+/*
+ * This is a helper to get the healthcheck ref from the context and throw if it's not
+ * found.
+ */
+export const getHealthcheckRefFromContext = (context: Context) => {
+  if (!context.healthcheck) {
+    throw new Error('No healthcheck in context');
+  }
+
+  return context.healthcheck;
 };
 
 /*
@@ -163,6 +175,22 @@ export const updateCache = (context: Context) => {
 };
 
 /*
+ * Starts the ping timer in the healthcheck actor
+*/
+export const startHealthcheckPing = sendTo(
+  getHealthcheckRefFromContext,
+  { type: EventTypes.HEALTHCHECK_EVENT, event: { type: 'START' } },
+);
+
+/*
+ * Stops the ping timer in the healthcheck actor
+*/
+export const stopHealthcheckPing = sendTo(
+  getHealthcheckRefFromContext,
+  { type: EventTypes.HEALTHCHECK_EVENT, event: { type: 'STOP' } },
+);
+
+/*
  * Logs the event as an error log
  */
-export const logEventError = (_context: Context, event: Event) => logger.error(event);
+export const logEventError = (_context: Context, event: Event) => logger.error(JSON.stringify(event));

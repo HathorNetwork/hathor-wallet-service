@@ -272,6 +272,7 @@ describe('Event handling', () => {
     }).withContext({
       event: null,
       socket: null,
+      healthcheck: null,
       retryAttempt: 0,
       initialEventId: 0,
       txCache: TxCache,
