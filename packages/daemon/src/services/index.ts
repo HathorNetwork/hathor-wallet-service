@@ -502,7 +502,7 @@ export const updateLastSyncedEvent = async (context: Context) => {
 
 export const fetchMinRewardBlocks = async () => {
   const fullnodeUrl = getFullnodeHttpUrl();
-  const response = await axios.get(`${fullnodeUrl}version`);
+  const response = await axios.get(`${fullnodeUrl}/version`);
 
   if (response.status !== 200) {
     throw new Error('Request to version API failed');

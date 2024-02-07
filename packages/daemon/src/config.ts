@@ -69,6 +69,12 @@ export const ACCOUNT_ID = process.env.ACCOUNT_ID;
 export const ALERT_MANAGER_REGION = process.env.ALERT_MANAGER_REGION;
 export const ALERT_MANAGER_TOPIC  = process.env.ALERT_MANAGER_TOPIC;
 
+// Healthcheck configuration
+export const HEALTHCHECK_ENABLED = process.env.HEALTHCHECK_ENABLED === 'true';
+export const HEALTHCHECK_SERVER_URL = process.env.HEALTHCHECK_SERVER_URL;
+export const HEALTHCHECK_SERVER_API_KEY = process.env.HEALTHCHECK_SERVER_API_KEY;
+export const HEALTHCHECK_PING_INTERVAL = parseInt(process.env.HEALTHCHECK_PING_INTERVAL ?? '10000', 10);  // 10 seconds
+
 // Other
 export const USE_SSL = process.env.USE_SSL;
 
@@ -95,4 +101,8 @@ export default () => ({
   ALERT_MANAGER_TOPIC,
   ON_TX_PUSH_NOTIFICATION_REQUESTED_FUNCTION_NAME,
   PUSH_NOTIFICATION_LAMBDA_REGION,
+  HEALTHCHECK_ENABLED,
+  HEALTHCHECK_SERVER_URL,
+  HEALTHCHECK_SERVER_API_KEY,
+  HEALTHCHECK_PING_INTERVAL,
 });

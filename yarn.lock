@@ -2567,6 +2567,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@hathor/healthcheck-lib@npm:^0.1.0":
+  version: 0.1.0
+  resolution: "@hathor/healthcheck-lib@npm:0.1.0"
+  checksum: f2ffabff2948f009acb9b98787c4fbf6b2a4d00c178f3f843999c387084d4cd052ee51ba8b16c0a7d98a5b3d11d5a5d51eea9d36a723bc97d2c955a329a25574
+  languageName: node
+  linkType: hard
+
 "@hathor/wallet-lib@npm:^0.39.0":
   version: 0.39.0
   resolution: "@hathor/wallet-lib@npm:0.39.0"
@@ -15669,6 +15676,7 @@ __metadata:
     "@aws-sdk/client-apigatewaymanagementapi": ^3.465.0
     "@aws-sdk/client-lambda": ^3.465.0
     "@aws-sdk/client-sqs": ^3.465.0
+    "@hathor/healthcheck-lib": ^0.1.0
     "@hathor/wallet-lib": ^0.39.0
     "@middy/core": ^2.5.7
     "@middy/http-cors": ^2.5.7

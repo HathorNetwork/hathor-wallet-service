@@ -54,6 +54,8 @@ import {
   getXPrivKeyFromSeed,
 } from '@tests/utils';
 import fullnode from '@src/fullnode';
+import { getHealthcheck } from '@src/api/healthcheck';
+import { ping } from "@src/redis";
 
 // Monkey patch bitcore-lib
 
@@ -1845,4 +1847,331 @@ test('GET /wallet/proxy/graphviz/neighbours', async () => {
       "success": false,
     }
   `);
+});
+
+describe('GET /health', () => {
+  test('success case', async () => {
+    expect.hasAssertions();
+
+    // Mock fullnode status response
+    const mockStatus = {
+      'dag': {
+        'best_block': {
+          'height': 321,
+        }
+      }
+    };
+    jest.spyOn(fullnode, 'getStatus').mockResolvedValue(mockStatus);
+
+    // Mock fullnode health response
+    const mockHealth = {
+      'status': 'pass'
+    };
+    jest.spyOn(fullnode, 'getHealth').mockResolvedValue(mockHealth);
+
+    // Mock database content
+    await addToTransactionTable(mysql, [
+      ['tx1', 100, 2, false, 123, 60],
+      ['tx2', 100, 3, false, 321, 60],
+    ]);
+
+    // Run healthcheck
+    const event = makeGatewayEvent({});
+    const result = await getHealthcheck(event, null, null) as APIGatewayProxyResult;
+    const returnBody = JSON.parse(result.body as string);
+
+    // Assertions
+    expect(result.statusCode).toBe(200);
+    expect(returnBody).toStrictEqual({
+      status: 'pass',
+      description: 'Health status of hathor-wallet-service',
+      httpStatusCode: 200,
+      checks: {
+        'mysql:block_height': [{
+          'affectsServiceHealth': true,
+          'componentName': 'mysql:block_height',
+          'componentType': 'internal',
+          'output': 'Database and fullnode heights are within 5 blocks difference',
+          'status': 'pass',
+          'time': expect.any(String),
+        }],
+        'redis:connection': [{
+          'affectsServiceHealth': true,
+          'componentName': 'redis:connection',
+          'componentType': 'datastore',
+          'output': 'Redis connection is up',
+          'status': 'pass',
+          'time': expect.any(String),
+        }],
+        'fullnode:health': [{
+          'affectsServiceHealth': true,
+          'componentName': 'fullnode:health',
+          'componentType': 'http',
+          'output': 'Fullnode is healthy',
+          'status': 'pass',
+          'time': expect.any(String),
+        }],
+      }
+    });
+  });
+
+  test('height mismatch between db and fullnode', async () => {
+    expect.hasAssertions();
+
+    const FULLNODE_HEIGHT = 456;
+    const DB_HEIGHT = FULLNODE_HEIGHT - 6;
+
+    // Mock fullnode response
+    const mockStatus = {
+      'dag': {
+        'best_block': {
+          'height': FULLNODE_HEIGHT,
+        }
+      }
+    };
+    jest.spyOn(fullnode, 'getStatus').mockResolvedValue(mockStatus);
+
+    // Mock fullnode health response
+    const mockHealth = {
+      'status': 'pass'
+    };
+    jest.spyOn(fullnode, 'getHealth').mockResolvedValue(mockHealth);
+
+    // Mock database content
+    await addToTransactionTable(mysql, [
+      ['tx1', 100, 2, false, DB_HEIGHT - 1, 60],
+      ['tx2', 100, 3, false, DB_HEIGHT, 60],
+    ]);
+
+    // Run healthcheck
+    const event = makeGatewayEvent({});
+    const result = await getHealthcheck(event, null, null) as APIGatewayProxyResult;
+    const returnBody = JSON.parse(result.body as string);
+
+    // Assertions
+    expect(result.statusCode).toBe(503);
+    expect(returnBody).toStrictEqual({
+      status: 'fail',
+      description: 'Health status of hathor-wallet-service',
+      httpStatusCode: 503,
+      checks: {
+        'mysql:block_height': [{
+          'affectsServiceHealth': true,
+          'componentName': 'mysql:block_height',
+          'componentType': 'internal',
+          'output': 'Database height is 450 but fullnode height is 456',
+          'status': 'fail',
+          'time': expect.any(String),
+        }],
+        'redis:connection': [{
+          'affectsServiceHealth': true,
+          'componentName': 'redis:connection',
+          'componentType': 'datastore',
+          'output': 'Redis connection is up',
+          'status': 'pass',
+          'time': expect.any(String),
+        }],
+        'fullnode:health': [{
+          'affectsServiceHealth': true,
+          'componentName': 'fullnode:health',
+          'componentType': 'http',
+          'output': 'Fullnode is healthy',
+          'status': 'pass',
+          'time': expect.any(String),
+        }],
+      }
+    });
+  });
+
+  test('exception when getting fullnode height', async () => {
+    expect.hasAssertions();
+
+    // Mock fullnode response
+    jest.spyOn(fullnode, 'getStatus').mockRejectedValue(new Error('Fullnode exploded!'));
+
+    // Mock fullnode health response
+    const mockHealth = {
+      'status': 'pass'
+    };
+    jest.spyOn(fullnode, 'getHealth').mockResolvedValue(mockHealth);
+
+    // Mock database content
+    await addToTransactionTable(mysql, [
+      ['tx1', 100, 2, false, 123, 60],
+      ['tx2', 100, 3, false, 321, 60],
+    ]);
+
+    // Run healthcheck
+    const event = makeGatewayEvent({});
+    const result = await getHealthcheck(event, null, null) as APIGatewayProxyResult;
+    const returnBody = JSON.parse(result.body as string);
+
+    // Assertions
+    expect(result.statusCode).toBe(503);
+    expect(returnBody).toStrictEqual({
+      status: 'fail',
+      description: 'Health status of hathor-wallet-service',
+      httpStatusCode: 503,
+      checks: {
+        'mysql:block_height': [{
+          'affectsServiceHealth': true,
+          'componentName': 'mysql:block_height',
+          'componentType': 'internal',
+          'output': 'Error checking database and fullnode height: Fullnode exploded!',
+          'status': 'fail',
+          'time': expect.any(String),
+        }],
+        'redis:connection': [{
+          'affectsServiceHealth': true,
+          'componentName': 'redis:connection',
+          'componentType': 'datastore',
+          'output': 'Redis connection is up',
+          'status': 'pass',
+          'time': expect.any(String),
+        }],
+        'fullnode:health': [{
+          'affectsServiceHealth': true,
+          'componentName': 'fullnode:health',
+          'componentType': 'http',
+          'output': 'Fullnode is healthy',
+          'status': 'pass',
+          'time': expect.any(String),
+        }],
+      }
+    });
+  });
+
+  test('exception when getting fullnode health', async () => {
+    expect.hasAssertions();
+
+    // Mock fullnode response
+    const mockStatus = {
+      'dag': {
+        'best_block': {
+          'height': 321,
+        }
+      }
+    };
+    jest.spyOn(fullnode, 'getStatus').mockResolvedValue(mockStatus);
+
+    // Mock fullnode health response
+    jest.spyOn(fullnode, 'getHealth').mockRejectedValue(new Error('Fullnode exploded!'));
+
+    // Mock database content
+    await addToTransactionTable(mysql, [
+      ['tx1', 100, 2, false, 123, 60],
+      ['tx2', 100, 3, false, 321, 60],
+    ]);
+
+    // Run healthcheck
+    const event = makeGatewayEvent({});
+    const result = await getHealthcheck(event, null, null) as APIGatewayProxyResult;
+    const returnBody = JSON.parse(result.body as string);
+
+    // Assertions
+    expect(result.statusCode).toBe(503);
+    expect(returnBody).toStrictEqual({
+      status: 'fail',
+      description: 'Health status of hathor-wallet-service',
+      httpStatusCode: 503,
+      checks: {
+        'mysql:block_height': [{
+          'affectsServiceHealth': true,
+          'componentName': 'mysql:block_height',
+          'componentType': 'internal',
+          'output': 'Database and fullnode heights are within 5 blocks difference',
+          'status': 'pass',
+          'time': expect.any(String),
+        }],
+        'redis:connection': [{
+          'affectsServiceHealth': true,
+          'componentName': 'redis:connection',
+          'componentType': 'datastore',
+          'output': 'Redis connection is up',
+          'status': 'pass',
+          'time': expect.any(String),
+        }],
+        'fullnode:health': [{
+          'affectsServiceHealth': true,
+          'componentName': 'fullnode:health',
+          'componentType': 'http',
+          'output': 'Error checking fullnode health: Fullnode exploded!',
+          'status': 'fail',
+          'time': expect.any(String),
+        }],
+      }
+    });
+  });    
+
+  test('fullnode reports unhealthy', async () => {
+    expect.hasAssertions();
+
+    // Mock fullnode response
+    const mockStatus = {
+      'dag': {
+        'best_block': {
+          'height': 321,
+        }
+      }
+    };
+    jest.spyOn(fullnode, 'getStatus').mockResolvedValue(mockStatus);
+
+    // Mock fullnode health response
+    const mockHealth = {
+      'status': 'fail',
+      'output': 'Fullnode exploded!',
+      'checks': {
+        'sync': {
+          'status': 'fail',
+          'output': 'Sync is not working',
+        }
+      }
+    };
+    jest.spyOn(fullnode, 'getHealth').mockResolvedValue(mockHealth);
+
+    // Mock database content
+    await addToTransactionTable(mysql, [
+      ['tx1', 100, 2, false, 123, 60],
+      ['tx2', 100, 3, false, 321, 60],
+    ]);
+
+    // Run healthcheck
+    const event = makeGatewayEvent({});
+    const result = await getHealthcheck(event, null, null) as APIGatewayProxyResult;
+    const returnBody = JSON.parse(result.body as string);
+
+    // Assertions
+    expect(result.statusCode).toBe(503);
+    expect(returnBody).toStrictEqual({
+      status: 'fail',
+      description: 'Health status of hathor-wallet-service',
+      httpStatusCode: 503,
+      checks: {
+        'mysql:block_height': [{
+          'affectsServiceHealth': true,
+          'componentName': 'mysql:block_height',
+          'componentType': 'internal',
+          'output': 'Database and fullnode heights are within 5 blocks difference',
+          'status': 'pass',
+          'time': expect.any(String),
+        }],
+        'redis:connection': [{
+          'affectsServiceHealth': true,
+          'componentName': 'redis:connection',
+          'componentType': 'datastore',
+          'output': 'Redis connection is up',
+          'status': 'pass',
+          'time': expect.any(String),
+        }],
+        'fullnode:health': [{
+          'affectsServiceHealth': true,
+          'componentName': 'fullnode:health',
+          'componentType': 'http',
+          'output': 'Fullnode is unhealthy: {"status":"fail","output":"Fullnode exploded!","checks":{"sync":{"status":"fail","output":"Sync is not working"}}}',
+          'status': 'fail',
+          'time': expect.any(String),
+        }],
+      }
+    });
+  });
 });

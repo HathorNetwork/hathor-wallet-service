@@ -18,6 +18,10 @@ deploy-lambdas-mainnet-staging:
 deploy-lambdas-mainnet:
 	npx serverless deploy --stage mainnet --region eu-central-1
 
+.PHONY invoke-local:
+invoke-local:
+	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless invoke local --function $(FUNCTION) --stage dev-testnet --region eu-central-1
+
 .PHONY: migrate
 migrate:
 	@echo "Migrating..."
