@@ -9,13 +9,13 @@
 
   outputs = { self, flake-utils, devshell, nixpkgs, unstableNixPkgs, ... }@inputs:
     let
-      overlays.default = final: prev: 
+      overlays.default = final: prev:
         let
           packages = self.packages.${final.system};
           inherit (packages) node-packages;
         in
         {
-          nodejs = final.nodejs-18_x;
+          nodejs = final.nodejs_20;
           nodePackages = prev.nodePackages;
           yarn = (import unstableNixPkgs { system = final.system; }).yarn-berry;
         };
@@ -34,7 +34,7 @@
         pkgs.devshell.mkShell {
           packages = with pkgs; [
             nixpkgs-fmt
-            nodejs-18_x
+            nodejs_20
             yarn
           ];
         };
