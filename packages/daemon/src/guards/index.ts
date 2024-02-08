@@ -9,6 +9,7 @@ import { Context, Event, EventTypes, FullNodeEventTypes } from '../types';
 import { hashTxData } from '../utils';
 import { METADATA_DIFF_EVENT_TYPES } from '../services';
 import getConfig from '../config';
+import logger from '../logger';
 
 /*
  * This guard is used during the `handlingMetadataChanged` to check if
@@ -110,7 +111,13 @@ export const invalidPeerId = (_context: Context, event: Event) => {
   const { FULLNODE_PEER_ID } = getConfig();
 
   // @ts-ignore
-  return event.event.peer_id !== FULLNODE_PEER_ID;
+  const isInvalid = event.event.peer_id !== FULLNODE_PEER_ID;
+
+  if (isInvalid) {
+    logger.error(`Invalid peer id. Expected ${FULLNODE_PEER_ID}, got ${event.event.peer_id}`);
+  }
+
+  return isInvalid;
 };
 
 /*
@@ -123,7 +130,13 @@ export const invalidNetwork = (_context: Context, event: Event) => {
   }
   const { NETWORK } = getConfig();
 
-  return event.event.network !== NETWORK;
+  const isInvalid = event.event.network !== NETWORK;
+
+  if (isInvalid) {
+    logger.error(`Invalid network. Expected ${NETWORK}, got ${event.event.network}`);
+  }
+
+  return isInvalid;
 };
 
 /*
@@ -137,7 +150,13 @@ export const invalidStreamId = (_context: Context, event: Event) => {
   }
   const { STREAM_ID } = getConfig();
 
-  return event.event.stream_id !== STREAM_ID;
+  const isInvalid = event.event.stream_id !== STREAM_ID;
+
+  if (isInvalid) {
+    logger.error(`Invalid stream id. Expected ${STREAM_ID}, got ${event.event.stream_id}`);
+  }
+
+  return isInvalid;
 }
 
 export const websocketDisconnected = (_context: Context, event: Event) => {

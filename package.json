@@ -4,6 +4,9 @@
     "packages/daemon",
     "packages/wallet-service"
   ],
+  "engines": {
+    "node": ">=18"
+  },
   "nohoist": [
     "**"
   ],

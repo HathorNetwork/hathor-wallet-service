@@ -11,8 +11,7 @@
     "types": ["node", "jest"]
   },
   "include": [
-    "src/**/*.ts",
-    "__tests__/**/*.ts"
+    "src/**/*.ts"
   ],
   "exclude": [
     "node_modules",

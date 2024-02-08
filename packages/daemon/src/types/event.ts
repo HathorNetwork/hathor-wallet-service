@@ -26,11 +26,16 @@ export type WebSocketSendEvent =
       ack_event_id?: number;
   };
 
+export type HealthCheckEvent =
+  | { type: 'START' }
+  | { type: 'STOP' };
+
 export enum EventTypes {
   WEBSOCKET_EVENT = 'WEBSOCKET_EVENT',
   FULLNODE_EVENT = 'FULLNODE_EVENT',
   METADATA_DECIDED = 'METADATA_DECIDED',
   WEBSOCKET_SEND_EVENT = 'WEBSOCKET_SEND_EVENT',
+  HEALTHCHECK_EVENT = 'HEALTHCHECK_EVENT',
 }
 
 export enum FullNodeEventTypes {
@@ -45,7 +50,8 @@ export type Event =
   | { type: EventTypes.WEBSOCKET_EVENT, event: WebSocketEvent }
   | { type: EventTypes.FULLNODE_EVENT, event: FullNodeEvent }
   | { type: EventTypes.METADATA_DECIDED, event: MetadataDecidedEvent }
-  | { type: EventTypes.WEBSOCKET_SEND_EVENT, event: WebSocketSendEvent };
+  | { type: EventTypes.WEBSOCKET_SEND_EVENT, event: WebSocketSendEvent }
+  | { type: EventTypes.HEALTHCHECK_EVENT, event: HealthCheckEvent};
 
 export type FullNodeEvent = {
   stream_id: string;

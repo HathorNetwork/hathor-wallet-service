@@ -152,6 +152,8 @@ provider:
     Stage: "${self:custom.stage}"
   apiGateway:
     minimumCompressionSize: 1024 # Enable gzip compression for responses > 1 KB
+    apiKeys:
+      - ${self:custom.stage}-healthcheck-api-key
   environment:
     ACCOUNT_ID: ${env:ACCOUNT_ID}
     AUTH_SECRET: ${env:AUTH_SECRET}
@@ -653,6 +655,16 @@ functions:
           - lambda:InvokeAsync
         Resource:
           Fn::GetAtt: [ SendNotificationToDeviceLambdaFunction , Arn ]
+  healthcheck:
+    handler: src/api/healthcheck.getHealthcheck
+    events:
+      - http:
+          private: true
+          path: health
+          method: get
+          throttling:
+            maxRequestsPerSecond: 1
+            maxConcurrentRequests: 1
   deleteStalePushDevices:
     handler: src/db/cronRoutines.cleanStalePushDevices
     events:

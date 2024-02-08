@@ -7,6 +7,8 @@
 
 // @ts-ignore
 import hathorLib from '@hathor/wallet-lib';
+import axios from 'axios';
+import { get } from 'lodash';
 import {
   TxOutputWithIndex,
   StringMap,
@@ -33,6 +35,7 @@ import {
   getWalletBalanceMap,
   validateAddressBalances,
   getWalletBalancesForTx,
+  getFullnodeHttpUrl,
 } from '../utils';
 import {
   getDbConnection,
@@ -157,8 +160,12 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
   try {
     const fullNodeEvent = context.event as FullNodeEvent;
     const now = getUnixTimestamp();
-    const { BLOCK_REWARD_LOCK, NEW_TX_SQS, PUSH_NOTIFICATION_ENABLED } = getConfig();
-    const blockRewardLock = BLOCK_REWARD_LOCK;
+    const { NEW_TX_SQS, PUSH_NOTIFICATION_ENABLED } = getConfig();
+    const blockRewardLock = context.rewardMinBlocks;
+
+    if (!blockRewardLock) {
+      throw new Error('No block reward lock set');
+    }
 
     const {
       hash,
@@ -493,11 +500,32 @@ export const updateLastSyncedEvent = async (context: Context) => {
   mysql.destroy();
 };
 
+export const fetchMinRewardBlocks = async () => {
+  const fullnodeUrl = getFullnodeHttpUrl();
+  const response = await axios.get(`${fullnodeUrl}/version`);
+
+  if (response.status !== 200) {
+    throw new Error('Request to version API failed');
+  }
+
+  const rewardSpendMinBlocks = get(response, 'data.reward_spend_min_blocks');
+
+  if (!rewardSpendMinBlocks) {
+    throw new Error('Failed to fetch reward spend min blocks');
+  }
+
+  return rewardSpendMinBlocks;
+};
+
 export const fetchInitialState = async () => {
   const mysql = await getDbConnection();
   const lastEvent = await getLastSyncedEvent(mysql);
+  const rewardMinBlocks = await fetchMinRewardBlocks();
 
   mysql.destroy();
 
-  return { lastEventId: lastEvent?.last_event_id };
+  return {
+    lastEventId: lastEvent?.last_event_id,
+    rewardMinBlocks,
+  };
 };

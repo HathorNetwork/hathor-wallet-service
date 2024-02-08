@@ -6,4 +6,5 @@
  */
 
 export { default as WebSocketActor } from './WebSocketActor';
+export { default as HealthCheckActor } from './HealthCheckActor';
 export * from './helpers';

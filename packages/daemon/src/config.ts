@@ -12,9 +12,10 @@ const requiredEnvs = [
   'DB_PORT',
   'DB_PASS',
   'FULLNODE_PEER_ID',
+  'FULLNODE_HOST',
+  'USE_SSL',
   'STREAM_ID',
   'NETWORK',
-  'WS_URL',
   'NEW_TX_SQS',
   'PUSH_NOTIFICATION_ENABLED',
   'WALLET_SERVICE_LAMBDA_ENDPOINT',
@@ -45,9 +46,9 @@ export const STAGE = process.env.STAGE;
 
 // Fullnode information, used to make sure we're connected to the same fullnode
 export const FULLNODE_PEER_ID = process.env.FULLNODE_PEER_ID;
+export const FULLNODE_HOST = process.env.FULLNODE_HOST;
 export const STREAM_ID = process.env.STREAM_ID;
 export const NETWORK = process.env.NETWORK;
-export const WS_URL = process.env.WS_URL;
 
 // Database info
 export const DB_ENDPOINT = process.env.DB_ENDPOINT;
@@ -68,15 +69,24 @@ export const ACCOUNT_ID = process.env.ACCOUNT_ID;
 export const ALERT_MANAGER_REGION = process.env.ALERT_MANAGER_REGION;
 export const ALERT_MANAGER_TOPIC  = process.env.ALERT_MANAGER_TOPIC;
 
+// Healthcheck configuration
+export const HEALTHCHECK_ENABLED = process.env.HEALTHCHECK_ENABLED === 'true';
+export const HEALTHCHECK_SERVER_URL = process.env.HEALTHCHECK_SERVER_URL;
+export const HEALTHCHECK_SERVER_API_KEY = process.env.HEALTHCHECK_SERVER_API_KEY;
+export const HEALTHCHECK_PING_INTERVAL = parseInt(process.env.HEALTHCHECK_PING_INTERVAL ?? '10000', 10);  // 10 seconds
+
+// Other
+export const USE_SSL = process.env.USE_SSL;
+
 export default () => ({
   SERVICE_NAME,
   CONSOLE_LEVEL,
   TX_CACHE_SIZE,
-  BLOCK_REWARD_LOCK,
   FULLNODE_PEER_ID,
+  FULLNODE_HOST,
+  USE_SSL,
   STREAM_ID,
   NETWORK,
-  WS_URL,
   DB_ENDPOINT,
   DB_NAME,
   DB_USER,
@@ -91,4 +101,8 @@ export default () => ({
   ALERT_MANAGER_TOPIC,
   ON_TX_PUSH_NOTIFICATION_REQUESTED_FUNCTION_NAME,
   PUSH_NOTIFICATION_LAMBDA_REGION,
+  HEALTHCHECK_ENABLED,
+  HEALTHCHECK_SERVER_URL,
+  HEALTHCHECK_SERVER_API_KEY,
+  HEALTHCHECK_PING_INTERVAL,
 });
