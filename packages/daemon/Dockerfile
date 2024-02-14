@@ -36,7 +36,6 @@ RUN apk update && apk add python3 g++ make
 COPY --from=builder /app/dist/ ./
 COPY --from=builder /app/package.json ./
 
-RUN yarn install
 RUN yarn install --production --frozen-lockfile
 
 RUN apk del python3 g++ make
