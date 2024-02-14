@@ -5,7 +5,7 @@
 # This software cannot be redistributed unless explicitly agreed in writing with the authors.
 
 # Build phase
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -15,22 +15,30 @@ COPY package.json ./
 
 RUN which python
 
-RUN yarn set version berry
+RUN yarn set version 3.4.1
 
 RUN yarn install
 
 COPY . ./
 
+RUN ls -la /app
+
 RUN yarn run build
 
+
 # Production phase
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
+
+RUN apk update && apk add python3 g++ make
 
 COPY --from=builder /app/dist/ ./
 COPY --from=builder /app/package.json ./
 
-COPY --from=builder /app/node_modules ./node_modules
+RUN yarn install
+RUN yarn install --production --frozen-lockfile
+
+RUN apk del python3 g++ make
 
 CMD ["node", "index.js"]
