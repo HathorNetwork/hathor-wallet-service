@@ -21,10 +21,7 @@ RUN yarn install
 
 COPY . ./
 
-RUN ls -la /app
-
 RUN yarn run build
-
 
 # Production phase
 FROM node:20-alpine
