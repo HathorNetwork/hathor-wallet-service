@@ -16,6 +16,7 @@ const requiredEnvs = [
   'USE_SSL',
   'STREAM_ID',
   'NETWORK',
+  'FULLNODE_NETWORK',
   'NEW_TX_SQS',
   'PUSH_NOTIFICATION_ENABLED',
   'WALLET_SERVICE_LAMBDA_ENDPOINT',
@@ -49,6 +50,7 @@ export const FULLNODE_PEER_ID = process.env.FULLNODE_PEER_ID;
 export const FULLNODE_HOST = process.env.FULLNODE_HOST;
 export const STREAM_ID = process.env.STREAM_ID;
 export const NETWORK = process.env.NETWORK;
+export const FULLNODE_NETWORK = process.env.FULLNODE_NETWORK;
 
 // Database info
 export const DB_ENDPOINT = process.env.DB_ENDPOINT;
@@ -87,6 +89,7 @@ export default () => ({
   USE_SSL,
   STREAM_ID,
   NETWORK,
+  FULLNODE_NETWORK,
   DB_ENDPOINT,
   DB_NAME,
   DB_USER,
