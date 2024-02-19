@@ -12,3 +12,4 @@ packages/wallet-service/.serverless
 packages/wallet-service/.webpack
 packages/wallet-service/.env*
 .yarn/
+.git

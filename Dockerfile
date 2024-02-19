@@ -11,30 +11,24 @@ WORKDIR /app
 
 RUN apk update && apk add python3 g++ make
 
-COPY package.json ./
+COPY . .
 
-RUN which python
+# Use the last stable berry version:
+RUN yarn set version stable
 
-RUN yarn set version 3.4.1
+# This will install dependencies for the sync-daemon, devDependencies included:
+RUN yarn workspaces focus sync-daemon
 
-RUN yarn install
+RUN yarn workspace sync-daemon build
 
-COPY . ./
+# This will remove all dependencies and install production deps only:
+RUN yarn workspaces focus sync-daemon --production
 
-RUN yarn run build
-
-# Production phase
 FROM node:20-alpine
 
 WORKDIR /app
 
-RUN apk update && apk add python3 g++ make
-
-COPY --from=builder /app/dist/ ./
-COPY --from=builder /app/package.json ./
-
-RUN yarn install --production --frozen-lockfile
-
-RUN apk del python3 g++ make
+COPY --from=builder /app/packages/daemon/dist .
+COPY --from=builder /app/packages/daemon/node_modules ./node_modules
 
 CMD ["node", "index.js"]
