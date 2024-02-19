@@ -130,14 +130,14 @@ This is a table summarizing the main events and how they will be monitored.
 
 | Event | Proposed Solution |
 |-----------------------------------------------------------------------------|--------------------------------------------------------------------------- |
-| Error on balance calculation, on MySQL connection or on FullNode connection | Log an error or exit error in the Lambda, then put CloudWatch alarms on then. |
 | WalletService and FullNode out of sync | Expose the highest block height to Prometheus through API Gateway, and compare with the FullNode. |
-
 
 ### Daemon
 
 |  Event | Proposed Solution |
 |-----------------------------------------------------------------------------|------------------------------------------------------------------------ |
+| STREAM_ID or FULLNODE_PEER_ID mismatch | This requires a sync from scratch, we should log an error or exit error in the Daemon, the on-call must re-create the database, run the migrations again and restart the daemon |
+| Error on balance calculation, on MySQL connection or on FullNode connection | Log an error or exit error in the Daemon, then put CloudWatch alarms on then. |
 | A reorg is detected with more than 1000 blocks difference | Log this event with a marker, then create Alarms when the marker appears |
 | More than X minutes/seconds without a new block from the connected fullnode | Already monitored in the full-nodes. | | |
 | Websocket connection lost with the full-node after X retries | Log this event with a marker, then create Alarms when the marker appears |
