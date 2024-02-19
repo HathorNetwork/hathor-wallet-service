@@ -50,6 +50,10 @@ export const FULLNODE_PEER_ID = process.env.FULLNODE_PEER_ID;
 export const FULLNODE_HOST = process.env.FULLNODE_HOST;
 export const STREAM_ID = process.env.STREAM_ID;
 export const NETWORK = process.env.NETWORK;
+/* The network name that comes from the fullnode events might be different from
+ * the network we should use to derive addresses, e.g. testnet-golf instead of
+ * testnet
+ */
 export const FULLNODE_NETWORK = process.env.FULLNODE_NETWORK;
 
 // Database info
