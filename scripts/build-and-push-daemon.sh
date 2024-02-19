@@ -14,8 +14,6 @@ fi;
 
 echo $DOCKER_IMAGE_TAG;
 
-cd packages/daemon/
-
 aws ecr get-login-password --region eu-central-1 | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com;
 
 docker build -t $AWS_ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/hathor-wallet-service-sync-daemon:$DOCKER_IMAGE_TAG .;
