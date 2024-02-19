@@ -21,7 +21,7 @@ jobs:
       - name: Push Daemon Dev Image
         if: github.ref == 'refs/heads/dev'
         run: |
-          make build-and-push-docker
+          make build-and-push-daemon
 
           echo "deployed_environment=dev-testnet" >> $GITHUB_ENV
 

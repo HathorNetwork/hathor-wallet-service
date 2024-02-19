@@ -8,3 +8,4 @@ flake.*
 node_modules/
 packages/daemon/dist/
 packages/daemon/node_modules/
+packages/wallet-service

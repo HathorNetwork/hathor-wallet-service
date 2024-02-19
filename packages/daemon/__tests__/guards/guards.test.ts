@@ -191,7 +191,7 @@ describe('fullnode validation guards', () => {
   test('invalidNetwork', () => {
     // @ts-ignore
     getConfig.mockReturnValue({
-      NETWORK: 'mainnet',
+      FULLNODE_NETWORK: 'mainnet',
     });
     const fullNodeEvent = generateFullNodeEvent(FullNodeEventTypes.NEW_VERTEX_ACCEPTED);
     // @ts-ignore
