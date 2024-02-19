@@ -128,12 +128,12 @@ export const invalidNetwork = (_context: Context, event: Event) => {
   if (event.type !== EventTypes.FULLNODE_EVENT) {
     throw new Error(`Invalid event type on invalidNetwork guard: ${event.type}`);
   }
-  const { NETWORK } = getConfig();
+  const { FULLNODE_NETWORK } = getConfig();
 
-  const isInvalid = event.event.network !== NETWORK;
+  const isInvalid = event.event.network !== FULLNODE_NETWORK;
 
   if (isInvalid) {
-    logger.error(`Invalid network. Expected ${NETWORK}, got ${event.event.network}`);
+    logger.error(`Invalid network. Expected ${FULLNODE_NETWORK}, got ${event.event.network}`);
   }
 
   return isInvalid;
