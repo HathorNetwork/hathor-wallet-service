@@ -1,6 +1,5 @@
 {
   "name": "wallet-service",
-  "version": "1.27.0+beta",
   "description": "",
   "scripts": {
     "jest": "jest --runInBand --collectCoverage --detectOpenHandles --forceExit",
