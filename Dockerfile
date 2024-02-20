@@ -1,24 +1,35 @@
-# Copyright 2020 Hathor Labs
+# Copyright 2024 Hathor Labs
 # This software is provided ‘as-is’, without any express or implied
 # warranty. In no event will the authors be held liable for any damages
 # arising from the use of this software.
 # This software cannot be redistributed unless explicitly agreed in writing with the authors.
 
-FROM node:14 AS builder
 
-COPY package.json /app/
+# Build phase
+FROM node:20-alpine AS builder
 
-RUN cd /app && npm install
+WORKDIR /app
 
-COPY . /app/
+RUN apk update && apk add python3 g++ make
 
-RUN cd /app && npm run build
+COPY . .
 
-FROM node:14-alpine3.13
+# Use the last stable berry version:
+RUN yarn set version stable
 
-COPY --from=builder /app/dist/ /app/
-COPY --from=builder /app/package.json /app/
+# This will install dependencies for the sync-daemon, devDependencies included:
+RUN yarn workspaces focus sync-daemon
 
-RUN cd /app && npm install --production
+RUN yarn workspace sync-daemon build
 
-CMD node /app/index.js
+# This will remove all dependencies and install production deps only:
+RUN yarn workspaces focus sync-daemon --production
+
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY --from=builder /app/packages/daemon/dist .
+COPY --from=builder /app/packages/daemon/node_modules ./node_modules
+
+CMD ["node", "index.js"]

@@ -1,1 +1,11 @@
 dist/
+node_modules/
+__tests__/
+.git/
+.github/
+.direnv/
+flake.*
+node_modules/
+packages/daemon/dist/
+packages/daemon/node_modules/
+packages/wallet-service

@@ -1,0 +1,684 @@
+service: hathor-wallet-service
+frameworkVersion: '3'
+
+useDotenv: true
+
+custom:
+  warmup:
+    walletWarmer: # Keeps the lambdas used by the wallets initialization warm
+      enabled: true
+      events:
+        - schedule: rate(5 minutes)
+  webpack:
+    webpackConfig: ./webpack.config.js
+    includeModules: true
+  prune:
+    automatic: true
+    number: 3
+  authorizer:
+    walletBearer:
+      name: bearerAuthorizer
+      type: TOKEN
+      identitySource: method.request.header.Authorization
+      identityValidationExpression: Bearer (.*)
+  # Configures throttling settings for the API Gateway stage
+  # They apply to all http endpoints, unless specifically overridden
+  apiGatewayThrottling:
+    maxRequestsPerSecond: 500
+    maxConcurrentRequests: 250
+  stage: ${opt:stage, 'dev'}
+  explorerServiceStage: ${env:EXPLORER_STAGE, 'dev'}
+  alerts:
+    stages: # Select which stages to deploy alarms to
+      - mainnet
+      - mainnet-stg
+      - testnet
+    topics: # SNS Topics to send alerts to
+      major:
+        alarm:
+          topic: arn:aws:sns:eu-central-1:${self:provider.environment.ACCOUNT_ID}:opsgenie-cloudwatch-integration-production-major
+      minor:
+        alarm:
+          topic: arn:aws:sns:eu-central-1:${self:provider.environment.ACCOUNT_ID}:opsgenie-cloudwatch-integration-production-minor
+    definitions: # Definition of alarms
+      majorFunctionErrors:
+        description: "Too many errors in hathor-wallet-service. Runbook: https://github.com/HathorNetwork/ops-tools/blob/master/docs/runbooks/wallet-service/errors-in-logs.md"
+        namespace: 'AWS/Lambda'
+        metric: Errors
+        threshold: 5
+        statistic: Sum
+        period: 60
+        evaluationPeriods: 5
+        comparisonOperator: GreaterThanOrEqualToThreshold
+        treatMissingData: notBreaching
+        alarmActions:
+          - major
+      minorFunctionErrors:
+        description: "Too many errors in hathor-wallet-service. Runbook: https://github.com/HathorNetwork/ops-tools/blob/master/docs/runbooks/wallet-service/errors-in-logs.md"
+        namespace: 'AWS/Lambda'
+        metric: Errors
+        threshold: 2
+        statistic: Sum
+        period: 60
+        evaluationPeriods: 1
+        comparisonOperator: GreaterThanOrEqualToThreshold
+        treatMissingData: notBreaching
+        alarmActions:
+          - minor
+      wsLambdasExecutionDuration:
+        description: "WebSocket lambda took too long to execute"
+        namespace: 'AWS/Lambda'
+        metric: "Duration"
+        statistic: Average
+        threshold: 1000 # This is in milliseconds
+        period: 60
+        evaluationPeriods: 1
+        comparisonOperator: GreaterThanThreshold
+        alarmActions:
+          - minor
+      cleanTxProposalsUtxosDuration:
+        description: "Clean tx proposals utxos cronjob taking too long"
+        namespace: 'AWS/Lambda'
+        metric: "Duration"
+        statistic: Average
+        threshold: 30000 # 30s
+        period: 60 # seconds
+        evaluationPeriods: 1
+        comparisonOperator: GreaterThanThreshold
+        alarmActions:
+          - minor
+    alarms: # Alarms that will be applied to all functions
+      - majorFunctionErrors
+      - minorFunctionErrors
+
+plugins:
+  - serverless-offline
+  - serverless-plugin-monorepo
+  - serverless-webpack
+  - serverless-prune-plugin
+  - serverless-api-gateway-throttling
+  - serverless-plugin-warmup
+  - serverless-iam-roles-per-function
+  - serverless-plugin-aws-alerts
+
+resources:
+  Resources:
+    # This is needed to add CORS headers when the authorizer rejects an authorization request
+    # as we don't have control over the response.
+    # Taken from: https://www.serverless.com/blog/cors-api-gateway-survival-guide/
+    GatewayResponseDefault4XX:
+      Type: 'AWS::ApiGateway::GatewayResponse'
+      Properties:
+        ResponseParameters:
+          gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+          gatewayresponse.header.Access-Control-Allow-Headers: "'*'"
+        ResponseType: DEFAULT_4XX
+        RestApiId:
+          Ref: 'ApiGatewayRestApi'
+    WalletServiceNewTxQueue:
+      Type: "AWS::SQS::Queue"
+      Properties:
+        QueueName:
+            WalletServiceNewTxQueue_${self:custom.stage}
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  # In MB. This is the memory allocated for the Lambdas, they cannot use more than this
+  # and will break if they try.
+  memorySize: 256
+  # This is the default timeout. Each function can specify a different value
+  timeout: 6
+  websocketsApiName: wallet-realtime-ws-api-${self:custom.stage}
+  websocketsApiRouteSelectionExpression: $request.body.action
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - sqs:*
+          Resource:
+            - Fn::GetAtt: [ WalletServiceNewTxQueue, Arn ]
+            - arn:aws:sqs:${self:provider.environment.ALERT_MANAGER_REGION}:${self:provider.environment.ACCOUNT_ID}:${self:provider.environment.ALERT_MANAGER_TOPIC}
+  vpc:
+    securityGroupIds:
+      - ${env:AWS_VPC_DEFAULT_SG_ID}
+    subnetIds:
+      - ${env:AWS_SUBNET_ID_1}
+      - ${env:AWS_SUBNET_ID_2}
+      - ${env:AWS_SUBNET_ID_3}
+  stackTags:
+    Application: "hathor-wallet-service"
+    Stage: "${self:custom.stage}"
+  apiGateway:
+    minimumCompressionSize: 1024 # Enable gzip compression for responses > 1 KB
+    apiKeys:
+      - ${self:custom.stage}-healthcheck-api-key
+  environment:
+    ACCOUNT_ID: ${env:ACCOUNT_ID}
+    AUTH_SECRET: ${env:AUTH_SECRET}
+    AWS_VPC_DEFAULT_SG_ID: ${env:AWS_VPC_DEFAULT_SG_ID}
+    AWS_SUBNET_ID_1: ${env:AWS_SUBNET_ID_1}
+    AWS_SUBNET_ID_2: ${env:AWS_SUBNET_ID_2}
+    AWS_SUBNET_ID_3: ${env:AWS_SUBNET_ID_3}
+    AWS_NODEJS_CONNECTION_REUSE_ENABLED: 1
+    APPLICATION_NAME: ${env:APPLICATION_NAME}
+    BLOCK_REWARD_LOCK: ${env:BLOCK_REWARD_LOCK}
+    CONFIRM_FIRST_ADDRESS: ${env:CONFIRM_FIRST_ADDRESS}
+    DB_ENDPOINT: ${env:DB_ENDPOINT}
+    DB_PORT: ${env:DB_PORT}
+    DB_NAME: ${env:DB_NAME}
+    DB_USER: ${env:DB_USER}
+    DB_PASS: ${env:DB_PASS}
+    MAX_ADDRESS_GAP: ${env:MAX_ADDRESS_GAP}
+    NETWORK: ${env:NETWORK}
+    NEW_TX_SQS: { Ref: WalletServiceNewTxQueue }
+    REDIS_URL: ${env:REDIS_URL}
+    REDIS_PASSWORD: ${env:REDIS_PASSWORD}
+    SERVICE_NAME: ${self:service}
+    STAGE: ${self:custom.stage}
+    EXPLORER_SERVICE_STAGE: ${self:custom.explorerServiceStage}
+    NFT_AUTO_REVIEW_ENABLED: ${env:NFT_AUTO_REVIEW_ENABLED}
+    VOIDED_TX_OFFSET: ${env:VOIDED_TX_OFFSET}
+    DEFAULT_SERVER: ${env:DEFAULT_SERVER}
+    WS_DOMAIN: ${env:WS_DOMAIN}
+    TX_HISTORY_MAX_COUNT: ${env:TX_HISTORY_MAX_COUNT}
+    WALLET_SERVICE_LAMBDA_ENDPOINT: ${env:WALLET_SERVICE_LAMBDA_ENDPOINT}
+    PUSH_NOTIFICATION_ENABLED: ${env:PUSH_NOTIFICATION_ENABLED}
+    PUSH_ALLOWED_PROVIDERS: ${env:PUSH_ALLOWED_PROVIDERS}
+    FIREBASE_PROJECT_ID: ${env:FIREBASE_PROJECT_ID}
+    FIREBASE_PRIVATE_KEY_ID: ${env:FIREBASE_PRIVATE_KEY_ID}
+    FIREBASE_PRIVATE_KEY: ${env:FIREBASE_PRIVATE_KEY}
+    FIREBASE_CLIENT_EMAIL: ${env:FIREBASE_CLIENT_EMAIL}
+    FIREBASE_CLIENT_ID: ${env:FIREBASE_CLIENT_ID}
+    FIREBASE_AUTH_URI: ${env:FIREBASE_AUTH_URI}
+    FIREBASE_TOKEN_URI: ${env:FIREBASE_TOKEN_URI}
+    FIREBASE_AUTH_PROVIDER_X509_CERT_URL: ${env:FIREBASE_AUTH_PROVIDER_X509_CERT_URL}
+    FIREBASE_CLIENT_X509_CERT_URL: ${env:FIREBASE_CLIENT_X509_CERT_URL}
+    LOG_LEVEL: ${env:LOG_LEVEL}
+    ALERT_MANAGER_REGION: ${env:ALERT_MANAGER_REGION}
+    ALERT_MANAGER_TOPIC: ${env:ALERT_MANAGER_TOPIC}
+
+functions:
+  getLatestBlock:
+    handler: src/height.getLatestBlock
+    warmup:
+      walletWarmer:
+        enabled: false
+  onMinersListRequest:
+    handler: src/api/miners.onMinersListRequest
+    warmup:
+      walletWarmer:
+        enabled: false
+  onTotalSupplyRequest:
+    handler: src/api/totalSupply.onTotalSupplyRequest
+    timeout: 120 # 2 minutes
+    warmup:
+      walletWarmer:
+        enabled: false
+  onHandleReorgRequest:
+    handler: src/txProcessor.onHandleReorgRequest
+    timeout: 300 # 5 minutes
+    warmup:
+      walletWarmer:
+        enabled: false
+  onNewTxEvent:
+    handler: src/txProcessor.onNewTxEvent
+    warmup:
+      walletWarmer:
+        enabled: false
+  onNewNftEvent:
+    handler: src/txProcessor.onNewNftEvent
+    warmup:
+      walletWarmer:
+        enabled: false
+    iamRoleStatementsInherit: true
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - lambda:InvokeFunction
+          - lambda:InvokeAsync
+        Resource:
+          arn:aws:lambda:eu-central-1:${self:provider.environment.ACCOUNT_ID}:function:hathor-explorer-service-${self:custom.explorerServiceStage}-create_or_update_dag_metadata
+  loadWalletAsync:
+    handler: src/api/wallet.loadWallet
+    warmup:
+      walletWarmer:
+        enabled: false
+  loadWalletApi:
+    role: arn:aws:iam::${self:provider.environment.ACCOUNT_ID}:role/WalletServiceLoadWalletLambda
+    handler: src/api/wallet.load
+    events:
+      - http:
+          path: wallet/init
+          method: post
+          cors: true
+    warmup:
+      walletWarmer:
+        enabled: true
+  changeWalletAuthXpubApi:
+    handler: src/api/wallet.changeAuthXpub
+    events:
+      - http:
+          path: wallet/auth
+          method: put
+          cors: true
+    warmup:
+      walletWarmer:
+        enabled: false
+  getWalletStatusApi:
+    handler: src/api/wallet.get
+    events:
+      - http:
+          path: wallet/status
+          method: get
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+    warmup:
+      walletWarmer:
+        enabled: true
+  checkAddressMineApi:
+    handler: src/api/addresses.checkMine
+    events:
+      - http:
+          path: wallet/addresses/check_mine
+          method: post
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+    warmup:
+      walletWarmer:
+        enabled: false
+  getAddressesApi:
+    handler: src/api/addresses.get
+    events:
+      - http:
+          path: wallet/addresses
+          method: get
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+          request:
+            parameters:
+              paths:
+                index: false
+    warmup:
+      walletWarmer:
+        enabled: true
+  getNewAddresses:
+    handler: src/api/newAddresses.get
+    events:
+      - http:
+          path: wallet/addresses/new
+          method: get
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+    warmup:
+      walletWarmer:
+        enabled: true
+  getUtxos:
+    handler: src/api/txOutputs.getFilteredUtxos
+    events:
+      - http:
+          path: wallet/utxos
+          method: get
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+    warmup:
+      walletWarmer:
+        enabled: false
+  getTxOutputs:
+    handler: src/api/txOutputs.getFilteredTxOutputs
+    events:
+      - http:
+          path: wallet/tx_outputs
+          method: get
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+    warmup:
+      walletWarmer:
+        enabled: false
+  getBalanceApi:
+    handler: src/api/balances.get
+    events:
+      - http:
+          path: wallet/balances
+          method: get
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+    warmup:
+      walletWarmer:
+        enabled: true
+  getTokensApi:
+    handler: src/api/tokens.get
+    events:
+      - http:
+          path: wallet/tokens
+          method: get
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+    warmup:
+      walletWarmer:
+        enabled: true
+  getTokenDetails:
+    handler: src/api/tokens.getTokenDetails
+    events:
+      - http:
+          path: wallet/tokens/{token_id}/details
+          method: get
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+          request:
+            parameters:
+              paths:
+                token_id: true
+    warmup:
+      walletWarmer:
+        enabled: false
+  getVersionData:
+    handler: src/api/version.get
+    events:
+      - http:
+          path: version
+          method: get
+          cors: true
+    warmup:
+      walletWarmer:
+        enabled: true
+  getTxHistoryApi:
+    handler: src/api/txhistory.get
+    events:
+      - http:
+          path: wallet/history
+          method: get
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+    warmup:
+      walletWarmer:
+        enabled: true
+  createTxProposalApi:
+    handler: src/api/txProposalCreate.create
+    events:
+      - http:
+          path: tx/proposal
+          method: post
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+    warmup:
+      walletWarmer:
+        enabled: false
+  sendTxProposalApi:
+    handler: src/api/txProposalSend.send
+    events:
+      - http:
+          path: tx/proposal/{txProposalId}
+          method: put
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+          request:
+            parameters:
+              paths:
+                txProposalId: true
+    warmup:
+      walletWarmer:
+        enabled: false
+  deleteTxProposalApi:
+    handler: src/api/txProposalDestroy.destroy
+    events:
+      - http:
+          path: tx/proposal/{txProposalId}
+          method: delete
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+          request:
+            parameters:
+              paths:
+                txProposalId: true
+    warmup:
+      walletWarmer:
+        enabled: false
+  wsConnect:
+    handler: src/ws/connection.connect
+    timeout: 2
+    events:
+      - websocket:
+          route: $connect
+      - websocket:
+          route: $disconnect
+      - websocket:
+          route: ping
+    warmup:
+      walletWarmer:
+        enabled: false
+    alarms: # This gets merged with the global alarms
+      - wsLambdasExecutionDuration
+  wsJoin:
+    handler: src/ws/join.handler
+    timeout: 2
+    events:
+      - websocket:
+          route: join
+    warmup:
+      walletWarmer:
+        enabled: false
+    alarms:
+      - wsLambdasExecutionDuration
+  wsTxNotifyNew:
+    handler: src/ws/txNotify.onNewTx
+    timeout: 2
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt:
+              - WalletServiceNewTxQueue
+              - Arn
+          batchSize: 1 # Will send every tx to the lambda istead of batching it, this should be tuned when we have more
+                       # users using the wallet-service facade
+          maximumBatchingWindow: 0 # This is the default value, will wait 0 seconds before calling the lambda
+    warmup:
+      walletWarmer:
+        enabled: false
+    alarms:
+      - wsLambdasExecutionDuration
+  wsTxNotifyUpdate:
+    handler: src/ws/txNotify.onUpdateTx
+    timeout: 2
+    warmup:
+      walletWarmer:
+        enabled: false
+    alarms:
+      - wsLambdasExecutionDuration
+  wsAdminBroadcast:
+    handler: src/ws/admin.broadcast
+    timeout: 2
+    warmup:
+      walletWarmer:
+        enabled: false
+    alarms:
+      - wsLambdasExecutionDuration
+  wsAdminDisconnect:
+    handler: src/ws/admin.disconnect
+    timeout: 2
+    warmup:
+      walletWarmer:
+        enabled: false
+    alarms:
+      - wsLambdasExecutionDuration
+  wsAdminMulticast:
+    handler: src/ws/admin.multicast
+    timeout: 2
+    warmup:
+      walletWarmer:
+        enabled: false
+    alarms:
+      - wsLambdasExecutionDuration
+  authTokenApi:
+    handler: src/api/auth.tokenHandler
+    timeout: 6
+    events:
+      - http:
+          path: auth/token
+          method: post
+          cors: true
+    warmup:
+      walletWarmer:
+        enabled: false
+  bearerAuthorizer:
+    handler: src/api/auth.bearerAuthorizer
+    warmup:
+      walletWarmer:
+        enabled: false
+  metrics:
+    handler: src/metrics.getMetrics
+    events:
+      - http:
+          path: metrics
+          method: get
+          throttling:
+            maxRequestsPerSecond: 2
+            maxConcurrentRequests: 2
+    warmup:
+      walletWarmer:
+        enabled: false
+  pushRegister:
+    handler: src/api/pushRegister.register
+    events:
+      - http:
+          path: wallet/push/register
+          method: post
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+    warmup:
+      walletWarmer:
+        enabled: false
+  pushUpdate:
+    handler: src/api/pushUpdate.update
+    events:
+      - http:
+          path: wallet/push/update
+          method: put
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+    warmup:
+      walletWarmer:
+        enabled: false
+  pushUnregister:
+    handler: src/api/pushUnregister.unregister
+    events:
+      - http:
+          path: wallet/push/unregister/{deviceId}
+          method: delete
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+          request:
+            parameters:
+              paths:
+                deviceId: true
+    warmup:
+      walletWarmer:
+        enabled: false
+  getTxById:
+    handler: src/api/txById.get
+    events:
+      - http:
+          path: wallet/transactions/{txId}
+          method: get
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+          request:
+            parameters:
+              paths:
+                txId: true
+    warmup:
+      walletWarmer:
+        enabled: false
+  proxiedGetTxById:
+    handler: src/api/fullnodeProxy.getTransactionById
+    events:
+      - http:
+          path: wallet/proxy/transactions/{txId}
+          method: get
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+          request:
+            parameters:
+              paths:
+                txId: true
+          throttling:
+            maxRequestsPerSecond: 50
+    warmup:
+      walletWarmer:
+        enabled: false
+  proxiedGetConfirmationData:
+    handler: src/api/fullnodeProxy.getConfirmationData
+    events:
+      - http:
+          path: wallet/proxy/transactions/{txId}/confirmation_data
+          method: get
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+          request:
+            parameters:
+              paths:
+                txId: true
+          throttling:
+            maxRequestsPerSecond: 10
+    warmup:
+      walletWarmer:
+        enabled: false
+  proxiedGraphvizNeighborsQuery:
+    handler: src/api/fullnodeProxy.queryGraphvizNeighbours
+    events:
+      - http:
+          path: wallet/proxy/graphviz/neighbours
+          method: get
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+          throttling:
+            maxRequestsPerSecond: 20
+    warmup:
+      walletWarmer:
+        enabled: false
+  sendNotificationToDevice:
+    handler: src/api/pushSendNotificationToDevice.send
+    warmup:
+      walletWarmer:
+        enabled: false
+  txPushRequested:
+    handler: src/api/txPushNotificationRequested.handleRequest
+    warmup:
+      walletWarmer:
+        enabled: false
+    iamRoleStatementsInherit: true
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - lambda:InvokeFunction
+          - lambda:InvokeAsync
+        Resource:
+          Fn::GetAtt: [ SendNotificationToDeviceLambdaFunction , Arn ]
+  healthcheck:
+    handler: src/api/healthcheck.getHealthcheck
+    events:
+      - http:
+          private: true
+          path: health
+          method: get
+          throttling:
+            maxRequestsPerSecond: 1
+            maxConcurrentRequests: 1
+  deleteStalePushDevices:
+    handler: src/db/cronRoutines.cleanStalePushDevices
+    events:
+      - schedule: cron(17 3 */15 * ? *) # run every 15 days at 3:17 (GMT)
+    warmup:
+      walletWarmer:
+        enabled: false
+  cleanUnsentTxProposalsUtxos:
+    handler: src/db/cronRoutines.cleanUnsentTxProposalsUtxos
+    timeout: 60 # 1 minute
+    events:
+      - schedule: cron(*/5 * * * ? *) # run every 5 minutes
+    warmup:
+      walletWarmer:
+        enabled: false
+    alarms:
+      - cleanTxProposalsUtxosDuration
