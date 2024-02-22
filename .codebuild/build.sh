@@ -91,8 +91,8 @@ else
     for var in "${!dev_@}"; do
         export ${var#dev_}="${!var}"
     done
-    # make migrate;
+    make migrate;
     make build-daemon-dev-testnet;
-    # make deploy-lambdas-dev-testnet;
+    make deploy-lambdas-dev-testnet;
     make push-daemon-dev-testnet;
 fi;
