@@ -13,9 +13,13 @@ if [ -z "$ACCOUNT_ID" ]; then
     exit 1;
 fi
 
-commit=`git rev-parse HEAD`;
-timestamp=`date +%s`;
-export DOCKER_IMAGE_TAG="$STAGE-$commit-$timestamp";
+DOCKER_IMAGE_TAG=$(cat /tmp/docker_image_tag 2>/dev/null || echo "")
+
+if [ -z "$DOCKER_IMAGE_TAG" ]; then
+    commit=`git rev-parse HEAD`;
+    timestamp=`date +%s`;
+    DOCKER_IMAGE_TAG="dev-$commit-$timestamp";
+fi;
 
 echo $DOCKER_IMAGE_TAG;
 echo $DOCKER_IMAGE_TAG > /tmp/docker_image_tag;

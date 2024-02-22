@@ -57,6 +57,8 @@ elif expr "${GIT_REF_TO_DEPLOY}" : "v[0-9]\+\.[0-9]\+\.[0-9]\+-rc\.[0-9]\+" >/de
     for var in "${!mainnet_staging_@}"; do
         export ${var#mainnet_staging_}="${!var}"
     done
+
+    echo $GIT_REF_TO_DEPLOY > /tmp/docker_image_tag
     make migrate;
     make build-daemon-mainnet-staging;
     make deploy-lambdas-mainnet-staging;
@@ -67,6 +69,8 @@ elif expr "${GIT_REF_TO_DEPLOY}" : "v.*" >/dev/null; then
     for var in "${!testnet_@}"; do
         export ${var#testnet_}="${!var}"
     done
+
+    echo $GIT_REF_TO_DEPLOY > /tmp/docker_image_tag
     make migrate;
     make build-daemon-testnet;
     make deploy-lambdas-testnet;
