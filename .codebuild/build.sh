@@ -49,6 +49,7 @@ if expr "${GIT_REF_TO_DEPLOY}" : "master" >/dev/null; then
     make migrate;
     make build-daemon-dev-testnet;
     make deploy-lambdas-dev-testnet;
+    # The idea here is that if the lambdas deploy fail, the built image won't be pushed:
     make push-daemon-dev-testnet;
 
 elif expr "${GIT_REF_TO_DEPLOY}" : "v[0-9]\+\.[0-9]\+\.[0-9]\+-rc\.[0-9]\+" >/dev/null; then
@@ -57,7 +58,9 @@ elif expr "${GIT_REF_TO_DEPLOY}" : "v[0-9]\+\.[0-9]\+\.[0-9]\+-rc\.[0-9]\+" >/de
         export ${var#mainnet_staging_}="${!var}"
     done
     make migrate;
+    make build-daemon-mainnet-staging;
     make deploy-lambdas-mainnet-staging;
+    make push-daemon-mainnet-staging;
     send_slack_message "New version deployed to mainnet-staging: ${GIT_REF_TO_DEPLOY}"
 elif expr "${GIT_REF_TO_DEPLOY}" : "v.*" >/dev/null; then
     # Gets all env vars with `testnet_` prefix and re-exports them without the prefix
@@ -65,7 +68,9 @@ elif expr "${GIT_REF_TO_DEPLOY}" : "v.*" >/dev/null; then
         export ${var#testnet_}="${!var}"
     done
     make migrate;
+    make build-daemon-testnet;
     make deploy-lambdas-testnet;
+    make push-daemon-testnet;
 
     # Unsets all the testnet env vars so we make sure they don't leak to the mainnet deploy below
     for var in "${!testnet_@}"; do
@@ -77,7 +82,9 @@ elif expr "${GIT_REF_TO_DEPLOY}" : "v.*" >/dev/null; then
         export ${var#mainnet_}="${!var}"
     done
     make migrate;
+    make build-daemon-mainnet;
     make deploy-lambdas-mainnet;
+    make push-daemon-mainnet;
     send_slack_message "New version deployed to testnet-production and mainnet-production: ${GIT_REF_TO_DEPLOY}"
 else
     # Gets all env vars with `dev_` prefix and re-exports them without the prefix

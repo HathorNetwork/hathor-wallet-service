@@ -1,13 +1,18 @@
 set -e
 set -o pipefail
 
-if [ -z "$AWS_ACCOUNT_ID" ]; then
-    echo "Please export a AWS_ACCOUNT_ID env var before running this";
+STAGE=$1
+
+if [ -z $STAGE ]; then
+    echo "This scripts expects the stage as a parameter";
     exit 1;
 fi
 
-if [ -z $1 ]; then
-    echo "This scripts expects the stage as a parameter";
+ENV_ACCOUNT_ID="${STAGE}_ACCOUNT_ID"
+AWS_ACCOUNT_ID=${!ENV_ACCOUNT_ID}
+
+if [ -z "$AWS_ACCOUNT_ID" ]; then
+    echo "Please export a AWS_ACCOUNT_ID env var before running this";
     exit 1;
 fi
 
