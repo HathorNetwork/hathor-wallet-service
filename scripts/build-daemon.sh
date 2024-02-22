@@ -8,11 +8,8 @@ if [ -z $STAGE ]; then
     exit 1;
 fi
 
-ENV_ACCOUNT_ID="${STAGE}_ACCOUNT_ID"
-AWS_ACCOUNT_ID=${!ENV_ACCOUNT_ID}
-
-if [ -z "$AWS_ACCOUNT_ID" ]; then
-    echo "Please export a AWS_ACCOUNT_ID env var before running this";
+if [ -z "$ACCOUNT_ID" ]; then
+    echo "Please export a ACCOUNT_ID env var before running this";
     exit 1;
 fi
 
@@ -22,6 +19,6 @@ export DOCKER_IMAGE_TAG="$1-$commit-$timestamp";
 
 echo $DOCKER_IMAGE_TAG;
 
-aws ecr get-login-password --region eu-central-1 | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com;
+aws ecr get-login-password --region eu-central-1 | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com;
 
-docker build -t $AWS_ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/hathor-wallet-service-sync-daemon:$DOCKER_IMAGE_TAG .;
+docker build -t $ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/hathor-wallet-service-sync-daemon:$DOCKER_IMAGE_TAG .;
