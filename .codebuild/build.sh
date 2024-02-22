@@ -93,6 +93,6 @@ else
     done
     make migrate;
     make build-daemon-dev-testnet;
-    # make deploy-lambdas-dev-testnet;
-    # make push-daemon-dev-testnet;
+    make deploy-lambdas-dev-testnet;
+    make push-daemon-dev-testnet;
 fi;
