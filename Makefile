@@ -9,7 +9,7 @@ build-daemon-dev-testnet:
 
 .PHONY: push-daemon-dev-testnet
 push-daemon-dev-testnet:
-	bash scripts/push-daemon.sh dev-testnet
+	bash scripts/push-daemon.sh
 
 .PHONY: deploy-lambdas-dev-testnet
 deploy-lambdas-dev-testnet:
