@@ -1,13 +1,15 @@
 set -e
 set -o pipefail
 
-if [ -z "$AWS_ACCOUNT_ID" ]; then
-    echo "Please export a AWS_ACCOUNT_ID env var before running this";
+STAGE=$1
+
+if [ -z $STAGE ]; then
+    echo "This scripts expects the stage as a parameter";
     exit 1;
 fi
 
-if [ -z $1 ]; then
-    echo "This scripts expects the stage as a parameter";
+if [ -z "$ACCOUNT_ID" ]; then
+    echo "Please export a ACCOUNT_ID env var before running this";
     exit 1;
 fi
 
@@ -17,6 +19,6 @@ export DOCKER_IMAGE_TAG="$1-$commit-$timestamp";
 
 echo $DOCKER_IMAGE_TAG;
 
-aws ecr get-login-password --region eu-central-1 | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com;
+aws ecr get-login-password --region eu-central-1 | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com;
 
-docker push $AWS_ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/hathor-wallet-service-sync-daemon:$DOCKER_IMAGE_TAG;
+docker push $ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/hathor-wallet-service-sync-daemon:$DOCKER_IMAGE_TAG;
