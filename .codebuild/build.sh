@@ -45,8 +45,12 @@ if expr "${GIT_REF_TO_DEPLOY}" : "master" >/dev/null; then
     for var in "${!dev_@}"; do
         export ${var#dev_}="${!var}"
     done
+
     make migrate;
+    make build-daemon-dev-testnet;
     make deploy-lambdas-dev-testnet;
+    make push-daemon-dev-testnet;
+
 elif expr "${GIT_REF_TO_DEPLOY}" : "v[0-9]\+\.[0-9]\+\.[0-9]\+-rc\.[0-9]\+" >/dev/null; then
     # Gets all env vars with `mainnet_staging_` prefix and re-exports them without the prefix
     for var in "${!mainnet_staging_@}"; do
@@ -81,5 +85,7 @@ else
         export ${var#dev_}="${!var}"
     done
     make migrate;
-    make deploy-lambdas-dev-testnet;
+    make build-daemon-dev-testnet;
+    # make deploy-lambdas-dev-testnet;
+    # make push-daemon-dev-testnet;
 fi;

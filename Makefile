@@ -2,6 +2,14 @@
 build-and-push-daemon:
 	bash scripts/build-and-push-daemon.sh
 
+.PHONY: build-daemon-dev-testnet
+build-daemon-dev-testnet:
+	bash scripts/build-daemon.sh dev-testnet
+
+.PHONY: push-daemon-dev-testnet
+push-daemon-dev-testnet:
+	bash scripts/push-daemon.sh dev-testnet
+
 .PHONY: deploy-lambdas-dev-testnet
 deploy-lambdas-dev-testnet:
 	yarn workspace wallet-service run serverless deploy --stage dev-testnet --region eu-central-1
@@ -12,11 +20,11 @@ deploy-lambdas-testnet:
 
 .PHONY: deploy-lambdas-mainnet-staging
 deploy-lambdas-mainnet-staging:
-	yarn workspace wallet-service run serverless deploy --stage dev-testnet --region eu-central-1
+	yarn workspace wallet-service run serverless deploy --stage mainnet-stg --region eu-central-1
 
 .PHONY: deploy-lambdas-mainnet
 deploy-lambdas-mainnet:
-	npx serverless deploy --stage mainnet --region eu-central-1
+	yarn workspace wallet-service run serverless deploy --stage mainnet --region eu-central-1
 
 .PHONY invoke-local:
 invoke-local:
