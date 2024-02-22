@@ -171,10 +171,10 @@ phases:
       nodejs: 20
       # name: version
     commands:
-      - # npm install -g yarn
-      - # corepack enable
-      - # yarn set version stable
-      - # yarn install
+      - npm install -g yarn
+      - corepack enable
+      - yarn set version stable
+      - yarn install
   pre_build:
     commands:
       # This file is created in another CodeBuild specification that runs before this and is not committed to this repo.
