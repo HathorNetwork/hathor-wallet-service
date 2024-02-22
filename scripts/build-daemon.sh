@@ -18,6 +18,7 @@ timestamp=`date +%s`;
 export DOCKER_IMAGE_TAG="$1-$commit-$timestamp";
 
 echo $DOCKER_IMAGE_TAG;
+echo $DOCKER_IMAGE_TAG > /tmp/docker_image_tag;
 
 aws ecr get-login-password --region eu-central-1 | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com;
 

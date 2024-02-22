@@ -1,6 +1,8 @@
 set -e
 set -o pipefail
 
+DOCKER_IMAGE_TAG=$(cat /tmp/docker_image_tag)
+
 echo $DOCKER_IMAGE_TAG;
 
 aws ecr get-login-password --region eu-central-1 | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com;
