@@ -13,7 +13,7 @@ push-daemon-dev-testnet:
 
 .PHONY: deploy-lambdas-dev-testnet
 deploy-lambdas-dev-testnet:
-	yarn workspace wallet-service run serverless deploy --stage dev-testnet --region eu-central-1
+	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage dev-testnet --region eu-central-1
 
 # testnet
 .PHONY: build-daemon-testnet
@@ -26,7 +26,7 @@ push-daemon-testnet:
 
 .PHONY: deploy-lambdas-testnet
 deploy-lambdas-testnet:
-	yarn workspace wallet-service run serverless deploy --stage testnet --region eu-central-1
+	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage testnet --region eu-central-1
 
 # mainnet-staging
 
@@ -40,13 +40,13 @@ push-daemon-mainnet-staging:
 
 .PHONY: deploy-lambdas-mainnet-staging
 deploy-lambdas-mainnet-staging:
-	yarn workspace wallet-service run serverless deploy --stage mainnet-stg --region eu-central-1
+	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage mainnet-stg --region eu-central-1
 
 # mainnet
 
-.PHONY: deploy-lambdas-mainnet
-deploy-lambdas-mainnet:
-	yarn workspace wallet-service run serverless deploy --stage mainnet --region eu-central-1
+.PHONY: build-daemon-mainnet
+build-daemon-mainnet:
+	bash scripts/build-daemon.sh mainnet
 
 .PHONY: push-daemon-mainnet
 push-daemon-mainnet:
@@ -54,7 +54,7 @@ push-daemon-mainnet:
 
 .PHONY: deploy-lambdas-mainnet
 deploy-lambdas-mainnet:
-	yarn workspace wallet-service run serverless deploy --stage mainnet --region eu-central-1
+	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage mainnet --region eu-central-1
 
 # other
 

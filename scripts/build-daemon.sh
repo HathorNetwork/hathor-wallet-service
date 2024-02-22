@@ -15,7 +15,7 @@ fi
 
 commit=`git rev-parse HEAD`;
 timestamp=`date +%s`;
-export DOCKER_IMAGE_TAG="$1-$commit-$timestamp";
+export DOCKER_IMAGE_TAG="$STAGE-$commit-$timestamp";
 
 echo $DOCKER_IMAGE_TAG;
 echo $DOCKER_IMAGE_TAG > /tmp/docker_image_tag;
