@@ -1,41 +1,117 @@
 name: CI
 on: [push]
-env:
-  NODE_OPTIONS: --max_old_space_size=4096
 jobs:
-  build:
-    name: Build, lint, and test on Node ${{ matrix.node }} and ${{ matrix.os }}
-
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        node: ['10.x', '12.x', '14.x']
-        os: [ubuntu-latest, windows-latest, macOS-latest]
-
+  test:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        # We are using this image because the official one didn't
+        # support settings default-authentication-plugin using env var
+        # About the --default-authentication-plugin: https://stackoverflow.com/questions/50093144/mysql-8-0-client-does-not-support-authentication-protocol-requested-by-server/56509065#56509065
+        image: centos/mysql-80-centos7
+        env:
+          MYSQL_DATABASE: wallet_service_ci
+          MYSQL_USER: wallet_service_user
+          MYSQL_PASSWORD: password
+          MYSQL_DEFAULT_AUTHENTICATION_PLUGIN: mysql_native_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 3
+      redis:
+        image: redis:6.2
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v2
+    - name: Checkout code
+      uses: actions/checkout@v3
 
-      - name: Use Node ${{ matrix.node }}
-        uses: actions/setup-node@v1
-        with:
-          node-version: ${{ matrix.node }}
+    - name: Install Nix
+      uses: cachix/install-nix-action@v20
+      with:
+        nix_path: nixpkgs=channel:nixos-unstable
+        extra_nix_config: |
+          experimental-features = nix-command flakes
+          
+    - name: Cache Nix
+      uses: DeterminateSystems/magic-nix-cache-action@v2
 
-      - name: Install deps and build (with cache)
-        uses: bahmutov/npm-install@c67aaab58a864ea2873950cde9c1c9379f9f711a
+    - name: Install dependencies
+      run: |
+        nix develop . -c yarn install
 
-      - name: Lint
-        run: yarn lint
+    - name: Initialize DB
+      run: |
+        nix develop . -c yarn sequelize db:migrate
+      env:
+        NODE_ENV: test
+        CI_DB_NAME: wallet_service_ci
+        CI_DB_USERNAME: wallet_service_user
+        CI_DB_PASSWORD: password
+        CI_DB_HOST: 127.0.0.1
+        CI_DB_PORT: 3306
 
-      - name: Test
-        run: yarn test --ci --coverage --maxWorkers=2
+    - name: Run tests on the daemon
+      run: |
+        nix develop . -c yarn workspace sync-daemon run test
+      env:
+        DB_ENDPOINT: 127.0.0.1
+        DB_NAME: wallet_service_ci
+        DB_USER: wallet_service_user
+        DB_PASS: password
+        DB_PORT: 3306
+        STREAM_ID: f7d9157c-9906-4bd2-bc84-cfb9f5b607d1
+        FULLNODE_PEER_ID: bdf4fa876f5cdba84be0cab53b21fc9eb45fe4b3d6ede99f493119d37df4e560
 
-      - name: Build
-        run: yarn build
+    - name: Run tests on the wallet-service
+      run: |
+        nix develop . -c yarn workspace wallet-service jest
+      env:
+        NODE_ENV: test
+        STAGE: local
+        MAX_ADDRESS_GAP: 10
+        NETWORK: mainnet
+        BLOCK_REWARD_LOCK: 300
+        DEV_DB: mysql
+        DB_ENDPOINT: 127.0.0.1
+        DB_NAME: wallet_service_ci
+        DB_USER: wallet_service_user
+        DB_PASS: password
+        DB_PORT: 3306
+        CI_DB_USERNAME: wallet_service_user
+        CI_DB_PASSWORD: password
+        CI_DB_NAME: wallet_service_ci
+        CONFIRM_FIRST_ADDRESS: true
+        SERVICE_NAME: hathor-wallet-service
+        DEFAULT_SERVER: https://node1.mainnet.hathor.network/v1a/
+        VOIDED_TX_OFFSET: 5
+        WS_DOMAIN: ws.wallet-service.hathor.network
+        AUTH_SECRET: ""
+        WALLET_SERVICE_LAMBDA_ENDPOINT: ""
+        FIREBASE_PROJECT_ID: ""
+        FIREBASE_PRIVATE_KEY_ID: ""
+        FIREBASE_PRIVATE_KEY: ""
+        FIREBASE_CLIENT_EMAIL: ""
+        FIREBASE_CLIENT_ID: ""
+        FIREBASE_AUTH_URI: ""
+        FIREBASE_TOKEN_URI: ""
+        FIREBASE_AUTH_PROVIDER_X509_CERT_URL: ""
+        FIREBASE_CLIENT_X509_CERT_URL: ""
+        APPLICATION_NAME: "hathor-wallet-service"
+        ACCOUNT_ID: 1234
+        ALERT_MANAGER_REGION: us-east-1
+        ALERT_MANAGER_TOPIC: alert-topic
+        PUSH_ALLOWED_PROVIDERS: ""
 
-      - name: Upload coverage
-        uses: codecov/codecov-action@v3
-        if: ${{ matrix.node-version }} == 14.x
-        with:
-          verbose: true
-
+    - name: Run integration tests on the daemon
+      run: |
+        export NODE_ENV=test
+        nix develop . -c yarn workspace sync-daemon run test_integration

@@ -1,3 +1,5 @@
+Refer to https://github.com/HathorNetwork/rfcs/blob/master/projects/wallet-service-reliable-integration/0001-design.md
+
 # Hathor Wallet Service -- Sync Daemon
 
 ## Running
@@ -6,11 +8,13 @@
 
 #### System dependencies
 
-You need nodejs installed on your enviroment, we are using the latest Active LTS version (v14.16.1) on the dev environment. You can read more about installing nodejs on https://nodejs.org/en/download/package-manager/
+You need nodejs installed on your enviroment, we suggest the latest Active LTS version (v18.x.x).
 
 #### Clone the project and install dependencies
 
-`git clone https://github.com/HathorNetwork/hathor-wallet-service-sync_daemon.git && npm install`
+`git clone https://github.com/HathorNetwork/hathor-wallet-service-sync_daemon.git`
+
+`npm install`
 
 #### Add env variables or an .env file to the repository:
 
@@ -18,17 +22,26 @@ Example:
 
 ```
 NETWORK=testnet
-MAX_ADDRESS_GAP=20
-WALLET_SERVICE_NAME=hathor-wallet-service
-WALLET_SERVICE_STAGE=local
-DEFAULT_SERVER=http://fullnode_url/v1a/
+DB_ENDPOINT=localhost
+DB_PORT=3306
+DB_USER=hathor
+DB_PASS=hathor
+WS_URL=ws://localhost:3003
+FULLNODE_PEER_ID=74f75f4df6b19856a75dea6ed894441fbee7768bc561806c7a2fe6368ce4db18
+FULLNODE_STREAM_ID=f10ed6b9-8d77-430d-b85f-ae20257af465
+ALERT_QUEUE_URL=...
+TX_CACHE_SIZE=10000
 ```
 
 `NETWORK` - The current hathor network we want to connect to
-`MAX_ADDRESS_GAP` - The full-node configured GAP between addresses
-`WALLET_SERVICE_NAME` - The Wallet-Service's service name as it was registered on AWS
-`WALLET_SERVICE_STAGE` - Wallet-Service's deployment stage, e.g. `local`, `production`, `staging`
-`DEFAULT_SERVER` - The full-node API url
+`DB_ENDPOINT` - The MySQL database endpoint we want to connect to
+`DB_PORT` - The MySQL database port number
+`DB_USER` - The MySQL database username to use
+`DB_PASS` - The MySQL database password to use
+`WS_URL` - The fullnode event websocket feed
+`FULLNODE_PEER_ID` - The fullnode peer id
+`FULLNODE_STREAM_ID` - The fullnode stream id
+`ALERT_QUEUE_URL` - The alert queue to publish alerts to
 
 If the wallet-service is not running locally, you also need to specify the AWS-SDK env variables:
 
@@ -39,70 +52,4 @@ AWS_ACCESS_KEY_ID="..."
 AWS_SECRET_ACCESS_KEY="..."
 ```
 
-#### Run:
-
-`npm start`
-
-
-### Deploy
-
-The recommended way to deploy this service is to use docker.
-
-#### Building the image:
-
-`docker build -t hathor/sync-daemon .`
-
-#### Running:
-
-```
-docker run -d -e WALLET_SERVICE_STAGE="production" \
-           -e NODE_ENV="production" \
-           -e AWS_REGION="us-east-1" \
-           -e AWS_DEFAULT_REGION="us-east-1" \
-           -e AWS_ACCESS_KEY_ID="..." \
-           -e AWS_SECRET_ACCESS_KEY="..." \
-           -e NETWORK="testnet" \
-           -e MAX_ADDRESS_GAP=20 \
-           -e NETWORK="testnet" \
-           -e WALLET_SERVICE_NAME="hathor-wallet-service" \
-           -e DEFAULT_SERVER="http://fullnode:8082/v1a/" \
-           -ti localhost/hathor/sync-daemon
-```
-
-In this example, we are passing the env variables to the container and running as a daemon (`-d`). We are also expecting a fullnode to be running on fullnode:8082.
-
-## State Machine
-
-The state machine diagram can be visualized at https://xstate.js.org/viz/?gist=19dd8bc6d62533add23e124ef31adb78
-
-## States:
-
-### Idle
-
-The machine starts at the idle state, it will stay there until a `NEW_BLOCK` action is received.
-
-Every time the state of the machine is transitioned to `idle`, the machine will check if `hasMoreBlocks` is set on the state context. If it is, the machine will transition to `syncing`.
-
-#### Actions:
-  `NEW_BLOCK`: When a `NEW_BLOCK` action is received, the machine will transition to the `syncing` state.
-
-### Syncing
-
-Everytime the state of the machine is transitioned to `syncing`, the machine will invoke the `syncHandler` service that will start syncing new blocks.
-
-#### Actions:
-  `NEW_BLOCK`: When a `NEW_BLOCK` action is received, the machine will assign `true` to the `hasMoreBlocks` context on the state, so the next time we transition to `IDLE`, the machine will know that there are more blocks to be downloaded.
-  `DONE`: When a `DONE` action is received, the machine will transition to `idle` to await for new blocks
-  `ERROR`: When a `ERROR` action is received, the machine will transition to the `failure` state
-  `REORG`: When a `REORG` action is received, the machine will transition to the `reorg` state
-  `STOP`: When a `STOP` action is received, the machine will transition to the `idle` state
-
-### Failure
-
-This is a `final` state, meaning that the machine will ignore all actions and wait for a manual restart.
-
-This state can trigger actions to try to automatically solve issues or notify us about it.
-
-### Reorg
-
-This is temporarily a `final` state, this will be changed on a new PR with the reorg code.
+These are used for communicating with the alert SQS
