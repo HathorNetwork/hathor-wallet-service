@@ -1,13 +1,6 @@
 set -e
 set -o pipefail
 
-STAGE=$1
-
-if [ -z $STAGE ]; then
-    echo "This scripts expects the stage as a parameter";
-    exit 1;
-fi
-
 if [ -z "$ACCOUNT_ID" ]; then
     echo "Please export a ACCOUNT_ID env var before running this";
     exit 1;
