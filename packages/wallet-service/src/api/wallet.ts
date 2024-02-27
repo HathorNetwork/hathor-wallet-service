@@ -93,7 +93,7 @@ export const invokeLoadWalletAsync = async (xpubkey: string, maxGap: number): Pr
     endpoint: process.env.STAGE === 'dev'
       ? 'http://localhost:3002'
       : `https://lambda.${process.env.AWS_REGION}.amazonaws.com`,
-    region: 'local',
+    region: process.env.AWS_REGION,
   });
   const command = new InvokeCommand({
     // FunctionName is composed of: service name - stage - function name
