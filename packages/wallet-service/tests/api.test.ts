@@ -71,7 +71,7 @@ afterAll(async () => {
   await closeDbConnection(mysql);
 });
 
-const _testCORSHeaders = async (fn: APIGatewayProxyHandler, walletId: string, params = {}) => {
+const _testCORSHeaders = async (fn: APIGatewayProxyHandler, walletId: string, params = null) => {
   const event = makeGatewayEventWithAuthorizer(walletId, params);
   // This is a hack to force middy to include the CORS headers, we can't know what http method our request
   // uses as it is only defined on serverless.yml
@@ -85,7 +85,7 @@ const _testCORSHeaders = async (fn: APIGatewayProxyHandler, walletId: string, pa
   );
 };
 
-const _testInvalidPayload = async (fn: APIGatewayProxyHandler, errorMessages: string[] = [], walletId: string, params = {}) => {
+const _testInvalidPayload = async (fn: APIGatewayProxyHandler, errorMessages: string[] = [], walletId: string, params = null) => {
   const event = makeGatewayEventWithAuthorizer(walletId, params);
   const result = await fn(event, null, null) as APIGatewayProxyResult;
   const returnBody = JSON.parse(result.body as string);
@@ -100,7 +100,7 @@ const _testInvalidPayload = async (fn: APIGatewayProxyHandler, errorMessages: st
 };
 
 const _testMissingWallet = async (fn: APIGatewayProxyHandler, walletId: string, body = null) => {
-  const event = makeGatewayEventWithAuthorizer(walletId, {}, body && JSON.stringify(body));
+  const event = makeGatewayEventWithAuthorizer(walletId, null, body && JSON.stringify(body));
   const result = await fn(event, null, null) as APIGatewayProxyResult;
   const returnBody = JSON.parse(result.body as string);
 
@@ -120,7 +120,7 @@ const _testWalletNotReady = async (fn: APIGatewayProxyHandler) => {
     createdAt: 10000,
     readyAt: null,
   }]);
-  const event = makeGatewayEventWithAuthorizer(walletId, {});
+  const event = makeGatewayEventWithAuthorizer(walletId, null);
   const result = await fn(event, null, null) as APIGatewayProxyResult;
   const returnBody = JSON.parse(result.body as string);
   expect(result.statusCode).toBe(400);
@@ -157,7 +157,7 @@ test('GET /addresses', async () => {
   await _testCORSHeaders(addressesGet, 'my-wallet', {});
 
   // success case
-  let event = makeGatewayEventWithAuthorizer('my-wallet', {});
+  let event = makeGatewayEventWithAuthorizer('my-wallet', null);
   let result = await addressesGet(event, null, null) as APIGatewayProxyResult;
   let returnBody = JSON.parse(result.body as string);
   expect(result.statusCode).toBe(200);
@@ -244,7 +244,7 @@ test('GET /addresses/check_mine', async () => {
 
   // success case
 
-  let event = makeGatewayEventWithAuthorizer('my-wallet', {}, JSON.stringify({
+  let event = makeGatewayEventWithAuthorizer('my-wallet', null, JSON.stringify({
     addresses: [
       ADDRESSES[0],
       ADDRESSES[1],
@@ -265,7 +265,7 @@ test('GET /addresses/check_mine', async () => {
 
   // validation error, invalid json
 
-  event = makeGatewayEventWithAuthorizer('my-wallet', {}, 'invalid-json');
+  event = makeGatewayEventWithAuthorizer('my-wallet', null, 'invalid-json');
   result = await checkMine(event, null, null) as APIGatewayProxyResult;
   returnBody = JSON.parse(result.body as string);
 
@@ -277,7 +277,7 @@ test('GET /addresses/check_mine', async () => {
 
   // validation error, addresses shouldn't be empty
 
-  event = makeGatewayEventWithAuthorizer('my-wallet', {}, JSON.stringify({
+  event = makeGatewayEventWithAuthorizer('my-wallet', null, JSON.stringify({
     addresses: [],
   }));
   result = await checkMine(event, null, null) as APIGatewayProxyResult;
@@ -291,7 +291,7 @@ test('GET /addresses/check_mine', async () => {
 
   // validation error, invalid address
 
-  event = makeGatewayEventWithAuthorizer('my-wallet', {}, JSON.stringify({
+  event = makeGatewayEventWithAuthorizer('my-wallet', null, JSON.stringify({
     addresses: [
       'invalid-address',
     ],
@@ -343,7 +343,7 @@ test('GET /addresses/new', async () => {
   await _testCORSHeaders(newAddressesGet, 'some-wallet', {});
 
   // success case
-  const event = makeGatewayEventWithAuthorizer('my-wallet', {});
+  const event = makeGatewayEventWithAuthorizer('my-wallet', null);
   const result = await newAddressesGet(event, null, null) as APIGatewayProxyResult;
   const returnBody = JSON.parse(result.body as string);
   expect(result.statusCode).toBe(200);
@@ -389,7 +389,7 @@ test('GET /addresses/new with no transactions', async () => {
   await _testWalletNotReady(newAddressesGet);
 
   // success case
-  const event = makeGatewayEventWithAuthorizer('my-wallet', {});
+  const event = makeGatewayEventWithAuthorizer('my-wallet', null);
   const result = await newAddressesGet(event, null, null) as APIGatewayProxyResult;
   const returnBody = JSON.parse(result.body as string);
   expect(result.statusCode).toBe(200);
@@ -440,7 +440,7 @@ test('GET /balances', async () => {
   await _testCORSHeaders(balancesGet, 'my-wallet', {});
 
   // success but no balances
-  let event = makeGatewayEventWithAuthorizer('my-wallet', {});
+  let event = makeGatewayEventWithAuthorizer('my-wallet', null);
   let result = await balancesGet(event, null, null) as APIGatewayProxyResult;
   let returnBody = JSON.parse(result.body as string);
 
@@ -471,7 +471,7 @@ test('GET /balances', async () => {
   }]);
 
   // get all balances
-  event = makeGatewayEventWithAuthorizer('my-wallet', {});
+  event = makeGatewayEventWithAuthorizer('my-wallet', null);
   result = await balancesGet(event, null, null) as APIGatewayProxyResult;
   returnBody = JSON.parse(result.body as string);
   expect(result.statusCode).toBe(200);
@@ -667,7 +667,7 @@ test('GET /txhistory', async () => {
   await _testInvalidPayload(txHistoryGet, ['"count" must be a number'], 'my-wallet', { count: 'aaa' });
 
   // without token in parameters, use htr
-  let event = makeGatewayEventWithAuthorizer('my-wallet', {});
+  let event = makeGatewayEventWithAuthorizer('my-wallet', null);
   let result = await txHistoryGet(event, null, null) as APIGatewayProxyResult;
   let returnBody = JSON.parse(result.body as string);
   expect(result.statusCode).toBe(200);
@@ -1173,7 +1173,7 @@ test('PUT /wallet/auth should change the auth_xpub only after validating both th
   const derivedPrivKey = walletUtils.deriveXpriv(xpriv, accountDerivationIndex);
   const address = derivedPrivKey.publicKey.toAddress(network.getNetwork()).toString();
   const message = new bitcore.Message(String(now).concat(walletId).concat(address));
-  
+
   expect(1).toStrictEqual(1);
 }, 30000);
 
@@ -1345,7 +1345,7 @@ test('GET /wallet/tokens', async () => {
   // check CORS headers
   await _testCORSHeaders(walletTokensGet, null, null);
 
-  const event = makeGatewayEventWithAuthorizer('my-wallet', {});
+  const event = makeGatewayEventWithAuthorizer('my-wallet', null);
   const result = await walletTokensGet(event, null, null) as APIGatewayProxyResult;
   const returnBody = JSON.parse(result.body as string);
 
@@ -1378,7 +1378,7 @@ test('GET /wallet/tokens/token_id/details', async () => {
   expect(returnBody.success).toBe(false);
   expect(returnBody.details[0]).toStrictEqual({ message: 'Token not found' });
 
-  event = makeGatewayEventWithAuthorizer('my-wallet', {});
+  event = makeGatewayEventWithAuthorizer('my-wallet', null);
   result = await getTokenDetails(event, null, null) as APIGatewayProxyResult;
   returnBody = JSON.parse(result.body as string);
 
@@ -1700,7 +1700,7 @@ test('GET /wallet/proxy/transactions/{txId}', async () => {
   expect(returnBody.success).toBe(true);
   expect(returnBody).toStrictEqual(mockData);
 
-  event = makeGatewayEventWithAuthorizer('my-wallet', {});
+  event = makeGatewayEventWithAuthorizer('my-wallet', null);
   result = await getTransactionById(event, null, null) as APIGatewayProxyResult;
   returnBody = JSON.parse(result.body as string);
 
@@ -1749,7 +1749,7 @@ test('GET /wallet/proxy/{txId}/confirmation_data', async () => {
   expect(returnBody).toStrictEqual(mockData);
 
   // Missing txId
-  event = makeGatewayEventWithAuthorizer('my-wallet', {});
+  event = makeGatewayEventWithAuthorizer('my-wallet', null);
   result = await getConfirmationData(event, null, null) as APIGatewayProxyResult;
   returnBody = JSON.parse(result.body as string);
 
@@ -1817,7 +1817,7 @@ test('GET /wallet/proxy/graphviz/neighbours', async () => {
   `);
 
   // Missing all attributes
-  event = makeGatewayEventWithAuthorizer('my-wallet', {});
+  event = makeGatewayEventWithAuthorizer('my-wallet', null);
   result = await queryGraphvizNeighbours(event, null, null) as APIGatewayProxyResult;
   returnBody = JSON.parse(result.body as string);
   expect(result.statusCode).toBe(400);
@@ -2101,7 +2101,7 @@ describe('GET /health', () => {
         }],
       }
     });
-  });    
+  });
 
   test('fullnode reports unhealthy', async () => {
     expect.hasAssertions();

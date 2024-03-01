@@ -125,7 +125,7 @@ export const get: APIGatewayProxyHandler = middy(
       return closeDbAndGetError(mysql, ApiError.WALLET_NOT_READY);
     }
 
-    const { value: body, error } = AddressAtIndexValidator.validate(event.pathParameters);
+    const { value: body, error } = AddressAtIndexValidator.validate(event.pathParameters || {});
 
     if (error) {
       const details = error.details.map((err) => ({
