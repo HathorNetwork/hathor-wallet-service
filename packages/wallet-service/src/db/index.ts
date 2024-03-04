@@ -498,7 +498,9 @@ export const initWalletBalance = async (mysql: ServerlessMysql, walletId: string
             SUM(\`total_received\`) AS \`total_received\`,
             SUM(\`unlocked_balance\`) AS \`unlocked_balance\`,
             SUM(\`locked_balance\`) AS \`locked_balance\`,
-            MIN(\`timelock_expires\`) AS \`timelock_expires\`
+            MIN(\`timelock_expires\`) AS \`timelock_expires\`,
+            BIT_OR(\`unlocked_authorities\`) AS \`unlocked_authorities\`,
+            BIT_OR(\`locked_authorities\`) AS \`locked_authorities\`
        FROM \`address_balance\`
       WHERE \`address\`
          IN (?)
@@ -536,6 +538,8 @@ export const initWalletBalance = async (mysql: ServerlessMysql, walletId: string
       row1.unlocked_balance,
       row1.locked_balance,
       row1.timelock_expires,
+      row1.locked_authorities,
+      row1.unlocked_authorities,
       row2.transactions,
     ]);
   }
@@ -544,7 +548,8 @@ export const initWalletBalance = async (mysql: ServerlessMysql, walletId: string
       `INSERT INTO \`wallet_balance\`(\`wallet_id\`, \`token_id\`,
                                       \`total_received\`,
                                       \`unlocked_balance\`, \`locked_balance\`,
-                                      \`timelock_expires\`, \`transactions\`)
+                                      \`timelock_expires\`, \`locked_authorities\`,
+                                      \`unlocked_authorities\`, \`transactions\`)
             VALUES ?`,
       [balanceEntries],
     );
