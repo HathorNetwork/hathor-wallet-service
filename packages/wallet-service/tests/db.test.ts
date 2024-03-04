@@ -479,7 +479,7 @@ test('initWalletBalance', async () => {
     { address: addr3, txId: tx3, tokenId: token2, balance: 11, timestamp: ts3 },
   ];
   const addressEntries = [
-    // address, tokenId, unlocked, locked, lockExpires, unlocked_authorities, locked_authorities, transactions
+    // address, tokenId, unlocked, locked, lockExpires, transactions, unlocked_authorities, locked_authorities, total_received
     [addr1, token1, 2, 0, null, 2, 1, 0, 4],
     [addr1, token2, 1, 4, timelock, 1, 2, 0, 5],
     [addr2, token1, 5, 2, null, 2, 2, 0, 20],
