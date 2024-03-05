@@ -479,10 +479,10 @@ test('initWalletBalance', async () => {
     { address: addr3, txId: tx3, tokenId: token2, balance: 11, timestamp: ts3 },
   ];
   const addressEntries = [
-    // address, tokenId, unlocked, locked, lockExpires, transactions
-    [addr1, token1, 2, 0, null, 2, 0, 0, 4],
-    [addr1, token2, 1, 4, timelock, 1, 0, 0, 5],
-    [addr2, token1, 5, 2, null, 2, 0, 0, 20],
+    // address, tokenId, unlocked, locked, lockExpires, transactions, unlocked_authorities, locked_authorities, total_received
+    [addr1, token1, 2, 0, null, 2, 1, 0, 4],
+    [addr1, token2, 1, 4, timelock, 1, 2, 0, 5],
+    [addr2, token1, 5, 2, null, 2, 2, 0, 20],
     [addr2, token2, 0, 2, null, 1, 0, 0, 2],
     [addr3, token1, 0, 1, null, 1, 0, 0, 1],
     [addr3, token2, 10, 1, null, 1, 0, 0, 11],
@@ -494,8 +494,8 @@ test('initWalletBalance', async () => {
   await initWalletBalance(mysql, walletId, [addr1, addr2]);
 
   // check balance entries
-  await expect(checkWalletBalanceTable(mysql, 2, walletId, token1, 7, 2, null, 3)).resolves.toBe(true);
-  await expect(checkWalletBalanceTable(mysql, 2, walletId, token2, 1, 6, timelock, 2)).resolves.toBe(true);
+  await expect(checkWalletBalanceTable(mysql, 2, walletId, token1, 7, 2, null, 3, 3)).resolves.toBe(true);
+  await expect(checkWalletBalanceTable(mysql, 2, walletId, token2, 1, 6, timelock, 2, 2)).resolves.toBe(true);
 });
 
 test('updateWalletTablesWithTx', async () => {
