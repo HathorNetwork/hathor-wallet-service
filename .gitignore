@@ -3,3 +3,12 @@
 node_modules
 dist
 .env
+.direnv/
+coverage/
+packages/daemon/dist
+packages/daemon/node_modules
+packages/wallet-service/node_modules
+packages/wallet-service/.serverless
+packages/wallet-service/.webpack
+packages/wallet-service/.env*
+.yarn/

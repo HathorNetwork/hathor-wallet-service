@@ -1,0 +1,16 @@
+export default {
+  "HFtz2f59Lms4p3Jfgtsr73s97MbJHsRENh": 6400,
+  "HJQbEERnD5Ak3f2dsi8zAmsZrCWTT8FZns": 6400,
+  "HRSYchTEsFFpZAkgSTMsohNGQ6eLPyhXvJ": 6400,
+  "HQfVqxyxQV4BHwnsMnRXpZGmwPYiNSVmMu": 6400,
+  "HPnkpR2vnBuCoZCEnRZNHMBtf8ygeSidbW": 6400,
+  "HPNvtPZaDF44i6CL91u4BvZPu6z2xPNt26": 6400,
+  "HQijr325t63VJFdc4vYkaTyd87oeBLpSed": 6400,
+  "H8fCNrYGkj4B6VzKgtRiHBgoSxM31d65JR": 6400,
+  "HAqrADnn7GyyT68fSX8zmtsRNFyabPzoRQ": 6400,
+  "HRTH6uGo7zn3LWrosBYn7eXkwAeHAHTRh8": 6400,
+  "HRQe4CXj8AZXzSmuNztU8iQR74QTQMbnTs": 3000,
+  "HRH8Wbmr1A3BrLswSBhvVE4hhsv4jUdyVA": 3400,
+  "HSd6PqXesUmHHv6MoN24aUiMuw7Pdcxrwk": 6400,
+  "HNqTfEASfdx7H4vMUGzfD2HyD3GeKuxjTJ": 0,
+}
