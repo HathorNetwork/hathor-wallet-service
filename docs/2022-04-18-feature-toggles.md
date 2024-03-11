@@ -39,7 +39,7 @@ Activates for users with a `userId` defined in the `userIds` list. We are curren
 
 1. [Gradual rollout](https://docs.getunleash.io/user_guide/activation_strategy#gradual-rollout)
 
-This is a `percentage` based strategy, it will answer the feature toggles depending on the percentage of users that already received a positive or negative answer. 
+This is a `percentage` based strategy, it will answer the feature toggles depending on the percentage of users that already received a positive or negative answer.
 
 For [stickness](https://docs.getunleash.io/advanced/stickiness), we are currently using `userId` on all the feature toggles, so if an user receives a positive response to the feature toggle request, it will continue receiving a positive response on consecutive requests
 
