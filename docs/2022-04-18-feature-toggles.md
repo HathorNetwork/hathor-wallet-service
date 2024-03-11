@@ -10,17 +10,12 @@ This document describes the main features we are using and how to interact with 
 
 ## Feature toggles
 
-We have a list of [feature toggles](https://docs.getunleash.io/advanced/feature_toggle_types) that are queried by the wallets:
+We have two [feature toggles](https://docs.getunleash.io/advanced/feature_toggle_types) that are queried by the wallets:
 
-* `wallet-service-mobile-android-mainnet.rollout`
-* `wallet-service-mobile-android-testnet.rollout`
-* `wallet-service-mobile-ios-mainnet.rollout`
-* `wallet-service-mobile-ios-testnet.rollout`
-* `wallet-service-wallet-desktop-mainnet.rollout`
-* `wallet-service-wallet-desktop-testnet.rollout`
+* `wallet-service-mobile.rollout`
+* `wallet-service-desktop.rollout`
 
 Those feature toggles are `Release` toggles and represent each wallet and the network they are connected to, e.g. when the mobile wallet on iOS on the `mainnet` wants to know wether to use or not the wallet-service facade, it will request the `wallet-service-mobile-ios-mainnet.rollout` feature-flag that will answer "Yes" or "No" based on a list of strategies.
-
 
 ## Stategies
 
