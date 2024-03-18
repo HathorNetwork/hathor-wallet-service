@@ -242,6 +242,11 @@ functions:
           arn:aws:lambda:eu-central-1:${self:provider.environment.ACCOUNT_ID}:function:hathor-explorer-service-${self:custom.explorerServiceStage}-create_or_update_dag_metadata
   loadWalletAsync:
     handler: src/api/wallet.loadWallet
+    # This lambda is currently running out of memory when wallets with a big
+    # number of transactions (> 300k) is being loaded. I chose 1024 because the
+    # average memory usage of the largest test wallet we have is 800mb.
+    memorySize: 1024
+    timeout: 600 # 10 minutes should be enough for most wallets
     warmup:
       walletWarmer:
         enabled: false
