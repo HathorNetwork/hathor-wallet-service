@@ -405,8 +405,9 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
 
       const walletId = getWalletId(loadEvent.xpubkey);
 
-      // update wallet status to 'error'
-      await updateWalletStatus(mysql, walletId, WalletStatus.ERROR);
+      // update wallet status to 'error' and set the number of retries to MAX so
+      // it doesn't get retried
+      await updateWalletStatus(mysql, walletId, WalletStatus.ERROR, MAX_LOAD_WALLET_RETRIES);
 
       logger.error(`${walletId} failed to load.`);
       logger.error({
