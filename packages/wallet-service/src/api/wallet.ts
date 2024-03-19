@@ -390,41 +390,51 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
   const logger = createDefaultLogger();
   const records = event.Records;
 
-  for (let i = 0; i < records.length; i++) {
-    const snsEvent = records[i].Sns;
-    const { RequestId, ErrorMessage } = snsEvent.MessageAttributes;
+  try {
+    for (let i = 0; i < records.length; i++) {
+      const snsEvent = records[i].Sns;
+      const { RequestId, ErrorMessage } = snsEvent.MessageAttributes;
 
-    // Process each failed load wallet event
-    const loadEvent: LoadEvent = JSON.parse(snsEvent.Message) as unknown as LoadEvent;
+      // Process each failed load wallet event
+      const loadEvent: LoadEvent = JSON.parse(snsEvent.Message) as unknown as LoadEvent;
 
-    if (!loadEvent.xpubkey) {
-      logger.error('Received wallet load fail message from SNS but no xpubkey received');
-      continue;
-    }
+      if (!loadEvent.xpubkey) {
+        logger.error('Received wallet load fail message from SNS but no xpubkey received');
+        continue;
+      }
 
-    const walletId = getWalletId(loadEvent.xpubkey);
+      const walletId = getWalletId(loadEvent.xpubkey);
 
-    // update wallet status to 'error'
-    await updateWalletStatus(mysql, walletId, WalletStatus.ERROR);
+      // update wallet status to 'error'
+      await updateWalletStatus(mysql, walletId, WalletStatus.ERROR);
 
-    logger.error(`${walletId} failed to load.`);
-    logger.error({
-      xpubkey: loadEvent.xpubkey,
-      walletId,
-      RequestId,
-      ErrorMessage,
-    });
-
-    await addAlert(
-      'A wallet failed to load in the wallet-service',
-      `The wallet with id ${walletId} failed to load on the wallet-service. Please check the logs.`,
-      Severity.MINOR,
-      {
+      logger.error(`${walletId} failed to load.`);
+      logger.error({
         xpubkey: loadEvent.xpubkey,
         walletId,
         RequestId,
-        ErrorMessage,
-      },
+        ErrorMessage: ErrorMessage.Value,
+      });
+
+      await addAlert(
+        'A wallet failed to load in the wallet-service',
+        `The wallet with id ${walletId} failed to load on the wallet-service. Please check the logs.`,
+        Severity.MINOR,
+        {
+          xpubkey: loadEvent.xpubkey,
+          walletId,
+          RequestId,
+          ErrorMessage,
+        },
+      );
+    }
+  } catch (e) {
+    await addAlert(
+      'Failed to handle loadWalletFailed event',
+      `Failed to process the loadWalletFailed event. Please check the logs.`,
+      // This is major because the user will be stuck in a loading cycle
+      Severity.MAJOR,
+      { event },
     );
   }
 };
