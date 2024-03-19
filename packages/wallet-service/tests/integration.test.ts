@@ -220,7 +220,7 @@ test('load wallet, and simulate DLQ event', async () => {
       ]
   };
 
-  await loadWalletFailed(event);
+  await loadWalletFailed(event, null, null);
 
   await expect(checkWalletTable(mysql, 1, walletId, WalletStatus.READY)).resolves.toBe(true);
 
