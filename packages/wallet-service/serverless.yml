@@ -120,6 +120,11 @@ resources:
       Properties:
         QueueName:
             WalletServiceNewTxQueue_${self:custom.stage}
+    WalletServiceLoadAsyncFailedTopic:
+        Type: "AWS::SNS::Topic"
+        Properties:
+          DisplayName: 'Messages published when the loadWalletAsync lambda fails'
+          TopicName: WalletServiceLoadAsyncFailed_${self:custom.stage}
 
 provider:
   name: aws
@@ -247,9 +252,33 @@ functions:
     # average memory usage of the largest test wallet we have is 800mb.
     memorySize: 1024
     timeout: 600 # 10 minutes should be enough for most wallets
+    onError: arn:aws:sns:eu-central-1:${self:provider.environment.ACCOUNT_ID}:WalletServiceLoadAsyncFailed_${self:custom.stage}
     warmup:
       walletWarmer:
         enabled: false
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - SNS:Publish
+        Resource:
+          arn:aws:sns:eu-central-1:${self:provider.environment.ACCOUNT_ID}:WalletServiceLoadAsyncFailed_${self:custom.stage}
+  handleLoadWalletFailed:
+    handler: src/api/wallet.loadWalletFailed
+    events:
+      - sns: arn:aws:sns:eu-central-1:${self:provider.environment.ACCOUNT_ID}:WalletServiceLoadAsyncFailed_${self:custom.stage}
+    warmup:
+      walletWarmer:
+        enabled: false
+    iamRoleStatementsInherit: true
+    iamRoleStatementsName: hathor-wallet-service-${self:custom.stage}-handleLoadFailed-snsRole
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - SNS:Publish
+          - SNS:Subscribe
+          - SNS:Unsubscribe
+        Resource:
+          arn:aws:sns:eu-central-1:${self:provider.environment.ACCOUNT_ID}:WalletServiceLoadAsyncFailed_${self:custom.stage}
   loadWalletApi:
     role: arn:aws:iam::${self:provider.environment.ACCOUNT_ID}:role/WalletServiceLoadWalletLambda
     handler: src/api/wallet.load
