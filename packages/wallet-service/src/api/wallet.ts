@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { APIGatewayProxyHandler, Handler } from 'aws-lambda';
+import { APIGatewayProxyHandler, Handler, SNSEvent } from 'aws-lambda';
 import { LambdaClient, InvokeCommand, InvokeCommandOutput } from '@aws-sdk/client-lambda';
 import 'source-map-support/register';
 
@@ -21,7 +21,7 @@ import {
   updateWalletStatus,
   updateWalletAuthXpub,
 } from '@src/db';
-import { WalletStatus } from '@src/types';
+import { Severity, WalletStatus } from '@src/types';
 import {
   closeDbConnection,
   getDbConnection,
@@ -38,6 +38,7 @@ import middy from '@middy/core';
 import cors from '@middy/http-cors';
 import Joi from 'joi';
 import createDefaultLogger from '@src/logger';
+import { addAlert } from '@src/utils/alerting.utils';
 
 const mysql = getDbConnection();
 
@@ -379,6 +380,54 @@ interface LoadResult {
   walletId: string;
   xpubkey: string;
 }
+
+/*
+ * This lambda will be started by a SNSMessage on the load failed SNS configured
+ * in serverless.yml. It will receive all wallet load failed events published on
+ * the loadWalletAsync DLQ SNS topic
+ */
+export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
+  const logger = createDefaultLogger();
+  const records = event.Records;
+
+  for (let i = 0; i < records.length; i++) {
+    const snsEvent = records[i].Sns;
+    const { RequestId, ErrorMessage } = snsEvent.MessageAttributes;
+
+    // Process each failed load wallet event
+    const loadEvent: LoadEvent = JSON.parse(snsEvent.Message) as unknown as LoadEvent;
+
+    if (!loadEvent.xpubkey) {
+      logger.error('Received wallet load fail message from SNS but no xpubkey received');
+      continue;
+    }
+
+    const walletId = getWalletId(loadEvent.xpubkey);
+
+    // update wallet status to 'error'
+    await updateWalletStatus(mysql, walletId, WalletStatus.ERROR);
+
+    logger.error(`${walletId} failed to load.`);
+    logger.error({
+      xpubkey: loadEvent.xpubkey,
+      walletId,
+      RequestId,
+      ErrorMessage,
+    });
+
+    await addAlert(
+      'A wallet failed to load in the wallet-service',
+      `The wallet with id ${walletId} failed to load on the wallet-service. Please check the logs.`,
+      Severity.MINOR,
+      {
+        xpubkey: loadEvent.xpubkey,
+        walletId,
+        RequestId,
+        ErrorMessage,
+      },
+    );
+  }
+};
 
 /*
  * This does the "heavy" work when loading a new wallet, updating the database tables accordingly. It
