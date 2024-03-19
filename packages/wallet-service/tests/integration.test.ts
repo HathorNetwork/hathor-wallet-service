@@ -233,7 +233,7 @@ test('load wallet, and simulate DLQ event', async () => {
     {
       xpubkey: XPUBKEY,
       walletId,
-      RequestId: REQUEST_ID,
+      RequestID: REQUEST_ID,
       ErrorMessage: 'The lambda exploded',
     },
   );
