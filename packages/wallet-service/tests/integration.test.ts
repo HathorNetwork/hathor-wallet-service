@@ -185,7 +185,7 @@ test('load wallet, and simulate DLQ event', async () => {
    * create wallet
    */
   await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, maxGap);
-  await loadWallet({ xpubkey: XPUBKEY, maxGap }, null, null);
+
   const REQUEST_ID = 'b45d912a-d392-4680-babf-c0caa6208a5f';
 
   const event: SNSEvent = {
@@ -220,11 +220,12 @@ test('load wallet, and simulate DLQ event', async () => {
       ]
   };
 
+  await expect(checkWalletTable(mysql, 1, walletId, WalletStatus.CREATING)).resolves.toBe(true);
+
   await loadWalletFailed(event, null, null);
 
-  await expect(checkWalletTable(mysql, 1, walletId, WalletStatus.READY)).resolves.toBe(true);
+  await expect(checkWalletTable(mysql, 1, walletId, WalletStatus.ERROR)).resolves.toBe(true);
 
-  expect(mockedAddAlert).toHaveBeenCalledTimes(1);
   expect(mockedAddAlert).toHaveBeenCalledWith(
     'A wallet failed to load in the wallet-service',
     `The wallet with id ${walletId} failed to load on the wallet-service. Please check the logs.`,
