@@ -393,7 +393,7 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
   try {
     for (let i = 0; i < records.length; i++) {
       const snsEvent = records[i].Sns;
-      const { RequestId, ErrorMessage } = snsEvent.MessageAttributes;
+      const { RequestID, ErrorMessage } = snsEvent.MessageAttributes;
 
       // Process each failed load wallet event
       const loadEvent: LoadEvent = JSON.parse(snsEvent.Message) as unknown as LoadEvent;
@@ -412,7 +412,7 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
       logger.error({
         xpubkey: loadEvent.xpubkey,
         walletId,
-        RequestId,
+        RequestID: RequestID.Value,
         ErrorMessage: ErrorMessage.Value,
       });
 
@@ -423,8 +423,8 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
         {
           xpubkey: loadEvent.xpubkey,
           walletId,
-          RequestId,
-          ErrorMessage,
+          RequestID: RequestID.Value,
+          ErrorMessage: ErrorMessage.Value,
         },
       );
     }

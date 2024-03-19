@@ -134,6 +134,14 @@ beforeAll(async () => {
   jest.resetModules();
   process.env = { ...OLD_ENV };
   process.env.BLOCK_REWARD_LOCK = '1';
+
+  const actualUtils = jest.requireActual('@src/utils');
+  jest.mock('@src/utils', () => {
+    return {
+      ...actualUtils,
+      assertEnvVariablesExistence: jest.fn()
+    }
+  });
 });
 
 afterAll(async () => {
