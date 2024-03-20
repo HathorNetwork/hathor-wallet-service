@@ -432,7 +432,7 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
   } catch (e) {
     await addAlert(
       'Failed to handle loadWalletFailed event',
-      `Failed to process the loadWalletFailed event. Please check the logs.`,
+      `Failed to process the loadWalletFailed event. This indicates that wallets failed to load and we wasn't able to recover, please check the logs as soon as possible.`,
       // This is major because the user will be stuck in a loading cycle
       Severity.MAJOR,
       { event },
