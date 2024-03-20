@@ -274,7 +274,6 @@ functions:
     iamRoleStatements:
       - Effect: Allow
         Action:
-          - SNS:Publish
           - SNS:Subscribe
           - SNS:Unsubscribe
         Resource:
