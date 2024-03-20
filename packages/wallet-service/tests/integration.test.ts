@@ -239,7 +239,6 @@ test('load wallet, and simulate DLQ event', async () => {
     `The wallet with id ${walletId} failed to load on the wallet-service. Please check the logs.`,
     Severity.MINOR,
     {
-      xpubkey: XPUBKEY,
       walletId,
       RequestID: REQUEST_ID,
       ErrorMessage: 'The lambda exploded',

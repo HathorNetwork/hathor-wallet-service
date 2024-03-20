@@ -411,7 +411,6 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
 
       logger.error(`${walletId} failed to load.`);
       logger.error({
-        xpubkey: loadEvent.xpubkey,
         walletId,
         RequestID: RequestID.Value,
         ErrorMessage: ErrorMessage.Value,
@@ -422,7 +421,6 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
         `The wallet with id ${walletId} failed to load on the wallet-service. Please check the logs.`,
         Severity.MINOR,
         {
-          xpubkey: loadEvent.xpubkey,
           walletId,
           RequestID: RequestID.Value,
           ErrorMessage: ErrorMessage.Value,
