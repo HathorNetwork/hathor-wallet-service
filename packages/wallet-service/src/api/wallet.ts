@@ -405,7 +405,7 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
         logger.error('Received wallet load fail message from SNS but no xpubkey received');
         await addAlert(
           'Wallet failed to load, but no xpubkey received.',
-          `A event reached loadWalletFailed lambda but the xpubkey was not sent. This indicates that wallets failed to load and we wasn't able to recover, please check the logs as soon as possible.`,
+          `A event reached loadWalletFailed lambda but the xpubkey was not sent. This indicates that wallets failed to load and we weren't able to recover, please check the logs as soon as possible.`,
           Severity.MAJOR,
           {
             RequestID: RequestID.Value,
@@ -442,7 +442,7 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
   } catch (e) {
     await addAlert(
       'Failed to handle loadWalletFailed event',
-      `Failed to process the loadWalletFailed event. This indicates that wallets failed to load and we wasn't able to recover, please check the logs as soon as possible.`,
+      `Failed to process the loadWalletFailed event. This indicates that wallets failed to load and we weren't able to recover, please check the logs as soon as possible.`,
       // This is major because the user will be stuck in a loading cycle
       Severity.MAJOR,
       { event },
