@@ -385,6 +385,9 @@ interface LoadResult {
  * This lambda will be started by a SNSMessage on the load failed SNS configured
  * in serverless.yml. It will receive all wallet load failed events published on
  * the loadWalletAsync DLQ SNS topic
+ *
+ * The event will be a SNSEvent, here is an example of the Message attribute:
+ * {"xpubkey":"xpub","maxGap":20}
  */
 export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
   const logger = createDefaultLogger();
