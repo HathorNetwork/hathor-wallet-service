@@ -400,6 +400,15 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
 
       if (!loadEvent.xpubkey) {
         logger.error('Received wallet load fail message from SNS but no xpubkey received');
+        await addAlert(
+          'Wallet failed to load, but no xpubkey received.',
+          `A event reached loadWalletFailed lambda but the xpubkey was not sent. This indicates that wallets failed to load and we wasn't able to recover, please check the logs as soon as possible.`,
+          Severity.MAJOR,
+          {
+            RequestID: RequestID.Value,
+            ErrorMessage: ErrorMessage.Value,
+          },
+        );
         continue;
       }
 
