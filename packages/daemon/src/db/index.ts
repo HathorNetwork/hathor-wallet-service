@@ -38,8 +38,6 @@ import {
 import { walletUtils } from '@hathor/wallet-lib';
 import getConfig from '../config';
 
-console.log(walletUtils);
-
 let pool: Pool;
 
 /**
