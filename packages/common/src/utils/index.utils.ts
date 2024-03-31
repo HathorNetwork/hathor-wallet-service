@@ -7,7 +7,7 @@
 export const assertEnvVariablesExistence = (envVariables: string[]): void => {
   const missingList = [];
   for (const envVariable of envVariables) {
-    if (!(envVariable in process.env) || process.env[envVariable].length === 0) {
+    if (!(envVariable in process.env) || process.env[envVariable]?.length === 0) {
       missingList.push(envVariable);
     }
   }

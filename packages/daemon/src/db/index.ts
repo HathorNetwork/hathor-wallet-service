@@ -1048,7 +1048,6 @@ export const generateAddresses = async (mysql: MysqlConnection, xpubkey: string,
   let lastUsedAddressIndex = -1;
   do {
     const { NETWORK } = getConfig();
-    console.debug('WALLET UTILS: ', walletUtils);
     const addrMap = walletUtils.getAddresses(derivedXpub, highestCheckedIndex + 1, maxGap, NETWORK);
     allAddresses.push(...Object.keys(addrMap));
 
