@@ -16,16 +16,23 @@
   "author": "André Abadesso <andre.abadesso@gmail.com>",
   "private": true,
   "devDependencies": {
-    "dotenv": "^16.3.1",
-    "mysql2": "^3.6.1",
-    "sequelize": "^6.33.0",
-    "sequelize-cli": "^6.6.1"
+    "@typescript-eslint/eslint-plugin": "^7.4.0",
+    "@typescript-eslint/parser": "^7.4.0",
+    "eslint": "^8.57.0",
+    "eslint-config-airbnb-base": "^15.0.0",
+    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-jest": "^27.9.0"
   },
   "packageManager": "yarn@4.1.0",
   "dependencies": {
     "@aws-sdk/client-apigatewaymanagementapi": "3.540.0",
     "@aws-sdk/client-lambda": "3.540.0",
     "@aws-sdk/client-sqs": "3.540.0",
-    "winston": "3.13.0"
+    "@hathor/wallet-lib": "0.39.0",
+    "bip32": "^4.0.0",
+    "bitcoinjs-lib": "^6.1.5",
+    "bitcoinjs-message": "^2.2.0",
+    "tiny-secp256k1": "^2.2.3",
+    "winston": "^3.13.0"
   }
 }
