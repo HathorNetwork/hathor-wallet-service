@@ -34,6 +34,10 @@ jest.mock('../../src/config', () => {
   };
 });
 
+jest.mock('@wallet-service/common/src/utils/index.utils', () => ({
+  assertEnvVariablesExistence: jest.fn(),
+}));
+
 import getConfig from '../../src/config';
 
 // @ts-ignore
