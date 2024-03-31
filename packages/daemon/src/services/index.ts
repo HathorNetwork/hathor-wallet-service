@@ -7,6 +7,7 @@
 
 // @ts-ignore
 import hathorLib from '@hathor/wallet-lib';
+import { isNftAutoReviewEnabled } from '@wallet-service/common/src/utils/nft.utils';
 import axios from 'axios';
 import { get } from 'lodash';
 import {
@@ -71,6 +72,8 @@ export const METADATA_DIFF_EVENT_TYPES = {
   TX_NEW: 'TX_NEW',
   TX_FIRST_BLOCK: 'TX_FIRST_BLOCK',
 };
+
+isNftAutoReviewEnabled();
 
 export const metadataDiff = async (_context: Context, event: Event) => {
   const mysql = await getDbConnection();
