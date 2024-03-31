@@ -7096,6 +7096,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"dotenv@npm:^16.4.5":
+  version: 16.4.5
+  resolution: "dotenv@npm:16.4.5"
+  checksum: 10/55a3134601115194ae0f924e54473459ed0d9fc340ae610b676e248cca45aa7c680d86365318ea964e6da4e2ea80c4514c1adab5adb43d6867fb57ff068f95c8
+  languageName: node
+  linkType: hard
+
 "dotenv@npm:^8.2.0":
   version: 8.6.0
   resolution: "dotenv@npm:8.6.0"
@@ -9103,10 +9110,14 @@ __metadata:
     bip32: "npm:^4.0.0"
     bitcoinjs-lib: "npm:^6.1.5"
     bitcoinjs-message: "npm:^2.2.0"
+    dotenv: "npm:^16.4.5"
     eslint: "npm:^8.57.0"
     eslint-config-airbnb-base: "npm:^15.0.0"
     eslint-plugin-import: "npm:^2.29.1"
     eslint-plugin-jest: "npm:^27.9.0"
+    mysql2: "npm:^3.9.3"
+    sequelize: "npm:^6.37.2"
+    sequelize-cli: "npm:^6.6.2"
     tiny-secp256k1: "npm:^2.2.3"
     winston: "npm:^3.13.0"
   languageName: unknown
@@ -11764,6 +11775,22 @@ __metadata:
   languageName: node
   linkType: hard
 
+"mysql2@npm:^3.9.3":
+  version: 3.9.3
+  resolution: "mysql2@npm:3.9.3"
+  dependencies:
+    denque: "npm:^2.1.0"
+    generate-function: "npm:^2.3.1"
+    iconv-lite: "npm:^0.6.3"
+    long: "npm:^5.2.1"
+    lru-cache: "npm:^8.0.0"
+    named-placeholders: "npm:^1.1.3"
+    seq-queue: "npm:^0.0.5"
+    sqlstring: "npm:^2.3.2"
+  checksum: 10/3988ec668312f97e6083f6fd36f3d618c0e09925da8a8ec1c535b931514a3877ee2eb09292a642d98da623e0a3d39a585d792188f791699a17dcae6d8db0d2cd
+  languageName: node
+  linkType: hard
+
 "mysql@npm:^2.18.1":
   version: 2.18.1
   resolution: "mysql@npm:2.18.1"
@@ -13489,6 +13516,24 @@ __metadata:
   languageName: node
   linkType: hard
 
+"sequelize-cli@npm:^6.6.2":
+  version: 6.6.2
+  resolution: "sequelize-cli@npm:6.6.2"
+  dependencies:
+    cli-color: "npm:^2.0.3"
+    fs-extra: "npm:^9.1.0"
+    js-beautify: "npm:^1.14.5"
+    lodash: "npm:^4.17.21"
+    resolve: "npm:^1.22.1"
+    umzug: "npm:^2.3.0"
+    yargs: "npm:^16.2.0"
+  bin:
+    sequelize: lib/sequelize
+    sequelize-cli: lib/sequelize
+  checksum: 10/eb74375de921fb41be7d6ad707084c58f33651202c2bde80465ecb1761d7cc662b2b4ac5100629d467328c738695bd071f58feda0e352f3afac10ad2a14747ba
+  languageName: node
+  linkType: hard
+
 "sequelize-pool@npm:^7.1.0":
   version: 7.1.0
   resolution: "sequelize-pool@npm:7.1.0"
@@ -13536,6 +13581,49 @@ __metadata:
     tedious:
       optional: true
   checksum: 10/b8c04f5affe6df71aa9a8ff86172963373263832884a56710ca37e3bf2fb523b2493c7b99d5c0ba6917fbd73d76176e37444c2996ed55c0b65b9ab891d7d9389
+  languageName: node
+  linkType: hard
+
+"sequelize@npm:^6.37.2":
+  version: 6.37.2
+  resolution: "sequelize@npm:6.37.2"
+  dependencies:
+    "@types/debug": "npm:^4.1.8"
+    "@types/validator": "npm:^13.7.17"
+    debug: "npm:^4.3.4"
+    dottie: "npm:^2.0.6"
+    inflection: "npm:^1.13.4"
+    lodash: "npm:^4.17.21"
+    moment: "npm:^2.29.4"
+    moment-timezone: "npm:^0.5.43"
+    pg-connection-string: "npm:^2.6.1"
+    retry-as-promised: "npm:^7.0.4"
+    semver: "npm:^7.5.4"
+    sequelize-pool: "npm:^7.1.0"
+    toposort-class: "npm:^1.0.1"
+    uuid: "npm:^8.3.2"
+    validator: "npm:^13.9.0"
+    wkx: "npm:^0.5.0"
+  peerDependenciesMeta:
+    ibm_db:
+      optional: true
+    mariadb:
+      optional: true
+    mysql2:
+      optional: true
+    oracledb:
+      optional: true
+    pg:
+      optional: true
+    pg-hstore:
+      optional: true
+    snowflake-sdk:
+      optional: true
+    sqlite3:
+      optional: true
+    tedious:
+      optional: true
+  checksum: 10/425f8d5edbca3a34a5c8e68bfcc1f08a27ff5f3e12c333d0c480904404b8b5b41503c08c47fcb12c5ad6cdd463cac5a49cd1af9ce76cb09a0ce23b71145b9270
   languageName: node
   linkType: hard
 
