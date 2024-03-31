@@ -28,10 +28,9 @@ import {
   handleVoidedTx,
   handleVertexAccepted,
   metadataDiff,
-  fetchMinRewardBlocks,
 } from '../../src/services';
 import logger from '../../src/logger';
-import { 
+import {
   getAddressBalanceMap,
   prepareInputs,
   prepareOutputs,
@@ -89,6 +88,10 @@ jest.mock('../../src/utils', () => ({
   getUnixTimestamp: jest.fn(),
   unlockUtxos: jest.fn(),
   getFullnodeHttpUrl: jest.fn(),
+}));
+
+jest.mock('@wallet-service/common/src/utils/index.utils', () => ({
+  assertEnvVariablesExistence: jest.fn(),
 }));
 
 beforeEach(() => {
@@ -452,9 +455,9 @@ describe('handleVertexAccepted', () => {
           maxGap: 10
       },
     });
-    
+
     await handleVertexAccepted(context as any, {} as any);
-    
+
     expect(getDbConnection).toHaveBeenCalled();
     expect(mockDb.beginTransaction).toHaveBeenCalled();
     expect(getTransactionById).toHaveBeenCalledWith(mockDb, 'hashValue');
