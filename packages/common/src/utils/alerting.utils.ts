@@ -8,7 +8,7 @@
 import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 import { Severity } from '../types';
 import { assertEnvVariablesExistence } from './index.utils';
-import createDefaultLogger from '../logger';
+import { Logger } from 'winston';
 
 assertEnvVariablesExistence([
   'NETWORK',
@@ -29,8 +29,8 @@ export const addAlert = async (
   message: string,
   severity: Severity,
   metadata?: unknown,
+  logger?: Logger,
 ): Promise<void> => {
-  const logger = createDefaultLogger();
   const preparedMessage = {
     title,
     message,
@@ -66,6 +66,10 @@ export const addAlert = async (
   try {
     await client.send(command);
   } catch(err) {
-    logger.error('[ALERT] Erroed while sending message to the alert sqs queue', err);
+    if (!logger) {
+      console.error('[ALERT] Erroed while sending message to the alert sqs queue', err);
+    } else {
+      logger.error('[ALERT] Erroed while sending message to the alert sqs queue', err);
+    }
   }
 };

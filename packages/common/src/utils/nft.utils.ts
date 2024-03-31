@@ -8,8 +8,9 @@
 import { LambdaClient, InvokeCommand, InvokeCommandOutput } from '@aws-sdk/client-lambda';
 import { addAlert } from './alerting.utils';
 import { Transaction, Severity } from '../types';
+// @ts-ignore
 import { Network, constants, CreateTokenTransaction, helpersUtils } from '@hathor/wallet-lib';
-import createDefaultLogger from '../logger';
+import { Logger } from 'winston';
 
 /**
  * A helper for generating and updating a NFT Token's metadata.
@@ -24,9 +25,11 @@ export class NftUtils {
    * @param {Transaction} tx
    * @param {string} network
    * @returns {boolean}
+   *
+   * TODO: Remove the logger param after we unify the logger from both projects
    */
-  static shouldInvokeNftHandlerForTx(tx: Transaction, network: Network): boolean {
-    return isNftAutoReviewEnabled() && this.isTransactionNFTCreation(tx, network);
+  static shouldInvokeNftHandlerForTx(tx: Transaction, network: Network, logger: Logger): boolean {
+    return isNftAutoReviewEnabled() && this.isTransactionNFTCreation(tx, network, logger);
   }
 
   /**
@@ -35,8 +38,9 @@ export class NftUtils {
    * @returns {boolean}
    *
    * TODO: change tx type to HistoryTransaction
+   * TODO: Remove the logger param after we unify the logger from both projects
    */
-  static isTransactionNFTCreation(tx: any, network: Network): boolean {
+  static isTransactionNFTCreation(tx: any, network: Network, logger: Logger): boolean {
   /*
    * To fully check if a transaction is a NFT creation, we need to instantiate a new Transaction object in the lib.
    * So first we do some very fast checks to filter the bulk of the requests for NFTs with minimum processing.
@@ -50,7 +54,6 @@ export class NftUtils {
     }
 
     // Continue with a deeper validation
-    const logger = createDefaultLogger();
     let isNftCreationTx: boolean;
     let libTx: CreateTokenTransaction;
 
@@ -82,8 +85,9 @@ export class NftUtils {
    * Calls the token metadata on the Explorer Service API to update a token's metadata
    * @param {string} nftUid
    * @param {Record<string, unknown>} metadata
+   * TODO: Remove the logger param after we unify the logger from both projects
    */
-  static async _updateMetadata(nftUid: string, metadata: Record<string, unknown>, maxRetries: number): Promise<unknown> {
+  static async _updateMetadata(nftUid: string, metadata: Record<string, unknown>, maxRetries: number, logger: Logger): Promise<unknown> {
     const client = new LambdaClient({
       endpoint: process.env.EXPLORER_SERVICE_LAMBDA_ENDPOINT,
       region: process.env.AWS_REGION,
@@ -97,7 +101,6 @@ export class NftUtils {
       }),
     });
 
-    const logger = createDefaultLogger();
     let retryCount = 0;
     while (retryCount < maxRetries) {
       // invoke lambda asynchronously to metadata update
@@ -126,14 +129,15 @@ export class NftUtils {
    * @param {string} nftUid
    * @param {number} maxRetries
    * @returns {Promise<void>} No data is returned after a successful update or skip
+   * TODO: Remove the logger param after we unify the logger from both projects
    */
-  static async createOrUpdateNftMetadata(nftUid: string, maxRetries: number): Promise<void> {
+  static async createOrUpdateNftMetadata(nftUid: string, maxRetries: number, logger: Logger): Promise<void> {
     // The explorer service automatically merges the metadata content if it already exists.
     const newMetadata = {
       id: nftUid,
       nft: true,
     };
-    await NftUtils._updateMetadata(nftUid, newMetadata, maxRetries);
+    await NftUtils._updateMetadata(nftUid, newMetadata, maxRetries, logger);
   }
 
   /**

@@ -4,7 +4,7 @@ import { SendMessageCommand, SendMessageCommandOutput, SQSClient, MessageAttribu
 import { StringMap } from '../types';
 import getConfig from '../config';
 import logger from '../logger';
-import { addAlert } from './alerting';
+import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 
 export function buildFunctionName(functionName: string): string {
   const { STAGE } = getConfig();
@@ -50,6 +50,7 @@ export const invokeOnTxPushNotificationRequestedLambda = async (walletBalanceVal
       `${ON_TX_PUSH_NOTIFICATION_REQUESTED_FUNCTION_NAME} lambda invoke failed for wallets`,
       Severity.MINOR,
       { Wallets: walletIdList },
+      logger,
     );
     throw new Error(`${ON_TX_PUSH_NOTIFICATION_REQUESTED_FUNCTION_NAME} lambda invoke failed for wallets: ${walletIdList}`);
   }
