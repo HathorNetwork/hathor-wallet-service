@@ -28,6 +28,6 @@ export const getFullnodeWsUrl = () => {
 
   const fullNodeUrl = new URL(`${protocol}${FULLNODE_HOST}`);
   fullNodeUrl.pathname = '/v1a/event_ws';
-  
+
   return fullNodeUrl.toString();
 };
