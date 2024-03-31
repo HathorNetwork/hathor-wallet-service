@@ -15423,6 +15423,7 @@ __metadata:
     "@types/redis": "npm:^2.8.28"
     "@typescript-eslint/eslint-plugin": "npm:^7.4.0"
     "@typescript-eslint/parser": "npm:^7.4.0"
+    "@wallet-service/common": "workspace:^"
     aws-lambda: "npm:^1.0.7"
     axios: "npm:^0.21.1"
     bip32: "npm:^3.0.1"
