@@ -1,6 +1,6 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { RedisClient } from 'redis';
-import { addAlert } from '@src/utils/alerting.utils';
+import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 import {
   ApiGatewayManagementApiClient,
   PostToConnectionCommand,

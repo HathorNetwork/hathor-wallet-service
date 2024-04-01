@@ -60,7 +60,7 @@ import {
   Severity,
 } from '@src/types';
 import { Logger } from 'winston';
-import { addAlert } from '@src/utils/alerting.utils';
+import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 
 import {
   getUnixTimestamp,

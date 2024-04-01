@@ -12,7 +12,7 @@ import { Severity, SendNotificationToDevice } from '@src/types';
 import { getPushDevice, unregisterPushDevice } from '@src/db';
 import createDefaultLogger from '@src/logger';
 import { isPushProviderAllowed, PushNotificationUtils, PushNotificationError } from '@src/utils/pushnotification.utils';
-import { addAlert } from '@src/utils/alerting.utils';
+import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 
 const mysql = getDbConnection();
 
