@@ -2125,7 +2125,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@hathor/wallet-lib@npm:0.39.0, @hathor/wallet-lib@npm:^0.39.0":
+"@hathor/wallet-lib@npm:0.39.0":
   version: 0.39.0
   resolution: "@hathor/wallet-lib@npm:0.39.0"
   dependencies:
@@ -15502,7 +15502,6 @@ __metadata:
   resolution: "wallet-service@workspace:packages/wallet-service"
   dependencies:
     "@hathor/healthcheck-lib": "npm:^0.1.0"
-    "@hathor/wallet-lib": "npm:^0.39.0"
     "@middy/core": "npm:^2.5.7"
     "@middy/http-cors": "npm:^2.5.7"
     "@types/aws-lambda": "npm:^8.10.95"
@@ -15561,6 +15560,7 @@ __metadata:
     "@aws-sdk/client-apigatewaymanagementapi": 3.540.0
     "@aws-sdk/client-lambda": 3.540.0
     "@aws-sdk/client-sqs": 3.540.0
+    "@hathor/wallet-lib": ^0.39.0
     winston: ^3.13.0
   languageName: unknown
   linkType: soft
