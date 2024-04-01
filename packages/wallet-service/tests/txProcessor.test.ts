@@ -43,6 +43,17 @@ import { StringMap, WalletBalanceValue } from '@src/types';
 import { Severity } from '@wallet-service/common/src/types';
 import createDefaultLogger from '@src/logger';
 
+const defaultLogger = {
+  error: jest.fn(),
+  warn: jest.fn(),
+  info: jest.fn(),
+}
+
+jest.mock('@src/logger', () => ({
+  __esModule: true,
+  default: () => defaultLogger,
+}));
+
 const mysql = getDbConnection();
 const blockReward = 6400;
 const OLD_ENV = process.env;
