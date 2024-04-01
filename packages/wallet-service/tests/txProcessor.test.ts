@@ -456,7 +456,7 @@ describe('NFT metadata updating', () => {
       () => '',
     );
     expect(spyUpdateMetadata).toHaveBeenCalledTimes(1);
-    expect(spyUpdateMetadata).toHaveBeenCalledWith(nftCreationTx.tx_id, { id: nftCreationTx.tx_id, nft: true });
+    expect(spyUpdateMetadata).toHaveBeenCalledWith(nftCreationTx.tx_id, { id: nftCreationTx.tx_id, nft: true }, txProcessor.CREATE_NFT_MAX_RETRIES, defaultLogger);
     expect(result).toStrictEqual({ success: true });
   });
 
@@ -479,7 +479,7 @@ describe('NFT metadata updating', () => {
       message: `onNewNftEvent failed for token ${nftCreationTx.tx_id}`,
     };
     expect(result).toStrictEqual(expectedResult);
-    expect(spyCreateOrUpdate).toHaveBeenCalledWith(nftCreationTx.tx_id);
+    expect(spyCreateOrUpdate).toHaveBeenCalledWith(nftCreationTx.tx_id, txProcessor.CREATE_NFT_MAX_RETRIES, defaultLogger);
 
     spyCreateOrUpdate.mockReset();
     spyCreateOrUpdate.mockRestore();
