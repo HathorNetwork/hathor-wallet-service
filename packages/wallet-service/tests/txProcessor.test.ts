@@ -42,6 +42,17 @@ import { Context } from 'aws-lambda';
 import { StringMap, WalletBalanceValue, Severity } from '@src/types';
 import createDefaultLogger from '@src/logger';
 
+const defaultLogger = {
+  error: jest.fn(),
+  warn: jest.fn(),
+  info: jest.fn(),
+}
+
+jest.mock('@src/logger', () => ({
+  __esModule: true,
+  default: () => defaultLogger,
+}));
+
 const mysql = getDbConnection();
 const blockReward = 6400;
 const OLD_ENV = process.env;

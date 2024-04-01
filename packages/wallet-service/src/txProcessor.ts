@@ -79,6 +79,8 @@ export const IGNORE_TXS = {
   ],
 };
 
+export const CREATE_NFT_MAX_RETRIES = 5;
+
 /**
  * Function called when a new transaction arrives.
  *
