@@ -23,7 +23,7 @@ import {
 import { Severity } from '@src/types';
 import { closeDbConnection, getDbConnection } from '@src/utils';
 import createDefaultLogger from '@src/logger';
-import { addAlert } from '@src/utils/alerting.utils';
+import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 
 const mysql = getDbConnection();
 const logger = createDefaultLogger();

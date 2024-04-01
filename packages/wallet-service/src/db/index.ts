@@ -53,7 +53,7 @@ import {
   getWalletFromDbEntry,
   getTxsFromDBResult,
 } from '@src/db/utils';
-import { addAlert } from '@src/utils/alerting.utils';
+import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 
 const BLOCK_VERSION = [
   constants.BLOCK_VERSION,
