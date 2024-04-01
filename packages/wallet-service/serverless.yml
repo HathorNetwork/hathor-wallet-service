@@ -222,17 +222,6 @@ functions:
     warmup:
       walletWarmer:
         enabled: false
-  onHandleReorgRequest:
-    handler: src/txProcessor.onHandleReorgRequest
-    timeout: 300 # 5 minutes
-    warmup:
-      walletWarmer:
-        enabled: false
-  onNewTxEvent:
-    handler: src/txProcessor.onNewTxEvent
-    warmup:
-      walletWarmer:
-        enabled: false
   onNewNftEvent:
     handler: src/txProcessor.onNewNftEvent
     warmup:
