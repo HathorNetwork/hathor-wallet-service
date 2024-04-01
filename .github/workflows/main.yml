@@ -40,7 +40,7 @@ jobs:
         nix_path: nixpkgs=channel:nixos-unstable
         extra_nix_config: |
           experimental-features = nix-command flakes
-          
+
     - name: Cache Nix
       uses: DeterminateSystems/magic-nix-cache-action@v2
 
@@ -58,6 +58,10 @@ jobs:
         CI_DB_PASSWORD: password
         CI_DB_HOST: 127.0.0.1
         CI_DB_PORT: 3306
+
+    - name: Run tests on the common modules project
+      run: |
+        nix develop . -c yarn workspace @wallet-service/common run test
 
     - name: Run tests on the daemon
       run: |
