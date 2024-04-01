@@ -437,6 +437,17 @@ test.skip('txProcessor should ignore NFT outputs', async () => {
   await expect(checkUtxoTable(mysql, 1, txId2, 1, '00', addr, 39, 0, null, null, false)).resolves.toBe(true);
 });
 
+const defaultLogger = {
+  error: jest.fn(),
+  warn: jest.fn(),
+  info: jest.fn(),
+}
+
+jest.mock('@src/logger', () => ({
+  __esModule: true,
+  default: () => defaultLogger,
+}));
+
 describe('NFT metadata updating', () => {
   const spyUpdateMetadata = jest.spyOn(NftUtils, '_updateMetadata');
 
