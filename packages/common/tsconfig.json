@@ -8,10 +8,16 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "outDir": "./dist",
-    "types": ["node", "jest"]
+    "types": ["node", "jest"],
+    "paths": {
+      "@src/*": ["src/*"],
+      "@tests/*": ["__tests__/*"],
+      "@events/*": ["__tests__/events/*"]
+    }
   },
   "include": [
-    "src/**/*.ts"
+    "src/**/*.ts",
+    "__tests__/**/*.ts"
   ],
   "exclude": [
     "node_modules",
