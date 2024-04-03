@@ -2459,6 +2459,7 @@ test('getTotalSupply', async () => {
     '-',
     Severity.MINOR,
     { tokenId: 'undefined-token' },
+    logger,
   );
 });
 
@@ -2529,6 +2530,7 @@ test('getTotalTransactions', async () => {
     '-',
     Severity.MINOR,
     { tokenId: 'undefined-token' },
+    logger,
   );
 });
 

@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-empty-function */
+import { Logger } from 'winston';
 import firebaseMock from '@tests/utils/firebase-admin.mock';
 import { mockedAddAlert } from '@tests/utils/alerting.utils.mock';
 import hathorLib from '@hathor/wallet-lib';
@@ -778,5 +779,6 @@ test('onNewTxRequest should send alert on SQS on failure', async () => {
     'Erroed on onNewTxRequest lambda',
     Severity.MINOR,
     { TxId: null, error: 'error' },
+    expect.any(Logger),
   );
 });

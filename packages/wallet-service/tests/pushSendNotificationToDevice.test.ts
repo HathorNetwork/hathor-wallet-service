@@ -243,6 +243,7 @@ describe('alert', () => {
       '-',
       Severity.MINOR,
       { deviceId: 'device1' },
+      logger,
     );
   });
 
@@ -284,6 +285,7 @@ describe('alert', () => {
       '-',
       Severity.MINOR,
       { deviceId: 'device1', pushProvider: 'ios' },
+      logger,
     );
   });
 });

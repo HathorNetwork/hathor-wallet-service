@@ -76,6 +76,8 @@ describe('PushNotificationUtils', () => {
         'Lambda missing env variables',
         'Env missing the following variables WALLET_SERVICE_LAMBDA_ENDPOINT',
         Severity.MINOR,
+        null,
+        logger,
       );
     });
 
@@ -92,6 +94,8 @@ describe('PushNotificationUtils', () => {
         'Lambda missing env variables',
         'Env missing the following variables STAGE',
         Severity.MINOR,
+        null,
+        logger,
       );
     });
 
@@ -108,6 +112,8 @@ describe('PushNotificationUtils', () => {
         'Lambda missing env variables',
         'Env missing the following variables FIREBASE_PROJECT_ID',
         Severity.MINOR,
+        null,
+        logger,
       );
     });
 
@@ -124,6 +130,8 @@ describe('PushNotificationUtils', () => {
         'Lambda missing env variables',
         'Env missing the following variables FIREBASE_PRIVATE_KEY_ID',
         Severity.MINOR,
+        null,
+        logger,
       );
     });
 
@@ -140,6 +148,8 @@ describe('PushNotificationUtils', () => {
         'Lambda missing env variables',
         'Env missing the following variables FIREBASE_PRIVATE_KEY',
         Severity.MINOR,
+        null,
+        logger,
       );
     });
 
@@ -157,6 +167,8 @@ describe('PushNotificationUtils', () => {
         'Lambda missing env variables',
         'Env missing the following variables FIREBASE_CLIENT_EMAIL',
         Severity.MINOR,
+        null,
+        logger,
       );
     });
 
@@ -174,6 +186,8 @@ describe('PushNotificationUtils', () => {
         'Lambda missing env variables',
         'Env missing the following variables FIREBASE_CLIENT_ID',
         Severity.MINOR,
+        null,
+        logger,
       );
     });
 
@@ -191,6 +205,8 @@ describe('PushNotificationUtils', () => {
         'Lambda missing env variables',
         'Env missing the following variables FIREBASE_AUTH_URI',
         Severity.MINOR,
+        null,
+        logger,
       );
     });
 
@@ -208,6 +224,8 @@ describe('PushNotificationUtils', () => {
         'Lambda missing env variables',
         'Env missing the following variables FIREBASE_TOKEN_URI',
         Severity.MINOR,
+        null,
+        logger,
       );
     });
 
@@ -225,6 +243,8 @@ describe('PushNotificationUtils', () => {
         'Lambda missing env variables',
         'Env missing the following variables FIREBASE_AUTH_PROVIDER_X509_CERT_URL',
         Severity.MINOR,
+        null,
+        logger,
       );
     });
 
@@ -242,6 +262,8 @@ describe('PushNotificationUtils', () => {
         'Lambda missing env variables',
         'Env missing the following variables FIREBASE_CLIENT_X509_CERT_URL',
         Severity.MINOR,
+        null,
+        logger,
       );
     });
 
@@ -380,6 +402,7 @@ describe('PushNotificationUtils', () => {
         'Error while calling sendMulticast(message) of Firebase Cloud Message.',
         Severity.MAJOR,
         { error: { code: 'any-other-code' } },
+        logger,
       );
     });
   });
