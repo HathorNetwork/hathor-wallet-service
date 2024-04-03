@@ -12,7 +12,6 @@ import { NftUtils } from '@wallet-service/common/src/utils/nft.utils';
 
 export const CREATE_NFT_MAX_RETRIES: number = parseInt(process.env.CREATE_NFT_MAX_RETRIES || '3', 10);
 
-
 /**
  * This intermediary handler is responsible for making the final validations and calling
  * the Explorer Service to update a NFT metadata, if needed.
