@@ -359,7 +359,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       if (NftUtils.shouldInvokeNftHandlerForTx(tx, network, logger)) {
         // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
         // In case of errors, just log the asynchronous exception and take no action on it.
-        NftUtils.invokeNftHandlerLambda(tx.tx_id, STAGE)
+        NftUtils.invokeNftHandlerLambda(tx.tx_id, STAGE, logger)
           .catch((err) => logger.error('[ALERT] Errored on nftHandlerLambda invocation', err));
       }
     }

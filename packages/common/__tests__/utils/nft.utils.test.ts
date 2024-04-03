@@ -274,7 +274,7 @@ describe('invokeNftHandlerLambda', () => {
     const mLambdaClient = new LambdaClientMock({});
     (mLambdaClient.send as jest.Mocked<any>).mockImplementationOnce(async () => expectedLambdaResponse);
 
-    await expect(NftUtils.invokeNftHandlerLambda('sampleUid', 'local')).resolves.toBeUndefined();
+    await expect(NftUtils.invokeNftHandlerLambda('sampleUid', 'local', logger)).resolves.toBeUndefined();
   });
 
   it('should throw when payload response status is invalid', async () => {
@@ -288,7 +288,7 @@ describe('invokeNftHandlerLambda', () => {
     };
     (mLambdaClient.send as jest.Mocked<any>).mockImplementation(() => expectedLambdaResponse);
 
-    await expect(NftUtils.invokeNftHandlerLambda('sampleUid', 'local'))
+    await expect(NftUtils.invokeNftHandlerLambda('sampleUid', 'local', logger))
       .rejects.toThrow(new Error('onNewNftEvent lambda invoke failed for tx: sampleUid'));
 
     expect(mockedAddAlert).toHaveBeenCalledWith(
@@ -296,6 +296,7 @@ describe('invokeNftHandlerLambda', () => {
       'Erroed on invokeNftHandlerLambda invocation',
       Severity.MINOR,
       { TxId: 'sampleUid' },
+      logger,
     );
   });
 });

@@ -144,7 +144,7 @@ export class NftUtils {
    * Invokes this application's own intermediary lambda `onNewNftEvent`.
    * This is to improve the failure tolerance on this non-critical step of the sync loop.
    */
-  static async invokeNftHandlerLambda(txId: string, stage: string): Promise<void> {
+  static async invokeNftHandlerLambda(txId: string, stage: string, logger: Logger): Promise<void> {
     const client = new LambdaClient({
       endpoint: process.env.WALLET_SERVICE_LAMBDA_ENDPOINT,
       region: process.env.AWS_REGION,
@@ -165,6 +165,7 @@ export class NftUtils {
         'Erroed on invokeNftHandlerLambda invocation',
         Severity.MINOR,
         { TxId: txId },
+        logger,
       );
       throw new Error(`onNewNftEvent lambda invoke failed for tx: ${txId}`);
     }
