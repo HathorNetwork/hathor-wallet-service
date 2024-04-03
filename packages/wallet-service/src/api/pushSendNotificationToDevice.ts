@@ -15,6 +15,7 @@ import { isPushProviderAllowed, PushNotificationUtils, PushNotificationError } f
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 
 const mysql = getDbConnection();
+const logger = createDefaultLogger();
 
 class PushSendNotificationToDeviceInputValidator {
   static readonly bodySchema = Joi.object({
@@ -41,7 +42,6 @@ class PushSendNotificationToDeviceInputValidator {
  * This lambda is called by API Gateway on POST /push/register
  */
 export const send: Handler<unknown, { success: boolean, message?: string, details?: unknown }> = async (event, context) => {
-  const logger = createDefaultLogger();
   // Logs the request id on every line, so we can see all logs from a request
   logger.defaultMeta = {
     requestId: context.awsRequestId,
@@ -69,6 +69,7 @@ export const send: Handler<unknown, { success: boolean, message?: string, detail
       '-',
       Severity.MINOR,
       { deviceId: body.deviceId },
+      logger,
     );
     logger.error('Device not found.', {
       deviceId: body.deviceId,
@@ -83,6 +84,7 @@ export const send: Handler<unknown, { success: boolean, message?: string, detail
       '-',
       Severity.MINOR,
       { deviceId: body.deviceId, pushProvider: pushDevice.pushProvider },
+      logger,
     );
     logger.error('Provider invalid.', {
       deviceId: body.deviceId,

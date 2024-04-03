@@ -28,7 +28,7 @@ export const addAlert = async (
   title: string,
   message: string,
   severity: Severity,
-  metadata = null,
+  metadata: unknown = null,
   logger: Logger,
 ): Promise<void> => {
   const preparedMessage = {
