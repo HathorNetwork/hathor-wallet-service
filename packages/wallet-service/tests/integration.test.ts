@@ -6,6 +6,7 @@ import { createWallet, getMinersList } from '@src/db';
 import * as txProcessor from '@src/txProcessor';
 import { Transaction, WalletStatus, TxInput, Severity } from '@src/types';
 import { closeDbConnection, getDbConnection, getUnixTimestamp, getWalletId } from '@src/utils';
+import { Logger } from 'winston';
 import {
   ADDRESSES,
   XPUBKEY,
@@ -243,6 +244,7 @@ test('load wallet, and simulate DLQ event', async () => {
       RequestID: REQUEST_ID,
       ErrorMessage: 'The lambda exploded',
     },
+    expect.any(Logger),
   );
 }, 60000);
 

@@ -1,3 +1,4 @@
+import { Logger } from 'winston';
 import { mockedAddAlert } from '@tests/utils/alerting.utils.mock';
 import { connectionInfoFromEvent } from '@src/ws/utils';
 import { Severity } from '@src/types';
@@ -40,5 +41,7 @@ test('missing WS_DOMAIN should throw', () => {
     'Erroed while fetching connection info',
     'Domain not on env variables',
     Severity.MINOR,
+    null,
+    expect.any(Logger),
   );
 });
