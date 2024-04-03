@@ -146,6 +146,7 @@ export const onNewTxRequest: APIGatewayProxyHandler = async (event, context) => 
       'Erroed on onNewTxRequest lambda',
       Severity.MINOR,
       { TxId: tx.tx_id, error: e.message },
+      logger,
     );
 
     return {

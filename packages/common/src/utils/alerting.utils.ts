@@ -28,8 +28,8 @@ export const addAlert = async (
   title: string,
   message: string,
   severity: Severity,
-  metadata?: unknown,
-  logger?: Logger,
+  metadata = null,
+  logger: Logger,
 ): Promise<void> => {
   const preparedMessage = {
     title,
@@ -66,10 +66,6 @@ export const addAlert = async (
   try {
     await client.send(command);
   } catch(err) {
-    if (!logger) {
-      console.error('[ALERT] Erroed while sending message to the alert sqs queue', err);
-    } else {
-      logger.error('[ALERT] Erroed while sending message to the alert sqs queue', err);
-    }
+    logger.error('[ALERT] Erroed while sending message to the alert sqs queue', err);
   }
 };

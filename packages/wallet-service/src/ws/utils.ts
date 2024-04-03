@@ -9,6 +9,8 @@ import {
   DeleteConnectionCommandOutput,
   GoneException,
 } from '@aws-sdk/client-apigatewaymanagementapi';
+import { Logger } from 'winston';
+import createDefaultLogger from '@src/logger';
 import util from 'util';
 
 import { WsConnectionInfo, Severity } from '@src/types';
@@ -20,6 +22,7 @@ const logger = createDefaultLogger();
 export const connectionInfoFromEvent = (
   event: APIGatewayProxyEvent,
 ): WsConnectionInfo => {
+  const logger: Logger = createDefaultLogger();
   const connID = event.requestContext.connectionId;
   if (process.env.IS_OFFLINE === 'true') {
     // This will enter when running the service on serverless offline mode
@@ -36,6 +39,8 @@ export const connectionInfoFromEvent = (
       'Erroed while fetching connection info',
       'Domain not on env variables',
       Severity.MINOR,
+      null,
+      logger,
     );
 
     // Throw so we receive an alert telling us that something is wrong with the env variable

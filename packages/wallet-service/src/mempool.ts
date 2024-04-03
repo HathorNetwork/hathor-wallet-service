@@ -65,6 +65,7 @@ export const onHandleOldVoidedTxs = async (): Promise<void> => {
         `Transaction ${tx.txId} is not yet confirmed on our database but it is not voided on the fullnode.`,
         Severity.MAJOR,
         { Tx: transaction },
+        logger,
       );
       logger.error(`Transaction ${tx.txId} is not yet confirmed on our database but it is not voided on the fullnode.`);
       // Check if it is confirmed by a block

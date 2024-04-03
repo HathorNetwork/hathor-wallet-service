@@ -411,6 +411,7 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
             RequestID: RequestID.Value,
             ErrorMessage: ErrorMessage.Value,
           },
+          logger,
         );
         continue;
       }
@@ -437,6 +438,7 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
           RequestID: RequestID.Value,
           ErrorMessage: ErrorMessage.Value,
         },
+        logger,
       );
     }
   } catch (e) {
@@ -446,6 +448,7 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
       // This is major because the user will be stuck in a loading cycle
       Severity.MAJOR,
       { event },
+      logger,
     );
   }
 };
