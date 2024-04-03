@@ -2,8 +2,7 @@
   "name": "@wallet-service/common",
   "packageManager": "yarn@4.1.0",
   "scripts": {
-    "jest": "jest --runInBand --collectCoverage --detectOpenHandles --forceExit",
-    "test": "jest"
+    "test": "jest --runInBand --collectCoverage --detectOpenHandles --forceExit"
   },
   "peerDependencies": {
     "@aws-sdk/client-lambda": "3.540.0",
