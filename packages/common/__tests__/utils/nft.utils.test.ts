@@ -152,7 +152,6 @@ describe('isTransactionNFTCreation', () => {
 
     // Validation
     const tx = getTransaction();
-    // @ts-ignore
     const result = NftUtils.isTransactionNFTCreation(tx, network, logger);
     expect(result).toBe(false);
 
