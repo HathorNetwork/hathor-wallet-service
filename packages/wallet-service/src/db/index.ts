@@ -54,6 +54,10 @@ import {
   getTxsFromDBResult,
 } from '@src/db/utils';
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
+import { Logger } from 'winston';
+import createDefaultLogger from '@src/logger';
+
+const logger: Logger = createDefaultLogger();
 
 const BLOCK_VERSION = [
   constants.BLOCK_VERSION,
@@ -2593,6 +2597,7 @@ export const getTotalSupply = async (
       '-',
       Severity.MINOR,
       { tokenId },
+      logger,
     );
     throw new Error('Total supply query returned no results');
   }
@@ -2651,6 +2656,7 @@ export const getTotalTransactions = async (
       '-',
       Severity.MINOR,
       { tokenId },
+      logger,
     );
     throw new Error('Total transactions query returned no results');
   }

@@ -523,6 +523,7 @@ export const handleReorg = async (mysql: ServerlessMysql, logger: Logger): Promi
       `A reorg with ${currentHeight - height} blocks has been detected`,
       Severity.MINOR,
       { walletServiceHeight: currentHeight, fullNodeHeight: height },
+      logger,
     );
   }
 

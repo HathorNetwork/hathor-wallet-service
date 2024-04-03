@@ -11,6 +11,8 @@ import { Transaction, Severity } from '@src/types';
 import hathorLib from '@hathor/wallet-lib';
 import createDefaultLogger from '@src/logger';
 
+const logger = createDefaultLogger();
+
 export const MAX_METADATA_UPDATE_RETRIES: number = parseInt(process.env.MAX_METADATA_UPDATE_RETRIES || '3', 10);
 
 /**
@@ -49,7 +51,6 @@ export class NftUtils {
     }
 
     // Continue with a deeper validation
-    const logger = createDefaultLogger();
     let isNftCreationTx: boolean;
     let libTx: hathorLib.CreateTokenTransaction;
 
@@ -159,6 +160,7 @@ export class NftUtils {
         'Erroed on invokeNftHandlerLambda invocation',
         Severity.MINOR,
         { TxId: txId },
+        logger,
       );
       throw new Error(`onNewNftEvent lambda invoke failed for tx: ${txId}`);
     }

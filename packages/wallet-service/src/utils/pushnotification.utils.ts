@@ -37,6 +37,8 @@ try {
     'Lambda missing env variables',
     e.message, // This should contain the list of env variables that are missing
     Severity.MINOR,
+    null,
+    logger,
   );
 }
 
@@ -215,6 +217,7 @@ export class PushNotificationUtils {
       'Error while calling sendMulticast(message) of Firebase Cloud Message.',
       Severity.MAJOR,
       { error },
+      logger,
     );
     logger.error('Error while calling sendMulticast(message) of Firebase Cloud Message.', { error });
     return { success: false, errorMessage: PushNotificationError.UNKNOWN };
@@ -248,6 +251,7 @@ export class PushNotificationUtils {
         `${SEND_NOTIFICATION_FUNCTION_NAME} lambda invoke failed for device: ${notification.deviceId}`,
         Severity.MINOR,
         { DeviceId: notification.deviceId },
+        logger,
       );
       throw new Error(`${SEND_NOTIFICATION_FUNCTION_NAME} lambda invoke failed for device: ${notification.deviceId}`);
     }
@@ -284,6 +288,7 @@ export class PushNotificationUtils {
         `${ON_TX_PUSH_NOTIFICATION_REQUESTED_FUNCTION_NAME} lambda invoke failed for wallets`,
         Severity.MINOR,
         { Wallets: walletIdList },
+        logger,
       );
       throw new Error(`${ON_TX_PUSH_NOTIFICATION_REQUESTED_FUNCTION_NAME} lambda invoke failed for wallets: ${walletIdList}`);
     }

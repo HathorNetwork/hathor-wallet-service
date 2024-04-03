@@ -57,6 +57,7 @@ export const connect = async (
       '-',
       Severity.MINOR,
       { error: e.message },
+      logger,
     );
 
     logger.error('Captured error on connect websocket lambda', e);
