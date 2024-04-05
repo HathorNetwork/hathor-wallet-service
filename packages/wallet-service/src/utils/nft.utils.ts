@@ -7,7 +7,7 @@
 
 import { LambdaClient, InvokeCommand, InvokeCommandOutput } from '@aws-sdk/client-lambda';
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
-import { Transaction, Severity } from '@src/types';
+import { Transaction, Severity } from '@wallet-service/common/src/types';
 import hathorLib from '@hathor/wallet-lib';
 import createDefaultLogger from '@src/logger';
 

@@ -3,7 +3,6 @@ import { ServerlessMysql } from 'serverless-mysql';
 import { isEqual } from 'lodash';
 import {
   DbSelectResult,
-  TxInput,
   TxOutputWithIndex,
   FullNodeVersionData,
   WalletBalanceValue,
@@ -11,6 +10,7 @@ import {
   PushProvider,
   DbTxOutput,
 } from '@src/types';
+import { TxInput } from '@wallet-service/common/src/types';
 import { getWalletId } from '@src/utils';
 import { walletUtils, Network, network, HathorWalletServiceWallet } from '@hathor/wallet-lib';
 import {

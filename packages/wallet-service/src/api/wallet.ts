@@ -21,7 +21,7 @@ import {
   updateWalletStatus,
   updateWalletAuthXpub,
 } from '@src/db';
-import { Severity, WalletStatus } from '@src/types';
+import { WalletStatus } from '@src/types';
 import {
   closeDbConnection,
   getDbConnection,
@@ -38,6 +38,7 @@ import middy from '@middy/core';
 import cors from '@middy/http-cors';
 import Joi from 'joi';
 import createDefaultLogger from '@src/logger';
+import { Severity } from '@wallet-service/common/src/types';
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 
 const mysql = getDbConnection();

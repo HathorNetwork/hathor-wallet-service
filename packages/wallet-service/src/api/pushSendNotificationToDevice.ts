@@ -8,11 +8,12 @@
 import { Handler } from 'aws-lambda';
 import { closeDbConnection, getDbConnection } from '@src/utils';
 import Joi, { ValidationError } from 'joi';
-import { Severity, SendNotificationToDevice } from '@src/types';
+import { SendNotificationToDevice } from '@src/types';
 import { getPushDevice, unregisterPushDevice } from '@src/db';
 import createDefaultLogger from '@src/logger';
 import { isPushProviderAllowed, PushNotificationUtils, PushNotificationError } from '@src/utils/pushnotification.utils';
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
+import { Severity } from '@wallet-service/common/src/types';
 
 const mysql = getDbConnection();
 const logger = createDefaultLogger();

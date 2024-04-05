@@ -39,11 +39,8 @@ import {
   getTokenSymbols,
 } from '@src/db';
 import {
-  DecodedOutput,
   StringMap,
   TokenBalanceMap,
-  TxInput,
-  TxOutput,
   TxOutputWithIndex,
   DbTxOutput,
   Tx,
@@ -55,11 +52,16 @@ import {
   AddressTotalBalance,
   WalletProxyHandler,
   WalletBalance,
-  Transaction,
   WalletBalanceValue,
-  Severity,
 } from '@src/types';
 import { Logger } from 'winston';
+import {
+  DecodedOutput,
+  TxInput,
+  TxOutput,
+  Transaction,
+  Severity,
+} from '@wallet-service/common/src/types';
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 
 import {

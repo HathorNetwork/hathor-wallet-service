@@ -48,11 +48,9 @@ import {
 import {
   TxOutputWithIndex,
   StringMap,
-  Transaction,
   TokenBalanceMap,
   Wallet,
   Tx,
-  Severity,
 } from '@src/types';
 import {
   closeDbConnection,
@@ -61,6 +59,10 @@ import {
 } from '@src/utils';
 import createDefaultLogger from '@src/logger';
 import { NftUtils } from '@src/utils/nft.utils';
+import {
+  Transaction,
+  Severity,
+} from '@wallet-service/common/src/types';
 import { PushNotificationUtils, isPushNotificationEnabled } from '@src/utils/pushnotification.utils';
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 

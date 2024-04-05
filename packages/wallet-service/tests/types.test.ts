@@ -1,4 +1,5 @@
-import { Authorities, Balance, DecodedOutput, TokenBalanceMap, TxInput, TxOutput } from '@src/types';
+import { Authorities, Balance, TokenBalanceMap } from '@src/types';
+import { DecodedOutput, TxInput, TxOutput } from '@wallet-service/common/src/types';
 
 test('Authorities', () => {
   expect.hasAssertions();

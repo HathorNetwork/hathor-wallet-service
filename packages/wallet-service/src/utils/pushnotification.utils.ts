@@ -6,7 +6,8 @@
  */
 
 import { LambdaClient, InvokeCommand, InvokeCommandOutput } from '@aws-sdk/client-lambda';
-import { PushProvider, Severity, SendNotificationToDevice, StringMap, WalletBalanceValue } from '@src/types';
+import { PushProvider, SendNotificationToDevice, StringMap, WalletBalanceValue } from '@src/types';
+import { Severity } from '@wallet-service/common/src/types';
 import fcmAdmin, { credential, messaging, ServiceAccount } from 'firebase-admin';
 import { MulticastMessage } from 'firebase-admin/messaging';
 import createDefaultLogger from '@src/logger';

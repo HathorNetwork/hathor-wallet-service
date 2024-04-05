@@ -39,7 +39,8 @@ import { getHandlerContext, nftCreationTx } from '@events/nftCreationTx';
 import * as pushNotificationUtils from '@src/utils/pushnotification.utils';
 import * as commons from '@src/commons';
 import { Context } from 'aws-lambda';
-import { StringMap, WalletBalanceValue, Severity } from '@src/types';
+import { StringMap, WalletBalanceValue } from '@src/types';
+import { Severity } from '@wallet-service/common/src/types';
 import createDefaultLogger from '@src/logger';
 
 const mysql = getDbConnection();
