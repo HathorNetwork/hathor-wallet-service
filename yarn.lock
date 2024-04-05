@@ -7957,7 +7957,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"eslint-plugin-jest@npm:^27.9.0":
+"eslint-plugin-jest@npm:^27.4.0, eslint-plugin-jest@npm:^27.9.0":
   version: 27.9.0
   resolution: "eslint-plugin-jest@npm:27.9.0"
   dependencies:
@@ -14858,6 +14858,7 @@ __metadata:
     axios: "npm:^1.6.2"
     dotenv: "npm:^8.2.0"
     eslint-config-airbnb-base: "npm:^15.0.0"
+    eslint-plugin-jest: "npm:^27.4.0"
     jest: "npm:^29.6.4"
     lodash: "npm:^4.17.21"
     mysql2: "npm:^3.5.2"
