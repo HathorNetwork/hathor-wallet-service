@@ -37,6 +37,6 @@
     "bitcoinjs-lib": "^6.1.5",
     "bitcoinjs-message": "^2.2.0",
     "tiny-secp256k1": "^2.2.3",
-    "winston": "^3.13.0"
+    "winston": "3.13.0"
   }
 }
