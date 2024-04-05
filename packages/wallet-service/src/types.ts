@@ -749,5 +749,3 @@ export interface WalletBalanceValue {
   addresses: string[],
   walletBalanceForTx: TokenBalanceValue[],
 }
-
-// export { Severity, Transaction, TxInput, TxOutput, DecodedOutput };
