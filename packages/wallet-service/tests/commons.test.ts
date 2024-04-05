@@ -16,10 +16,12 @@ import {
   TokenBalanceMap,
   DbTxOutput,
   Block,
+} from '@src/types';
+import {
   TxInput,
   TxOutput,
   Transaction,
-} from '@src/types';
+} from '@wallet-service/common/src/types';
 import { closeDbConnection, getDbConnection } from '@src/utils';
 import {
   addToAddressTable,

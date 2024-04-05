@@ -103,10 +103,9 @@ import {
   DbTxOutput,
   PushDevice,
   PushProvider,
-  Severity,
   Block,
-  AddressInfo,
 } from '@src/types';
+import { Severity } from '@wallet-service/common/src/types';
 import {
   closeDbConnection,
   getDbConnection,

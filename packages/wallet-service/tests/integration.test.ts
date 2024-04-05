@@ -4,7 +4,8 @@ import eventTemplate from '@events/eventTemplate.json';
 import { loadWallet, loadWalletFailed } from '@src/api/wallet';
 import { createWallet, getMinersList } from '@src/db';
 import * as txProcessor from '@src/txProcessor';
-import { Transaction, WalletStatus, TxInput, Severity } from '@src/types';
+import { WalletStatus  } from '@src/types';
+import { Transaction, TxInput, Severity } from '@wallet-service/common/src/types';
 import { closeDbConnection, getDbConnection, getUnixTimestamp, getWalletId } from '@src/utils';
 import { Logger } from 'winston';
 import {

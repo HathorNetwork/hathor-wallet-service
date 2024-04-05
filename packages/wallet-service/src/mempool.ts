@@ -11,7 +11,7 @@ import {
   getMempoolTransactionsBeforeDate,
   updateTx,
 } from '@src/db';
-import { Block, Severity, Tx } from '@src/types';
+import { Block, Tx } from '@src/types';
 import { handleVoided } from '@src/commons';
 import {
   isTxVoided,
@@ -20,6 +20,7 @@ import {
   getDbConnection,
 } from '@src/utils';
 import createDefaultLogger from '@src/logger';
+import { Severity } from '@wallet-service/common/src/types';
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 
 const mysql = getDbConnection();

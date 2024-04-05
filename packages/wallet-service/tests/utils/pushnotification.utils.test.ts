@@ -6,7 +6,8 @@ import { sendMulticastMock, messaging, initFirebaseAdminMock } from '@tests/util
 import { logger } from '@tests/winston.mock';
 import { PushNotificationUtils, PushNotificationError, buildFunctionName, FunctionName } from '@src/utils/pushnotification.utils';
 import * as pushnotificationUtils from '@src/utils/pushnotification.utils';
-import { SendNotificationToDevice, Severity } from '@src/types';
+import { SendNotificationToDevice } from '@src/types';
+import { Severity  } from '@wallet-service/common/src/types';
 import { sendMock, lambdaInvokeCommandMock } from '@tests/utils/aws-sdk.mock';
 import { LambdaClient } from '@aws-sdk/client-lambda';
 import { buildWalletBalanceValueMap } from '@tests/utils';

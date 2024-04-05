@@ -1,7 +1,7 @@
 import { Logger } from 'winston';
 import hathorLib from '@hathor/wallet-lib';
 import { mockedAddAlert } from '@tests/utils/alerting.utils.mock';
-import { Severity } from '@src/types';
+import { Severity } from '@wallet-service/common/src/types';
 import { MAX_METADATA_UPDATE_RETRIES, NftUtils } from '@src/utils/nft.utils';
 import { getHandlerContext, getTransaction } from '@events/nftCreationTx';
 import {

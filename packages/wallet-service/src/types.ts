@@ -7,10 +7,9 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { Severity, Transaction, TxInput, TxOutput, DecodedOutput } from '@wallet-service/common/src/types';
+import { TxInput, TxOutput } from '@wallet-service/common/src/types';
 
 import hathorLib from '@hathor/wallet-lib';
-// eslint-disable-next-line
 import { isAuthority } from '@src/utils';
 
 import {
@@ -751,4 +750,4 @@ export interface WalletBalanceValue {
   walletBalanceForTx: TokenBalanceValue[],
 }
 
-export { Severity, Transaction, TxInput, TxOutput, DecodedOutput };
+// export { Severity, Transaction, TxInput, TxOutput, DecodedOutput };

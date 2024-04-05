@@ -1,7 +1,7 @@
 import { Logger } from 'winston';
 import { mockedAddAlert } from '@tests/utils/alerting.utils.mock';
 import { connectionInfoFromEvent } from '@src/ws/utils';
-import { Severity } from '@src/types';
+import { Severity } from '@wallet-service/common/src/types';
 
 test('connectionInfoFromEvent', async () => {
   expect.hasAssertions();

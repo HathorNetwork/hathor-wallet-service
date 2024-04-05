@@ -9,7 +9,6 @@ import { Handler } from 'aws-lambda';
 import { closeDbConnection, getDbConnection } from '@src/utils';
 import Joi, { ValidationError } from 'joi';
 import {
-  Severity,
   TokenBalanceValue,
   LocalizeMetadataNotification,
   SendNotificationToDevice,
@@ -19,6 +18,7 @@ import {
 import { getPushDeviceSettingsList } from '@src/db';
 import createDefaultLogger from '@src/logger';
 import { PushNotificationUtils } from '@src/utils/pushnotification.utils';
+import { Severity } from '@wallet-service/common/src/types';
 import { Logger } from 'winston';
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 

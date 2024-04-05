@@ -12,7 +12,8 @@ import { Logger } from 'winston';
 import createDefaultLogger from '@src/logger';
 import util from 'util';
 
-import { WsConnectionInfo, Severity } from '@src/types';
+import { Severity } from '@wallet-service/common/src/types';
+import { WsConnectionInfo } from '@src/types';
 import { endWsConnection } from '@src/redis';
 
 export const connectionInfoFromEvent = (

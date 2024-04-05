@@ -21,7 +21,6 @@ import {
   StringMap,
   TokenBalanceMap,
   TokenInfo,
-  TxInput,
   TxOutputWithIndex,
   TxProposal,
   TxProposalStatus,
@@ -40,7 +39,6 @@ import {
   PushDevice,
   TxByIdToken,
   PushDeviceSettings,
-  Severity,
 } from '@src/types';
 import {
   getUnixTimestamp,
@@ -54,6 +52,7 @@ import {
   getTxsFromDBResult,
 } from '@src/db/utils';
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
+import { TxInput, Severity } from '@wallet-service/common/src/types';
 import { Logger } from 'winston';
 import createDefaultLogger from '@src/logger';
 
