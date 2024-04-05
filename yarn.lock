@@ -5854,7 +5854,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"bitcoinjs-lib@npm:^6.0.1, bitcoinjs-lib@npm:^6.1.5":
+"bitcoinjs-lib@npm:^6.1.5":
   version: 6.1.5
   resolution: "bitcoinjs-lib@npm:6.1.5"
   dependencies:
@@ -15812,8 +15812,6 @@ __metadata:
     aws-lambda: "npm:^1.0.7"
     axios: "npm:^0.21.1"
     bip32: "npm:^3.0.1"
-    bitcoinjs-lib: "npm:^6.0.1"
-    bitcoinjs-message: "npm:^2.2.0"
     bitcore-lib: "npm:8.25.10"
     bitcore-mnemonic: "npm:8.25.10"
     dotenv: "npm:^10.0.0"
@@ -15859,6 +15857,8 @@ __metadata:
     "@aws-sdk/client-lambda": 3.540.0
     "@aws-sdk/client-sqs": 3.540.0
     "@hathor/wallet-lib": ^0.39.0
+    bitcoinjs-lib: ^6.1.5
+    bitcoinjs-message: ^2.2.0
     winston: ^3.13.0
   languageName: unknown
   linkType: soft
