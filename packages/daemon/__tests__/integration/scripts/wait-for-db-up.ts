@@ -32,7 +32,7 @@ const attemptConnection = async (maxAttempts: number, interval: number): Promise
     }
   }
 
-  throw new Error('Maximum connection attempts reached. Exiting.');;
+  throw new Error('Maximum connection attempts reached. Exiting.');
 };
 
 // Attempt to connect
