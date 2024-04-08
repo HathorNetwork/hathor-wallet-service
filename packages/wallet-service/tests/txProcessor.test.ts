@@ -43,7 +43,7 @@ import { StringMap, WalletBalanceValue } from '@src/types';
 import { Severity } from '@wallet-service/common/src/types';
 import createDefaultLogger from '@src/logger';
 
-const defaultLogger = {
+var defaultLogger = {
   error: jest.fn(),
   warn: jest.fn(),
   info: jest.fn(),

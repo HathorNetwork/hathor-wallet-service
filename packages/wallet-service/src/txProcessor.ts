@@ -163,10 +163,11 @@ export const onNewTxRequest: APIGatewayProxyHandler = async (event, context) => 
   }
 
   // Validating for NFTs only after the tx is successfully added
-  if (NftUtils.shouldInvokeNftHandlerForTx(tx)) {
+  const network = process.env.NETWORK;
+  if (NftUtils.shouldInvokeNftHandlerForTx(tx, new hathorLib.Network(network), logger)) {
     // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
     // In case of errors, just log the asynchronous exception and take no action on it.
-    NftUtils.invokeNftHandlerLambda(tx.tx_id)
+    NftUtils.invokeNftHandlerLambda(tx.tx_id, process.env.STAGE, logger)
       .catch((err) => logger.error('[ALERT] Errored on nftHandlerLambda invocation', err));
   }
 
@@ -280,7 +281,7 @@ export const onNewNftEvent: Handler<
 
   try {
     // Checks existing metadata on this transaction and updates it if necessary
-    await NftUtils.createOrUpdateNftMetadata(event.nftUid);
+    await NftUtils.createOrUpdateNftMetadata(event.nftUid, CREATE_NFT_MAX_RETRIES, logger);
   } catch (e) {
     logger.error('Errored on onNewNftEvent: ', e);
 
