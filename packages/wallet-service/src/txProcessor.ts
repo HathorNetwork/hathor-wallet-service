@@ -58,7 +58,7 @@ import {
   getUnixTimestamp,
 } from '@src/utils';
 import createDefaultLogger from '@src/logger';
-import { NftUtils } from '@src/utils/nft.utils';
+import { NftUtils } from '@wallet-service/common/src/utils/nft.utils';
 import {
   Transaction,
   Severity,

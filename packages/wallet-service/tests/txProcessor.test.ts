@@ -15,7 +15,7 @@ import {
 import * as Db from '@src/db';
 import * as txProcessor from '@src/txProcessor';
 import { closeDbConnection, getDbConnection, isAuthority } from '@src/utils';
-import { NftUtils } from '@src/utils/nft.utils';
+import { NftUtils } from '@wallet-service/common/src/utils/nft.utils';
 import {
   XPUBKEY,
   AUTH_XPUBKEY,
