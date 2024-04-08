@@ -472,7 +472,14 @@ describe('NFT metadata updating', () => {
       () => '',
     );
     expect(spyUpdateMetadata).toHaveBeenCalledTimes(1);
-    expect(spyUpdateMetadata).toHaveBeenCalledWith(nftCreationTx.tx_id, { id: nftCreationTx.tx_id, nft: true }, txProcessor.CREATE_NFT_MAX_RETRIES, logger);
+    expect(spyUpdateMetadata).toHaveBeenCalledWith(nftCreationTx.tx_id, { id: nftCreationTx.tx_id, nft: true }, txProcessor.CREATE_NFT_MAX_RETRIES, expect.objectContaining({
+      error: expect.any(Function),
+      info: expect.any(Function),
+      warn: expect.any(Function),
+      defaultMeta: {
+        requestId: expect.any(String)
+      },
+    }));
     expect(result).toStrictEqual({ success: true });
   });
 
@@ -495,7 +502,14 @@ describe('NFT metadata updating', () => {
       message: `onNewNftEvent failed for token ${nftCreationTx.tx_id}`,
     };
     expect(result).toStrictEqual(expectedResult);
-    expect(spyCreateOrUpdate).toHaveBeenCalledWith(nftCreationTx.tx_id, txProcessor.CREATE_NFT_MAX_RETRIES, logger);
+    expect(spyCreateOrUpdate).toHaveBeenCalledWith(nftCreationTx.tx_id, txProcessor.CREATE_NFT_MAX_RETRIES, expect.objectContaining({
+      error: expect.any(Function),
+      info: expect.any(Function),
+      warn: expect.any(Function),
+      defaultMeta: {
+        requestId: expect.any(String)
+      },
+    }));
 
     spyCreateOrUpdate.mockReset();
     spyCreateOrUpdate.mockRestore();
