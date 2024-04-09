@@ -12,6 +12,7 @@
 
 // @ts-ignore
 import { constants } from '@hathor/wallet-lib';
+import { isAuthority } from './utils/wallet.utils';
 
 export interface StringMap<T> {
   [x: string]: T;
@@ -79,17 +80,6 @@ export interface DecodedOutput {
   address: string;
   timelock: number | null;
 }
-
-/**
- * Checks if a given tokenData has any authority bit set
- *
- * tokenData merges two fields: first bit is the authority flag, while remaining
- * bits represent the token index. If the first bit is 0, this is a regular
- * output, if it's 1, it's an authority output
- */
-export const isAuthority = (tokenData: number): boolean => (
-  (tokenData & constants.TOKEN_AUTHORITY_MASK) > 0
-);
 
 export class Authorities {
   /**

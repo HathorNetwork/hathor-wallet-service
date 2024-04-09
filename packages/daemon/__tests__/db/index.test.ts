@@ -65,7 +65,7 @@ import {
   createOutput,
   XPUBKEY,
 } from '../utils';
-import { isAuthority } from '../../src/utils';
+import { isAuthority } from '@wallet-service/common/src/utils/wallet.utils';
 import { DbTxOutput, StringMap, TokenInfo, WalletStatus } from '../../src/types';
 import { Authorities, TokenBalanceMap } from '@wallet-service/common/src/types';
 

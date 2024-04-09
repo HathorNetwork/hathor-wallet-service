@@ -25,7 +25,7 @@ import {
   TokenBalanceMap,
   TxOutputWithIndex,
 } from '@wallet-service/common/src/types';
-import { isAuthority } from '../utils';
+import { isAuthority } from '@wallet-service/common/src/utils/wallet.utils';
 import {
   AddressBalanceRow,
   AddressTxHistorySumRow,
