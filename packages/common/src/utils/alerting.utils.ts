@@ -31,7 +31,7 @@ export const addAlert = async (
   // XXX: logger is temporarily coming as a param until we refactor the logger
   // to be a common util between projects, metadata will also be refactored
   // to be a optional parameter.
-  metadata: unknown = null,
+  metadata: unknown,
   logger: Logger,
 ): Promise<void> => {
   const preparedMessage = {
