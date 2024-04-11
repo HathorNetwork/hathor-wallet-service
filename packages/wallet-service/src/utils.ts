@@ -142,10 +142,6 @@ export const closeDbConnection = async (mysql: ServerlessMysql): Promise<void> =
   }
 };
 
-export const isAuthority = (tokenData: number): boolean => (
-  (tokenData & hathorLib.constants.TOKEN_AUTHORITY_MASK) > 0    // eslint-disable-line no-bitwise
-);
-
 /**
  * Shuffle an array in place.
  *

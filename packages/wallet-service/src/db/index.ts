@@ -42,11 +42,13 @@ import {
 } from '@src/types';
 import {
   getUnixTimestamp,
-  isAuthority,
   getAddressPath,
   xpubDeriveChild,
   getAddresses,
 } from '@src/utils';
+import {
+  isAuthority,
+} from '@wallet-service/common/src/utils/wallet.utils';
 import {
   getWalletFromDbEntry,
   getTxsFromDBResult,
