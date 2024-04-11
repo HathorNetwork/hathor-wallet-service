@@ -11,7 +11,7 @@ import { Severity } from '@wallet-service/common/src/types';
 import fcmAdmin, { credential, messaging, ServiceAccount } from 'firebase-admin';
 import { MulticastMessage } from 'firebase-admin/messaging';
 import createDefaultLogger from '@src/logger';
-import { assertEnvVariablesExistence } from '@src/utils';
+import { assertEnvVariablesExistence } from '@wallet-service/common/src/utils';
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 
 const logger = createDefaultLogger();
