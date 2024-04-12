@@ -9660,7 +9660,7 @@ __metadata:
   resolution: "hathor-wallet-service@workspace:."
   dependencies:
     dotenv: "npm:^16.3.1"
-    mysql2: "npm:^3.6.1"
+    mysql2: "npm:^3.9.4"
     sequelize: "npm:^6.33.0"
     sequelize-cli: "npm:^6.6.1"
   languageName: unknown
@@ -12238,9 +12238,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"mysql2@npm:^3.5.2, mysql2@npm:^3.6.1":
-  version: 3.6.1
-  resolution: "mysql2@npm:3.6.1"
+"mysql2@npm:^3.9.4":
+  version: 3.9.4
+  resolution: "mysql2@npm:3.9.4"
   dependencies:
     denque: "npm:^2.1.0"
     generate-function: "npm:^2.3.1"
@@ -12250,7 +12250,7 @@ __metadata:
     named-placeholders: "npm:^1.1.3"
     seq-queue: "npm:^0.0.5"
     sqlstring: "npm:^2.3.2"
-  checksum: 10/903b44bbc5a59ed50ddc84489d5037d7e41e7de4fed9ccee87f850a6826714148ec944c56b186ddf6976bb3dea28d2d5d6bdb581e1855ce538c0155183ada3be
+  checksum: 10/8b706a507e331f28d19e84b55a0035d79ecdc1522405815adef664b3ec1d8b5006046c183ad8ab140cc50c9506d52a5fd49ab712bc98174027ee085665509c62
   languageName: node
   linkType: hard
 
@@ -14810,7 +14810,7 @@ __metadata:
     eslint-plugin-jest: "npm:^27.4.0"
     jest: "npm:^29.6.4"
     lodash: "npm:^4.17.21"
-    mysql2: "npm:^3.5.2"
+    mysql2: "npm:^3.9.4"
     sequelize: "npm:^6.33.0"
     sequelize-cli: "npm:^6.6.1"
     ts-jest: "npm:^29.1.1"
