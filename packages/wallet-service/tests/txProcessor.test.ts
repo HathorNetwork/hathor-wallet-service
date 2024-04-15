@@ -35,7 +35,7 @@ import {
   addToAddressTxHistoryTable,
   addToWalletTxHistoryTable,
 } from '@tests/utils';
-import { getHandlerContext, nftCreationTx } from '@events/nftCreationTx';
+import { getHandlerContext, nftCreationTx } from '@wallet-service/common/__tests__/events/nftCreationTx';
 import * as pushNotificationUtils from '@src/utils/pushnotification.utils';
 import * as commons from '@src/commons';
 import { Context } from 'aws-lambda';
