@@ -81,7 +81,8 @@ export const IGNORE_TXS = {
   ],
 };
 
-export const CREATE_NFT_MAX_RETRIES = 5;
+export const CREATE_NFT_MAX_RETRIES: number = parseInt(process.env.CREATE_NFT_MAX_RETRIES || '3', 10);
+
 
 /**
  * Function called when a new transaction arrives.
