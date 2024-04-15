@@ -22,9 +22,10 @@ export const isNftAutoReviewEnabled = (): boolean => process.env.NFT_AUTO_REVIEW
 export class NftUtils {
   /**
    * Returns whether we should invoke our NFT handler for this tx
-   * @param {Transaction} tx
-   * @param {string} network
-   * @returns {boolean}
+   * @param tx - transaction to check
+   * @param network - The current network
+   * @param logger - A Logger instance
+   * @returns - true if this is a NFT creation TX, false otherwise.
    *
    * TODO: Remove the logger param after we unify the logger from both projects
    */
@@ -126,9 +127,11 @@ export class NftUtils {
 
   /**
    * Identifies if the metadata for a NFT needs updating and, if it does, update it.
-   * @param {string} nftUid
-   * @param {number} maxRetries
-   * @returns {Promise<void>} No data is returned after a successful update or skip
+   * @param nftUid - The uid of the nft to create or update
+   * @param maxRetries - The maximum number of retries
+   * @param logger - A Logger instance
+   *
+   * @returns No data is returned after a successful update or skip
    * TODO: Remove the logger param after we unify the logger from both projects
    */
   static async createOrUpdateNftMetadata(nftUid: string, maxRetries: number, logger: Logger): Promise<void> {
