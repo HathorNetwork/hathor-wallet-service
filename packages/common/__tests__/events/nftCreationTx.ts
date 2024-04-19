@@ -12,7 +12,7 @@
 /* eslint-disable @typescript-eslint/no-empty-function */
 
 import { Context } from 'aws-lambda';
-import { Transaction, TxOutput } from '@src/types';
+import { Transaction, TxOutput } from '../../src/types';
 
 /**
  * A sample transaction for a NFT creation, as obtained by a wallet's history methods
