@@ -106,11 +106,11 @@ import {
   Block,
 } from '@src/types';
 import { Severity } from '@wallet-service/common/src/types';
+import { isAuthority } from '@wallet-service/common/src/utils/wallet.utils';
 import {
   closeDbConnection,
   getDbConnection,
   getUnixTimestamp,
-  isAuthority,
   getWalletId,
 } from '@src/utils';
 import {

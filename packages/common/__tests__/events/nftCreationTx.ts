@@ -12,7 +12,7 @@
 /* eslint-disable @typescript-eslint/no-empty-function */
 
 import { Context } from 'aws-lambda';
-import { Transaction } from '@wallet-service/common/src/types';
+import { Transaction, TxOutput } from '../../src/types';
 
 /**
  * A sample transaction for a NFT creation, as obtained by a wallet's history methods
@@ -149,11 +149,12 @@ export function getTransaction(): Transaction {
       spent_by: o.spent_by,
       token_data: o.token_data,
       locked: false,
-    })),
+    })) as TxOutput[],
     height: 8,
     token_name: nftCreationTx.token_name,
     token_symbol: nftCreationTx.token_symbol,
   };
+
   return result;
 }
 

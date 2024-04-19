@@ -6,12 +6,9 @@
  */
 import mysql, { Connection as MysqlConnection, Pool } from 'mysql2/promise';
 import {
-  TokenBalanceMap,
   DbTxOutput,
   StringMap,
   Wallet,
-  TxInput,
-  TxOutputWithIndex,
   EventTxInput,
   GenerateAddresses,
   AddressIndexMap,
@@ -23,7 +20,12 @@ import {
   Miner,
   TokenSymbolsRow,
 } from '../types';
-import { isAuthority } from '../utils';
+import {
+  TxInput,
+  TokenBalanceMap,
+  TxOutputWithIndex,
+} from '@wallet-service/common/src/types';
+import { isAuthority } from '@wallet-service/common/src/utils/wallet.utils';
 import {
   AddressBalanceRow,
   AddressTxHistorySumRow,

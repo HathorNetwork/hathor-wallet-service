@@ -10,7 +10,7 @@
 import { TxInput, TxOutput } from '@wallet-service/common/src/types';
 
 import hathorLib from '@hathor/wallet-lib';
-import { isAuthority } from '@src/utils';
+import { isAuthority } from '@wallet-service/common/src/utils/wallet.utils';
 
 import {
   APIGatewayProxyEvent,

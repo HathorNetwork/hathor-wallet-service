@@ -16,7 +16,6 @@ import util from 'util';
 import { Severity } from '@wallet-service/common/src/types';
 import { WsConnectionInfo } from '@src/types';
 import { endWsConnection } from '@src/redis';
-import createDefaultLogger from '@src/logger';
 
 const logger = createDefaultLogger();
 
@@ -98,6 +97,7 @@ export const sendMessageToClient = async (
         ConnectionId: connInfo.id,
         Message: message,
       },
+      logger,
     )
   }
 };
