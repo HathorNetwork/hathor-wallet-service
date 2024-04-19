@@ -3,7 +3,7 @@ parser: '@typescript-eslint/parser'
 parserOptions:
   ecmaVersion: 2022
   sourceType: 'module'
-  project: './tsconfig.json'
+  project: './tsconfig.eslint.json'
 env:
   node: true
   es6: true
@@ -22,6 +22,7 @@ overrides:
     excludedFiles:
       - 'dist/*'
       - 'node_modules/*'
+      - '__tests__/**/*.ts'
   - files:
       - "*.js"
     parser: "espree"
