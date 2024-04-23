@@ -51,7 +51,7 @@
     "axios": "^1.6.2",
     "dotenv": "^8.2.0",
     "lodash": "^4.17.21",
-    "mysql2": "^3.5.2",
+    "mysql2": "^3.9.7",
     "sequelize": "^6.33.0",
     "websocket": "^1.0.33",
     "winston": "^3.3.3",
