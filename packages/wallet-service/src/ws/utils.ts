@@ -7,11 +7,15 @@ import {
   PostToConnectionCommandOutput,
   DeleteConnectionCommand,
   DeleteConnectionCommandOutput,
+  GoneException,
 } from '@aws-sdk/client-apigatewaymanagementapi';
 import util from 'util';
 
 import { WsConnectionInfo, Severity } from '@src/types';
 import { endWsConnection } from '@src/redis';
+import createDefaultLogger from '@src/logger';
+
+const logger = createDefaultLogger();
 
 export const connectionInfoFromEvent = (
   event: APIGatewayProxyEvent,
@@ -54,16 +58,41 @@ export const sendMessageToClient = async (
     endpoint: connInfo.url,
   });
 
+  const message = JSON.stringify(payload);
+
   const command = new PostToConnectionCommand({
     ConnectionId: connInfo.id,
-    Data: JSON.stringify(payload),
+    Data: message,
   });
 
-  const response: PostToConnectionCommandOutput = await apiGwClient.send(command);
-  // http GONE(410) means client is disconnected, but still exists on our connection store
-  if (response.$metadata.httpStatusCode === 410) {
-    // cleanup connection and subscriptions from redis if GONE
-    return endWsConnection(client, connInfo.id);
+  try {
+    const response: PostToConnectionCommandOutput = await apiGwClient.send(command);
+
+    if (response.$metadata.httpStatusCode !== 200) {
+      logger.error(response.$metadata);
+      throw new Error(`Status code from post to connection is not 200: ${response.$metadata.httpStatusCode}`);
+    }
+  } catch (e) {
+    if (e instanceof GoneException) {
+      logger.debug(`Received GONE exception, closing ${connInfo.id}`);
+      return endWsConnection(client, connInfo.id);
+    }
+
+    logger.error(e);
+
+    // Unhandled exception. We shouldn't end the connection as it might be a temporary
+    // instability with api gateway.
+    //
+    // Alert and move on, no need to throw here
+    addAlert(
+      'Unhandled error while sending websocket message to client',
+      'The wallet-service was unable to handle an error while attempting to send a message to a websocket client. Please check the logs.',
+      Severity.MINOR,
+      {
+        ConnectionId: connInfo.id,
+        Message: message,
+      },
+    )
   }
 };
 
