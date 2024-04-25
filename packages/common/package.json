@@ -1,5 +1,6 @@
 {
   "name": "@wallet-service/common",
+  "version": "1.5.0",
   "packageManager": "yarn@4.1.0",
   "scripts": {
     "test": "jest --runInBand --collectCoverage --detectOpenHandles --forceExit"

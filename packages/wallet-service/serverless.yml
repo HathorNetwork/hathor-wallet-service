@@ -11,6 +11,7 @@ custom:
         - schedule: rate(5 minutes)
   webpack:
     webpackConfig: ./webpack.config.js
+    packager: "yarn"
     includeModules: true
   prune:
     automatic: true
