@@ -24,7 +24,9 @@ module.exports = {
     filename: '[name].js',
   },
   target: 'node',
-  externals: [nodeExternals()],
+  externals: [nodeExternals({
+    allowlist: [new RegExp("@wallet-service/common*")],
+  })],
   module: {
     rules: [
       // all files with a `.ts` or `.tsx` extension will be handled by `ts-loader`
@@ -33,7 +35,13 @@ module.exports = {
         loader: 'ts-loader',
         exclude: [
           [
-            path.resolve(__dirname, 'node_modules'),
+            // The common module is not transpiled to javascript, so it needs
+            // to be loaded with the ts-loader
+            function(modulePath) {
+              return /node_modules/.test(modulePath) &&
+                     !/node_modules\/@wallet-service\/common/.test(modulePath);
+            },
+            // path.resolve(__dirname, 'node_modules'),
             path.resolve(__dirname, '.serverless'),
             path.resolve(__dirname, '.webpack'),
           ],
