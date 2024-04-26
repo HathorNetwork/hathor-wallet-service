@@ -4874,18 +4874,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@wallet-service/common@file:../../packages/common::locator=wallet-service%40workspace%3Apackages%2Fwallet-service":
-  version: 1.5.0
-  resolution: "@wallet-service/common@file:../../packages/common#../../packages/common::hash=770320&locator=wallet-service%40workspace%3Apackages%2Fwallet-service"
-  peerDependencies:
-    "@aws-sdk/client-lambda": 3.540.0
-    "@hathor/wallet-lib": 0.39.0
-    winston: ^3.13.0
-  checksum: 10/8c963d4d0e0ec1664002e33fb9ac481a58b9bb17714b0551581eebef9f11856b185c0566835148ad32d945779230ed0e5b6781a34f59be7f6d440759b20eb813
-  languageName: node
-  linkType: hard
-
-"@wallet-service/common@workspace:^, @wallet-service/common@workspace:packages/common":
+"@wallet-service/common@npm:1.5.0, @wallet-service/common@workspace:^, @wallet-service/common@workspace:packages/common":
   version: 0.0.0-use.local
   resolution: "@wallet-service/common@workspace:packages/common"
   dependencies:
@@ -15899,7 +15888,7 @@ __metadata:
     "@types/redis": "npm:^2.8.28"
     "@typescript-eslint/eslint-plugin": "npm:^6.7.4"
     "@typescript-eslint/parser": "npm:^3.3.0"
-    "@wallet-service/common": ../../packages/common
+    "@wallet-service/common": "npm:1.5.0"
     aws-lambda: "npm:^1.0.7"
     axios: "npm:^0.21.1"
     bip32: "npm:^3.0.1"
