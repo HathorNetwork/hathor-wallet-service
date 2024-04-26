@@ -9407,6 +9407,7 @@ __metadata:
     "@types/jest": "npm:^29.5.12"
     "@typescript-eslint/eslint-plugin": "npm:^7.4.0"
     "@typescript-eslint/parser": "npm:^7.4.0"
+    "@wallet-service/common": "npm:1.5.0"
     bip32: "npm:^4.0.0"
     bitcoinjs-lib: "npm:^6.1.5"
     bitcoinjs-message: "npm:^2.2.0"
@@ -15875,11 +15876,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "wallet-service@workspace:packages/wallet-service"
   dependencies:
-    "@aws-sdk/client-apigatewaymanagementapi": "npm:3.540.0"
-    "@aws-sdk/client-lambda": "npm:3.540.0"
-    "@aws-sdk/client-sqs": "npm:3.540.0"
     "@hathor/healthcheck-lib": "npm:^0.1.0"
-    "@hathor/wallet-lib": "npm:0.39.0"
     "@middy/core": "npm:^2.5.7"
     "@middy/http-cors": "npm:^2.5.7"
     "@types/aws-lambda": "npm:^8.10.95"
@@ -15888,12 +15885,9 @@ __metadata:
     "@types/redis": "npm:^2.8.28"
     "@typescript-eslint/eslint-plugin": "npm:^6.7.4"
     "@typescript-eslint/parser": "npm:^3.3.0"
-    "@wallet-service/common": "npm:1.5.0"
     aws-lambda: "npm:^1.0.7"
     axios: "npm:^0.21.1"
     bip32: "npm:^3.0.1"
-    bitcoinjs-lib: "npm:^6.1.5"
-    bitcoinjs-message: "npm:^2.2.0"
     bitcore-lib: "npm:8.25.10"
     bitcore-mnemonic: "npm:8.25.10"
     dotenv: "npm:^10.0.0"
@@ -15934,7 +15928,15 @@ __metadata:
     uuid: "npm:^8.3.0"
     webpack: "npm:^5.88.2"
     webpack-node-externals: "npm:^3.0.0"
-    winston: "npm:^3.13.0"
+  peerDependencies:
+    "@aws-sdk/client-apigatewaymanagementapi": 3.540.0
+    "@aws-sdk/client-lambda": 3.540.0
+    "@aws-sdk/client-sqs": 3.540.0
+    "@hathor/wallet-lib": ^0.39.0
+    "@wallet-service/common": 1.5.0
+    bitcoinjs-lib: ^6.1.5
+    bitcoinjs-message: ^2.2.0
+    winston: ^3.13.0
   languageName: unknown
   linkType: soft
 
@@ -16156,7 +16158,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"winston@npm:3.13.0, winston@npm:^3.13.0":
+"winston@npm:3.13.0":
   version: 3.13.0
   resolution: "winston@npm:3.13.0"
   dependencies:

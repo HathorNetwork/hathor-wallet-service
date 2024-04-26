@@ -11,20 +11,13 @@
   "author": "Hathor Labs",
   "license": "MIT",
   "dependencies": {
-    "@aws-sdk/client-apigatewaymanagementapi": "3.540.0",
-    "@aws-sdk/client-lambda": "3.540.0",
-    "@aws-sdk/client-sqs": "3.540.0",
     "@hathor/healthcheck-lib": "^0.1.0",
-    "@hathor/wallet-lib": "0.39.0",
     "@middy/core": "^2.5.7",
     "@middy/http-cors": "^2.5.7",
     "@types/redis": "^2.8.28",
-    "@wallet-service/common": "1.5.0",
     "aws-lambda": "^1.0.7",
     "axios": "^0.21.1",
     "bip32": "^3.0.1",
-    "bitcoinjs-lib": "^6.1.5",
-    "bitcoinjs-message": "^2.2.0",
     "bitcore-lib": "8.25.10",
     "bitcore-mnemonic": "8.25.10",
     "firebase-admin": "^11.3.0",
@@ -38,7 +31,16 @@
     "serverless-mysql": "^1.5.4",
     "source-map-support": "^0.5.19",
     "tiny-secp256k1": "^2.2.1",
-    "uuid": "^8.3.0",
+    "uuid": "^8.3.0"
+  },
+  "peerDependencies": {
+    "@aws-sdk/client-apigatewaymanagementapi": "3.540.0",
+    "@aws-sdk/client-lambda": "3.540.0",
+    "@aws-sdk/client-sqs": "3.540.0",
+    "@hathor/wallet-lib": "^0.39.0",
+    "@wallet-service/common": "1.5.0",
+    "bitcoinjs-lib": "^6.1.5",
+    "bitcoinjs-message": "^2.2.0",
     "winston": "^3.13.0"
   },
   "devDependencies": {
