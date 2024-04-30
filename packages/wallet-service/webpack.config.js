@@ -41,7 +41,6 @@ module.exports = {
               return /node_modules/.test(modulePath) &&
                      !/node_modules\/@wallet-service\/common/.test(modulePath);
             },
-            // path.resolve(__dirname, 'node_modules'),
             path.resolve(__dirname, '.serverless'),
             path.resolve(__dirname, '.webpack'),
           ],
