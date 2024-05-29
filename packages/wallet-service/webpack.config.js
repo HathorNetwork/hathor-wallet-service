@@ -24,6 +24,11 @@ module.exports = {
     filename: '[name].js',
   },
   target: 'node',
+  // The bundle gets too big if we allow webpack to bundle all dependencies so
+  // we remove them from the bundle (they get loaded in runtime).
+  //
+  // We are adding the common project to allowlist because otherwise it would not
+  // be seen by the serverless-monorepo package.
   externals: [nodeExternals({
     allowlist: [new RegExp("@wallet-service/common*")],
   })],
