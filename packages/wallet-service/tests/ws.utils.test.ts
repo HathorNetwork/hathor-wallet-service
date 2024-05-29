@@ -131,7 +131,8 @@ describe('sendMessageToClient', () => {
       {
         ConnectionId: connInfo.id,
         Message: JSON.stringify(message),
-      }
+      },
+      expect.any(Logger),
     );
   });
 
