@@ -351,8 +351,7 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
      */
     await invokeLoadWalletAsync(xpubkeyStr, maxGap);
   } catch (e) {
-    logger.error('Error on lambda wallet invoke', e);
-
+    logger.error(e);
     const newRetryCount = wallet.retryCount ? wallet.retryCount + 1 : 1;
     // update wallet status to 'error'
     await updateWalletStatus(mysql, walletId, WalletStatus.ERROR, newRetryCount);

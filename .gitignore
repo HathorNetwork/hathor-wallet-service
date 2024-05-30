@@ -12,5 +12,6 @@ packages/wallet-service/node_modules
 packages/wallet-service/.serverless
 packages/wallet-service/.webpack
 packages/wallet-service/.env*
+packages/wallet-service/.warmup
 .yarn/
 .env.*
