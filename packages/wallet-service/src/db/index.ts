@@ -21,7 +21,6 @@ import {
   StringMap,
   TokenBalanceMap,
   TokenInfo,
-  TxInput,
   TxOutputWithIndex,
   TxProposal,
   TxProposalStatus,
@@ -40,20 +39,26 @@ import {
   PushDevice,
   TxByIdToken,
   PushDeviceSettings,
-  Severity,
 } from '@src/types';
 import {
   getUnixTimestamp,
-  isAuthority,
   getAddressPath,
   xpubDeriveChild,
   getAddresses,
 } from '@src/utils';
 import {
+  isAuthority,
+} from '@wallet-service/common/src/utils/wallet.utils';
+import {
   getWalletFromDbEntry,
   getTxsFromDBResult,
 } from '@src/db/utils';
-import { addAlert } from '@src/utils/alerting.utils';
+import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
+import { TxInput, Severity } from '@wallet-service/common/src/types';
+import { Logger } from 'winston';
+import createDefaultLogger from '@src/logger';
+
+const logger: Logger = createDefaultLogger();
 
 const BLOCK_VERSION = [
   constants.BLOCK_VERSION,
@@ -2593,6 +2598,7 @@ export const getTotalSupply = async (
       '-',
       Severity.MINOR,
       { tokenId },
+      logger,
     );
     throw new Error('Total supply query returned no results');
   }
@@ -2651,6 +2657,7 @@ export const getTotalTransactions = async (
       '-',
       Severity.MINOR,
       { tokenId },
+      logger,
     );
     throw new Error('Total transactions query returned no results');
   }

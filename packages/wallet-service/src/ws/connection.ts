@@ -20,10 +20,10 @@ import {
   initWsConnection,
   endWsConnection,
 } from '@src/redis';
-import { Severity } from '@src/types';
+import { Severity } from '@wallet-service/common/src/types';
 import { closeDbConnection, getDbConnection } from '@src/utils';
 import createDefaultLogger from '@src/logger';
-import { addAlert } from '@src/utils/alerting.utils';
+import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 
 const mysql = getDbConnection();
 const logger = createDefaultLogger();
@@ -57,6 +57,7 @@ export const connect = async (
       '-',
       Severity.MINOR,
       { error: e.message },
+      logger,
     );
 
     logger.error('Captured error on connect websocket lambda', e);

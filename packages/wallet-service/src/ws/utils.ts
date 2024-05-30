@@ -1,6 +1,6 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { RedisClient } from 'redis';
-import { addAlert } from '@src/utils/alerting.utils';
+import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 import {
   ApiGatewayManagementApiClient,
   PostToConnectionCommand,
@@ -9,17 +9,20 @@ import {
   DeleteConnectionCommandOutput,
   GoneException,
 } from '@aws-sdk/client-apigatewaymanagementapi';
+import { Logger } from 'winston';
+import createDefaultLogger from '@src/logger';
 import util from 'util';
 
-import { WsConnectionInfo, Severity } from '@src/types';
+import { Severity } from '@wallet-service/common/src/types';
+import { WsConnectionInfo } from '@src/types';
 import { endWsConnection } from '@src/redis';
-import createDefaultLogger from '@src/logger';
 
 const logger = createDefaultLogger();
 
 export const connectionInfoFromEvent = (
   event: APIGatewayProxyEvent,
 ): WsConnectionInfo => {
+  const logger: Logger = createDefaultLogger();
   const connID = event.requestContext.connectionId;
   if (process.env.IS_OFFLINE === 'true') {
     // This will enter when running the service on serverless offline mode
@@ -36,6 +39,8 @@ export const connectionInfoFromEvent = (
       'Erroed while fetching connection info',
       'Domain not on env variables',
       Severity.MINOR,
+      null,
+      logger,
     );
 
     // Throw so we receive an alert telling us that something is wrong with the env variable
@@ -92,6 +97,7 @@ export const sendMessageToClient = async (
         ConnectionId: connInfo.id,
         Message: message,
       },
+      logger,
     )
   }
 };

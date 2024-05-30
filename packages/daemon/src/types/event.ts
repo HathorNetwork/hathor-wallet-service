@@ -14,7 +14,7 @@ export type MetadataDecidedEvent = {
   originalEvent: FullNodeEvent;
 }
 
-export type WebSocketSendEvent = 
+export type WebSocketSendEvent =
   | {
       type: 'START_STREAM';
       window_size: number;
@@ -75,6 +75,7 @@ export type FullNodeEvent = {
       tokens: string[];
       token_name: null | string;
       token_symbol: null | string;
+      signal_bits: number;
       metadata: {
         hash: string;
         voided_by: string[];

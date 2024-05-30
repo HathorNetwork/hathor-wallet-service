@@ -6,12 +6,13 @@
  */
 
 import { LambdaClient, InvokeCommand, InvokeCommandOutput } from '@aws-sdk/client-lambda';
-import { PushProvider, Severity, SendNotificationToDevice, StringMap, WalletBalanceValue } from '@src/types';
+import { PushProvider, SendNotificationToDevice, StringMap, WalletBalanceValue } from '@src/types';
+import { Severity } from '@wallet-service/common/src/types';
 import fcmAdmin, { credential, messaging, ServiceAccount } from 'firebase-admin';
 import { MulticastMessage } from 'firebase-admin/messaging';
 import createDefaultLogger from '@src/logger';
-import { assertEnvVariablesExistence } from '@src/utils';
-import { addAlert } from '@src/utils/alerting.utils';
+import { assertEnvVariablesExistence } from '@wallet-service/common/src/utils/index.utils';
+import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 
 const logger = createDefaultLogger();
 
@@ -37,6 +38,8 @@ try {
     'Lambda missing env variables',
     e.message, // This should contain the list of env variables that are missing
     Severity.MINOR,
+    null,
+    logger,
   );
 }
 
@@ -215,6 +218,7 @@ export class PushNotificationUtils {
       'Error while calling sendMulticast(message) of Firebase Cloud Message.',
       Severity.MAJOR,
       { error },
+      logger,
     );
     logger.error('Error while calling sendMulticast(message) of Firebase Cloud Message.', { error });
     return { success: false, errorMessage: PushNotificationError.UNKNOWN };
@@ -248,6 +252,7 @@ export class PushNotificationUtils {
         `${SEND_NOTIFICATION_FUNCTION_NAME} lambda invoke failed for device: ${notification.deviceId}`,
         Severity.MINOR,
         { DeviceId: notification.deviceId },
+        logger,
       );
       throw new Error(`${SEND_NOTIFICATION_FUNCTION_NAME} lambda invoke failed for device: ${notification.deviceId}`);
     }
@@ -284,6 +289,7 @@ export class PushNotificationUtils {
         `${ON_TX_PUSH_NOTIFICATION_REQUESTED_FUNCTION_NAME} lambda invoke failed for wallets`,
         Severity.MINOR,
         { Wallets: walletIdList },
+        logger,
       );
       throw new Error(`${ON_TX_PUSH_NOTIFICATION_REQUESTED_FUNCTION_NAME} lambda invoke failed for wallets: ${walletIdList}`);
     }

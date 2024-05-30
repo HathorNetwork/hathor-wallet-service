@@ -9,7 +9,6 @@ import { Handler } from 'aws-lambda';
 import { closeDbConnection, getDbConnection } from '@src/utils';
 import Joi, { ValidationError } from 'joi';
 import {
-  Severity,
   TokenBalanceValue,
   LocalizeMetadataNotification,
   SendNotificationToDevice,
@@ -19,10 +18,12 @@ import {
 import { getPushDeviceSettingsList } from '@src/db';
 import createDefaultLogger from '@src/logger';
 import { PushNotificationUtils } from '@src/utils/pushnotification.utils';
+import { Severity } from '@wallet-service/common/src/types';
 import { Logger } from 'winston';
-import { addAlert } from '@src/utils/alerting.utils';
+import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 
 const mysql = getDbConnection();
+const logger = createDefaultLogger();
 
 export const pushNotificationMessage = {
   newTransaction: {
@@ -80,7 +81,6 @@ class TxPushNotificationRequestValidator {
  */
 // eslint-disable-next-line max-len
 export const handleRequest: Handler<StringMap<WalletBalanceValue>, { success: boolean, message?: string, details?: unknown }> = async (event, context) => {
-  const logger = createDefaultLogger();
   // Logs the request id on every line, so we can see all logs from a request
   logger.defaultMeta = {
     module: __filename,
@@ -102,6 +102,7 @@ export const handleRequest: Handler<StringMap<WalletBalanceValue>, { success: bo
       '-',
       Severity.MINOR,
       { details },
+      logger,
     );
     logger.error('Invalid payload while handling push notification request.', { details });
     return { success: false, message: pushNotificationMessage.invalidPayload, details };
@@ -207,6 +208,7 @@ const _sendNotification = async (notification: SendNotificationToDevice, logger:
       '-',
       Severity.MINOR,
       { ...notification },
+      logger,
     );
     logger.error('Unexpected failure while calling invokeSendNotificationHandlerLambda.', { ...notification, error });
   }

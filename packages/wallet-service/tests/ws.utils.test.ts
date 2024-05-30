@@ -1,6 +1,7 @@
+import { Logger } from 'winston';
 import { mockedAddAlert } from '@tests/utils/alerting.utils.mock';
 import { connectionInfoFromEvent, sendMessageToClient } from '@src/ws/utils';
-import { Severity } from '@src/types';
+import { Severity } from '@wallet-service/common/src/types';
 
 import { logger } from '@tests/winston.mock';
 import { RedisClient } from 'redis';
@@ -80,6 +81,8 @@ test('missing WS_DOMAIN should throw', () => {
     'Erroed while fetching connection info',
     'Domain not on env variables',
     Severity.MINOR,
+    null,
+    expect.any(Logger),
   );
 });
 
@@ -128,7 +131,8 @@ describe('sendMessageToClient', () => {
       {
         ConnectionId: connInfo.id,
         Message: JSON.stringify(message),
-      }
+      },
+      expect.any(Logger),
     );
   });
 

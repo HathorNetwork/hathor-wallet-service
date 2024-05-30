@@ -6,7 +6,8 @@
  */
 
 import { Connection as MysqlConnection, RowDataPacket } from 'mysql2/promise';
-import { DbTxOutput, EventTxInput, TxInput, TxOutputWithIndex } from "../src/types";
+import { DbTxOutput, EventTxInput } from '../src/types';
+import { TxInput, TxOutputWithIndex } from '@wallet-service/common/src/types';
 import {
   AddressBalanceRow,
   AddressTableRow,

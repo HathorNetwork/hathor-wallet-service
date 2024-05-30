@@ -1,5 +1,3 @@
-/* eslint-disable max-classes-per-file */
-
 /**
  * Copyright (c) Hathor Labs and its affiliates.
  *
@@ -7,125 +5,80 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { TxInput, TxOutput } from '@wallet-service/common/src/types';
+/**
+ * Alerts should follow the on-call guide for alerting, see
+ * https://github.com/HathorNetwork/ops-tools/blob/master/docs/on-call/guide.md#alert-severitypriority
+ */
 
-import hathorLib from '@hathor/wallet-lib';
-import { isAuthority } from '@wallet-service/common/src/utils/wallet.utils';
-
-import {
-  APIGatewayProxyEvent,
-  APIGatewayProxyResult,
-  Context,
-  Callback,
-} from 'aws-lambda';
+// @ts-ignore
+import { constants } from '@hathor/wallet-lib';
+import { isAuthority } from './utils/wallet.utils';
 
 export interface StringMap<T> {
   [x: string]: T;
 }
 
-export type AddressIndexMap = StringMap<number>;
-
-export interface GenerateAddresses {
-  addresses: string[];
-  existingAddresses: StringMap<number>;
-  newAddresses: StringMap<number>;
-  lastUsedAddressIndex: number;
+export enum Severity {
+  CRITICAL = 'critical',
+  MAJOR = 'major',
+  MEDIUM = 'medium',
+  MINOR = 'minor',
+  WARNING = 'warning',
+  INFO = 'info',
 }
 
-export enum TxProposalStatus {
-  OPEN = 'open',
-  SENT = 'sent',
-  SEND_ERROR = 'send_error',
-  CANCELLED = 'cancelled',
-}
-
-export interface FullNodeVersionData {
+export interface Transaction {
+  // eslint-disable-next-line camelcase
+  tx_id: string;
+  nonce: number;
   timestamp: number;
-  version: string;
-  network: string;
-  minWeight: number;
-  minTxWeight: number;
-  minTxWeightCoefficient: number;
-  minTxWeightK: number;
-  tokenDepositPercentage: number;
-  rewardSpendMinBlocks: number;
-  maxNumberInputs: number;
-  maxNumberOutputs: number;
+  // eslint-disable-next-line camelcase
+  signal_bits: number;
+  version: number;
+  weight: number;
+  parents: string[];
+  inputs: TxInput[];
+  outputs: TxOutput[];
+  height?: number;
+  voided?: boolean | null;
+  // eslint-disable-next-line camelcase
+  token_name?: string | null;
+  // eslint-disable-next-line camelcase
+  token_symbol?: string | null;
 }
 
-export interface TxProposal {
-  id: string;
-  walletId: string;
-  status: TxProposalStatus;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export enum WalletStatus {
-  CREATING = 'creating',
-  READY = 'ready',
-  ERROR = 'error',
-}
-
-export interface Wallet {
-  walletId: string;
-  xpubkey: string;
-  authXpubkey: string,
-  maxGap: number;
-  status?: WalletStatus;
-  retryCount?: number;
-  createdAt?: number;
-  readyAt?: number;
-}
-
-export interface AddressInfo {
-  address: string;
+export interface TxInput {
+  // eslint-disable-next-line camelcase
+  tx_id: string;
   index: number;
-  transactions: number;
+  value: number;
+  // eslint-disable-next-line camelcase
+  token_data: number;
+  script: string;
+  token: string;
+  decoded?: DecodedOutput | null;
 }
 
-export interface ShortAddressInfo {
-  address: string;
+export interface TxOutput {
+  value: number;
+  script: string;
+  token: string;
+  decoded: DecodedOutput;
+  // eslint-disable-next-line camelcase
+  spent_by: string | null;
+  // eslint-disable-next-line camelcase
+  token_data: number;
+  locked?: boolean;
+}
+
+export interface TxOutputWithIndex extends TxOutput {
   index: number;
-  addressPath: string;
 }
 
-export interface TokenBalance {
-  tokenId: string;
-  balance: Balance;
-  transactions: number;
-}
-
-export class TokenInfo {
-  id: string;
-
-  name: string;
-
-  symbol: string;
-
-  transactions: number;
-
-  constructor(id: string, name: string, symbol: string, transactions?: number) {
-    this.id = id;
-    this.name = name;
-    this.symbol = symbol;
-    this.transactions = transactions || 0;
-
-    const hathorConfig = hathorLib.constants.HATHOR_TOKEN_CONFIG;
-
-    if (this.id === hathorConfig.uid) {
-      this.name = hathorConfig.name;
-      this.symbol = hathorConfig.symbol;
-    }
-  }
-
-  toJSON(): Record<string, unknown> {
-    return {
-      id: this.id,
-      name: this.name,
-      symbol: this.symbol,
-    };
-  }
+export interface DecodedOutput {
+  type: string;
+  address: string;
+  timelock: number | null;
 }
 
 export class Authorities {
@@ -137,7 +90,7 @@ export class Authorities {
   array: number[];
 
   constructor(authorities?: number | number[]) {
-    let tmp = [];
+    let tmp: number[] = [];
     if (authorities instanceof Array) {
       tmp = authorities;
     } else if (authorities != null) {
@@ -240,8 +193,8 @@ export class Authorities {
   toJSON(): Record<string, unknown> {
     const authorities = this.toInteger();
     return {
-      mint: (authorities & hathorLib.constants.TOKEN_MINT_MASK) > 0, // eslint-disable-line no-bitwise
-      melt: (authorities & hathorLib.constants.TOKEN_MELT_MASK) > 0, // eslint-disable-line no-bitwise
+      mint: (authorities & constants.TOKEN_MINT_MASK) > 0, // eslint-disable-line no-bitwise
+      melt: (authorities & constants.TOKEN_MELT_MASK) > 0, // eslint-disable-line no-bitwise
     };
   }
 }
@@ -257,7 +210,7 @@ export class Balance {
 
   unlockedAuthorities: Authorities;
 
-  lockExpires: number | null;
+  lockExpires: number | null | undefined;
 
   constructor(totalAmountSent = 0, unlockedAmount = 0, lockedAmount = 0, lockExpires = null, unlockedAuthorities = null, lockedAuthorities = null) {
     this.totalAmountSent = totalAmountSent;
@@ -296,6 +249,7 @@ export class Balance {
       this.totalAmountSent,
       this.unlockedAmount,
       this.lockedAmount,
+      // @ts-ignore
       this.lockExpires,
       this.unlockedAuthorities.clone(),
       this.lockedAuthorities.clone(),
@@ -319,67 +273,19 @@ export class Balance {
     } else if (b2.lockExpires === null) {
       lockExpires = b1.lockExpires;
     } else {
+      // @ts-ignore
       lockExpires = Math.min(b1.lockExpires, b2.lockExpires);
     }
     return new Balance(
       b1.totalAmountSent + b2.totalAmountSent,
       b1.unlockedAmount + b2.unlockedAmount,
       b1.lockedAmount + b2.lockedAmount,
+      // @ts-ignore
       lockExpires,
       Authorities.merge(b1.unlockedAuthorities, b2.unlockedAuthorities),
       Authorities.merge(b1.lockedAuthorities, b2.lockedAuthorities),
     );
   }
-}
-
-export type TokenBalanceValue = {
-  tokenId: string,
-  tokenSymbol: string,
-  totalAmountSent: number;
-  lockedAmount: number;
-  unlockedAmount: number;
-  lockedAuthorities: Record<string, unknown>;
-  unlockedAuthorities: Record<string, unknown>;
-  lockExpires: number | null;
-  total: number;
-}
-
-export class WalletTokenBalance {
-  token: TokenInfo;
-
-  balance: Balance;
-
-  transactions: number;
-
-  constructor(token: TokenInfo, balance: Balance, transactions: number) {
-    this.token = token;
-    this.balance = balance;
-    this.transactions = transactions;
-  }
-
-  toJSON(): Record<string, unknown> {
-    return {
-      token: this.token,
-      transactions: this.transactions,
-      balance: {
-        unlocked: this.balance.unlockedAmount,
-        locked: this.balance.lockedAmount,
-      },
-      tokenAuthorities: {
-        unlocked: this.balance.unlockedAuthorities,
-        locked: this.balance.lockedAuthorities,
-      },
-      lockExpires: this.balance.lockExpires,
-    };
-  }
-}
-
-export interface TxTokenBalance {
-  txId: string;
-  timestamp: number;
-  voided: boolean;
-  balance: Balance;
-  version: number;
 }
 
 export class TokenBalanceMap {
@@ -433,8 +339,15 @@ export class TokenBalanceMap {
   static fromStringMap(tokenBalanceMap: StringMap<StringMap<number | Authorities>>): TokenBalanceMap {
     const obj = new TokenBalanceMap();
     for (const [tokenId, balance] of Object.entries(tokenBalanceMap)) {
-      obj.set(tokenId, new Balance(balance.totalSent as number, balance.unlocked as number, balance.locked as number, balance.lockExpires || null,
-        balance.unlockedAuthorities, balance.lockedAuthorities));
+      obj.set(tokenId, new Balance(
+        balance.totalSent as number,
+        balance.unlocked as number,
+        balance.locked as number,
+        // @ts-ignore
+        balance.lockExpires || null,
+        balance.unlockedAuthorities,
+        balance.lockedAuthorities,
+      ));
     }
     return obj;
   }
@@ -464,18 +377,23 @@ export class TokenBalanceMap {
    * @returns The TokenBalanceMap object
    */
   static fromTxOutput(output: TxOutput): TokenBalanceMap {
-    // TODO check if output.decoded exists, else return null
+    if (!output.decoded) {
+      throw new Error('Output has no decoded script');
+    }
     const token = output.token;
     const value = output.value;
     const obj = new TokenBalanceMap();
 
     if (output.locked) {
       if (isAuthority(output.token_data)) {
+        // @ts-ignore
         obj.set(token, new Balance(0, 0, 0, output.decoded.timelock, 0, new Authorities(output.value)));
       } else {
+        // @ts-ignore
         obj.set(token, new Balance(value, 0, value, output.decoded.timelock, 0, 0));
       }
     } else if (isAuthority(output.token_data)) {
+      // @ts-ignore
       obj.set(token, new Balance(0, 0, 0, null, new Authorities(output.value), 0));
     } else {
       obj.set(token, new Balance(value, value, 0, null));
@@ -500,252 +418,21 @@ export class TokenBalanceMap {
     if (isAuthority(input.token_data)) {
       // for inputs, the authorities will have a value of -1 when set
       const authorities = new Authorities(input.value);
-      obj.set(token, new Balance(0, 0, 0, null, authorities.toNegative(), new Authorities(0)));
+      obj.set(
+        token,
+        new Balance(
+          0,
+          0,
+          0,
+          null,
+          // @ts-ignore
+          authorities.toNegative(),
+          new Authorities(0),
+        ),
+      );
     } else {
       obj.set(token, new Balance(0, -input.value, 0, null));
     }
     return obj;
   }
-}
-
-/**
- * Return type from ServerlessMysql#query after performing a SQL SELECT
- * (Array of objects containing the requested table fields.)
- */
-export type DbSelectResult = Array<Record<string, unknown>>;
-
-/**
- * Hathor types
- */
-
-export interface TxOutputWithIndex extends TxOutput {
-  index: number;
-}
-
-export interface IWalletOutput {
-  address: string;
-  value: number;
-  token: string;
-  tokenData: number;
-  timelock: number;
-}
-
-export interface IWalletInput {
-  txId: string;
-  index: number;
-}
-
-export interface ApiResponse {
-  success: boolean;
-  message: string;
-}
-
-export type WsConnectionInfo = {
-  id: string;
-  url: string;
-}
-
-export type RedisConfig = {
-  url: string;
-  password?: string;
-};
-
-export interface Tx {
-  txId: string;
-  timestamp: number;
-  version: number;
-  voided: boolean;
-  height?: number | null;
-  weight: number;
-}
-
-export interface AddressBalance {
-  address: string;
-  tokenId: string;
-  unlockedBalance: number;
-  lockedBalance: number;
-  unlockedAuthorities: number;
-  lockedAuthorities: number;
-  timelockExpires: number;
-  transactions: number;
-}
-
-export interface AddressTotalBalance {
-  address: string;
-  tokenId: string;
-  balance: number;
-  transactions: number;
-}
-
-export interface DbTxOutput {
-  txId: string;
-  index: number;
-  tokenId: string;
-  address: string;
-  value: number;
-  authorities: number;
-  timelock: number | null;
-  heightlock: number | null;
-  locked: boolean;
-  spentBy?: string | null;
-  txProposalId?: string;
-  txProposalIndex?: number;
-  voided?: boolean | null;
-}
-
-export interface Block {
-  txId: string;
-  height: number;
-  timestamp: number;
-}
-
-// maybe use templates <TEvent = any, TResult = any>
-export type WalletProxyHandler = (
-  walletId: string,
-  event?: APIGatewayProxyEvent,
-  context?: Context,
-  callback?: Callback<APIGatewayProxyResult>
-) => Promise<APIGatewayProxyResult>;
-
-export interface IFilterTxOutput {
-  addresses: string[];
-  tokenId?: string;
-  authority?: number;
-  ignoreLocked?: boolean;
-  biggerThan?: number;
-  smallerThan?: number;
-  maxOutputs?: number;
-  skipSpent?: boolean;
-  txId?: string;
-  index?: number;
-}
-
-export enum InputSelectionAlgo {
-  USE_LARGER_UTXOS = 'use-larger-utxos',
-}
-
-export interface IWalletInsufficientFunds {
-  tokenId: string;
-  requested: number;
-  available: number;
-}
-
-export interface DbTxOutputWithPath extends DbTxOutput {
-  addressPath: string;
-}
-
-export interface Miner {
-  address: string;
-  firstBlock: string;
-  lastBlock: string;
-  count: number;
-}
-
-export enum PushProvider {
-  IOS = 'ios',
-  ANDROID = 'android'
-}
-
-export interface PushRegister {
-  pushProvider: PushProvider,
-  deviceId: string,
-  enablePush?: boolean,
-  enableShowAmounts?: boolean
-}
-
-export interface PushUpdate {
-  deviceId: string,
-  enablePush?: boolean,
-  enableShowAmounts?: boolean
-}
-
-export interface PushDelete {
-  deviceId: string,
-}
-
-export interface AddressAtIndexRequest {
-  index?: number,
-}
-
-export interface TxByIdRequest {
-  txId: string,
-}
-
-export interface TxByIdToken {
-  txId: string;
-  timestamp: number;
-  version: number;
-  voided: boolean;
-  weight: number;
-  balance: Balance;
-  tokenId: string;
-  tokenName: string;
-  tokenSymbol: string;
-}
-
-export interface ParamValidationResult<ValueType> {
-  error: boolean;
-  details?: { message: string, path: (string | number)[] }[],
-  value?: ValueType;
-}
-
-export interface GraphvizParams {
-  txId: string;
-  graphType: string;
-  maxLevel: number;
-}
-
-export interface GetTxByIdParams {
-  txId: string;
-}
-
-export interface GetConfirmationDataParams {
-  txId: string;
-}
-
-export interface SendNotificationToDevice {
-  deviceId: string,
-  /**
-   * A string map used to send data in the notification message.
-   * @see LocalizeMetadataNotification
-   *
-   * @example
-   * {
-   *    "titleLocKey": "new_transaction_received_title",
-   *    "bodyLocKey": "new_transaction_received_description_with_tokens",
-   *    "bodyLocArgs": "['13 HTR', '8 TNT', '2']"
-   * }
-   */
-  metadata: Record<string, string>,
-}
-
-export type LocalizeMetadataNotification = {
-  titleLocKey: string,
-  titleLocArgs: string,
-  bodyLocKey: string,
-  bodyLocArgs: string,
-}
-
-export interface PushDevice {
-  walletId: string,
-  deviceId: string,
-  pushProvider: PushProvider,
-  enablePush: boolean,
-  enableShowAmounts: boolean
-}
-
-export type PushDeviceSettings = Omit<PushDevice, 'pushProvider'>;
-
-export interface WalletBalance {
-  txId: string,
-  walletId: string,
-  addresses: string[],
-  walletBalanceForTx: TokenBalanceMap,
-}
-
-export interface WalletBalanceValue {
-  txId: string,
-  walletId: string,
-  addresses: string[],
-  walletBalanceForTx: TokenBalanceValue[],
 }

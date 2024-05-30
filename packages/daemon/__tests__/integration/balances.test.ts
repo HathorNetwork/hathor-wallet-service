@@ -34,10 +34,15 @@ jest.mock('../../src/config', () => {
   };
 });
 
+jest.mock('@wallet-service/common/src/utils/index.utils', () => ({
+  assertEnvVariablesExistence: jest.fn(),
+}));
+
 import getConfig from '../../src/config';
 
 // @ts-ignore
 getConfig.mockReturnValue({
+  NETWORK: 'testnet',
   SERVICE_NAME: 'daemon-test',
   CONSOLE_LEVEL: 'debug',
   TX_CACHE_SIZE: 100,
@@ -81,6 +86,7 @@ describe('unvoided transaction scenario', () => {
   it('should do a full sync and the balances should match', async () => {
     // @ts-ignore
     getConfig.mockReturnValue({
+      NETWORK: 'testnet',
       SERVICE_NAME: 'daemon-test',
       CONSOLE_LEVEL: 'debug',
       TX_CACHE_SIZE: 100,
@@ -129,6 +135,7 @@ describe('reorg scenario', () => {
   it('should do a full sync and the balances should match', async () => {
     // @ts-ignore
     getConfig.mockReturnValue({
+      NETWORK: 'testnet',
       SERVICE_NAME: 'daemon-test',
       CONSOLE_LEVEL: 'debug',
       TX_CACHE_SIZE: 100,
@@ -177,6 +184,7 @@ describe('single chain blocks and transactions scenario', () => {
   it('should do a full sync and the balances should match', async () => {
     // @ts-ignore
     getConfig.mockReturnValue({
+      NETWORK: 'testnet',
       SERVICE_NAME: 'daemon-test',
       CONSOLE_LEVEL: 'debug',
       TX_CACHE_SIZE: 100,

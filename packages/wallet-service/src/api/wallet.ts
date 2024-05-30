@@ -21,7 +21,7 @@ import {
   updateWalletStatus,
   updateWalletAuthXpub,
 } from '@src/db';
-import { Severity, WalletStatus } from '@src/types';
+import { WalletStatus } from '@src/types';
 import {
   closeDbConnection,
   getDbConnection,
@@ -38,7 +38,8 @@ import middy from '@middy/core';
 import cors from '@middy/http-cors';
 import Joi from 'joi';
 import createDefaultLogger from '@src/logger';
-import { addAlert } from '@src/utils/alerting.utils';
+import { Severity } from '@wallet-service/common/src/types';
+import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 
 const mysql = getDbConnection();
 
@@ -350,8 +351,7 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
      */
     await invokeLoadWalletAsync(xpubkeyStr, maxGap);
   } catch (e) {
-    logger.error('Error on lambda wallet invoke', e);
-
+    logger.error(e);
     const newRetryCount = wallet.retryCount ? wallet.retryCount + 1 : 1;
     // update wallet status to 'error'
     await updateWalletStatus(mysql, walletId, WalletStatus.ERROR, newRetryCount);
@@ -411,6 +411,7 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
             RequestID: RequestID.Value,
             ErrorMessage: ErrorMessage.Value,
           },
+          logger,
         );
         continue;
       }
@@ -437,6 +438,7 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
           RequestID: RequestID.Value,
           ErrorMessage: ErrorMessage.Value,
         },
+        logger,
       );
     }
   } catch (e) {
@@ -446,6 +448,7 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
       // This is major because the user will be stuck in a loading cycle
       Severity.MAJOR,
       { event },
+      logger,
     );
   }
 };
