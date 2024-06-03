@@ -340,7 +340,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
           const { length: hasAffectWallets } = Object.keys(walletBalanceMap);
           if (hasAffectWallets) {
             invokeOnTxPushNotificationRequestedLambda(walletBalanceMap)
-              .catch((err: Error) => logger.error('Errored on invokeOnTxPushNotificationRequestedLambda invocation', err));
+              .catch((err: Error) => logger.error('Error on invokeOnTxPushNotificationRequestedLambda invocation', err));
           }
         }
       } catch (e) {
@@ -360,7 +360,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
         // In case of errors, just log the asynchronous exception and take no action on it.
         NftUtils.invokeNftHandlerLambda(tx.tx_id, STAGE, logger)
-          .catch((err) => logger.error('[ALERT] Errored on nftHandlerLambda invocation', err));
+          .catch((err: unknown) => logger.error('[ALERT] Error on nftHandlerLambda invocation', err));
       }
     }
 
