@@ -16,7 +16,7 @@ COPY . .
 
 RUN corepack enable
 
-# Use the last stable berry version:
+# Use the same version as flake's
 RUN yarn set version 4.1.0
 
 # This will install dependencies for the sync-daemon, devDependencies included:
