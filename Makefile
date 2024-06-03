@@ -10,6 +10,12 @@ build-daemon:
 push-daemon:
 	bash scripts/push-daemon.sh
 
+.PHONY: deploy-lambdas-nano
+deploy-lambdas-nano:
+# TODO: We should make sure to use the right profile here (I had to set it as default to not lose time)
+# AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage nano --region eu-central-1 --aws-profile nano-testnet
+	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage nano --region eu-central-1
+
 .PHONY: deploy-lambdas-dev-testnet
 deploy-lambdas-dev-testnet:
 	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage dev-testnet --region eu-central-1
