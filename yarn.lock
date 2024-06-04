@@ -13970,6 +13970,19 @@ __metadata:
   languageName: node
   linkType: hard
 
+"serverless-better-credentials@npm:^2.0.0":
+  version: 2.0.0
+  resolution: "serverless-better-credentials@npm:2.0.0"
+  dependencies:
+    open: "npm:^8.4.2"
+  peerDependencies:
+    "@serverless/utils": ^6.0.2
+    aws-sdk: ^2.567.0
+    serverless: ^2 || ^3
+  checksum: 10/87f15aa9460c41d3cc3cf37dbc47a28fe5d654e73d82d46c250bf665cd21de59878091605b952a9f33f69e60024828f96c9f204377fd3de738fe6a63ff9ea9c0
+  languageName: node
+  linkType: hard
+
 "serverless-iam-roles-per-function@npm:^3.2.0":
   version: 3.2.0
   resolution: "serverless-iam-roles-per-function@npm:3.2.0"
@@ -15915,6 +15928,7 @@ __metadata:
     redis: "npm:^3.1.2"
     serverless: "npm:^3.35.2"
     serverless-api-gateway-throttling: "npm:^1.1.1"
+    serverless-better-credentials: "npm:^2.0.0"
     serverless-iam-roles-per-function: "npm:^3.2.0"
     serverless-mysql: "npm:^1.5.4"
     serverless-offline: "npm:^13.1.2"

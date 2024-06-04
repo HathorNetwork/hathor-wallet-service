@@ -93,6 +93,9 @@ custom:
       - minorFunctionErrors
 
 plugins:
+  # TODO: Serverless v4 should render this plugin obsolete. Remove it when upgrading.
+  # It's currently in beta, so I preferred not to upgrade yet - 2024-06-03 - luislhl
+  - serverless-better-credentials
   - serverless-offline
   - serverless-plugin-monorepo
   - serverless-webpack
@@ -681,6 +684,7 @@ functions:
           Fn::GetAtt: [ SendNotificationToDeviceLambdaFunction , Arn ]
   healthcheck:
     handler: src/api/healthcheck.getHealthcheck
+    timeout: 60  # TODO: This helps debugging. We should re-evaluate whether to keep it.
     events:
       - http:
           private: true
