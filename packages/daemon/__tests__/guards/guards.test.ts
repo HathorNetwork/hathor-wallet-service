@@ -28,7 +28,7 @@ jest.mock('../../src/config', () => {
   };
 });
 
-jest.mock('@wallet-service/common/src/utils/index.utils', () => ({
+jest.mock('@wallet-service/common', () => ({
   assertEnvVariablesExistence: jest.fn(),
 }));
 

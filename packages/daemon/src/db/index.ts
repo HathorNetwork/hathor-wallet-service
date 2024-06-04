@@ -24,8 +24,8 @@ import {
   TxInput,
   TokenBalanceMap,
   TxOutputWithIndex,
-} from '@wallet-service/common/src/types';
-import { isAuthority } from '@wallet-service/common/src/utils/wallet.utils';
+} from '@wallet-service/common';
+import { walletUtils as walletServiceUtils } from '@wallet-service/common';
 import {
   AddressBalanceRow,
   AddressTxHistorySumRow,
@@ -126,7 +126,7 @@ export const addUtxos = async (
       let authorities = 0;
       let value = output.value;
 
-      if (isAuthority(output.token_data)) {
+      if (walletServiceUtils.isAuthority(output.token_data)) {
         authorities = value;
         value = 0;
       }

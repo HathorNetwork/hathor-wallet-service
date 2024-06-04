@@ -4,7 +4,7 @@ import { SendMessageCommand, SendMessageCommandOutput, SQSClient, MessageAttribu
 import { StringMap } from '../types';
 import getConfig from '../config';
 import logger from '../logger';
-import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
+import { alertUtils } from '@wallet-service/common';
 
 export function buildFunctionName(functionName: string): string {
   const { STAGE } = getConfig();
@@ -45,7 +45,7 @@ export const invokeOnTxPushNotificationRequestedLambda = async (walletBalanceVal
     // Event InvocationType returns 202 for a successful invokation
     const walletIdList = Object.keys(walletBalanceValueMap);
 
-    await addAlert(
+    await alertUtils.addAlert(
       'Error on PushNotificationUtils',
       `${ON_TX_PUSH_NOTIFICATION_REQUESTED_FUNCTION_NAME} lambda invoke failed for wallets`,
       Severity.MINOR,

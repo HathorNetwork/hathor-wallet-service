@@ -65,9 +65,9 @@ import {
   createOutput,
   XPUBKEY,
 } from '../utils';
-import { isAuthority } from '@wallet-service/common/src/utils/wallet.utils';
+import { walletUtils } from '@wallet-service/common';
 import { DbTxOutput, StringMap, TokenInfo, WalletStatus } from '../../src/types';
-import { Authorities, TokenBalanceMap } from '@wallet-service/common/src/types';
+import { Authorities, TokenBalanceMap } from '@wallet-service/common';
 
 // Use a single mysql connection for all tests
 let mysql: Connection;
@@ -160,7 +160,7 @@ describe('tx output methods', () => {
       let { value } = output;
       const { token, decoded } = output;
       let authorities = 0;
-      if (isAuthority(output.token_data)) {
+      if (walletUtils.isAuthority(output.token_data)) {
         authorities = value;
         value = 0;
       }
@@ -233,7 +233,7 @@ describe('tx output methods', () => {
       let { value } = output;
       const { token, decoded } = output;
       let authorities = 0;
-      if (isAuthority(output.token_data)) {
+      if (walletUtils.isAuthority(output.token_data)) {
         authorities = value;
         value = 0;
       }

@@ -9,7 +9,7 @@
 import hathorLib from '@hathor/wallet-lib';
 import axios from 'axios';
 import { get } from 'lodash';
-import { NftUtils } from '@wallet-service/common/src/utils/nft.utils';
+import { nftUtils } from '@wallet-service/common';
 import {
   StringMap,
   Wallet,
@@ -25,7 +25,7 @@ import {
   Transaction,
   TokenBalanceMap,
   TxOutputWithIndex,
-} from '@wallet-service/common/src/types';
+} from '@wallet-service/common';
 import {
   prepareOutputs,
   getAddressBalanceMap,
@@ -66,6 +66,9 @@ import {
 import getConfig from '../config';
 import logger from '../logger';
 import { invokeOnTxPushNotificationRequestedLambda, sendMessageSQS } from '../utils/aws';
+
+console.log('\n\n\n NFT UTILS', nftUtils);
+console.log('\n\n\n');
 
 export const METADATA_DIFF_EVENT_TYPES = {
   IGNORE: 'IGNORE',
@@ -356,10 +359,10 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       const network = new hathorLib.Network(NETWORK);
 
       // Validating for NFTs only after the tx is successfully added
-      if (NftUtils.shouldInvokeNftHandlerForTx(tx, network, logger)) {
+      if (nftUtils.NftUtils.shouldInvokeNftHandlerForTx(tx, network, logger)) {
         // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
         // In case of errors, just log the asynchronous exception and take no action on it.
-        NftUtils.invokeNftHandlerLambda(tx.tx_id, STAGE, logger)
+        nftUtils.NftUtils.invokeNftHandlerLambda(tx.tx_id, STAGE, logger)
           .catch((err: unknown) => logger.error('[ALERT] Error on nftHandlerLambda invocation', err));
       }
     }

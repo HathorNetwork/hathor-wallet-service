@@ -5,6 +5,10 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+ export * as alertUtils from './alerting.utils';
+ export * as nftUtils from './nft.utils';
+ export * as walletUtils from './wallet.utils';
+
 /**
  * Validates if a list of env variables are set in the environment. Throw if at least
  * one of them is missing

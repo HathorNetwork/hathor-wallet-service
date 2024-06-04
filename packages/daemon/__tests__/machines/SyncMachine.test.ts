@@ -29,10 +29,6 @@ import getConfig from '../../src/config';
 const { TX_CACHE_SIZE, FULLNODE_PEER_ID, STREAM_ID } = getConfig();
 const { VERTEX_METADATA_CHANGED, NEW_VERTEX_ACCEPTED, REORG_STARTED } = EventFixtures;
 
-jest.mock('@wallet-service/common/src/utils/index.utils', () => ({
-  assertEnvVariablesExistence: jest.fn(),
-}));
-
 const TxCache = new LRU(TX_CACHE_SIZE);
 
 beforeAll(async () => {
@@ -79,6 +75,7 @@ describe('machine initialization', () => {
 
     let currentState = MockedFetchMachine.initialState;
 
+    console.log('Current State: ', currentState);
     expect(currentState.matches(SYNC_MACHINE_STATES.INITIALIZING)).toBeTruthy();
 
     currentState = MockedFetchMachine.transition(currentState, {
@@ -108,6 +105,7 @@ describe('machine initialization', () => {
 
     let currentState = MockedFetchMachine.initialState;
 
+    console.log('Current State 2: ', currentState);
     expect(currentState.matches(SYNC_MACHINE_STATES.INITIALIZING)).toBeTruthy();
 
     currentState = MockedFetchMachine.transition(currentState, {
@@ -117,6 +115,7 @@ describe('machine initialization', () => {
       data: { lastEventId: 999 },
     });
 
+    console.log('Current State 3: ', currentState);
     expect(currentState.matches(SYNC_MACHINE_STATES.CONNECTING)).toBeTruthy();
     expect(currentState.context.initialEventId).toStrictEqual(999);
 
@@ -237,6 +236,7 @@ describe('Event handling', () => {
       event: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
     });
 
+    console.log('Current State 5: ', currentState);
     expect(currentState.matches(SYNC_MACHINE_STATES.ERROR)).toBeTruthy();
   });
 
@@ -256,6 +256,7 @@ describe('Event handling', () => {
       event: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
     });
 
+    console.log('Current State 6: ', currentState);
     expect(currentState.matches(SYNC_MACHINE_STATES.ERROR)).toBeTruthy();
   });
 

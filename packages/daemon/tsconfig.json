@@ -10,6 +10,9 @@
     "outDir": "./dist",
     "types": ["node", "jest"]
   },
+  "references": [
+      { "path": "../../node_modules/@wallet-service/common" }
+  ],
   "include": [
     "src/**/*.ts"
   ],
