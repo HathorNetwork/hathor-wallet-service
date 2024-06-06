@@ -8,6 +8,15 @@
 import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 import { Severity } from '../types';
 import { Logger } from 'winston';
+import { assertEnvVariablesExistence } from './index.utils';
+
+assertEnvVariablesExistence([
+  'NETWORK',
+  'APPLICATION_NAME',
+  'ACCOUNT_ID',
+  'ALERT_MANAGER_REGION',
+  'ALERT_MANAGER_TOPIC',
+]);
 
 /**
  * Adds a message to the SQS alerting queue
