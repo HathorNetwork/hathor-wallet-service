@@ -65,7 +65,7 @@ import {
   createOutput,
   XPUBKEY,
 } from '../utils';
-import { walletUtils } from '@wallet-service/common';
+import { isAuthority } from '@wallet-service/common';
 import { DbTxOutput, StringMap, TokenInfo, WalletStatus } from '../../src/types';
 import { Authorities, TokenBalanceMap } from '@wallet-service/common';
 
@@ -160,7 +160,7 @@ describe('tx output methods', () => {
       let { value } = output;
       const { token, decoded } = output;
       let authorities = 0;
-      if (walletUtils.isAuthority(output.token_data)) {
+      if (isAuthority(output.token_data)) {
         authorities = value;
         value = 0;
       }
@@ -233,7 +233,7 @@ describe('tx output methods', () => {
       let { value } = output;
       const { token, decoded } = output;
       let authorities = 0;
-      if (walletUtils.isAuthority(output.token_data)) {
+      if (isAuthority(output.token_data)) {
         authorities = value;
         value = 0;
       }

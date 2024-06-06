@@ -1,8 +1,8 @@
 // @ts-ignore: Using old wallet-lib version, no types exported
 import hathorLib from '@hathor/wallet-lib';
 import { mockedAddAlert } from './alerting.utils.mock';
-import { Severity } from '@src/types';
 import { NftUtils } from '@src/utils/nft.utils';
+import { Severity } from '@src/types';
 import { getHandlerContext, getTransaction } from '../events/nftCreationTx';
 import {
   LambdaClient as LambdaClientMock,
@@ -34,6 +34,15 @@ jest.mock('@aws-sdk/client-lambda', () => {
   return {
     LambdaClient: jest.fn(() => mLambda),
     InvokeCommand: mInvokeCommand,
+  };
+});
+
+jest.mock('@src/utils/index.utils', () => {
+  const originalModule = jest.requireActual('@src/utils/index.utils');
+
+  return {
+    ...originalModule,
+    assertEnvVariablesExistence: jest.fn(),
   };
 });
 
