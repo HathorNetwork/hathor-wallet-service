@@ -206,8 +206,8 @@ provider:
     FIREBASE_AUTH_PROVIDER_X509_CERT_URL: ${env:FIREBASE_AUTH_PROVIDER_X509_CERT_URL, ''}
     FIREBASE_CLIENT_X509_CERT_URL: ${env:FIREBASE_CLIENT_X509_CERT_URL, ''}
     LOG_LEVEL: ${env:LOG_LEVEL}
-    ALERT_MANAGER_REGION: ${env:ALERT_MANAGER_REGION, ''}
-    ALERT_MANAGER_TOPIC: ${env:ALERT_MANAGER_TOPIC, ''}
+    ALERT_MANAGER_REGION: ${env:ALERT_MANAGER_REGION}
+    ALERT_MANAGER_TOPIC: ${env:ALERT_MANAGER_TOPIC}
 
 functions:
   getLatestBlock:
@@ -684,7 +684,6 @@ functions:
           Fn::GetAtt: [ SendNotificationToDeviceLambdaFunction , Arn ]
   healthcheck:
     handler: src/api/healthcheck.getHealthcheck
-    timeout: 60  # TODO: This helps debugging. We should re-evaluate whether to keep it.
     events:
       - http:
           private: true
