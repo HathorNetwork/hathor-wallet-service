@@ -18,7 +18,8 @@ RUN corepack enable
 # Use the same version as flake's
 RUN yarn set version 4.1.0
 
-# This will install dependencies for the sync-daemon, devDependencies included:
+# This will install dependencies for all packages, except for the lambdas since
+# they are ignored in .dockerignore
 RUN yarn install
 
 RUN yarn workspace sync-daemon run build
