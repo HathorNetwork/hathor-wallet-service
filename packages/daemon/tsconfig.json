@@ -10,6 +10,9 @@
     "outDir": "./dist",
     "types": ["node", "jest"]
   },
+  // The common module is not deployed to npm and is an internal tool,
+  // we want it to have its own tsconfig, so this is instructing typescript
+  // to compile its tsconfig.json file
   "references": [
       { "path": "../../node_modules/@wallet-service/common" }
   ],
