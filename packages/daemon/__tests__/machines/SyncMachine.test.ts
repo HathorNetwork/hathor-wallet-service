@@ -29,10 +29,6 @@ import getConfig from '../../src/config';
 const { TX_CACHE_SIZE, FULLNODE_PEER_ID, STREAM_ID } = getConfig();
 const { VERTEX_METADATA_CHANGED, NEW_VERTEX_ACCEPTED, REORG_STARTED } = EventFixtures;
 
-jest.mock('@wallet-service/common/src/utils/index.utils', () => ({
-  assertEnvVariablesExistence: jest.fn(),
-}));
-
 const TxCache = new LRU(TX_CACHE_SIZE);
 
 beforeAll(async () => {

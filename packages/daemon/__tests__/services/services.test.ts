@@ -90,10 +90,6 @@ jest.mock('../../src/utils', () => ({
   getFullnodeHttpUrl: jest.fn(),
 }));
 
-jest.mock('@wallet-service/common/src/utils/index.utils', () => ({
-  assertEnvVariablesExistence: jest.fn(),
-}));
-
 beforeEach(() => {
   jest.clearAllMocks();
 });

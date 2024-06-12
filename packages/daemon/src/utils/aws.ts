@@ -4,7 +4,7 @@ import { SendMessageCommand, SendMessageCommandOutput, SQSClient, MessageAttribu
 import { StringMap } from '../types';
 import getConfig from '../config';
 import logger from '../logger';
-import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
+import { addAlert } from '@wallet-service/common';
 
 export function buildFunctionName(functionName: string): string {
   const { STAGE } = getConfig();

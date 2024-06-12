@@ -28,7 +28,7 @@ import {
   TxInput,
   TxOutput,
   TokenBalanceMap,
-} from '@wallet-service/common/src/types';
+} from '@wallet-service/common';
 import {
   fetchAddressBalance,
   fetchAddressTxHistorySum,

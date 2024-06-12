@@ -24,8 +24,8 @@ const requiredEnvs = [
   'ACCOUNT_ID',
   'ALERT_MANAGER_TOPIC',
   'ALERT_MANAGER_REGION',
+  'APPLICATION_NAME',
 ];
-
 
 export const checkEnvVariables = () => {
   const missingEnv = requiredEnvs.filter(envVar => process.env[envVar] === undefined);

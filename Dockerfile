@@ -4,7 +4,6 @@
 # arising from the use of this software.
 # This software cannot be redistributed unless explicitly agreed in writing with the authors.
 
-
 # Build phase
 FROM node:20-alpine AS builder
 
@@ -19,19 +18,13 @@ RUN corepack enable
 # Use the same version as flake's
 RUN yarn set version 4.1.0
 
-# This will install dependencies for the sync-daemon, devDependencies included:
-RUN yarn workspaces focus sync-daemon
+# This will install dependencies for all packages, except for the lambdas since
+# they are ignored in .dockerignore
+RUN yarn install
 
-RUN yarn workspace sync-daemon build
+RUN yarn workspace sync-daemon run build
 
-# This will remove all dependencies and install production deps only:
-RUN yarn workspaces focus sync-daemon --production
+# This will remove all dev dependencies and install production deps only
+RUN yarn workspaces focus -A --production
 
-FROM node:20-alpine
-
-WORKDIR /app
-
-COPY --from=builder /app/packages/daemon/dist .
-COPY --from=builder /app/packages/daemon/node_modules ./node_modules
-
-CMD ["node", "index.js"]
+CMD ["yarn", "workspace", "sync-daemon", "run", "start"]

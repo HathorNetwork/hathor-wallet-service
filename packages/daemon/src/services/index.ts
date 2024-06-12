@@ -9,7 +9,7 @@
 import hathorLib from '@hathor/wallet-lib';
 import axios from 'axios';
 import { get } from 'lodash';
-import { NftUtils } from '@wallet-service/common/src/utils/nft.utils';
+import { NftUtils } from '@wallet-service/common';
 import {
   StringMap,
   Wallet,
@@ -25,7 +25,7 @@ import {
   Transaction,
   TokenBalanceMap,
   TxOutputWithIndex,
-} from '@wallet-service/common/src/types';
+} from '@wallet-service/common';
 import {
   prepareOutputs,
   getAddressBalanceMap,
