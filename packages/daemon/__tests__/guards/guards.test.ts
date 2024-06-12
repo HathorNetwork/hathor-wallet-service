@@ -28,10 +28,6 @@ jest.mock('../../src/config', () => {
   };
 });
 
-jest.mock('@wallet-service/common', () => ({
-  assertEnvVariablesExistence: jest.fn(),
-}));
-
 import getConfig from '../../src/config';
 
 const TxCache = {

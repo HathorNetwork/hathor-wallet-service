@@ -90,15 +90,6 @@ jest.mock('../../src/utils', () => ({
   getFullnodeHttpUrl: jest.fn(),
 }));
 
-jest.mock('@wallet-service/common', () => {
-  const originalModule = jest.requireActual('@wallet-service/common');
-
-  return {
-    ...originalModule,
-    assertEnvVariablesExistence: jest.fn(),
-  };
-});
-
 beforeEach(() => {
   jest.clearAllMocks();
 });
