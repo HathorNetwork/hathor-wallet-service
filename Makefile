@@ -14,6 +14,10 @@ push-daemon:
 deploy-lambdas-nano:
 	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage nano --region eu-central-1 --aws-profile nano-testnet
 
+.PHONY: deploy-lambdas-ekvilibro
+deploy-lambdas-ekvilibro:
+	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage ekvilibro --region eu-central-1 --aws-profile ekvilibro
+
 .PHONY: deploy-lambdas-dev-testnet
 deploy-lambdas-dev-testnet:
 	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage dev-testnet --region eu-central-1
