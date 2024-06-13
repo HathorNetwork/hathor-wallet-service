@@ -27,4 +27,14 @@ RUN yarn workspace sync-daemon run build
 # This will remove all dev dependencies and install production deps only
 RUN yarn workspaces focus -A --production
 
-CMD ["yarn", "workspace", "sync-daemon", "run", "start"]
+# Run phase
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+
+# Copy only the necessary files from the build phase
+COPY --from=builder /app .
+
+WORKDIR /app/packages/daemon/
+
+CMD ["node", "dist/index.js"]
