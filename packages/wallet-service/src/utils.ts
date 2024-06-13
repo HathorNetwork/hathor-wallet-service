@@ -142,10 +142,6 @@ export const closeDbConnection = async (mysql: ServerlessMysql): Promise<void> =
   }
 };
 
-export const isAuthority = (tokenData: number): boolean => (
-  (tokenData & hathorLib.constants.TOKEN_AUTHORITY_MASK) > 0    // eslint-disable-line no-bitwise
-);
-
 /**
  * Shuffle an array in place.
  *
@@ -365,23 +361,4 @@ export const getAddressFromXpub = (xpubkey: string): string => {
     pubkey: node.publicKey,
     network: hathorNetwork,
   }).address;
-};
-
-/**
- * Validates if a list of env variables are set in the environment. Throw if at least
- * one of them is missing
- *
- * @param envVariables - A list of variables to check
- */
-export const assertEnvVariablesExistence = (envVariables: string[]): void => {
-  const missingList = [];
-  for (const envVariable of envVariables) {
-    if (!(envVariable in process.env) || process.env[envVariable].length === 0) {
-      missingList.push(envVariable);
-    }
-  }
-
-  if (missingList.length > 0) {
-    throw new Error(`Env missing the following variables ${missingList.join(', ')}`);
-  }
 };

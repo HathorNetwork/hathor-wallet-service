@@ -24,8 +24,8 @@ const requiredEnvs = [
   'ACCOUNT_ID',
   'ALERT_MANAGER_TOPIC',
   'ALERT_MANAGER_REGION',
+  'APPLICATION_NAME',
 ];
-
 
 export const checkEnvVariables = () => {
   const missingEnv = requiredEnvs.filter(envVar => process.env[envVar] === undefined);
@@ -43,7 +43,7 @@ export const CONSOLE_LEVEL = process.env.CONSOLE_LEVEL ?? 'debug';
 export const TX_CACHE_SIZE = parseInt(process.env.TX_CACHE_SIZE ?? '10000', 10);
 // Number of blocks before unlocking a block utxo
 export const BLOCK_REWARD_LOCK = parseInt(process.env.BLOCK_REWARD_LOCK ?? '10', 10);
-export const STAGE = process.env.STAGE;
+export const STAGE = process.env.STAGE ?? 'local';
 
 // Fullnode information, used to make sure we're connected to the same fullnode
 export const FULLNODE_PEER_ID = process.env.FULLNODE_PEER_ID;

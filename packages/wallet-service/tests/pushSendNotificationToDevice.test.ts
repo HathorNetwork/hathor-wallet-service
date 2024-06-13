@@ -21,7 +21,7 @@ import {
   checkPushDevicesTable,
 } from '@tests/utils';
 import { APIGatewayProxyResult, Context } from 'aws-lambda';
-import { Severity } from '@src/types';
+import { Severity } from '@wallet-service/common/src/types';
 
 const mysql = getDbConnection();
 
@@ -243,6 +243,7 @@ describe('alert', () => {
       '-',
       Severity.MINOR,
       { deviceId: 'device1' },
+      logger,
     );
   });
 
@@ -284,6 +285,7 @@ describe('alert', () => {
       '-',
       Severity.MINOR,
       { deviceId: 'device1', pushProvider: 'ios' },
+      logger,
     );
   });
 });

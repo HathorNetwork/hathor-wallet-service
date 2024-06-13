@@ -1,0 +1,25 @@
+{
+  "name": "@wallet-service/common",
+  "version": "1.5.0",
+  "packageManager": "yarn@4.1.0",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc --declaration",
+    "test": "jest --runInBand --collectCoverage --detectOpenHandles --forceExit"
+  },
+  "peerDependencies": {
+    "@hathor/wallet-lib": "0.39.0"
+  },
+  "dependencies": {
+    "@aws-sdk/client-lambda": "3.540.0",
+    "@aws-sdk/client-sqs": "3.540.0",
+    "winston": "^3.13.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.136",
+    "@types/node": "^20.11.30",
+    "jest": "^29.6.4",
+    "ts-jest": "^29.1.2",
+    "typescript": "^5.4.3"
+  }
+}

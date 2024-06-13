@@ -39,11 +39,8 @@ import {
   getTokenSymbols,
 } from '@src/db';
 import {
-  DecodedOutput,
   StringMap,
   TokenBalanceMap,
-  TxInput,
-  TxOutput,
   TxOutputWithIndex,
   DbTxOutput,
   Tx,
@@ -55,12 +52,17 @@ import {
   AddressTotalBalance,
   WalletProxyHandler,
   WalletBalance,
-  Transaction,
   WalletBalanceValue,
-  Severity,
 } from '@src/types';
 import { Logger } from 'winston';
-import { addAlert } from '@src/utils/alerting.utils';
+import {
+  DecodedOutput,
+  TxInput,
+  TxOutput,
+  Transaction,
+  Severity,
+} from '@wallet-service/common/src/types';
+import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 
 import {
   getUnixTimestamp,
@@ -523,6 +525,7 @@ export const handleReorg = async (mysql: ServerlessMysql, logger: Logger): Promi
       `A reorg with ${currentHeight - height} blocks has been detected`,
       Severity.MINOR,
       { walletServiceHeight: currentHeight, fullNodeHeight: height },
+      logger,
     );
   }
 

@@ -11,6 +11,7 @@ custom:
         - schedule: rate(5 minutes)
   webpack:
     webpackConfig: ./webpack.config.js
+    packager: "npm"
     includeModules: true
   prune:
     automatic: true
@@ -219,17 +220,6 @@ functions:
   onTotalSupplyRequest:
     handler: src/api/totalSupply.onTotalSupplyRequest
     timeout: 120 # 2 minutes
-    warmup:
-      walletWarmer:
-        enabled: false
-  onHandleReorgRequest:
-    handler: src/txProcessor.onHandleReorgRequest
-    timeout: 300 # 5 minutes
-    warmup:
-      walletWarmer:
-        enabled: false
-  onNewTxEvent:
-    handler: src/txProcessor.onNewTxEvent
     warmup:
       walletWarmer:
         enabled: false

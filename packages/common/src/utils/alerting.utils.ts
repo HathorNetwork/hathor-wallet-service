@@ -6,17 +6,8 @@
  */
 
 import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
-import { Severity } from '@src/types';
-import { assertEnvVariablesExistence } from '@src/utils';
-import createDefaultLogger from '@src/logger';
-
-assertEnvVariablesExistence([
-  'NETWORK',
-  'APPLICATION_NAME',
-  'ACCOUNT_ID',
-  'ALERT_MANAGER_REGION',
-  'ALERT_MANAGER_TOPIC',
-]);
+import { Severity } from '../types';
+import { Logger } from 'winston';
 
 /**
  * Adds a message to the SQS alerting queue
@@ -28,9 +19,12 @@ export const addAlert = async (
   title: string,
   message: string,
   severity: Severity,
-  metadata?: unknown,
+  // XXX: logger is temporarily coming as a param until we refactor the logger
+  // to be a common util between projects, metadata will also be refactored
+  // to be a optional parameter.
+  metadata: unknown,
+  logger: Logger,
 ): Promise<void> => {
-  const logger = createDefaultLogger();
   const preparedMessage = {
     title,
     message,

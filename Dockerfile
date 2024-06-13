@@ -4,32 +4,37 @@
 # arising from the use of this software.
 # This software cannot be redistributed unless explicitly agreed in writing with the authors.
 
-
 # Build phase
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-RUN apk update && apk add python3 g++ make
+RUN apk update && apk add python3 g++ make py3-setuptools
 
 COPY . .
 
-# Use the last stable berry version:
-RUN yarn set version stable
+RUN corepack enable
 
-# This will install dependencies for the sync-daemon, devDependencies included:
-RUN yarn workspaces focus sync-daemon
+# Use the same version as flake's
+RUN yarn set version 4.1.0
 
-RUN yarn workspace sync-daemon build
+# This will install dependencies for all packages, except for the lambdas since
+# they are ignored in .dockerignore
+RUN yarn install
 
-# This will remove all dependencies and install production deps only:
-RUN yarn workspaces focus sync-daemon --production
+RUN yarn workspace sync-daemon run build
 
-FROM node:20-alpine
+# This will remove all dev dependencies and install production deps only
+RUN yarn workspaces focus -A --production
+
+# Run phase
+FROM node:20-alpine AS runner
 
 WORKDIR /app
 
-COPY --from=builder /app/packages/daemon/dist .
-COPY --from=builder /app/packages/daemon/node_modules ./node_modules
+# Copy only the necessary files from the build phase
+COPY --from=builder /app .
 
-CMD ["node", "index.js"]
+WORKDIR /app/packages/daemon/
+
+CMD ["node", "dist/index.js"]

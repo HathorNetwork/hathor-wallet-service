@@ -6,12 +6,9 @@
  */
 import mysql, { Connection as MysqlConnection, Pool } from 'mysql2/promise';
 import {
-  TokenBalanceMap,
   DbTxOutput,
   StringMap,
   Wallet,
-  TxInput,
-  TxOutputWithIndex,
   EventTxInput,
   GenerateAddresses,
   AddressIndexMap,
@@ -23,7 +20,12 @@ import {
   Miner,
   TokenSymbolsRow,
 } from '../types';
-import { isAuthority } from '../utils';
+import {
+  TxInput,
+  TokenBalanceMap,
+  TxOutputWithIndex,
+} from '@wallet-service/common';
+import { isAuthority } from '@wallet-service/common';
 import {
   AddressBalanceRow,
   AddressTxHistorySumRow,
@@ -161,7 +163,7 @@ export const addUtxos = async (
  * @param inputs - The transaction inputs
  * @param txId - The transaction that spent these utxos
  */
-export const updateTxOutputSpentBy = async (mysql: any, inputs: TxInput[], txId: string): Promise<void> => { 
+export const updateTxOutputSpentBy = async (mysql: any, inputs: TxInput[], txId: string): Promise<void> => {
   const entries = inputs.map((input) => [input.tx_id, input.index]);
   // entries might be empty if there are no inputs
   if (entries.length) {
@@ -241,7 +243,7 @@ export const getTxOutputsFromTx = async (
 
  * @returns A list of tx outputs
  */
-export const getTxOutputs = async ( 
+export const getTxOutputs = async (
   mysql: any,
   inputs: {txId: string, index: number}[],
 ): Promise<DbTxOutput[]> => {

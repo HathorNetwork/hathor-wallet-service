@@ -9,11 +9,9 @@
 import hathorLib from '@hathor/wallet-lib';
 import axios from 'axios';
 import { get } from 'lodash';
+import { NftUtils } from '@wallet-service/common';
 import {
-  TxOutputWithIndex,
   StringMap,
-  TokenBalanceMap,
-  TxInput,
   Wallet,
   DbTxOutput,
   DbTransaction,
@@ -21,8 +19,13 @@ import {
   Event,
   Context,
   FullNodeEvent,
-  Transaction,
 } from '../types';
+import {
+  TxInput,
+  Transaction,
+  TokenBalanceMap,
+  TxOutputWithIndex,
+} from '@wallet-service/common';
 import {
   prepareOutputs,
   getAddressBalanceMap,
@@ -311,6 +314,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         height: metadata.height,
         token_name,
         token_symbol,
+        signal_bits: 0, // TODO: we should actually receive this and store in the database
       };
 
       try {
@@ -336,16 +340,30 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
           const { length: hasAffectWallets } = Object.keys(walletBalanceMap);
           if (hasAffectWallets) {
             invokeOnTxPushNotificationRequestedLambda(walletBalanceMap)
-              .catch((err: Error) => logger.error('Errored on invokeOnTxPushNotificationRequestedLambda invocation', err));
+              .catch((err: Error) => logger.error('Error on invokeOnTxPushNotificationRequestedLambda invocation', err));
           }
         }
       } catch (e) {
         logger.error('Failed to send push notification to wallet-service lambda');
         logger.error(e);
       }
+
+      const {
+        NETWORK,
+        STAGE,
+      } = getConfig();
+
+      const network = new hathorLib.Network(NETWORK);
+
+      // Validating for NFTs only after the tx is successfully added
+      if (NftUtils.shouldInvokeNftHandlerForTx(tx, network, logger)) {
+        // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
+        // In case of errors, just log the asynchronous exception and take no action on it.
+        NftUtils.invokeNftHandlerLambda(tx.tx_id, STAGE, logger)
+          .catch((err: unknown) => logger.error('[ALERT] Error on nftHandlerLambda invocation', err));
+      }
     }
 
-    // TODO: Send message on SQS  for real-time update
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
 
     await mysql.commit();
