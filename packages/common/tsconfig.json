@@ -1,23 +1,26 @@
 {
   "compilerOptions": {
+    "composite": true,
     "target": "ES2022",
     "module": "CommonJS",
+    "declaration": true,
     "sourceMap": true,
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "outDir": "./dist",
-    "types": ["node", "jest"]
+    "types": ["node", "jest"],
+    "paths": {
+      "@src/*": ["./src/*"],
+      "@tests/*": ["./__tests__/*"],
+      "@events/*": ["./__tests__/events/*"]
+    }
   },
-  // The common module is not deployed to npm and is an internal tool,
-  // we want it to have its own tsconfig, so this is instructing typescript
-  // to compile its tsconfig.json file
-  "references": [
-      { "path": "../../node_modules/@wallet-service/common" }
-  ],
   "include": [
-    "src/**/*.ts"
+    "index.ts",
+    "src/**/*.ts",
+    "__tests__/**/*.ts"
   ],
   "exclude": [
     "node_modules",

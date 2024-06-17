@@ -1,12 +1,32 @@
+// @ts-ignore: Using old wallet-lib version, no types exported
 import hathorLib from '@hathor/wallet-lib';
-import { mockedAddAlert } from '@tests/utils/alerting.utils.mock';
+import { mockedAddAlert } from './alerting.utils.mock';
+import { NftUtils } from '@src/utils/nft.utils';
 import { Severity } from '@src/types';
-import { MAX_METADATA_UPDATE_RETRIES, NftUtils } from '@src/utils/nft.utils';
-import { getHandlerContext, getTransaction } from '@events/nftCreationTx';
+import { getHandlerContext, getTransaction } from '../events/nftCreationTx';
 import {
   LambdaClient as LambdaClientMock,
   InvokeCommandOutput,
 } from '@aws-sdk/client-lambda';
+import { Logger } from 'winston';
+
+jest.mock('winston', () => {
+  class FakeLogger {
+    warn() {
+      return jest.fn();
+    }
+    error() {
+      return jest.fn();
+    }
+    info() {
+      return jest.fn();
+    }
+  };
+
+  return {
+    Logger: FakeLogger,
+  }
+});
 
 jest.mock('@aws-sdk/client-lambda', () => {
   const mLambda = { send: jest.fn() };
@@ -17,19 +37,32 @@ jest.mock('@aws-sdk/client-lambda', () => {
   };
 });
 
+jest.mock('@src/utils/index.utils', () => {
+  const originalModule = jest.requireActual('@src/utils/index.utils');
+
+  return {
+    ...originalModule,
+    assertEnvVariablesExistence: jest.fn(),
+  };
+});
+
+const network = new hathorLib.Network('testnet');
+const logger = new Logger();
+
 describe('shouldInvokeNftHandlerForTx', () => {
   it('should return false for a NFT transaction if the feature is disabled', () => {
     expect.hasAssertions();
 
     // Preparation
     const tx = getTransaction();
-    const isNftTransaction = NftUtils.isTransactionNFTCreation(tx);
+    const isNftTransaction = NftUtils.isTransactionNFTCreation(tx, network, logger);
     expect(isNftTransaction).toStrictEqual(true);
 
     expect(process.env.NFT_AUTO_REVIEW_ENABLED).not.toStrictEqual('true');
 
     // Execution
-    const result = NftUtils.shouldInvokeNftHandlerForTx(tx);
+    // @ts-ignore
+    const result = NftUtils.shouldInvokeNftHandlerForTx(tx, network, logger);
 
     // Assertion
     expect(result).toBe(false);
@@ -40,14 +73,14 @@ describe('shouldInvokeNftHandlerForTx', () => {
 
     // Preparation
     const tx = getTransaction();
-    const isNftTransaction = NftUtils.isTransactionNFTCreation(tx);
+    const isNftTransaction = NftUtils.isTransactionNFTCreation(tx, network, logger);
     expect(isNftTransaction).toStrictEqual(true);
 
     const oldValue = process.env.NFT_AUTO_REVIEW_ENABLED;
     process.env.NFT_AUTO_REVIEW_ENABLED = 'true';
 
     // Execution
-    const result = NftUtils.shouldInvokeNftHandlerForTx(tx);
+    const result = NftUtils.shouldInvokeNftHandlerForTx(tx, network, logger);
 
     // Assertion
     expect(result).toBe(true);
@@ -70,21 +103,21 @@ describe('isTransactionNFTCreation', () => {
     // Incorrect version
     tx = getTransaction();
     tx.version = hathorLib.constants.DEFAULT_TX_VERSION;
-    result = NftUtils.isTransactionNFTCreation(tx);
+    result = NftUtils.isTransactionNFTCreation(tx, network, logger);
     expect(result).toBe(false);
     expect(spyCreateTx).not.toHaveBeenCalled();
 
     // Missing name
     tx = getTransaction();
     tx.token_name = undefined;
-    result = NftUtils.isTransactionNFTCreation(tx);
+    result = NftUtils.isTransactionNFTCreation(tx, network, logger);
     expect(result).toBe(false);
     expect(spyCreateTx).not.toHaveBeenCalled();
 
     // Missing symbol
     tx = getTransaction();
     tx.token_symbol = undefined;
-    result = NftUtils.isTransactionNFTCreation(tx);
+    result = NftUtils.isTransactionNFTCreation(tx, network, logger);
     expect(result).toBe(false);
     expect(spyCreateTx).not.toHaveBeenCalled();
 
@@ -101,7 +134,7 @@ describe('isTransactionNFTCreation', () => {
 
     // Validation
     const tx = getTransaction();
-    const result = NftUtils.isTransactionNFTCreation(tx);
+    const result = NftUtils.isTransactionNFTCreation(tx, network, logger);
     expect(result).toBe(true);
 
     // Reverting mocks
@@ -113,7 +146,7 @@ describe('isTransactionNFTCreation', () => {
 
     // Validation
     const tx = getTransaction();
-    const result = NftUtils.isTransactionNFTCreation(tx);
+    const result = NftUtils.isTransactionNFTCreation(tx, network, logger);
     expect(result).toBe(true);
   });
 
@@ -128,7 +161,7 @@ describe('isTransactionNFTCreation', () => {
 
     // Validation
     const tx = getTransaction();
-    const result = NftUtils.isTransactionNFTCreation(tx);
+    const result = NftUtils.isTransactionNFTCreation(tx, network, logger);
     expect(result).toBe(false);
 
     // Reverting mocks
@@ -154,11 +187,11 @@ describe('createOrUpdateNftMetadata', () => {
     const expectedUpdateResponse = { updated: 'ok' };
 
     spyUpdateMetadata.mockImplementation(async () => expectedUpdateResponse);
-    const result = await NftUtils.createOrUpdateNftMetadata('sampleUid');
+    const result = await NftUtils.createOrUpdateNftMetadata('sampleUid', 5, logger);
 
     expect(spyUpdateMetadata).toHaveBeenCalledTimes(1);
 
-    expect(spyUpdateMetadata).toHaveBeenCalledWith('sampleUid', expectedUpdateRequest);
+    expect(spyUpdateMetadata).toHaveBeenCalledWith('sampleUid', expectedUpdateRequest, 5, logger);
     expect(result).toBeUndefined(); // The method returns void
   });
 });
@@ -181,7 +214,7 @@ describe('_updateMetadata', () => {
     const oldStage = process.env.STAGE;
     process.env.STAGE = 'dev'; // Testing all code branches, including the developer ones, for increased coverage
 
-    const result = await NftUtils._updateMetadata('sampleUid', { sampleData: 'fake' });
+    const result = await NftUtils._updateMetadata('sampleUid', { sampleData: 'fake' }, 5, logger);
     expect(result).toStrictEqual(expectedLambdaResponse);
     process.env.STAGE = oldStage;
   });
@@ -197,7 +230,7 @@ describe('_updateMetadata', () => {
     };
     const mLambdaClient = new LambdaClientMock({});
     (mLambdaClient.send as jest.Mocked<any>).mockImplementation(async () => {
-        if (failureCount < MAX_METADATA_UPDATE_RETRIES - 1) {
+        if (failureCount < 4) {
           ++failureCount;
           return {
             StatusCode: 500,
@@ -207,7 +240,7 @@ describe('_updateMetadata', () => {
         return expectedLambdaResponse;
     });
 
-    const result = await NftUtils._updateMetadata('sampleUid', { sampleData: 'fake' });
+    const result = await NftUtils._updateMetadata('sampleUid', { sampleData: 'fake' }, 5, logger);
     expect(result).toStrictEqual(expectedLambdaResponse);
   });
 
@@ -218,7 +251,7 @@ describe('_updateMetadata', () => {
     let failureCount = 0;
     const mLambdaClient = new LambdaClientMock({});
     (mLambdaClient.send as jest.Mocked<any>).mockImplementation(() => {
-      if (failureCount < MAX_METADATA_UPDATE_RETRIES) {
+      if (failureCount < 5) {
         ++failureCount;
         return {
           StatusCode: 500,
@@ -232,7 +265,7 @@ describe('_updateMetadata', () => {
     });
 
     // eslint-disable-next-line jest/valid-expect
-    expect(NftUtils._updateMetadata('sampleUid', { sampleData: 'fake' }))
+    expect(NftUtils._updateMetadata('sampleUid', { sampleData: 'fake' }, network, logger))
       .rejects.toThrow(new Error('Metadata update failed for tx_id: sampleUid.'));
   });
 });
@@ -249,7 +282,7 @@ describe('invokeNftHandlerLambda', () => {
     const mLambdaClient = new LambdaClientMock({});
     (mLambdaClient.send as jest.Mocked<any>).mockImplementationOnce(async () => expectedLambdaResponse);
 
-    await expect(NftUtils.invokeNftHandlerLambda('sampleUid')).resolves.toBeUndefined();
+    await expect(NftUtils.invokeNftHandlerLambda('sampleUid', 'local', logger)).resolves.toBeUndefined();
   });
 
   it('should throw when payload response status is invalid', async () => {
@@ -263,7 +296,7 @@ describe('invokeNftHandlerLambda', () => {
     };
     (mLambdaClient.send as jest.Mocked<any>).mockImplementation(() => expectedLambdaResponse);
 
-    await expect(NftUtils.invokeNftHandlerLambda('sampleUid'))
+    await expect(NftUtils.invokeNftHandlerLambda('sampleUid', 'local', logger))
       .rejects.toThrow(new Error('onNewNftEvent lambda invoke failed for tx: sampleUid'));
 
     expect(mockedAddAlert).toHaveBeenCalledWith(
@@ -271,6 +304,7 @@ describe('invokeNftHandlerLambda', () => {
       'Erroed on invokeNftHandlerLambda invocation',
       Severity.MINOR,
       { TxId: 'sampleUid' },
+      logger,
     );
   });
 });

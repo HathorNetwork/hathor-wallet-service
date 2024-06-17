@@ -11,7 +11,7 @@ import {
   getMempoolTransactionsBeforeDate,
   updateTx,
 } from '@src/db';
-import { Block, Severity, Tx } from '@src/types';
+import { Block, Tx } from '@src/types';
 import { handleVoided } from '@src/commons';
 import {
   isTxVoided,
@@ -20,7 +20,8 @@ import {
   getDbConnection,
 } from '@src/utils';
 import createDefaultLogger from '@src/logger';
-import { addAlert } from '@src/utils/alerting.utils';
+import { Severity } from '@wallet-service/common/src/types';
+import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 
 const mysql = getDbConnection();
 
@@ -65,6 +66,7 @@ export const onHandleOldVoidedTxs = async (): Promise<void> => {
         `Transaction ${tx.txId} is not yet confirmed on our database but it is not voided on the fullnode.`,
         Severity.MAJOR,
         { Tx: transaction },
+        logger,
       );
       logger.error(`Transaction ${tx.txId} is not yet confirmed on our database but it is not voided on the fullnode.`);
       // Check if it is confirmed by a block

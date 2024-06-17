@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { TokenBalanceMap } from "./transaction";
+import { TokenBalanceMap } from '@wallet-service/common';
 
 export enum WalletStatus {
   CREATING = 'creating',

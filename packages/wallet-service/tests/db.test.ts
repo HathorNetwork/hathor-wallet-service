@@ -103,15 +103,14 @@ import {
   DbTxOutput,
   PushDevice,
   PushProvider,
-  Severity,
   Block,
-  AddressInfo,
 } from '@src/types';
+import { Severity } from '@wallet-service/common/src/types';
+import { isAuthority } from '@wallet-service/common/src/utils/wallet.utils';
 import {
   closeDbConnection,
   getDbConnection,
   getUnixTimestamp,
-  isAuthority,
   getWalletId,
 } from '@src/utils';
 import {
@@ -2459,6 +2458,7 @@ test('getTotalSupply', async () => {
     '-',
     Severity.MINOR,
     { tokenId: 'undefined-token' },
+    logger,
   );
 });
 
@@ -2529,6 +2529,7 @@ test('getTotalTransactions', async () => {
     '-',
     Severity.MINOR,
     { tokenId: 'undefined-token' },
+    logger,
   );
 });
 

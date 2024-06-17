@@ -65,8 +65,9 @@ import {
   createOutput,
   XPUBKEY,
 } from '../utils';
-import { isAuthority } from '../../src/utils';
-import { Authorities, DbTxOutput, StringMap, TokenBalanceMap, TokenInfo, WalletStatus } from '../../src/types';
+import { isAuthority } from '@wallet-service/common';
+import { DbTxOutput, StringMap, TokenInfo, WalletStatus } from '../../src/types';
+import { Authorities, TokenBalanceMap } from '@wallet-service/common';
 
 // Use a single mysql connection for all tests
 let mysql: Connection;
@@ -1108,7 +1109,7 @@ describe('sync metadata', () => {
   });
 });
 
-// TODO: This test is duplicated from the wallet-service package, we should 
+// TODO: This test is duplicated from the wallet-service package, we should
 // have methods shared between the two projects
 describe('getTokenSymbols', () => {
   it('should return a map of token symbol by token id', async () => {

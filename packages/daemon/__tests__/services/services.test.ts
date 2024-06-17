@@ -28,10 +28,9 @@ import {
   handleVoidedTx,
   handleVertexAccepted,
   metadataDiff,
-  fetchMinRewardBlocks,
 } from '../../src/services';
 import logger from '../../src/logger';
-import { 
+import {
   getAddressBalanceMap,
   prepareInputs,
   prepareOutputs,
@@ -452,9 +451,9 @@ describe('handleVertexAccepted', () => {
           maxGap: 10
       },
     });
-    
+
     await handleVertexAccepted(context as any, {} as any);
-    
+
     expect(getDbConnection).toHaveBeenCalled();
     expect(mockDb.beginTransaction).toHaveBeenCalled();
     expect(getTransactionById).toHaveBeenCalledWith(mockDb, 'hashValue');
