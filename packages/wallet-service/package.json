@@ -61,6 +61,7 @@
     "npm-run-all": "^4.1.5",
     "serverless": "^3.35.2",
     "serverless-api-gateway-throttling": "^1.1.1",
+    "serverless-better-credentials": "^2.0.0",
     "serverless-iam-roles-per-function": "^3.2.0",
     "serverless-offline": "^13.1.2",
     "serverless-plugin-aws-alerts": "^1.7.5",
