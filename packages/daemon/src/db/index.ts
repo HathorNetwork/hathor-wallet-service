@@ -368,14 +368,16 @@ export const voidTransaction = async (
   addressBalanceMap: StringMap<TokenBalanceMap>,
 ): Promise<void> => {
   const addressEntries = Object.keys(addressBalanceMap).map((address) => [address, 0]);
-  await mysql.query(
-    `INSERT INTO \`address\`(\`address\`, \`transactions\`)
-          VALUES ?
-              ON DUPLICATE KEY UPDATE transactions = transactions - 1`,
-    [addressEntries],
-  );
 
-  const entries = [];
+  if (addressEntries.length > 0) {
+    await mysql.query(
+      `INSERT INTO \`address\`(\`address\`, \`transactions\`)
+            VALUES ?
+                ON DUPLICATE KEY UPDATE transactions = transactions - 1`,
+      [addressEntries],
+    );
+  }
+
   for (const [address, tokenMap] of Object.entries(addressBalanceMap)) {
     for (const [token, tokenBalance] of tokenMap.iterator()) {
       // update address_balance table or update balance and transactions if there's an entry already
@@ -438,25 +440,20 @@ export const voidTransaction = async (
       // for locked authorities, it doesn't make sense to perform the same operation. The authority needs to be
       // unlocked before it can be spent. In case we're just adding new locked authorities, this will be taken
       // care by the first sql query.
-
-      // update address_tx_history with one entry for each pair (address, token)
-      entries.push(txId);
     }
   }
 
   await mysql.query(
     `DELETE FROM \`address_tx_history\`
-      WHERE \`tx_id\`
-      IN (?)`,
-    [entries],
+      WHERE \`tx_id\` = ?`,
+    [txId],
   );
 
   await mysql.query(
     `UPDATE \`transaction\`
         SET \`voided\` = TRUE
-      WHERE \`tx_id\`
-      IN (?)`,
-    [entries],
+      WHERE \`tx_id\` = ?`,
+    [txId],
   );
 };
 
