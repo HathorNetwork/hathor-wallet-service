@@ -5,6 +5,14 @@ export interface AddressTableEntry {
   transactions: number;
 }
 
+export interface TransactionTableEntry {
+  txId: string;
+  timestamp: number;
+  version: number;
+  voided: boolean;
+  height: number;
+}
+
 export interface WalletBalanceEntry {
   walletId: string;
   tokenId: string;

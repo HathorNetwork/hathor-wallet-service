@@ -53,6 +53,14 @@ export interface AddressTableRow extends RowDataPacket {
   transactions: number;
 }
 
+export interface TransactionTableRow extends RowDataPacket {
+  tx_id: string;
+  timestamp: number;
+  version: number;
+  voided: boolean;
+  height: number;
+}
+
 export interface AddressBalanceRow extends RowDataPacket {
   address: string;
   token_id: string;

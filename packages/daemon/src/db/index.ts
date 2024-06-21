@@ -4,7 +4,7 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  */
-import mysql, { Connection as MysqlConnection, Pool } from 'mysql2/promise';
+import mysql, { Connection as MysqlConnection, OkPacket, Pool, ResultSetHeader } from 'mysql2/promise';
 import {
   DbTxOutput,
   StringMap,
@@ -362,11 +362,40 @@ export const getTxOutputsAtHeight = async (
   return utxos;
 };
 
+/**
+ * Void a transaction by updating the related address and balance information in the database.
+ *
+ * @param mysql - The MySQL connection object
+ * @param txId - The ID of the transaction to be voided.
+ * @param addressBalanceMap - A map where the key is an address and the value is a map of token balances.
+ *   The TokenBalanceMap contains information about the total amount sent, unlocked and locked amounts, and authorities.
+ *
+ * @returns {Promise<void>} - A promise that resolves when the transaction has been voided and the database updated
+ *
+ * This function performs the following steps:
+ * 1. Inserts addresses with a transaction count of 0 into the `address` table or subtracts 1 from the transaction count if they already exist
+ * 2. Iterates over the addressBalanceMap to update the `address_balance` table with the received token balances.
+ * 3. Deletes the transaction entry from the `address_tx_history` table.
+ * 4. Updates the transaction entry in the `transaction` table to mark it as voided.
+ *
+ * The function ensures that the authorities are correctly updated and the smallest timelock expiration value is preserved.
+ */
 export const voidTransaction = async (
   mysql: any,
   txId: string,
   addressBalanceMap: StringMap<TokenBalanceMap>,
 ): Promise<void> => {
+  const [result]: [ResultSetHeader] = await mysql.query(
+    `UPDATE \`transaction\`
+        SET \`voided\` = TRUE
+      WHERE \`tx_id\` = ?`,
+    [txId],
+  );
+
+  if (result.affectedRows !== 1) {
+    throw new Error('Tried to void a transaction that is not in the database.');
+  }
+
   const addressEntries = Object.keys(addressBalanceMap).map((address) => [address, 0]);
 
   if (addressEntries.length > 0) {
@@ -445,13 +474,6 @@ export const voidTransaction = async (
 
   await mysql.query(
     `DELETE FROM \`address_tx_history\`
-      WHERE \`tx_id\` = ?`,
-    [txId],
-  );
-
-  await mysql.query(
-    `UPDATE \`transaction\`
-        SET \`voided\` = TRUE
       WHERE \`tx_id\` = ?`,
     [txId],
   );
