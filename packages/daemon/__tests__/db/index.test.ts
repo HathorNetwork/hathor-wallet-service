@@ -39,7 +39,8 @@ import {
   updateLastSyncedEvent,
   updateTxOutputSpentBy,
   updateWalletLockedBalance,
-  updateWalletTablesWithTx
+  updateWalletTablesWithTx,
+  voidTransaction
 } from '../../src/db';
 import { Connection } from 'mysql2/promise';
 import {
@@ -48,6 +49,7 @@ import {
   addToAddressTable,
   addToAddressTxHistoryTable,
   addToTokenTable,
+  addToTransactionTable,
   addToUtxoTable,
   addToWalletBalanceTable,
   addToWalletTable,
@@ -55,6 +57,7 @@ import {
   checkAddressTable,
   checkAddressTxHistoryTable,
   checkTokenTable,
+  checkTransactionTable,
   checkUtxoTable,
   checkWalletBalanceTable,
   checkWalletTxHistoryTable,
@@ -68,6 +71,8 @@ import {
 import { isAuthority } from '@wallet-service/common';
 import { DbTxOutput, StringMap, TokenInfo, WalletStatus } from '../../src/types';
 import { Authorities, TokenBalanceMap } from '@wallet-service/common';
+// @ts-ignore
+import { constants } from '@hathor/wallet-lib';
 
 // Use a single mysql connection for all tests
 let mysql: Connection;
@@ -1162,5 +1167,97 @@ describe('getTokenSymbols', () => {
     tokenSymbolMap = await getTokenSymbols(mysql, tokenIdList);
 
     expect(tokenSymbolMap).toBeNull();
+  });
+});
+
+describe('voidTransaction', () => {
+  const txId = 'tx1';
+  const addr1 = 'addr1';
+  const token1 = 'token1';
+  const token2 = 'other-token';
+
+  it('should re-calculate address balances properly', async () => {
+    expect.hasAssertions();
+
+    await addToTransactionTable(mysql, [{
+      txId,
+      timestamp: 0,
+      version: constants.BLOCK_VERSION,
+      voided: false,
+      height: 1,
+    }]);
+
+    await addToAddressTable(mysql, [{
+      address: addr1,
+      index: 0,
+      walletId: null,
+      transactions: 2,
+    }]);
+
+    await addToAddressBalanceTable(mysql, [
+      [addr1, token1, 50, 5, null, 5, 0, 0, 100],
+      [addr1, token2, 25, 10, null, 4, 0, 0, 50],
+    ]);
+
+    await addToAddressTxHistoryTable(mysql, [{
+      address: addr1,
+      txId,
+      tokenId: token1,
+      balance: 50,
+      timestamp: 1,
+    }, {
+      address: addr1,
+      txId,
+      tokenId: token2,
+      balance: 25,
+      timestamp: 1,
+    }]);
+
+    const addressBalance: StringMap<TokenBalanceMap> = {
+      [addr1]: TokenBalanceMap.fromStringMap({
+        [token1]: {
+          unlocked: 49,
+          locked: 5,
+        },
+        [token2]: {
+          unlocked: 24,
+          locked: 10,
+        }
+      }),
+    };
+
+    await voidTransaction(mysql, txId, addressBalance);
+
+    await expect(checkAddressBalanceTable(mysql, 2, addr1, token2, 1, 0, null, 3)).resolves.toBe(true);
+    await expect(checkAddressBalanceTable(mysql, 2, addr1, token1, 1, 0, null, 4)).resolves.toBe(true);
+    // Address tx history entry should have been deleted for both tokens:
+    await expect(checkAddressTxHistoryTable(mysql, 0, addr1, txId, token1, -1, 0)).resolves.toBe(true);
+    await expect(checkAddressTxHistoryTable(mysql, 0, addr1, txId, token2, -1, 0)).resolves.toBe(true);
+
+    await expect(checkTransactionTable(mysql, 1, txId, 0, constants.BLOCK_VERSION, true, 1)).resolves.toBe(true);
+  });
+
+  it('should not fail when balances are empty (from a tx with no inputs and outputs)', async () => {
+    expect.hasAssertions();
+
+    await addToTransactionTable(mysql, [{
+      txId,
+      timestamp: 0,
+      version: constants.BLOCK_VERSION,
+      voided: false,
+      height: 1,
+    }]);
+
+    const addressBalance: StringMap<TokenBalanceMap> = {};
+
+    await expect(voidTransaction(mysql, txId, addressBalance)).resolves.not.toThrow();
+    // Tx should be voided
+    await expect(checkTransactionTable(mysql, 1, txId, 0, constants.BLOCK_VERSION, true, 1)).resolves.toBe(true);
+  });
+
+  it('should throw an error if the transaction is not found in the database', async () => {
+    expect.hasAssertions();
+
+    await expect(voidTransaction(mysql, 'mysterious-transaction', {})).rejects.toThrow('Tried to void a transaction that is not in the database.');
   });
 });
