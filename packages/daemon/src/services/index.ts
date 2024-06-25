@@ -528,7 +528,7 @@ export const fetchMinRewardBlocks = async () => {
 
   const rewardSpendMinBlocks = get(response, 'data.reward_spend_min_blocks');
 
-  if (!rewardSpendMinBlocks) {
+  if (rewardSpendMinBlocks == null) {
     throw new Error('Failed to fetch reward spend min blocks');
   }
 

@@ -99,7 +99,7 @@ afterEach(() => {
 });
 
 describe('fetchInitialState', () => {
-  beforeAll(() => {
+  beforeEach(() => {
     const mockUrl = 'http://mock-host:8080/v1a/';
     (getFullnodeHttpUrl as jest.Mock).mockReturnValue(mockUrl);
 
@@ -161,6 +161,46 @@ describe('fetchInitialState', () => {
     expect(result).toEqual({
       lastEventId: expect.any(Number),
       rewardMinBlocks: 300,
+    });
+
+    expect(mockDb.destroy).toHaveBeenCalled();
+  });
+
+  it('should not fail if reward spend min blocks is 0', async () => {
+    // Mock the return values of the dependencies
+    const mockDb = { destroy: jest.fn() };
+
+    // @ts-ignore
+    axios.get.mockResolvedValue({
+      status: 200,
+      data: {
+        version: '0.58.0-rc.1',
+        network: 'mainnet',
+        min_weight: 14,
+        min_tx_weight: 14,
+        min_tx_weight_coefficient: 1.6,
+        min_tx_weight_k: 100,
+        token_deposit_percentage: 0.01,
+        reward_spend_min_blocks: 0,
+        max_number_inputs: 255,
+        max_number_outputs: 255
+      }
+    });
+
+    // @ts-ignore
+    getDbConnection.mockReturnValue(mockDb);
+    // @ts-ignore
+    getLastSyncedEvent.mockResolvedValue({
+      id: 0,
+      last_event_id: 123,
+      updated_at: Date.now(),
+    });
+
+    const result = await fetchInitialState();
+
+    expect(result).toEqual({
+      lastEventId: expect.any(Number),
+      rewardMinBlocks: 0,
     });
 
     expect(mockDb.destroy).toHaveBeenCalled();
