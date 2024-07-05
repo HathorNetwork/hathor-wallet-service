@@ -74,6 +74,7 @@ export const PUSH_NOTIFICATION_LAMBDA_REGION = process.env.PUSH_NOTIFICATION_LAM
 export const ACCOUNT_ID = process.env.ACCOUNT_ID;
 export const ALERT_MANAGER_REGION = process.env.ALERT_MANAGER_REGION;
 export const ALERT_MANAGER_TOPIC  = process.env.ALERT_MANAGER_TOPIC;
+export const ALERT_MANAGER_ACCOUNT_ID = process.env.ALERT_MANAGER_ACCOUNT_ID;
 export const AWS_REGION = process.env.AWS_REGION;
 
 // Healthcheck configuration
