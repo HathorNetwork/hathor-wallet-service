@@ -89,6 +89,7 @@ env:
     dev_FIREBASE_CLIENT_X509_CERT_URL: "WalletService/dev:FIREBASE_CLIENT_X509_CERT_URL"
     dev_ALERT_MANAGER_REGION: "WalletService/dev:ALERT_MANAGER_REGION"
     dev_ALERT_MANAGER_TOPIC: "WalletService/dev:ALERT_MANAGER_TOPIC"
+    dev_ALERT_MANAGER_ACCOUNT_ID: "WalletService/dev:ALERT_MANAGER_ACCOUNT_ID"
     # Testnet secrets
     testnet_ACCOUNT_ID: "WalletService/testnet:account_id"
     testnet_AUTH_SECRET: "WalletService/testnet:auth_secret"
@@ -114,6 +115,7 @@ env:
     testnet_FIREBASE_CLIENT_X509_CERT_URL: "WalletService/testnet:FIREBASE_CLIENT_X509_CERT_URL"
     testnet_ALERT_MANAGER_REGION: "WalletService/testnet:ALERT_MANAGER_REGION"
     testnet_ALERT_MANAGER_TOPIC: "WalletService/testnet:ALERT_MANAGER_TOPIC"
+    testnet_ALERT_MANAGER_ACCOUNT_ID: "WalletService/testnet:ALERT_MANAGER_ACCOUNT_ID"
     # Mainnet Staging secrets
     mainnet_staging_ACCOUNT_ID: "WalletService/mainnet_staging:account_id"
     mainnet_staging_AUTH_SECRET: "WalletService/mainnet_staging:auth_secret"
@@ -139,6 +141,7 @@ env:
     mainnet_staging_FIREBASE_CLIENT_X509_CERT_URL: "WalletService/mainnet_staging:FIREBASE_CLIENT_X509_CERT_URL"
     mainnet_staging_ALERT_MANAGER_REGION: "WalletService/mainnet_staging:ALERT_MANAGER_REGION"
     mainnet_staging_ALERT_MANAGER_TOPIC: "WalletService/mainnet_staging:ALERT_MANAGER_TOPIC"
+    mainnet_staging_ALERT_MANAGER_ACCOUNT_ID: "WalletService/mainnet_staging:ALERT_MANAGER_ACCOUNT_ID"
     # Mainnet secrets
     mainnet_ACCOUNT_ID: "WalletService/mainnet:account_id"
     mainnet_AUTH_SECRET: "WalletService/mainnet:auth_secret"
@@ -164,6 +167,7 @@ env:
     mainnet_FIREBASE_CLIENT_X509_CERT_URL: "WalletService/mainnet:FIREBASE_CLIENT_X509_CERT_URL"
     mainnet_ALERT_MANAGER_REGION: "WalletService/mainnet:ALERT_MANAGER_REGION"
     mainnet_ALERT_MANAGER_TOPIC: "WalletService/mainnet:ALERT_MANAGER_TOPIC"
+    mainnet_ALERT_MANAGER_ACCOUNT_ID: "WalletService/mainnet:ALERT_MANAGER_ACCOUNT_ID"
 phases:
   install:
     #If you use the Ubuntu standard image 2.0 or later, you must specify runtime-versions.

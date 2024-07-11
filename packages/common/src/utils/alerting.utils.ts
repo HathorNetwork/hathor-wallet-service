@@ -36,11 +36,13 @@ export const addAlert = async (
 
   const {
     ACCOUNT_ID,
+    ALERT_MANAGER_ACCOUNT_ID,
     ALERT_MANAGER_REGION,
     ALERT_MANAGER_TOPIC,
   } = process.env;
 
-  const QUEUE_URL = `https://sqs.${ALERT_MANAGER_REGION}.amazonaws.com/${ACCOUNT_ID}/${ALERT_MANAGER_TOPIC}`;
+  const account_id = ALERT_MANAGER_ACCOUNT_ID || ACCOUNT_ID;
+  const QUEUE_URL = `https://sqs.${ALERT_MANAGER_REGION}.amazonaws.com/${account_id}/${ALERT_MANAGER_TOPIC}`;
 
   const client = new SQSClient({
     endpoint: QUEUE_URL,
