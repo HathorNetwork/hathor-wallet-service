@@ -40,6 +40,7 @@ export enum EventTypes {
 
 export enum FullNodeEventTypes {
   VERTEX_METADATA_CHANGED = 'VERTEX_METADATA_CHANGED',
+  VERTEX_REMOVED = 'VERTEX_REMOVED',
   NEW_VERTEX_ACCEPTED = 'NEW_VERTEX_ACCEPTED',
   LOAD_STARTED = 'LOAD_STARTED',
   LOAD_FINISHED = 'LOAD_FINISHED',
@@ -48,42 +49,50 @@ export enum FullNodeEventTypes {
 
 export type Event =
   | { type: EventTypes.WEBSOCKET_EVENT, event: WebSocketEvent }
-  | { type: EventTypes.FULLNODE_EVENT, event: FullNodeEvent }
+  | { type: EventTypes.FULLNODE_EVENT, event: FullNodeEvent<FullNodeEventTypes> }
   | { type: EventTypes.METADATA_DECIDED, event: MetadataDecidedEvent }
   | { type: EventTypes.WEBSOCKET_SEND_EVENT, event: WebSocketSendEvent }
   | { type: EventTypes.HEALTHCHECK_EVENT, event: HealthCheckEvent};
 
-export type FullNodeEvent = {
+export interface CommonEventData {
+  id: number;
+  timestamp: number;
+  type: FullNodeEventTypes;
+  data: {
+    hash: string;
+    timestamp: number;
+    version: number;
+    weight: number;
+    nonce: number;
+    inputs: EventTxInput[];
+    outputs: EventTxOutput[];
+    parents: string[];
+    tokens: string[];
+    token_name: null | string;
+    token_symbol: null | string;
+    signal_bits: number;
+    metadata: {
+      hash: string;
+      voided_by: string[];
+      first_block: null | string;
+      height: number;
+    };
+  }
+}
+
+export interface VertexRemovedEventData {
+  data: {
+    vertex_id: string;
+  }
+}
+
+export type FullNodeEvent<T extends FullNodeEventTypes> = {
   stream_id: string;
   peer_id: string;
   network: string;
-  type: string;
+  type: T;
   latest_event_id: number;
-  event: {
-    id: number;
-    timestamp: number;
-    type: FullNodeEventTypes;
-    data: {
-      hash: string;
-      timestamp: number;
-      version: number;
-      weight: number;
-      nonce: number;
-      inputs: EventTxInput[];
-      outputs: EventTxOutput[];
-      parents: string[];
-      tokens: string[];
-      token_name: null | string;
-      token_symbol: null | string;
-      signal_bits: number;
-      metadata: {
-        hash: string;
-        voided_by: string[];
-        first_block: null | string;
-        height: number;
-      };
-    }
-  }
+  event: T extends FullNodeEventTypes.VERTEX_REMOVED ? VertexRemovedEventData : CommonEventData;
 }
 
 export interface EventTxInput {

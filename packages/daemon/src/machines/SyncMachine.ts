@@ -39,6 +39,7 @@ import {
   websocketDisconnected,
   voided,
   unchanged,
+  vertexRemoved,
 } from '../guards';
 import {
   storeInitialState,
@@ -70,6 +71,7 @@ export const CONNECTED_STATES = {
   handlingUnhandledEvent: 'handlingUnhandledEvent',
   handlingMetadataChanged: 'handlingMetadataChanged',
   handlingVertexAccepted: 'handlingVertexAccepted',
+  handlingVertexRemoved: 'handlingVertexRemoved',
   handlingVoidedTx: 'handlingVoidedTx',
   handlingUnvoidedTx: 'handlingUnvoidedTx',
   handlingFirstBlock: 'handlingFirstBlock',
@@ -157,6 +159,10 @@ const SyncMachine = Machine<Context, any, Event>({
               target: CONNECTED_STATES.idle,
             }, {
               actions: ['storeEvent'],
+              cond: 'vertexRemoved',
+              target: CONNECTED_STATES.handlingVertexRemoved,
+            }, {
+              actions: ['storeEvent'],
               cond: 'vertexAccepted',
               target: CONNECTED_STATES.handlingVertexAccepted,
             }, {
@@ -202,6 +208,18 @@ const SyncMachine = Machine<Context, any, Event>({
           id: CONNECTED_STATES.handlingVertexAccepted,
           invoke: {
             src: 'handleVertexAccepted',
+            data: (_context: Context, event: Event) => event,
+            onDone: {
+              target: 'idle',
+              actions: ['sendAck', 'storeEvent', 'updateCache'],
+            },
+            onError: `#${SYNC_MACHINE_STATES.ERROR}`,
+          },
+        },
+        [CONNECTED_STATES.handlingVertexRemoved]: {
+          id: CONNECTED_STATES.handlingVertexRemoved,
+          invoke: {
+            src: 'handleVertexRemoved',
             data: (_context: Context, event: Event) => event,
             onDone: {
               target: 'idle',
@@ -278,6 +296,7 @@ const SyncMachine = Machine<Context, any, Event>({
     websocketDisconnected,
     voided,
     unchanged,
+    vertexRemoved,
   },
   delays: { BACKOFF_DELAYED_RECONNECT },
   actions: {
