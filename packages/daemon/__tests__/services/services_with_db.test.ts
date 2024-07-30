@@ -47,9 +47,9 @@ describe('handleVoidedTx (db)', () => {
     };
 
     const mysql = await db.getDbConnection();
-    const lastEvent = await db.getLastSyncedEvent(mysql);
-
     await expect(handleVoidedTx(context as any)).resolves.not.toThrow();
+
+    const lastEvent = await db.getLastSyncedEvent(mysql);
     expect(db.voidTransaction).toHaveBeenCalledWith(
       expect.any(Object),
       'random-hash',
