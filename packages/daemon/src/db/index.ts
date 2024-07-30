@@ -1413,6 +1413,10 @@ export const fetchAddressBalance = async (
   mysql: MysqlConnection,
   addresses: string[],
 ): Promise<AddressBalance[]> => {
+  if (addresses.length === 0) {
+    return [];
+  }
+
   const [results] = await mysql.query<AddressBalanceRow[]>(
     `SELECT *
        FROM \`address_balance\`
@@ -1443,6 +1447,10 @@ export const fetchAddressTxHistorySum = async (
   mysql: MysqlConnection,
   addresses: string[],
 ): Promise<AddressTotalBalance[]> => {
+  if (addresses.length === 0) {
+    return [];
+  }
+
   const [results] = await mysql.query<AddressTxHistorySumRow[]>(
     `SELECT address,
             token_id,

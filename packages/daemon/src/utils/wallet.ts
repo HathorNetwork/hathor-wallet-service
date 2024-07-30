@@ -58,6 +58,10 @@ import { stringMapIterator } from './helpers';
  *                                  metadata.
  */
 export const prepareOutputs = (outputs: EventTxOutput[], tokens: string[]): TxOutputWithIndex[] => {
+  if (outputs.length === 0) {
+    return [];
+  }
+
   const preparedOutputs: [number, TxOutputWithIndex[]] = outputs.reduce(
     ([currIndex, newOutputs]: [number, TxOutputWithIndex[]], _output: EventTxOutput): [number, TxOutputWithIndex[]] => {
       const output = new Output(_output.value, Buffer.from(_output.script, 'base64'), {
