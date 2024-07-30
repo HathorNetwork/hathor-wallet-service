@@ -1344,6 +1344,10 @@ export const markUtxosAsVoided = async (
 ): Promise<void> => {
   const txIds = utxos.map((tx) => tx.txId);
 
+  if (txIds.length === 0) {
+    return;
+  }
+
   await mysql.query(`
     UPDATE \`tx_output\`
        SET \`voided\` = TRUE
