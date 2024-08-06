@@ -18,9 +18,14 @@ export const REORG_SCENARIO_PORT = 8082;
 // Same as the comment on the unvoided scenario last event
 export const REORG_SCENARIO_LAST_EVENT = 19;
 
+
 // single chain blocks and transactions port
 export const SINGLE_CHAIN_BLOCKS_AND_TRANSACTIONS_PORT = 8083;
 // Same as the comment on the unvoided scenario last event
 export const SINGLE_CHAIN_BLOCKS_AND_TRANSACTIONS_LAST_EVENT = 37;
 
-export const SCENARIOS = ['UNVOIDED_SCENARIO', 'REORG_SCENARIO', 'SINGLE_CHAIN_BLOCKS_AND_TRANSACTIONS'];
+
+export const INVALID_MEMPOOL_TRANSACTION_PORT = 8084;
+export const INVALID_MEMPOOL_TRANSACTION_LAST_EVENT = 20;
+
+export const SCENARIOS = ['UNVOIDED_SCENARIO', 'REORG_SCENARIO', 'SINGLE_CHAIN_BLOCKS_AND_TRANSACTIONS', 'INVALID_MEMPOOL_TRANSACTION'];

@@ -6,7 +6,7 @@
  */
 
 import { assign, AssignAction, raise, sendTo } from 'xstate';
-import { Context, Event, EventTypes } from '../types';
+import { CommonEventData, Context, Event, EventTypes } from '../types';
 import { get } from 'lodash';
 import logger from '../logger';
 import { hashTxData } from '../utils';
@@ -168,7 +168,7 @@ export const updateCache = (context: Context) => {
   if (!fullNodeEvent) {
     return;
   }
-  const { metadata, hash }  = fullNodeEvent.event.data;
+  const { metadata, hash }  = fullNodeEvent.event.data as CommonEventData;
   const hashedTxData = hashTxData(metadata);
 
   context.txCache.set(hash, hashedTxData);

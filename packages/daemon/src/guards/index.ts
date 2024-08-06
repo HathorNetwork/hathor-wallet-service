@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { Context, Event, EventTypes, FullNodeEventTypes } from '../types';
+import { CommonEventData, Context, Event, EventTypes, FullNodeEventTypes } from '../types';
 import { hashTxData } from '../utils';
 import { METADATA_DIFF_EVENT_TYPES } from '../services';
 import getConfig from '../config';
@@ -200,7 +200,7 @@ export const voided = (_context: Context, event: Event) => {
   }
 
   const fullNodeEvent = event.event.event;
-  const { metadata: { voided_by } } = fullNodeEvent.data;
+  const { metadata: { voided_by } } = fullNodeEvent.data as CommonEventData;
 
   return voided_by.length > 0;
 };
@@ -227,13 +227,13 @@ export const unchanged = (context: Context, event: Event) => {
   const { data } = event.event.event;
 
   const txCache = context.txCache;
-  const txHashFromCache = txCache.get(data.hash);
+  const txHashFromCache = txCache.get((data as CommonEventData).hash);
   // Not on the cache, it's not unchanged.
   if (!txHashFromCache) {
     return false;
   }
 
-  const txHashFromEvent = hashTxData(data.metadata);
+  const txHashFromEvent = hashTxData((data as CommonEventData).metadata);
 
   return txHashFromCache === txHashFromEvent;
 };

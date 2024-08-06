@@ -9,11 +9,6 @@ export type WebSocketEvent =
   | { type: 'CONNECTED' }
   | { type: 'DISCONNECTED' };
 
-export type MetadataDecidedEvent = {
-  type: 'TX_VOIDED' | 'TX_UNVOIDED' | 'TX_NEW' | 'TX_FIRST_BLOCK' | 'IGNORE';
-  originalEvent: FullNodeEvent;
-}
-
 export type WebSocketSendEvent =
   | {
       type: 'START_STREAM';
@@ -44,7 +39,13 @@ export enum FullNodeEventTypes {
   NEW_VERTEX_ACCEPTED = 'NEW_VERTEX_ACCEPTED',
   LOAD_STARTED = 'LOAD_STARTED',
   LOAD_FINISHED = 'LOAD_FINISHED',
-  REORG_STARTED = 'REORG_FINISHED',
+  REORG_STARTED = 'REORG_STARTED',
+  REORG_FINISHED= 'REORG_FINISHED',
+}
+
+export type MetadataDecidedEvent = {
+  type: 'TX_VOIDED' | 'TX_UNVOIDED' | 'TX_NEW' | 'TX_FIRST_BLOCK' | 'IGNORE';
+  originalEvent: FullNodeEvent<FullNodeEventTypes.VERTEX_METADATA_CHANGED>;
 }
 
 export type Event =
@@ -55,44 +56,52 @@ export type Event =
   | { type: EventTypes.HEALTHCHECK_EVENT, event: HealthCheckEvent};
 
 export interface CommonEventData {
-  id: number;
+  hash: string;
   timestamp: number;
-  type: FullNodeEventTypes;
-  data: {
+  version: number;
+  weight: number;
+  nonce: number;
+  inputs: EventTxInput[];
+  outputs: EventTxOutput[];
+  parents: string[];
+  tokens: string[];
+  token_name: null | string;
+  token_symbol: null | string;
+  signal_bits: number;
+  metadata: {
     hash: string;
-    timestamp: number;
-    version: number;
-    weight: number;
-    nonce: number;
-    inputs: EventTxInput[];
-    outputs: EventTxOutput[];
-    parents: string[];
-    tokens: string[];
-    token_name: null | string;
-    token_symbol: null | string;
-    signal_bits: number;
-    metadata: {
-      hash: string;
-      voided_by: string[];
-      first_block: null | string;
-      height: number;
-    };
-  }
+    voided_by: string[];
+    first_block: null | string;
+    height: number;
+  };
 }
 
 export interface VertexRemovedEventData {
-  data: {
-    vertex_id: string;
-  }
+  vertex_id: string;
 }
+
+type EventDataMapping = {
+  [FullNodeEventTypes.VERTEX_METADATA_CHANGED]: CommonEventData;
+  [FullNodeEventTypes.VERTEX_REMOVED]: VertexRemovedEventData;
+  [FullNodeEventTypes.NEW_VERTEX_ACCEPTED]: CommonEventData;
+  [FullNodeEventTypes.LOAD_STARTED]: CommonEventData;
+  [FullNodeEventTypes.LOAD_FINISHED]: CommonEventData;
+  [FullNodeEventTypes.REORG_STARTED]: CommonEventData;
+  [FullNodeEventTypes.REORG_FINISHED]: CommonEventData;
+};
 
 export type FullNodeEvent<T extends FullNodeEventTypes> = {
   stream_id: string;
   peer_id: string;
   network: string;
-  type: T;
+  type: string;
   latest_event_id: number;
-  event: T extends FullNodeEventTypes.VERTEX_REMOVED ? VertexRemovedEventData : CommonEventData;
+  event: {
+    id: number;
+    timestamp: number;
+    type: T;
+    data: EventDataMapping[T],
+  }
 }
 
 export interface EventTxInput {
