@@ -37,7 +37,17 @@ import {
   prepareOutputs,
   hashTxData,
   getFullnodeHttpUrl,
+  invokeOnTxPushNotificationRequestedLambda,
+  getWalletBalancesForTx,
 } from '../../src/utils';
+import getConfig from '../../src/config';
+
+jest.mock('../../src/config', () => {
+  return {
+    __esModule: true, // This property is needed for mocking a default export
+    default: jest.fn(() => ({})),
+  };
+});
 
 jest.mock('@hathor/wallet-lib');
 jest.mock('../../src/logger', () => ({
@@ -89,6 +99,9 @@ jest.mock('../../src/utils', () => ({
   getUnixTimestamp: jest.fn(),
   unlockUtxos: jest.fn(),
   getFullnodeHttpUrl: jest.fn(),
+  invokeOnTxPushNotificationRequestedLambda: jest.fn(),
+  sendMessageSQS: jest.fn(),
+  getWalletBalancesForTx: jest.fn(),
 }));
 
 beforeEach(() => {
@@ -499,6 +512,63 @@ describe('handleVertexAccepted', () => {
     expect(mockDb.beginTransaction).toHaveBeenCalled();
     expect(getTransactionById).toHaveBeenCalledWith(mockDb, 'hashValue');
     expect(logger.debug).toHaveBeenCalledWith('Will add the tx with height', 123);
+    expect(mockDb.commit).toHaveBeenCalled();
+    expect(mockDb.destroy).toHaveBeenCalled();
+  });
+
+  it('should handle call the push notification lambda if PUSH_NOTIFICATION_ENABLED is true', async () => {
+    const context = {
+      event: {
+        event: {
+          data: {
+            hash: 'hashValue',
+            metadata: {
+              height: 123,
+              first_block: true,
+              voided_by: [],
+            },
+            timestamp: new Date().getTime(),
+            version: 1,
+            weight: 17.17,
+            outputs: [],
+            inputs: [1],
+            tokens: [],
+          },
+          id: 'idValue',
+        },
+      },
+      rewardMinBlocks: 300,
+      txCache: {
+        get: jest.fn(),
+        set: jest.fn(),
+      },
+    };
+
+    (getConfig as jest.Mock).mockReturnValue({
+      PUSH_NOTIFICATION_ENABLED: true,
+      NEW_TX_SQS: 'http://nowhere.com',
+    });
+
+    (addOrUpdateTx as jest.Mock).mockReturnValue(Promise.resolve());
+    (getTransactionById as jest.Mock).mockResolvedValue(null); // Transaction is not in the database
+    (prepareOutputs as jest.Mock).mockReturnValue([]);
+    (prepareInputs as jest.Mock).mockReturnValue([]);
+    (getAddressBalanceMap as jest.Mock).mockReturnValue({});
+    (getUtxosLockedAtHeight as jest.Mock).mockResolvedValue([]);
+    (hashTxData as jest.Mock).mockReturnValue('hashedData');
+      (getAddressWalletInfo as jest.Mock).mockResolvedValue({
+      'address1': {
+          walletId: 'wallet1',
+          xpubkey: 'xpubkey1',
+          maxGap: 10
+      },
+    });
+    (getWalletBalancesForTx as jest.Mock).mockResolvedValue({ 'mockWallet': {} });
+    (invokeOnTxPushNotificationRequestedLambda as jest.Mock).mockResolvedValue(undefined);
+
+    await handleVertexAccepted(context as any, {} as any);
+
+    expect(invokeOnTxPushNotificationRequestedLambda).toHaveBeenCalled();
     expect(mockDb.commit).toHaveBeenCalled();
     expect(mockDb.destroy).toHaveBeenCalled();
   });

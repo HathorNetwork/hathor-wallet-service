@@ -65,7 +65,7 @@ import {
 } from '../db';
 import getConfig from '../config';
 import logger from '../logger';
-import { invokeOnTxPushNotificationRequestedLambda, sendMessageSQS } from '../utils/aws';
+import { invokeOnTxPushNotificationRequestedLambda, sendMessageSQS } from '../utils';
 
 export const METADATA_DIFF_EVENT_TYPES = {
   IGNORE: 'IGNORE',
