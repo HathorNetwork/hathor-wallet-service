@@ -36,6 +36,7 @@
             nixpkgs-fmt
             nodejs_20
             yarn
+            docker-compose
           ];
         };
     });
