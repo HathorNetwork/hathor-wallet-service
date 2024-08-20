@@ -1344,6 +1344,10 @@ export const markUtxosAsVoided = async (
 ): Promise<void> => {
   const txIds = utxos.map((tx) => tx.txId);
 
+  if (txIds.length === 0) {
+    return;
+  }
+
   await mysql.query(`
     UPDATE \`tx_output\`
        SET \`voided\` = TRUE
@@ -1409,6 +1413,10 @@ export const fetchAddressBalance = async (
   mysql: MysqlConnection,
   addresses: string[],
 ): Promise<AddressBalance[]> => {
+  if (addresses.length === 0) {
+    return [];
+  }
+
   const [results] = await mysql.query<AddressBalanceRow[]>(
     `SELECT *
        FROM \`address_balance\`
@@ -1439,6 +1447,10 @@ export const fetchAddressTxHistorySum = async (
   mysql: MysqlConnection,
   addresses: string[],
 ): Promise<AddressTotalBalance[]> => {
+  if (addresses.length === 0) {
+    return [];
+  }
+
   const [results] = await mysql.query<AddressTxHistorySumRow[]>(
     `SELECT address,
             token_id,

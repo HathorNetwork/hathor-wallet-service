@@ -289,6 +289,12 @@ describe('tx output methods', () => {
     expect(countAfterDelete).toStrictEqual(0);
   });
 
+  test('markUtxosAsVoided should not throw when utxos list is empty', async () => {
+    expect.hasAssertions();
+
+    await expect(markUtxosAsVoided(mysql, [])).resolves.not.toThrow();
+  });
+
   test('getTxOutputsFromTx, getTxOutputs, getTxOutput', async () => {
     expect.hasAssertions();
 
