@@ -18,7 +18,7 @@ describe('prepareOutputs', () => {
       value: 1,
       token_data: 0,
       script: 'OmlwZnM6Ly9pcGZzL1FtTlJtNmhRUDN2MlVMclVOZTJQTTY4V1dRb2EyUmVwY1IxejVUVVdWZmd0bzGs',
-      // @ts-ignore: This type is wrong, we should allow null here in the type
+      // @ts-expect-error: This type is wrong, we should allow null here in the type
       decoded: null
     }, {
       value: 2116,
