@@ -186,4 +186,4 @@ phases:
       - export GIT_REF_TO_DEPLOY=$(cat git_ref_to_deploy)
   build:
     commands:
-      - bash .codebuild/build.sh
+      - bash .codebuild/build.sh hathor-network
