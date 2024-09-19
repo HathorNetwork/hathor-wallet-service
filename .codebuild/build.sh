@@ -125,6 +125,16 @@ deploy_nano_testnet() {
         make deploy-lambdas-nano-testnet;
 
         send_slack_message "New version deployed to nano-testnet: ${GIT_REF_TO_DEPLOY}"
+    elif expr "${MANUAL_DEPLOY}" : "true" >/dev/null; then
+        make migrate;
+        make deploy-lambdas-nano-testnet;
+
+        send_slack_message "Branch manually deployed to nano-testnet: ${GIT_REF_TO_DEPLOY}"
+    elif expr "${ROLLBACK}" : "true" >/dev/null; then
+        make migrate;
+        make deploy-lambdas-nano-testnet;
+
+        send_slack_message "Rollback performed on nano-tesnet to: ${GIT_REF_TO_DEPLOY}";
     else
         echo "We don't deploy ${GIT_REF_TO_DEPLOY} to nano-testnet. Nothing to do.";
     fi;
@@ -147,6 +157,16 @@ deploy_ekvilibro_mainnet() {
         make deploy-lambdas-ekvilibro-mainnet;
 
         send_slack_message "New version deployed to ekvilibro-mainnet: ${GIT_REF_TO_DEPLOY}"
+    elif expr "${MANUAL_DEPLOY}" : "true" >/dev/null; then
+        make migrate;
+        make deploy-lambdas-ekvilibro-mainnet;
+
+        send_slack_message "Branch manually deployed to ekvilibro-mainnet: ${GIT_REF_TO_DEPLOY}"
+    elif expr "${ROLLBACK}" : "true" >/dev/null; then
+        make migrate;
+        make deploy-lambdas-ekvilibro-mainnet;
+
+        send_slack_message "Rollback performed on ekvilibro-mainnet to: ${GIT_REF_TO_DEPLOY}";
     else
         echo "We don't deploy ${GIT_REF_TO_DEPLOY} to ekvilibro-mainnet. Nothing to do.";
     fi;
@@ -167,6 +187,16 @@ deploy_ekvilibro_testnet() {
         make deploy-lambdas-ekvilibro-testnet;
 
         send_slack_message "New version deployed to ekvilibro-testnet: ${GIT_REF_TO_DEPLOY}"
+    elif expr "${MANUAL_DEPLOY}" : "true" >/dev/null; then
+        make migrate;
+        make deploy-lambdas-ekvilibro-testnet;
+
+        send_slack_message "Branch manually deployed to ekvilibro-testnet: ${GIT_REF_TO_DEPLOY}"
+    elif expr "${ROLLBACK}" : "true" >/dev/null; then
+        make migrate;
+        make deploy-lambdas-ekvilibro-testnet;
+
+        send_slack_message "Rollback performed on ekvilibro-testnet to: ${GIT_REF_TO_DEPLOY}";
     else
         echo "We don't deploy ${GIT_REF_TO_DEPLOY} to ekvilibro-testnet. Nothing to do.";
     fi;
