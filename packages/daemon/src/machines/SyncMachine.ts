@@ -18,6 +18,7 @@ import {
 } from '../types';
 import {
   handleVertexAccepted,
+  handleVertexRemoved,
   metadataDiff,
   handleVoidedTx,
   handleTxFirstBlock,
@@ -223,7 +224,7 @@ const SyncMachine = Machine<Context, any, Event>({
             data: (_context: Context, event: Event) => event,
             onDone: {
               target: 'idle',
-              actions: ['sendAck', 'storeEvent', 'updateCache'],
+              actions: ['sendAck', 'storeEvent'],
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
@@ -317,6 +318,7 @@ const SyncMachine = Machine<Context, any, Event>({
     handleVoidedTx,
     handleUnvoidedTx,
     handleVertexAccepted,
+    handleVertexRemoved,
     handleTxFirstBlock,
     metadataDiff,
     updateLastSyncedEvent,

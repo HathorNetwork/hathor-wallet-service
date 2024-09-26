@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { CommonEventData, Context, Event, EventTypes, FullNodeEventTypes } from '../types';
+import { Context, Event, EventTypes, FullNodeEventTypes } from '../types';
 import { hashTxData } from '../utils';
 import { METADATA_DIFF_EVENT_TYPES } from '../services';
 import getConfig from '../config';
@@ -173,8 +173,8 @@ export const websocketDisconnected = (_context: Context, event: Event) => {
 
 /*
  * This guard is used in the `idle` state to detect if the transaction in the
- * received event is voided, this can serve many functions, one of them is to
- * ignore transactions that we don't have on our database but are already voided
+ * received event is a vertex removed event, indicating that we should remove
+ * the transaction from our database
  */
 export const vertexRemoved = (_context: Context, event: Event) => {
   if (event.type !== EventTypes.FULLNODE_EVENT) {
@@ -186,8 +186,8 @@ export const vertexRemoved = (_context: Context, event: Event) => {
 
 /*
  * This guard is used in the `idle` state to detect if the transaction in the
- * received event is a vertex removed event, indicating that we should remove
- * the transaction from our database
+ * received event is voided, this can serve many functions, one of them is to
+ * ignore transactions that we don't have on our database but are already voided
  */
 export const voided = (_context: Context, event: Event) => {
   if (event.type !== EventTypes.FULLNODE_EVENT) {
@@ -200,7 +200,7 @@ export const voided = (_context: Context, event: Event) => {
   }
 
   const fullNodeEvent = event.event.event;
-  const { metadata: { voided_by } } = fullNodeEvent.data as CommonEventData;
+  const { metadata: { voided_by } } = fullNodeEvent.data;
 
   return voided_by.length > 0;
 };
@@ -227,13 +227,13 @@ export const unchanged = (context: Context, event: Event) => {
   const { data } = event.event.event;
 
   const txCache = context.txCache;
-  const txHashFromCache = txCache.get((data as CommonEventData).hash);
+  const txHashFromCache = txCache.get(data.hash);
   // Not on the cache, it's not unchanged.
   if (!txHashFromCache) {
     return false;
   }
 
-  const txHashFromEvent = hashTxData((data as CommonEventData).metadata);
+  const txHashFromEvent = hashTxData(data.metadata);
 
   return txHashFromCache === txHashFromEvent;
 };

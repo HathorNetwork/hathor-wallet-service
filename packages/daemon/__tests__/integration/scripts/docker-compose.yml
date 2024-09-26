@@ -37,7 +37,7 @@ services:
     ports:
       - "8083:8080"
   invalid_mempool_transaction:
-    image: hathornetwork/hathor-core:v0.62.0-rc.1
+    image: hathornetwork/hathor-core:stable
     command: [
       "events_simulator",
       "--scenario", "INVALID_MEMPOOL_TRANSACTION",

@@ -7,13 +7,13 @@
 
 import { ActorRef } from 'xstate';
 import { LRU } from '../utils';
-import { FullNodeEvent, FullNodeEventTypes } from './event';
+import { FullNodeEvent } from './event';
 
 export interface Context {
   socket: ActorRef<any, any> | null;
   healthcheck: ActorRef<any, any> | null;
   retryAttempt: number;
-  event?: FullNodeEvent<FullNodeEventTypes> | null;
+  event?: FullNodeEvent | null;
   initialEventId: null | number;
   txCache: LRU;
   rewardMinBlocks?: number | null;

@@ -7,6 +7,7 @@
 
 // @ts-ignore
 import hathorLib from '@hathor/wallet-lib';
+import { Connection as MysqlConnection } from 'mysql2/promise';
 import axios from 'axios';
 import { get } from 'lodash';
 import { NftUtils } from '@wallet-service/common';
@@ -19,7 +20,8 @@ import {
   Event,
   Context,
   FullNodeEvent,
-  FullNodeEventTypes,
+  EventTxInput,
+  EventTxOutput,
 } from '../types';
 import {
   TxInput,
@@ -80,7 +82,7 @@ export const metadataDiff = async (_context: Context, event: Event) => {
   const mysql = await getDbConnection();
 
   try {
-    const fullNodeEvent = event.event as FullNodeEvent<FullNodeEventTypes.VERTEX_METADATA_CHANGED>;
+    const fullNodeEvent = event.event as FullNodeEvent;
     const {
       hash,
       metadata: { voided_by, first_block },
@@ -162,7 +164,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
   await mysql.beginTransaction();
 
   try {
-    const fullNodeEvent = context.event as FullNodeEvent<FullNodeEventTypes.NEW_VERTEX_ACCEPTED>;
+    const fullNodeEvent = context.event as FullNodeEvent;
     const now = getUnixTimestamp();
     const { NEW_TX_SQS, PUSH_NOTIFICATION_ENABLED } = getConfig();
     const blockRewardLock = context.rewardMinBlocks;
@@ -385,10 +387,14 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
   await mysql.beginTransaction();
 
   try {
-    const fullNodeEvent = context.event as FullNodeEvent<FullNodeEventTypes.VERTEX_REMOVED>;
-    const now = getUnixTimestamp();
+    const fullNodeEvent = context.event as FullNodeEvent;
 
-    const { vertex_id: hash } = fullNodeEvent.event.data;
+    const {
+      hash,
+      outputs,
+      inputs,
+      tokens,
+    } = fullNodeEvent.event.data;
 
     const dbTx: DbTransaction | null = await getTransactionById(mysql, hash);
 
@@ -396,8 +402,19 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
       throw new Error(`VERTEX_REMOVED event received, but transaction ${hash} was not in the database.`);
     }
 
-    const dbTxOutputs: DbTxOutput[] = await getTxOutputsFromTx(mysql, hash);
+    logger.info(`[VertexRemoved] Voiding tx: ${hash}`);
+    await voidTx(
+      mysql,
+      hash,
+      inputs,
+      outputs,
+      tokens,
+    );
 
+    logger.info(`[VertexRemoved] Removing tx from database: ${hash}`);
+    await cleanupVoidedTx(mysql, hash);
+    await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
+    await mysql.commit();
   } catch (e) {
     logger.debug(e);
     await mysql.rollback();
@@ -408,12 +425,44 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
   }
 };
 
+export const voidTx = async (
+  mysql: MysqlConnection,
+  hash: string,
+  inputs: EventTxInput[],
+  outputs: EventTxOutput[],
+  tokens: string[],
+) => {
+  const dbTxOutputs: DbTxOutput[] = await getTxOutputsFromTx(mysql, hash);
+  const txOutputs: TxOutputWithIndex[] = prepareOutputs(outputs, tokens);
+  const txInputs: TxInput[] = prepareInputs(inputs, tokens);
+
+  const txOutputsWithLocked = txOutputs.map((output) => {
+    const dbTxOutput = dbTxOutputs.find((_output) => _output.index === output.index);
+
+    if (!dbTxOutput) {
+      throw new Error('Transaction output different from database output!');
+    }
+
+    return {
+      ...output,
+      locked: dbTxOutput.locked,
+    };
+  });
+
+  const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputsWithLocked);
+  await voidTransaction(mysql, hash, addressBalanceMap);
+  await markUtxosAsVoided(mysql, dbTxOutputs);
+
+  const addresses = Object.keys(addressBalanceMap);
+  await validateAddressBalances(mysql, addresses);
+};
+
 export const handleVoidedTx = async (context: Context) => {
   const mysql = await getDbConnection();
   await mysql.beginTransaction();
 
   try {
-    const fullNodeEvent = context.event as FullNodeEvent<FullNodeEventTypes.VERTEX_METADATA_CHANGED>;
+    const fullNodeEvent = context.event as FullNodeEvent;
 
     const {
       hash,
@@ -423,36 +472,17 @@ export const handleVoidedTx = async (context: Context) => {
     } = fullNodeEvent.event.data;
 
     logger.debug(`Will handle voided tx for ${hash}`);
-
-    const dbTxOutputs: DbTxOutput[] = await getTxOutputsFromTx(mysql, hash);
-    const txOutputs: TxOutputWithIndex[] = prepareOutputs(outputs, tokens);
-    const txInputs: TxInput[] = prepareInputs(inputs, tokens);
-
-    const txOutputsWithLocked = txOutputs.map((output) => {
-      const dbTxOutput = dbTxOutputs.find((_output) => _output.index === output.index);
-
-      if (!dbTxOutput) {
-        throw new Error('Transaction output different from database output!');
-      }
-
-      return {
-        ...output,
-        locked: dbTxOutput.locked,
-      };
-    });
-
-    const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputsWithLocked);
-    await voidTransaction(mysql, hash, addressBalanceMap);
-    await markUtxosAsVoided(mysql, dbTxOutputs);
-
-    const addresses = Object.keys(addressBalanceMap);
-    await validateAddressBalances(mysql, addresses);
-
-    await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
-
+    await voidTx(
+      mysql,
+      hash,
+      inputs,
+      outputs,
+      tokens
+    );
     logger.debug(`Voided tx ${hash}`);
 
     await mysql.commit();
+    await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
   } catch (e) {
     logger.debug(e);
     await mysql.rollback();
@@ -468,7 +498,7 @@ export const handleUnvoidedTx = async (context: Context) => {
   await mysql.beginTransaction();
 
   try {
-    const fullNodeEvent = context.event as FullNodeEvent<FullNodeEventTypes.VERTEX_METADATA_CHANGED>;
+    const fullNodeEvent = context.event as FullNodeEvent;
 
     const { hash } = fullNodeEvent.event.data;
 
@@ -494,7 +524,7 @@ export const handleTxFirstBlock = async (context: Context) => {
   await mysql.beginTransaction();
 
   try {
-    const fullNodeEvent = context.event as FullNodeEvent<FullNodeEventTypes.VERTEX_METADATA_CHANGED>;
+    const fullNodeEvent = context.event as FullNodeEvent;
 
     const {
       hash,

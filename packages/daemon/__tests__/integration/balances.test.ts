@@ -13,6 +13,7 @@ import { cleanDatabase, fetchAddressBalances, validateBalances } from './utils';
 import unvoidedScenarioBalances from './scenario_configs/unvoided_transactions.balances';
 import reorgScenarioBalances from './scenario_configs/reorg.balances';
 import singleChainBlocksAndTransactionsBalances from './scenario_configs/single_chain_blocks_and_transactions.balances';
+import invalidMempoolBalances from './scenario_configs/invalid_mempool_transaction.balances';
 import {
   DB_NAME,
   DB_USER,
@@ -252,13 +253,14 @@ describe('invalid mempool transactions scenario', () => {
 
     await new Promise<void>((resolve) => {
       machine.onTransition(async (state) => {
+        const addressBalances = await fetchAddressBalances(mysql);
         if (state.matches('CONNECTED.idle')) {
           // @ts-ignore
           const lastSyncedEvent = await getLastSyncedEvent(mysql);
+          console.log(lastSyncedEvent);
           if (lastSyncedEvent?.last_event_id === INVALID_MEMPOOL_TRANSACTION_LAST_EVENT) {
-            const addressBalances = await fetchAddressBalances(mysql);
             // @ts-ignore
-            expect(validateBalances(addressBalances, singleChainBlocksAndTransactionsBalances));
+            expect(validateBalances(addressBalances, invalidMempoolBalances));
 
             machine.stop();
 

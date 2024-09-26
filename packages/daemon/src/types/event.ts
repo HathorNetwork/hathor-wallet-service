@@ -45,52 +45,22 @@ export enum FullNodeEventTypes {
 
 export type MetadataDecidedEvent = {
   type: 'TX_VOIDED' | 'TX_UNVOIDED' | 'TX_NEW' | 'TX_FIRST_BLOCK' | 'IGNORE';
-  originalEvent: FullNodeEvent<FullNodeEventTypes.VERTEX_METADATA_CHANGED>;
+  originalEvent: FullNodeEvent;
 }
 
 export type Event =
   | { type: EventTypes.WEBSOCKET_EVENT, event: WebSocketEvent }
-  | { type: EventTypes.FULLNODE_EVENT, event: FullNodeEvent<FullNodeEventTypes> }
+  | { type: EventTypes.FULLNODE_EVENT, event: FullNodeEvent }
   | { type: EventTypes.METADATA_DECIDED, event: MetadataDecidedEvent }
   | { type: EventTypes.WEBSOCKET_SEND_EVENT, event: WebSocketSendEvent }
   | { type: EventTypes.HEALTHCHECK_EVENT, event: HealthCheckEvent};
 
-export interface CommonEventData {
-  hash: string;
-  timestamp: number;
-  version: number;
-  weight: number;
-  nonce: number;
-  inputs: EventTxInput[];
-  outputs: EventTxOutput[];
-  parents: string[];
-  tokens: string[];
-  token_name: null | string;
-  token_symbol: null | string;
-  signal_bits: number;
-  metadata: {
-    hash: string;
-    voided_by: string[];
-    first_block: null | string;
-    height: number;
-  };
-}
 
 export interface VertexRemovedEventData {
   vertex_id: string;
 }
 
-type EventDataMapping = {
-  [FullNodeEventTypes.VERTEX_METADATA_CHANGED]: CommonEventData;
-  [FullNodeEventTypes.VERTEX_REMOVED]: VertexRemovedEventData;
-  [FullNodeEventTypes.NEW_VERTEX_ACCEPTED]: CommonEventData;
-  [FullNodeEventTypes.LOAD_STARTED]: CommonEventData;
-  [FullNodeEventTypes.LOAD_FINISHED]: CommonEventData;
-  [FullNodeEventTypes.REORG_STARTED]: CommonEventData;
-  [FullNodeEventTypes.REORG_FINISHED]: CommonEventData;
-};
-
-export type FullNodeEvent<T extends FullNodeEventTypes> = {
+export type FullNodeEvent = {
   stream_id: string;
   peer_id: string;
   network: string;
@@ -99,8 +69,27 @@ export type FullNodeEvent<T extends FullNodeEventTypes> = {
   event: {
     id: number;
     timestamp: number;
-    type: T;
-    data: EventDataMapping[T],
+    type: FullNodeEventTypes;
+    data: {
+      hash: string;
+      timestamp: number;
+      version: number;
+      weight: number;
+      nonce: number;
+      inputs: EventTxInput[];
+      outputs: EventTxOutput[];
+      parents: string[];
+      tokens: string[];
+      token_name: null | string;
+      token_symbol: null | string;
+      signal_bits: number;
+      metadata: {
+        hash: string;
+        voided_by: string[];
+        first_block: null | string;
+        height: number;
+      };
+    }
   }
 }
 

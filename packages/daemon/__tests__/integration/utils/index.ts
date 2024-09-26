@@ -70,7 +70,7 @@ export const validateBalances = async (
     if (totalBalanceA !== balanceB) {
       console.log(totalBalanceA);
       console.log(balanceB);
-      throw new Error(`Balances are not equal for address: ${address}`);
+      throw new Error(`Balances are not equal for address: ${address}, expected: ${balanceB}, received: ${totalBalanceA}`);
     }
   }
 };

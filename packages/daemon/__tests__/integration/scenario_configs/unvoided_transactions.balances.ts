@@ -13,4 +13,4 @@ export default {
   "HNqTfEASfdx7H4vMUGzfD2HyD3GeKuxjTJ": 5400,
   "HRQe4CXj8AZXzSmuNztU8iQR74QTQMbnTs": 1000,
   "HVayMofEDh4XGsaQJeRJKhutYxYodYNop6": 100000000000
-}
+};
