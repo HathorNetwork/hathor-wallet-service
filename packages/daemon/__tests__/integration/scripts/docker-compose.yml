@@ -44,7 +44,7 @@ services:
       "--seed", "1"
     ]
     ports:
-      - "8084:8080"
+      - "8085:8080"
 
 networks:
   database:
