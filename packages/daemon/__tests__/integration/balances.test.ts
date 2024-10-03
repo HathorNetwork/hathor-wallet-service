@@ -4,12 +4,13 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  */
+
 import * as Services from '../../src/services';
 import { SyncMachine } from '../../src/machines';
 import { interpret } from 'xstate';
-import { getLastSyncedEvent, getDbConnection } from '../../src/db';
+import { getDbConnection } from '../../src/db';
 import { Connection } from 'mysql2/promise';
-import { cleanDatabase, fetchAddressBalances, validateBalances } from './utils';
+import { cleanDatabase, fetchAddressBalances, transitionUntilEvent, validateBalances } from './utils';
 import unvoidedScenarioBalances from './scenario_configs/unvoided_transactions.balances';
 import reorgScenarioBalances from './scenario_configs/reorg.balances';
 import singleChainBlocksAndTransactionsBalances from './scenario_configs/single_chain_blocks_and_transactions.balances';
@@ -111,25 +112,11 @@ describe('unvoided transaction scenario', () => {
 
     const machine = interpret(SyncMachine);
 
-    await new Promise<void>((resolve) => {
-      machine.onTransition(async (state) => {
-        if (state.matches('CONNECTED.idle')) {
-          // @ts-ignore
-          const lastSyncedEvent = await getLastSyncedEvent(mysql);
-          if (lastSyncedEvent?.last_event_id === UNVOIDED_SCENARIO_LAST_EVENT) {
-            const addressBalances = await fetchAddressBalances(mysql);
-            // @ts-ignore
-            expect(validateBalances(addressBalances, unvoidedScenarioBalances));
-
-            machine.stop();
-
-            resolve();
-          }
-        }
-      });
-
-      machine.start();
-    });
+    // @ts-ignore
+    await transitionUntilEvent(mysql, machine, UNVOIDED_SCENARIO_LAST_EVENT);
+    const addressBalances = await fetchAddressBalances(mysql);
+    // @ts-ignore
+    expect(validateBalances(addressBalances, unvoidedScenarioBalances));
   });
 });
 
@@ -160,25 +147,11 @@ describe('reorg scenario', () => {
 
     const machine = interpret(SyncMachine);
 
-    await new Promise<void>((resolve) => {
-      machine.onTransition(async (state) => {
-        if (state.matches('CONNECTED.idle')) {
-          // @ts-ignore
-          const lastSyncedEvent = await getLastSyncedEvent(mysql);
-          if (lastSyncedEvent?.last_event_id === REORG_SCENARIO_LAST_EVENT) {
-            const addressBalances = await fetchAddressBalances(mysql);
-            // @ts-ignore
-            expect(validateBalances(addressBalances, reorgScenarioBalances));
-
-            machine.stop();
-
-            resolve();
-          }
-        }
-      });
-
-      machine.start();
-    });
+    // @ts-ignore
+    await transitionUntilEvent(mysql, machine, REORG_SCENARIO_LAST_EVENT);
+    const addressBalances = await fetchAddressBalances(mysql);
+    // @ts-ignore
+    expect(validateBalances(addressBalances, reorgScenarioBalances));
   });
 });
 
@@ -209,25 +182,11 @@ describe('single chain blocks and transactions scenario', () => {
 
     const machine = interpret(SyncMachine);
 
-    await new Promise<void>((resolve) => {
-      machine.onTransition(async (state) => {
-        if (state.matches('CONNECTED.idle')) {
-          // @ts-ignore
-          const lastSyncedEvent = await getLastSyncedEvent(mysql);
-          if (lastSyncedEvent?.last_event_id === SINGLE_CHAIN_BLOCKS_AND_TRANSACTIONS_LAST_EVENT) {
-            const addressBalances = await fetchAddressBalances(mysql);
-            // @ts-ignore
-            expect(validateBalances(addressBalances, singleChainBlocksAndTransactionsBalances));
-
-            machine.stop();
-
-            resolve();
-          }
-        }
-      });
-
-      machine.start();
-    });
+    // @ts-ignore
+    await transitionUntilEvent(mysql, machine, SINGLE_CHAIN_BLOCKS_AND_TRANSACTIONS_LAST_EVENT);
+    const addressBalances = await fetchAddressBalances(mysql);
+    // @ts-ignore
+    expect(validateBalances(addressBalances, singleChainBlocksAndTransactionsBalances));
   });
 });
 
@@ -258,26 +217,11 @@ describe('invalid mempool transactions scenario', () => {
 
     const machine = interpret(SyncMachine);
 
-    await new Promise<void>((resolve) => {
-      machine.onTransition(async (state) => {
-        const addressBalances = await fetchAddressBalances(mysql);
-        if (state.matches('CONNECTED.idle')) {
-          // @ts-ignore
-          const lastSyncedEvent = await getLastSyncedEvent(mysql);
-          console.log(lastSyncedEvent);
-          if (lastSyncedEvent?.last_event_id === INVALID_MEMPOOL_TRANSACTION_LAST_EVENT) {
-            // @ts-ignore
-            expect(validateBalances(addressBalances, invalidMempoolBalances));
-
-            machine.stop();
-
-            resolve();
-          }
-        }
-      });
-
-      machine.start();
-    });
+    // @ts-ignore
+    await transitionUntilEvent(mysql, machine, INVALID_MEMPOOL_TRANSACTION_LAST_EVENT);
+    const addressBalances = await fetchAddressBalances(mysql);
+    // @ts-ignore
+    expect(validateBalances(addressBalances, invalidMempoolBalances));
   });
 });
 
@@ -308,26 +252,11 @@ describe('custom script scenario', () => {
 
     const machine = interpret(SyncMachine);
 
-    await new Promise<void>((resolve) => {
-      machine.onTransition(async (state) => {
-        const addressBalances = await fetchAddressBalances(mysql);
-        if (state.matches('CONNECTED.idle')) {
-          // @ts-ignore
-          const lastSyncedEvent = await getLastSyncedEvent(mysql);
-          console.log(lastSyncedEvent);
-          if (lastSyncedEvent?.last_event_id === CUSTOM_SCRIPT_LAST_EVENT) {
-            // @ts-ignore
-            expect(validateBalances(addressBalances, customScriptBalances));
-
-            machine.stop();
-
-            resolve();
-          }
-        }
-      });
-
-      machine.start();
-    });
+    // @ts-ignore
+    await transitionUntilEvent(mysql, machine, CUSTOM_SCRIPT_LAST_EVENT);
+    const addressBalances = await fetchAddressBalances(mysql);
+    // @ts-ignore
+    expect(validateBalances(addressBalances, customScriptBalances));
   });
 });
 
@@ -358,25 +287,10 @@ describe('empty script scenario', () => {
 
     const machine = interpret(SyncMachine);
 
-    await new Promise<void>((resolve) => {
-      machine.onTransition(async (state) => {
-        const addressBalances = await fetchAddressBalances(mysql);
-        if (state.matches('CONNECTED.idle')) {
-          // @ts-ignore
-          const lastSyncedEvent = await getLastSyncedEvent(mysql);
-          if (lastSyncedEvent?.last_event_id === EMPTY_SCRIPT_LAST_EVENT) {
-            console.log('EMPTY SCRIPT SCNEARIO');
-            // @ts-ignore
-            expect(validateBalances(addressBalances, emptyScriptBalances));
-
-            machine.stop();
-
-            resolve();
-          }
-        }
-      });
-
-      machine.start();
-    });
+    // @ts-ignore
+    await transitionUntilEvent(mysql, machine, EMPTY_SCRIPT_LAST_EVENT);
+    const addressBalances = await fetchAddressBalances(mysql);
+    // @ts-ignore
+    expect(validateBalances(addressBalances, emptyScriptBalances));
   });
 });
