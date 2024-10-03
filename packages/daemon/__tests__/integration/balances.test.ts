@@ -14,6 +14,9 @@ import unvoidedScenarioBalances from './scenario_configs/unvoided_transactions.b
 import reorgScenarioBalances from './scenario_configs/reorg.balances';
 import singleChainBlocksAndTransactionsBalances from './scenario_configs/single_chain_blocks_and_transactions.balances';
 import invalidMempoolBalances from './scenario_configs/invalid_mempool_transaction.balances';
+import emptyScriptBalances from './scenario_configs/empty_script.balances';
+import customScriptBalances from './scenario_configs/custom_script.balances';
+
 import {
   DB_NAME,
   DB_USER,
@@ -28,6 +31,10 @@ import {
   SINGLE_CHAIN_BLOCKS_AND_TRANSACTIONS_PORT,
   SINGLE_CHAIN_BLOCKS_AND_TRANSACTIONS_LAST_EVENT,
   INVALID_MEMPOOL_TRANSACTION_LAST_EVENT,
+  CUSTOM_SCRIPT_PORT,
+  CUSTOM_SCRIPT_LAST_EVENT,
+  EMPTY_SCRIPT_PORT,
+  EMPTY_SCRIPT_LAST_EVENT,
 } from './config';
 
 jest.mock('../../src/config', () => {
@@ -261,6 +268,106 @@ describe('invalid mempool transactions scenario', () => {
           if (lastSyncedEvent?.last_event_id === INVALID_MEMPOOL_TRANSACTION_LAST_EVENT) {
             // @ts-ignore
             expect(validateBalances(addressBalances, invalidMempoolBalances));
+
+            machine.stop();
+
+            resolve();
+          }
+        }
+      });
+
+      machine.start();
+    });
+  });
+});
+
+describe('custom script scenario', () => {
+  beforeAll(() => {
+    jest.spyOn(Services, 'fetchMinRewardBlocks').mockImplementation(async () => 300);
+  });
+
+  it('should do a full sync and the balances should match', async () => {
+    // @ts-ignore
+    getConfig.mockReturnValue({
+      NETWORK: 'testnet',
+      SERVICE_NAME: 'daemon-test',
+      CONSOLE_LEVEL: 'debug',
+      TX_CACHE_SIZE: 100,
+      BLOCK_REWARD_LOCK: 300,
+      FULLNODE_PEER_ID: 'simulator_peer_id',
+      STREAM_ID: 'simulator_stream_id',
+      FULLNODE_NETWORK: 'simulator_network',
+      FULLNODE_HOST: `127.0.0.1:${CUSTOM_SCRIPT_PORT}`,
+      USE_SSL: false,
+      DB_ENDPOINT,
+      DB_NAME,
+      DB_USER,
+      DB_PASS,
+      DB_PORT,
+    });
+
+    const machine = interpret(SyncMachine);
+
+    await new Promise<void>((resolve) => {
+      machine.onTransition(async (state) => {
+        const addressBalances = await fetchAddressBalances(mysql);
+        if (state.matches('CONNECTED.idle')) {
+          // @ts-ignore
+          const lastSyncedEvent = await getLastSyncedEvent(mysql);
+          console.log(lastSyncedEvent);
+          if (lastSyncedEvent?.last_event_id === CUSTOM_SCRIPT_LAST_EVENT) {
+            // @ts-ignore
+            expect(validateBalances(addressBalances, customScriptBalances));
+
+            machine.stop();
+
+            resolve();
+          }
+        }
+      });
+
+      machine.start();
+    });
+  });
+});
+
+describe('empty script scenario', () => {
+  beforeAll(() => {
+    jest.spyOn(Services, 'fetchMinRewardBlocks').mockImplementation(async () => 300);
+  });
+
+  it('should do a full sync and the balances should match', async () => {
+    // @ts-ignore
+    getConfig.mockReturnValue({
+      NETWORK: 'testnet',
+      SERVICE_NAME: 'daemon-test',
+      CONSOLE_LEVEL: 'debug',
+      TX_CACHE_SIZE: 100,
+      BLOCK_REWARD_LOCK: 300,
+      FULLNODE_PEER_ID: 'simulator_peer_id',
+      STREAM_ID: 'simulator_stream_id',
+      FULLNODE_NETWORK: 'simulator_network',
+      FULLNODE_HOST: `127.0.0.1:${EMPTY_SCRIPT_PORT}`,
+      USE_SSL: false,
+      DB_ENDPOINT,
+      DB_NAME,
+      DB_USER,
+      DB_PASS,
+      DB_PORT,
+    });
+
+    const machine = interpret(SyncMachine);
+
+    await new Promise<void>((resolve) => {
+      machine.onTransition(async (state) => {
+        const addressBalances = await fetchAddressBalances(mysql);
+        if (state.matches('CONNECTED.idle')) {
+          // @ts-ignore
+          const lastSyncedEvent = await getLastSyncedEvent(mysql);
+          if (lastSyncedEvent?.last_event_id === EMPTY_SCRIPT_LAST_EVENT) {
+            console.log('EMPTY SCRIPT SCNEARIO');
+            // @ts-ignore
+            expect(validateBalances(addressBalances, emptyScriptBalances));
 
             machine.stop();
 

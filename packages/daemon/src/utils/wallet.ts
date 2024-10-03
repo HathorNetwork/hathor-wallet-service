@@ -125,7 +125,9 @@ export const getAddressBalanceMap = (
 
   for (const input of inputs) {
     if (!input.decoded) {
-      throw new Error('Input has no decoded script');
+      // If we're unable to decode the script, we will also be unable to
+      // calculate the balance, so just skip this input.
+      continue;
     }
 
     const address = input.decoded?.address;
@@ -294,11 +296,11 @@ export const prepareInputs = (inputs: EventTxInput[], tokens: string[]): TxInput
       // @ts-ignore
       script: utxo.script,
       token,
-      decoded: {
+      decoded: output.decoded ? {
         type: output.decoded.type,
         address: output.decoded.address,
         timelock: output.decoded.timelock,
-      },
+      } : null,
     };
 
     return [...newInputs, input];
