@@ -498,7 +498,7 @@ export const updateAddressTablesWithTx = async (
   addressBalanceMap: StringMap<TokenBalanceMap>,
 ): Promise<void> => {
   if (Object.keys(addressBalanceMap).length === 0) {
-    // No need to do anything here, the transaction most likely has no inputs and outputs
+    // No need to do anything here
     return;
   }
   /*
