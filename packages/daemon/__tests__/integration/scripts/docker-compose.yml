@@ -36,6 +36,15 @@ services:
     ]
     ports:
       - "8083:8080"
+  invalid_mempool_transaction:
+    image: hathornetwork/hathor-core:stable
+    command: [
+      "events_simulator",
+      "--scenario", "INVALID_MEMPOOL_TRANSACTION",
+      "--seed", "1"
+    ]
+    ports:
+      - "8085:8080"
 
 networks:
   database:

@@ -497,6 +497,10 @@ export const updateAddressTablesWithTx = async (
   timestamp: number,
   addressBalanceMap: StringMap<TokenBalanceMap>,
 ): Promise<void> => {
+  if (Object.keys(addressBalanceMap).length === 0) {
+    // No need to do anything here
+    return;
+  }
   /*
    * update address table
    *
@@ -506,12 +510,14 @@ export const updateAddressTablesWithTx = async (
    * If address is already present, just increment the transactions counter.
    */
   const addressEntries = Object.keys(addressBalanceMap).map((address) => [address, 1]);
-  await mysql.query(
-    `INSERT INTO \`address\`(\`address\`, \`transactions\`)
-          VALUES ?
-              ON DUPLICATE KEY UPDATE transactions = transactions + 1`,
-    [addressEntries],
-  );
+  if (addressEntries.length > 0) {
+    await mysql.query(
+      `INSERT INTO \`address\`(\`address\`, \`transactions\`)
+            VALUES ?
+                ON DUPLICATE KEY UPDATE transactions = transactions + 1`,
+      [addressEntries],
+    );
+  }
 
   const entries = [];
   for (const [address, tokenMap] of Object.entries(addressBalanceMap)) {
@@ -769,6 +775,10 @@ export const updateAddressLockedBalance = async (
  * @returns A map of address and corresponding wallet information
  */
 export const getAddressWalletInfo = async (mysql: MysqlConnection, addresses: string[]): Promise<StringMap<Wallet>> => {
+  if (addresses.length === 0) {
+    return {};
+  }
+
   const addressWalletMap: StringMap<Wallet> = {};
   const [results] = await mysql.query(
     `SELECT DISTINCT a.\`address\`,
@@ -1036,6 +1046,10 @@ export const incrementTokensTxCount = async (
   mysql: MysqlConnection,
   tokenList: string[],
 ): Promise<void> => {
+  if (tokenList.length === 0) {
+    return;
+  }
+
   await mysql.query(`
     UPDATE \`token\`
        SET \`transactions\` = \`transactions\` + 1

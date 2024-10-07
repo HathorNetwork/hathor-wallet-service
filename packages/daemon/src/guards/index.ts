@@ -173,6 +173,19 @@ export const websocketDisconnected = (_context: Context, event: Event) => {
 
 /*
  * This guard is used in the `idle` state to detect if the transaction in the
+ * received event is a vertex removed event, indicating that we should remove
+ * the transaction from our database
+ */
+export const vertexRemoved = (_context: Context, event: Event) => {
+  if (event.type !== EventTypes.FULLNODE_EVENT) {
+    throw new Error(`Invalid event type on vertexRemvoed guard: ${event.type}`);
+  }
+
+  return event.event.event.type === FullNodeEventTypes.VERTEX_REMOVED;
+};
+
+/*
+ * This guard is used in the `idle` state to detect if the transaction in the
  * received event is voided, this can serve many functions, one of them is to
  * ignore transactions that we don't have on our database but are already voided
  */

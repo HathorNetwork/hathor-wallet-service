@@ -7,6 +7,7 @@
 
 // @ts-ignore
 import hathorLib from '@hathor/wallet-lib';
+import { Connection as MysqlConnection } from 'mysql2/promise';
 import axios from 'axios';
 import { get } from 'lodash';
 import { NftUtils } from '@wallet-service/common';
@@ -19,6 +20,8 @@ import {
   Event,
   Context,
   FullNodeEvent,
+  EventTxInput,
+  EventTxOutput,
 } from '../types';
 import {
   TxInput,
@@ -225,7 +228,9 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       const blockRewardOutput = outputs[0];
 
       // add miner to the miners table
-      await addMiner(mysql, blockRewardOutput.decoded.address, hash);
+      if (blockRewardOutput.decoded) {
+        await addMiner(mysql, blockRewardOutput.decoded.address, hash);
+      }
 
       // here we check if we have any utxos on our database that is locked but
       // has its timelock < now
@@ -377,6 +382,81 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
   }
 };
 
+export const handleVertexRemoved = async (context: Context, _event: Event) => {
+  const mysql = await getDbConnection();
+  await mysql.beginTransaction();
+
+  try {
+    const fullNodeEvent = context.event as FullNodeEvent;
+
+    const {
+      hash,
+      outputs,
+      inputs,
+      tokens,
+    } = fullNodeEvent.event.data;
+
+    const dbTx: DbTransaction | null = await getTransactionById(mysql, hash);
+
+    if (!dbTx) {
+      throw new Error(`VERTEX_REMOVED event received, but transaction ${hash} was not in the database.`);
+    }
+
+    logger.info(`[VertexRemoved] Voiding tx: ${hash}`);
+    await voidTx(
+      mysql,
+      hash,
+      inputs,
+      outputs,
+      tokens,
+    );
+
+    logger.info(`[VertexRemoved] Removing tx from database: ${hash}`);
+    await cleanupVoidedTx(mysql, hash);
+    await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
+    await mysql.commit();
+  } catch (e) {
+    logger.debug(e);
+    await mysql.rollback();
+
+    throw e;
+  } finally {
+    mysql.destroy();
+  }
+};
+
+export const voidTx = async (
+  mysql: MysqlConnection,
+  hash: string,
+  inputs: EventTxInput[],
+  outputs: EventTxOutput[],
+  tokens: string[],
+) => {
+  const dbTxOutputs: DbTxOutput[] = await getTxOutputsFromTx(mysql, hash);
+  const txOutputs: TxOutputWithIndex[] = prepareOutputs(outputs, tokens);
+  const txInputs: TxInput[] = prepareInputs(inputs, tokens);
+
+  const txOutputsWithLocked = txOutputs.map((output) => {
+    const dbTxOutput = dbTxOutputs.find((_output) => _output.index === output.index);
+
+    if (!dbTxOutput) {
+      throw new Error('Transaction output different from database output!');
+    }
+
+    return {
+      ...output,
+      locked: dbTxOutput.locked,
+    };
+  });
+
+  const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputsWithLocked);
+  await voidTransaction(mysql, hash, addressBalanceMap);
+  await markUtxosAsVoided(mysql, dbTxOutputs);
+
+  const addresses = Object.keys(addressBalanceMap);
+  await validateAddressBalances(mysql, addresses);
+};
+
 export const handleVoidedTx = async (context: Context) => {
   const mysql = await getDbConnection();
   await mysql.beginTransaction();
@@ -392,36 +472,17 @@ export const handleVoidedTx = async (context: Context) => {
     } = fullNodeEvent.event.data;
 
     logger.debug(`Will handle voided tx for ${hash}`);
-
-    const dbTxOutputs: DbTxOutput[] = await getTxOutputsFromTx(mysql, hash);
-    const txOutputs: TxOutputWithIndex[] = prepareOutputs(outputs, tokens);
-    const txInputs: TxInput[] = prepareInputs(inputs, tokens);
-
-    const txOutputsWithLocked = txOutputs.map((output) => {
-      const dbTxOutput = dbTxOutputs.find((_output) => _output.index === output.index);
-
-      if (!dbTxOutput) {
-        throw new Error('Transaction output different from database output!');
-      }
-
-      return {
-        ...output,
-        locked: dbTxOutput.locked,
-      };
-    });
-
-    const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputsWithLocked);
-    await voidTransaction(mysql, hash, addressBalanceMap);
-    await markUtxosAsVoided(mysql, dbTxOutputs);
-
-    const addresses = Object.keys(addressBalanceMap);
-    await validateAddressBalances(mysql, addresses);
-
-    await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
-
+    await voidTx(
+      mysql,
+      hash,
+      inputs,
+      outputs,
+      tokens
+    );
     logger.debug(`Voided tx ${hash}`);
 
     await mysql.commit();
+    await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
   } catch (e) {
     logger.debug(e);
     await mysql.rollback();

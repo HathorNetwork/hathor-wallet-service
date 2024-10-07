@@ -9,7 +9,7 @@ import * as crypto from 'crypto';
 
 /**
  * Generates an MD5 hash of the provided string data.
- * 
+ *
  * @param data - The string data to hash.
  * @returns - The MD5 hash of the data in hexadecimal format.
  */
@@ -21,7 +21,7 @@ export const md5Hash = (data: string): string => {
 
 /**
  * Serializes select transaction metadata attributes into a string format.
- * 
+ *
  * @param meta - The transaction metadata to serialize.
  * @returns - A serialized string representing specific fields of the metadata.
  */
@@ -31,9 +31,9 @@ export const serializeTxData = (meta: unknown): string =>
 
 /**
  * Hashes transaction metadata using MD5.
- * 
+ *
  * Serializes the relevant fields of transaction metadata and then computes its MD5 hash.
- * 
+ *
  * @param meta - The transaction metadata to hash.
  * @returns - The MD5 hash of the serialized metadata.
  */

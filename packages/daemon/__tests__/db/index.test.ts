@@ -562,6 +562,9 @@ describe('address and wallet related tests', () => {
     };
     await updateAddressTablesWithTx(mysql, txId5, timestamp5, addrMap5);
     await expect(checkAddressBalanceTable(mysql, 5, address1, 'token1', 5, 7, lockExpires - 1, 5)).resolves.toBe(true);
+
+    // We shouldn't throw if the addressBalanceMap is empty:
+    await expect(updateAddressTablesWithTx(mysql, txId5, timestamp5, {})).resolves.not.toThrow();
   });
 
   test('updateAddressLockedBalance', async () => {
@@ -715,6 +718,9 @@ describe('address and wallet related tests', () => {
 
     const addressWalletMap = await getAddressWalletInfo(mysql, Object.keys(finalMap));
     expect(addressWalletMap).toStrictEqual(finalMap);
+
+    // Should not throw on empty addresses list
+    await expect(getAddressWalletInfo(mysql, [])).resolves.not.toThrow();
   });
 
   test('updateWalletLockedBalance', async () => {

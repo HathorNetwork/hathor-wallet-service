@@ -9,11 +9,6 @@ export type WebSocketEvent =
   | { type: 'CONNECTED' }
   | { type: 'DISCONNECTED' };
 
-export type MetadataDecidedEvent = {
-  type: 'TX_VOIDED' | 'TX_UNVOIDED' | 'TX_NEW' | 'TX_FIRST_BLOCK' | 'IGNORE';
-  originalEvent: FullNodeEvent;
-}
-
 export type WebSocketSendEvent =
   | {
       type: 'START_STREAM';
@@ -40,10 +35,17 @@ export enum EventTypes {
 
 export enum FullNodeEventTypes {
   VERTEX_METADATA_CHANGED = 'VERTEX_METADATA_CHANGED',
+  VERTEX_REMOVED = 'VERTEX_REMOVED',
   NEW_VERTEX_ACCEPTED = 'NEW_VERTEX_ACCEPTED',
   LOAD_STARTED = 'LOAD_STARTED',
   LOAD_FINISHED = 'LOAD_FINISHED',
-  REORG_STARTED = 'REORG_FINISHED',
+  REORG_STARTED = 'REORG_STARTED',
+  REORG_FINISHED= 'REORG_FINISHED',
+}
+
+export type MetadataDecidedEvent = {
+  type: 'TX_VOIDED' | 'TX_UNVOIDED' | 'TX_NEW' | 'TX_FIRST_BLOCK' | 'IGNORE';
+  originalEvent: FullNodeEvent;
 }
 
 export type Event =
@@ -52,6 +54,11 @@ export type Event =
   | { type: EventTypes.METADATA_DECIDED, event: MetadataDecidedEvent }
   | { type: EventTypes.WEBSOCKET_SEND_EVENT, event: WebSocketSendEvent }
   | { type: EventTypes.HEALTHCHECK_EVENT, event: HealthCheckEvent};
+
+
+export interface VertexRemovedEventData {
+  vertex_id: string;
+}
 
 export type FullNodeEvent = {
   stream_id: string;
