@@ -16,7 +16,7 @@
   "author": "André Abadesso <andre.abadesso@gmail.com>",
   "private": true,
   "devDependencies": {
-    "@types/jest": "^29.5.12",
+    "@types/jest": "29.5.13",
     "@typescript-eslint/eslint-plugin": "^7.4.0",
     "@typescript-eslint/parser": "^7.4.0",
     "dotenv": "^16.4.5",
