@@ -14331,13 +14331,13 @@ __metadata:
   languageName: node
   linkType: hard
 
-"serverless-api-gateway-throttling@npm:1.1.1":
-  version: 1.1.1
-  resolution: "serverless-api-gateway-throttling@npm:1.1.1"
+"serverless-api-gateway-throttling@npm:2.0.3":
+  version: 2.0.3
+  resolution: "serverless-api-gateway-throttling@npm:2.0.3"
   dependencies:
     lodash.get: "npm:^4.4.2"
     lodash.isempty: "npm:^4.4.0"
-  checksum: 10/dd122874cfbb27db9de60d60c4fa5c6e6d4c6f41be1fb83ee91a372860e92128cffcfb137df6c0a31b980e8a4d0c12fd3a2df734e60a1a464690e3bf11619546
+  checksum: 10/f8b275ab3312f9504a72bc57d67068b949e7e95dfbafae661fb91355237047cd17aa07078086e2771c494b056f4c81c630431de24f0864738cb87e0299fa8ddb
   languageName: node
   linkType: hard
 
@@ -16404,7 +16404,7 @@ __metadata:
     prom-client: "npm:13.2.0"
     redis: "npm:3.1.2"
     serverless: "npm:3.35.2"
-    serverless-api-gateway-throttling: "npm:1.1.1"
+    serverless-api-gateway-throttling: "npm:2.0.3"
     serverless-better-credentials: "npm:2.0.0"
     serverless-iam-roles-per-function: "npm:3.2.0"
     serverless-mysql: "npm:1.5.4"
