@@ -19,6 +19,8 @@ import {
   getExpiredTimelocksUtxos,
   getLastSyncedEvent,
   getLockedUtxoFromInputs,
+  getMaxIndexAmongAddresses,
+  getMaxWalletAddressIndex,
   getMinersList,
   getTokenInformation,
   getTokenSymbols,
@@ -782,84 +784,69 @@ describe('address and wallet related tests', () => {
     await expect(checkWalletBalanceTable(mysql, 3, wallet1, tokenId, 25, 5, now, 5, 0b11, 0b01)).resolves.toBe(true);
   });
 
-  test('generateAddresses', async () => {
+  test('should generate addresses correctly', async () => {
     expect.hasAssertions();
+
     const maxGap = 5;
     const address0 = ADDRESSES[0];
+    const address1 = ADDRESSES[1];
+    const address4 = ADDRESSES[4];
 
     // check first with no addresses on database, so it should return only maxGap addresses
-    let addressesInfo = await generateAddresses(mysql, XPUBKEY, maxGap);
+    let addresses = await generateAddresses(XPUBKEY, 0, maxGap);
 
-    expect(addressesInfo.addresses).toHaveLength(maxGap);
-    expect(addressesInfo.existingAddresses).toStrictEqual({});
-    expect(Object.keys(addressesInfo.newAddresses)).toHaveLength(maxGap);
-    expect(addressesInfo.addresses[0]).toBe(address0);
+    expect(Object.keys(addresses).length).toBe(maxGap);
+    expect(addresses[address0]).toBe(0);
 
-    // add first address with no transactions. As it's not used, we should still only generate maxGap addresses
+    // add address0 to the database with no transactions
     await addToAddressTable(mysql, [{
       address: address0,
       index: 0,
-      walletId: null,
+      walletId: 'wallet1',
       transactions: 0,
     }]);
-    addressesInfo = await generateAddresses(mysql, XPUBKEY, maxGap);
-    expect(addressesInfo.addresses).toHaveLength(maxGap);
-    expect(addressesInfo.existingAddresses).toStrictEqual({ [address0]: 0 });
-    expect(addressesInfo.lastUsedAddressIndex).toStrictEqual(-1);
 
-    let totalLength = Object.keys(addressesInfo.addresses).length;
-    let existingLength = Object.keys(addressesInfo.existingAddresses).length;
-    expect(Object.keys(addressesInfo.newAddresses)).toHaveLength(totalLength - existingLength);
-    expect(addressesInfo.addresses[0]).toBe(address0);
+    addresses = await generateAddresses(XPUBKEY, 0, maxGap);
+    expect(Object.keys(addresses).length).toBe(maxGap);
+    expect(addresses[address0]).toBe(0);
 
-    // mark address as used and check again
+    // now mark address0 as used
     let usedIndex = 0;
     await mysql.query('UPDATE `address` SET `transactions` = ? WHERE `address` = ?', [1, address0]);
-    addressesInfo = await generateAddresses(mysql, XPUBKEY, maxGap);
-    expect(addressesInfo.addresses).toHaveLength(maxGap + usedIndex + 1);
-    expect(addressesInfo.existingAddresses).toStrictEqual({ [address0]: 0 });
-    expect(addressesInfo.lastUsedAddressIndex).toStrictEqual(0);
+    addresses = await generateAddresses(XPUBKEY, 0, maxGap + usedIndex + 1);
+    expect(Object.keys(addresses).length).toBe(maxGap + usedIndex + 1);
+    expect(addresses[address0]).toBe(0);
 
-    totalLength = Object.keys(addressesInfo.addresses).length;
-    existingLength = Object.keys(addressesInfo.existingAddresses).length;
-    expect(Object.keys(addressesInfo.newAddresses)).toHaveLength(totalLength - existingLength);
-
-    // add address with index 1 as used
+    // add address1 to the database with transactions
     usedIndex = 1;
-    const address1 = ADDRESSES[1];
     await addToAddressTable(mysql, [{
       address: address1,
-      index: usedIndex,
-      walletId: null,
+      index: 1,
+      walletId: 'wallet1',
       transactions: 1,
     }]);
-    addressesInfo = await generateAddresses(mysql, XPUBKEY, maxGap);
-    expect(addressesInfo.addresses).toHaveLength(maxGap + usedIndex + 1);
-    expect(addressesInfo.existingAddresses).toStrictEqual({ [address0]: 0, [address1]: 1 });
-    expect(addressesInfo.lastUsedAddressIndex).toStrictEqual(1);
-    totalLength = Object.keys(addressesInfo.addresses).length;
-    existingLength = Object.keys(addressesInfo.existingAddresses).length;
-    expect(Object.keys(addressesInfo.newAddresses)).toHaveLength(totalLength - existingLength);
 
-    // add address with index 4 as used
+    addresses = await generateAddresses(XPUBKEY, 0, maxGap + usedIndex + 1);
+    expect(Object.keys(addresses).length).toBe(maxGap + usedIndex + 1);
+    expect(addresses[address0]).toBe(0);
+    expect(addresses[address1]).toBe(1);
+
+    // add address4 to the database with transactions
     usedIndex = 4;
-    const address4 = ADDRESSES[4];
     await addToAddressTable(mysql, [{
       address: address4,
-      index: usedIndex,
-      walletId: null,
+      index: 4,
+      walletId: 'wallet1',
       transactions: 1,
     }]);
-    addressesInfo = await generateAddresses(mysql, XPUBKEY, maxGap);
-    expect(addressesInfo.addresses).toHaveLength(maxGap + usedIndex + 1);
-    expect(addressesInfo.existingAddresses).toStrictEqual({ [address0]: 0, [address1]: 1, [address4]: 4 });
-    expect(addressesInfo.lastUsedAddressIndex).toStrictEqual(4);
-    totalLength = Object.keys(addressesInfo.addresses).length;
-    existingLength = Object.keys(addressesInfo.existingAddresses).length;
-    expect(Object.keys(addressesInfo.newAddresses)).toHaveLength(totalLength - existingLength);
+
+    addresses = await generateAddresses(XPUBKEY, 0, maxGap + usedIndex + 1);
+    expect(Object.keys(addresses).length).toBe(maxGap + usedIndex + 1);
+    expect(addresses[address0]).toBe(0);
+    expect(addresses[address4]).toBe(4);
 
     // make sure no address was skipped from being generated
-    for (const [index, address] of addressesInfo.addresses.entries()) {
+    for (const [address, index] of Object.entries(addresses)) {
       expect(ADDRESSES[index]).toBe(address);
     }
   }, 15000);
@@ -1271,5 +1258,79 @@ describe('voidTransaction', () => {
     expect.hasAssertions();
 
     await expect(voidTransaction(mysql, 'mysterious-transaction', {})).rejects.toThrow('Tried to void a transaction that is not in the database.');
+  });
+});
+
+describe('address generation and index methods', () => {
+  test('generateAddresses should generate correct addresses', async () => {
+    expect.hasAssertions();
+
+    const startIndex = 0;
+    const count = 3;
+    const addresses = await generateAddresses(XPUBKEY, startIndex, count);
+
+    // Check if we got the expected number of addresses
+    expect(Object.keys(addresses).length).toBe(count);
+
+    // Check if the addresses are mapped to correct indices
+    Object.entries(addresses).forEach(([address, index]) => {
+      expect(typeof address).toBe('string');
+      expect(index).toBeGreaterThanOrEqual(startIndex);
+      expect(index).toBeLessThan(startIndex + count);
+    });
+  });
+
+  test('getMaxIndexAmongAddresses should return correct max index', async () => {
+    expect.hasAssertions();
+
+    const walletId = 'wallet1';
+    const addresses = ['addr1', 'addr2', 'addr3'];
+    const indices = [5, 10, 15];
+
+    // Add addresses to the database with different indices
+    const entries = addresses.map((address, i) => ({
+      address,
+      index: indices[i],
+      walletId,
+      transactions: 0,
+    }));
+    await addToAddressTable(mysql, entries);
+
+    // Test getting max index for all addresses
+    const maxIndex = await getMaxIndexAmongAddresses(mysql, walletId, addresses);
+    expect(maxIndex).toBe(15);
+
+    // Test getting max index for subset of addresses
+    const maxIndexSubset = await getMaxIndexAmongAddresses(mysql, walletId, addresses.slice(0, 2));
+    expect(maxIndexSubset).toBe(10);
+
+    // Test with non-existent addresses
+    const maxIndexNonExistent = await getMaxIndexAmongAddresses(mysql, walletId, ['nonexistent']);
+    expect(maxIndexNonExistent).toBeNull();
+  });
+
+  test('getMaxWalletAddressIndex should return correct max index', async () => {
+    expect.hasAssertions();
+
+    const walletId = 'wallet1';
+    const addresses = ['addr1', 'addr2', 'addr3'];
+    const indices = [5, 10, 15];
+
+    // Add addresses to the database with different indices
+    const entries = addresses.map((address, i) => ({
+      address,
+      index: indices[i],
+      walletId,
+      transactions: 0,
+    }));
+    await addToAddressTable(mysql, entries);
+
+    // Test getting max index for the wallet
+    const maxIndex = await getMaxWalletAddressIndex(mysql, walletId);
+    expect(maxIndex).toBe(15);
+
+    // Test with non-existent wallet
+    const maxIndexNonExistent = await getMaxWalletAddressIndex(mysql, 'nonexistent');
+    expect(maxIndexNonExistent).toBeNull();
   });
 });

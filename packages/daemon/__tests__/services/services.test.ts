@@ -83,6 +83,8 @@ jest.mock('../../src/db', () => ({
   generateAddresses: jest.fn(),
   addNewAddresses: jest.fn(),
   updateWalletTablesWithTx: jest.fn(),
+  getMaxIndexAmongAddresses: jest.fn(),
+  getMaxWalletAddressIndex: jest.fn(),
 }));
 
 jest.mock('../../src/utils', () => ({

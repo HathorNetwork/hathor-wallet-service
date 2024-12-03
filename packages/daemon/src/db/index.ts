@@ -1592,7 +1592,7 @@ export const getMaxWalletAddressIndex = async (
   walletId: string,
 ): Promise<number | null> => {
   const [results] = await mysql.query<MaxAddressIndexRow[]>(
-    `SELECT MAX(\`index\`)
+    `SELECT MAX(\`index\`) AS max_index
        FROM address
       WHERE wallet_id = ?
      `, [walletId]

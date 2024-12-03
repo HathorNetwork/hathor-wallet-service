@@ -70,7 +70,7 @@ import {
 } from '../db';
 import getConfig from '../config';
 import logger from '../logger';
-import { invokeOnTxPushNotificationRequestedLambda, sendMessageSQS } from '../utils';
+import { invokeOnTxPushNotificationRequestedLambda } from '../utils';
 
 export const METADATA_DIFF_EVENT_TYPES = {
   IGNORE: 'IGNORE',
@@ -170,7 +170,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
   try {
     const fullNodeEvent = context.event as FullNodeEvent;
     const now = getUnixTimestamp();
-    const { NEW_TX_SQS, PUSH_NOTIFICATION_ENABLED } = getConfig();
+    const { PUSH_NOTIFICATION_ENABLED } = getConfig();
     const blockRewardLock = context.rewardMinBlocks;
 
     if (!blockRewardLock) {
