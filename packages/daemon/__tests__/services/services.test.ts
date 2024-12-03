@@ -21,6 +21,7 @@ import {
   getAddressWalletInfo,
   generateAddresses,
   storeTokenInformation,
+  getMaxIndicesForWallets,
 } from '../../src/db';
 import {
   fetchInitialState,
@@ -83,8 +84,9 @@ jest.mock('../../src/db', () => ({
   generateAddresses: jest.fn(),
   addNewAddresses: jest.fn(),
   updateWalletTablesWithTx: jest.fn(),
-  getMaxIndexAmongAddresses: jest.fn(),
-  getMaxWalletAddressIndex: jest.fn(),
+  getMaxIndicesForWallets: jest.fn(() => new Map([
+    ['wallet1', { maxAmongAddresses: 10, maxWalletIndex: 15 }]
+  ])),
 }));
 
 jest.mock('../../src/utils', () => ({
@@ -456,11 +458,18 @@ describe('handleVertexAccepted', () => {
     jest.clearAllMocks();
 
     (getDbConnection as jest.Mock).mockResolvedValue(mockDb);
-    (getAddressWalletInfo as jest.Mock).mockResolvedValue({});
-    (generateAddresses as jest.Mock).mockResolvedValue({
-      newAddresses: ['mockAddress1', 'mockAddress2'],
-      lastUsedAddressIndex: 1
+    (getAddressWalletInfo as jest.Mock).mockResolvedValue({
+      address1: { walletId: 'wallet1', xpubkey: 'xpubkey1', maxGap: 10 }
     });
+
+    (generateAddresses as jest.Mock).mockResolvedValue({
+      'new-address-1': 16,
+      'new-address-2': 17,
+    });
+
+    (getMaxIndicesForWallets as jest.Mock).mockResolvedValue(new Map([
+      ['wallet1', { maxAmongAddresses: 10, maxWalletIndex: 15 }]
+    ]));
   });
 
   it('should handle vertex accepted successfully', async () => {

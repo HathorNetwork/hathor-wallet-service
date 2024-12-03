@@ -1059,16 +1059,15 @@ export const incrementTokensTxCount = async (
 };
 
 /**
- * Given an xpubkey, generate its addresses.
+ * Generate a batch of addresses from a given xpubkey.
  *
  * @remarks
- * Also, check which addresses are used, taking into account the maximum gap of unused addresses (maxGap).
- * This function doesn't update anything on the database, just reads data from it.
- *
- * @param mysql - Database connection
- * @param xpubkey - The xpubkey
- * @param maxGap - Number of addresses that should have no transactions before we consider all addresses loaded
- * @returns Object with all addresses for the given xpubkey and corresponding index
+ * This function generates addresses starting from a specific index.
+ * 
+ * @param xpubkey - The extended public key to derive addresses from
+ * @param startIndex - The index to start generating addresses from
+ * @param count - How many addresses to generate
+ * @returns A map of addresses to their corresponding indices
  */
 export const generateAddresses = async (
   xpubkey: string,
@@ -1564,66 +1563,43 @@ export const getTokenSymbols = async (
 };
 
 /**
- * Get the maximum index among a set of addresses for a specific wallet.
- *
+ * Get maximum indices for multiple wallets in a single query.
+ * 
  * @remarks
- * This function is used to find the highest index used among a set of addresses that belong to a wallet.
- * This is particularly useful when we need to determine where to start generating new addresses from.
- *
+ * This is an optimized version that combines both getMaxIndexAmongAddresses and getMaxWalletAddressIndex
+ * into a single query for multiple wallets. This reduces the number of database round trips significantly.
+ * 
  * @param mysql - Database connection
- * @param walletId - The ID of the wallet to check
- * @param addresses - Array of addresses to check
- * @returns The highest index found among the addresses, or null if no addresses are found
+ * @param walletData - Array of objects containing wallet IDs and their associated addresses
+ * @returns Map of wallet IDs to their maximum indices (both among specific addresses and overall)
  */
-export const getMaxIndexAmongAddresses = async (
+export const getMaxIndicesForWallets = async (
   mysql: MysqlConnection,
-  walletId: string,
-  addresses: string[],
-): Promise<number | null> => {
-  const [results] = await mysql.query<MaxAddressIndexRow[]>(
-    `SELECT MAX(\`index\`) AS max_index
-       FROM address
-      WHERE wallet_id = ?
-        AND address
-         IN (?)
-     `, [walletId, addresses]
-  );
-
-  if (results.length <= 0) {
-    console.error(`[ERROR] Addresses not found in database for the wallet (${walletId}), this should never happen: ${JSON.stringify(addresses)}`);
-    return null;
+  walletData: Array<{walletId: string, addresses: string[]}>
+): Promise<Map<string, {maxAmongAddresses: number | null, maxWalletIndex: number | null}>> => {
+  if (walletData.length === 0) {
+    return new Map();
   }
 
-  return results[0].max_index;
-};
+  const allAddresses = walletData.flatMap(d => d.addresses);
+  const walletIds = walletData.map(d => d.walletId);
 
-/**
- * Get the maximum index used by any address in a wallet.
- *
- * @remarks
- * This function retrieves the highest index used by any address in the given wallet.
- * This is essential for wallet synchronization and address generation, as it helps determine
- * the starting point for generating new addresses and maintaining the gap limit.
- *
- * @param mysql - Database connection
- * @param walletId - The ID of the wallet to check
- * @returns The highest index used in the wallet, or null if no addresses are found
- */
-export const getMaxWalletAddressIndex = async (
-  mysql: MysqlConnection,
-  walletId: string,
-): Promise<number | null> => {
   const [results] = await mysql.query<MaxAddressIndexRow[]>(
-    `SELECT MAX(\`index\`) AS max_index
-       FROM address
-      WHERE wallet_id = ?
-     `, [walletId]
+    `SELECT 
+       wallet_id,
+       MAX(CASE WHEN address IN (?) THEN \`index\` END) as max_among_addresses,
+       MAX(\`index\`) as max_wallet_index
+     FROM address
+     WHERE wallet_id IN (?)
+     GROUP BY wallet_id`,
+    [allAddresses, walletIds]
   );
 
-  if (results.length <= 0) {
-    console.error(`[ERROR] Max index not found in database for the wallet (${walletId}), this should never happen.`);
-    return null;
-  }
-
-  return results[0].max_index;
+  return new Map(results.map(r => [
+    r.wallet_id,
+    {
+      maxAmongAddresses: r.max_among_addresses,
+      maxWalletIndex: r.max_wallet_index
+    }
+  ]));
 };

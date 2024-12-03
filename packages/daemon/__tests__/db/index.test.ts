@@ -19,8 +19,7 @@ import {
   getExpiredTimelocksUtxos,
   getLastSyncedEvent,
   getLockedUtxoFromInputs,
-  getMaxIndexAmongAddresses,
-  getMaxWalletAddressIndex,
+  getMaxIndicesForWallets,
   getMinersList,
   getTokenInformation,
   getTokenSymbols,
@@ -1280,57 +1279,70 @@ describe('address generation and index methods', () => {
     });
   });
 
-  test('getMaxIndexAmongAddresses should return correct max index', async () => {
+  test('getMaxIndicesForWallets should return correct indices for multiple wallets', async () => {
     expect.hasAssertions();
 
-    const walletId = 'wallet1';
-    const addresses = ['addr1', 'addr2', 'addr3'];
-    const indices = [5, 10, 15];
+    const wallet1 = 'wallet1';
+    const wallet2 = 'wallet2';
+    const addresses1 = ['addr1', 'addr2', 'addr3'];
+    const addresses2 = ['addr4', 'addr5'];
+    const indices1 = [5, 10, 15];
+    const indices2 = [7, 12];
 
-    // Add addresses to the database with different indices
-    const entries = addresses.map((address, i) => ({
+    // Add addresses for wallet1
+    const entries1 = addresses1.map((address, i) => ({
       address,
-      index: indices[i],
-      walletId,
+      index: indices1[i],
+      walletId: wallet1,
       transactions: 0,
     }));
-    await addToAddressTable(mysql, entries);
+    await addToAddressTable(mysql, entries1);
 
-    // Test getting max index for all addresses
-    const maxIndex = await getMaxIndexAmongAddresses(mysql, walletId, addresses);
-    expect(maxIndex).toBe(15);
-
-    // Test getting max index for subset of addresses
-    const maxIndexSubset = await getMaxIndexAmongAddresses(mysql, walletId, addresses.slice(0, 2));
-    expect(maxIndexSubset).toBe(10);
-
-    // Test with non-existent addresses
-    const maxIndexNonExistent = await getMaxIndexAmongAddresses(mysql, walletId, ['nonexistent']);
-    expect(maxIndexNonExistent).toBeNull();
-  });
-
-  test('getMaxWalletAddressIndex should return correct max index', async () => {
-    expect.hasAssertions();
-
-    const walletId = 'wallet1';
-    const addresses = ['addr1', 'addr2', 'addr3'];
-    const indices = [5, 10, 15];
-
-    // Add addresses to the database with different indices
-    const entries = addresses.map((address, i) => ({
+    // Add addresses for wallet2
+    const entries2 = addresses2.map((address, i) => ({
       address,
-      index: indices[i],
-      walletId,
+      index: indices2[i],
+      walletId: wallet2,
       transactions: 0,
     }));
-    await addToAddressTable(mysql, entries);
+    await addToAddressTable(mysql, entries2);
 
-    // Test getting max index for the wallet
-    const maxIndex = await getMaxWalletAddressIndex(mysql, walletId);
-    expect(maxIndex).toBe(15);
+    // Test getting indices for both wallets
+    const walletData = [
+      { walletId: wallet1, addresses: addresses1 },
+      { walletId: wallet2, addresses: addresses2 },
+    ];
+    const indices = await getMaxIndicesForWallets(mysql, walletData);
+
+    // Check wallet1 indices
+    const wallet1Indices = indices.get(wallet1);
+    expect(wallet1Indices).toBeDefined();
+    expect(wallet1Indices?.maxAmongAddresses).toBe(15);
+    expect(wallet1Indices?.maxWalletIndex).toBe(15);
+
+    // Check wallet2 indices
+    const wallet2Indices = indices.get(wallet2);
+    expect(wallet2Indices).toBeDefined();
+    expect(wallet2Indices?.maxAmongAddresses).toBe(12);
+    expect(wallet2Indices?.maxWalletIndex).toBe(12);
+
+    // Test with empty wallet data
+    const emptyIndices = await getMaxIndicesForWallets(mysql, []);
+    expect(emptyIndices.size).toBe(0);
 
     // Test with non-existent wallet
-    const maxIndexNonExistent = await getMaxWalletAddressIndex(mysql, 'nonexistent');
-    expect(maxIndexNonExistent).toBeNull();
+    const nonExistentIndices = await getMaxIndicesForWallets(mysql, [
+      { walletId: 'nonexistent', addresses: ['addr1'] }
+    ]);
+    expect(nonExistentIndices.size).toBe(0);
+
+    // Test with subset of addresses
+    const subsetIndices = await getMaxIndicesForWallets(mysql, [
+      { walletId: wallet1, addresses: addresses1.slice(0, 2) }
+    ]);
+    const subsetWallet1 = subsetIndices.get(wallet1);
+    expect(subsetWallet1).toBeDefined();
+    expect(subsetWallet1?.maxAmongAddresses).toBe(10);
+    expect(subsetWallet1?.maxWalletIndex).toBe(15);
   });
 });
