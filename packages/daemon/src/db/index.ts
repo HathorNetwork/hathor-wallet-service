@@ -1563,7 +1563,18 @@ export const getTokenSymbols = async (
   }, {}) as unknown as StringMap<string>;
 };
 
-// TODO: docstring
+/**
+ * Get the maximum index among a set of addresses for a specific wallet.
+ *
+ * @remarks
+ * This function is used to find the highest index used among a set of addresses that belong to a wallet.
+ * This is particularly useful when we need to determine where to start generating new addresses from.
+ *
+ * @param mysql - Database connection
+ * @param walletId - The ID of the wallet to check
+ * @param addresses - Array of addresses to check
+ * @returns The highest index found among the addresses, or null if no addresses are found
+ */
 export const getMaxIndexAmongAddresses = async (
   mysql: MysqlConnection,
   walletId: string,
@@ -1586,7 +1597,18 @@ export const getMaxIndexAmongAddresses = async (
   return results[0].max_index;
 };
 
-// TODO: docstring
+/**
+ * Get the maximum index used by any address in a wallet.
+ *
+ * @remarks
+ * This function retrieves the highest index used by any address in the given wallet.
+ * This is essential for wallet synchronization and address generation, as it helps determine
+ * the starting point for generating new addresses and maintaining the gap limit.
+ *
+ * @param mysql - Database connection
+ * @param walletId - The ID of the wallet to check
+ * @returns The highest index used in the wallet, or null if no addresses are found
+ */
 export const getMaxWalletAddressIndex = async (
   mysql: MysqlConnection,
   walletId: string,
