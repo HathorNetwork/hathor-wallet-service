@@ -19,6 +19,7 @@ import {
   TokenInfo,
   Miner,
   TokenSymbolsRow,
+  MaxAddressIndexRow,
 } from '../types';
 import {
   TxInput,
@@ -1069,67 +1070,19 @@ export const incrementTokensTxCount = async (
  * @param maxGap - Number of addresses that should have no transactions before we consider all addresses loaded
  * @returns Object with all addresses for the given xpubkey and corresponding index
  */
-export const generateAddresses = async (mysql: MysqlConnection, xpubkey: string, maxGap: number): Promise<GenerateAddresses> => {
-  const existingAddresses: AddressIndexMap = {};
-  const newAddresses: AddressIndexMap = {};
-  const allAddresses: string[] = [];
-
+export const generateAddresses = async (
+  xpubkey: string,
+  startIndex: number,
+  count: number,
+): Promise<StringMap<number>> => {
+  const { NETWORK } = getConfig();
   // We currently generate only addresses in change derivation path 0
   // (more details in https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki#Change)
   // so we derive our xpub to this path and use it to get the addresses
   const derivedXpub = walletUtils.xpubDeriveChild(xpubkey, 0);
+  const addrMap = walletUtils.getAddresses(derivedXpub, startIndex, count, NETWORK);
 
-  let highestCheckedIndex = -1;
-  let lastUsedAddressIndex = -1;
-  do {
-    const { NETWORK } = getConfig();
-    const addrMap = walletUtils.getAddresses(derivedXpub, highestCheckedIndex + 1, maxGap, NETWORK);
-    allAddresses.push(...Object.keys(addrMap));
-
-    const [results] = await mysql.query(
-      `SELECT \`address\`,
-              \`index\`,
-              \`transactions\`
-         FROM \`address\`
-        WHERE \`address\`
-           IN (?)`,
-      [Object.keys(addrMap)],
-    );
-
-    for (const entry of results) {
-      const address = entry.address as string;
-      // get index from addrMap as the one from entry might be null
-      const index = addrMap[address];
-      // add to existingAddresses
-      existingAddresses[address] = index;
-
-      // if address is used, check if its index is higher than the current highest used index
-      if (entry.transactions > 0 && index > lastUsedAddressIndex) {
-        lastUsedAddressIndex = index;
-      }
-
-      delete addrMap[address];
-    }
-
-    highestCheckedIndex += maxGap;
-    Object.assign(newAddresses, addrMap);
-  } while (lastUsedAddressIndex + maxGap > highestCheckedIndex);
-
-  // we probably generated more addresses than needed, as we always generate
-  // addresses in maxGap blocks
-  const totalAddresses = lastUsedAddressIndex + maxGap + 1;
-  for (const [address, index] of Object.entries(newAddresses)) {
-    if (index > lastUsedAddressIndex + maxGap) {
-      delete newAddresses[address];
-    }
-  }
-
-  return {
-    addresses: allAddresses.slice(0, totalAddresses),
-    newAddresses,
-    existingAddresses,
-    lastUsedAddressIndex,
-  };
+  return addrMap;
 };
 
 /**
@@ -1608,4 +1561,47 @@ export const getTokenSymbols = async (
     prev[token.id] = token.symbol;
     return prev;
   }, {}) as unknown as StringMap<string>;
+};
+
+// TODO: docstring
+export const getMaxIndexAmongAddresses = async (
+  mysql: MysqlConnection,
+  walletId: string,
+  addresses: string[],
+): Promise<number | null> => {
+  const [results] = await mysql.query<MaxAddressIndexRow[]>(
+    `SELECT MAX(\`index\`) AS max_index
+       FROM address
+      WHERE wallet_id = ?
+        AND address
+         IN (?)
+     `, [walletId, addresses]
+  );
+
+  if (results.length <= 0) {
+    console.error(`[ERROR] Addresses not found in database for the wallet (${walletId}), this should never happen: ${JSON.stringify(addresses)}`);
+    return null;
+  }
+
+  return results[0].max_index;
+};
+
+// TODO: docstring
+export const getMaxWalletAddressIndex = async (
+  mysql: MysqlConnection,
+  walletId: string,
+): Promise<number | null> => {
+  const [results] = await mysql.query<MaxAddressIndexRow[]>(
+    `SELECT MAX(\`index\`)
+       FROM address
+      WHERE wallet_id = ?
+     `, [walletId]
+  );
+
+  if (results.length <= 0) {
+    console.error(`[ERROR] Max index not found in database for the wallet (${walletId}), this should never happen.`);
+    return null;
+  }
+
+  return results[0].max_index;
 };

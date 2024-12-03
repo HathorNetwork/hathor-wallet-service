@@ -140,3 +140,7 @@ export interface TokenSymbolsRow extends RowDataPacket {
   id: string;
   symbol: string;
 }
+
+export interface MaxAddressIndexRow extends RowDataPacket {
+  max_index: number;
+}
