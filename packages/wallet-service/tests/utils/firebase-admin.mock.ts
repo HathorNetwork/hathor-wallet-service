@@ -8,7 +8,7 @@ export default jest.mock('firebase-admin', () => ({
   },
   initializeApp: initFirebaseAdminMock,
   messaging: messaging.mockImplementation(() => ({
-    sendMulticast: sendMulticastMock.mockReturnValue({
+    sendEachForMulticast: sendMulticastMock.mockReturnValue({
       failureCount: 0,
     }),
   })),
