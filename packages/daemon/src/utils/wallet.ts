@@ -40,6 +40,8 @@ import {
   updateWalletLockedBalance,
 } from '../db';
 import logger from '../logger';
+// @ts-ignore
+import { walletUtils } from '@hathor/wallet-lib';
 import { stringMapIterator } from './helpers';
 
 /**
@@ -507,3 +509,29 @@ export class WalletBalanceMapConverter {
     return walletBalanceValueMap;
   }
 }
+
+/**
+ * Generate a batch of addresses from a given xpubkey.
+ *
+ * @remarks
+ * This function generates addresses starting from a specific index.
+ *
+ * @param xpubkey - The extended public key to derive addresses from
+ * @param startIndex - The index to start generating addresses from
+ * @param count - How many addresses to generate
+ * @returns A map of addresses to their corresponding indices
+ */
+export const generateAddresses = async (
+  network: string,
+  xpubkey: string,
+  startIndex: number,
+  count: number,
+): Promise<StringMap<number>> => {
+  // We currently generate only addresses in change derivation path 0
+  // (more details in https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki#Change)
+  // so we derive our xpub to this path and use it to get the addresses
+  const derivedXpub = walletUtils.xpubDeriveChild(xpubkey, 0);
+  const addrMap = walletUtils.getAddresses(derivedXpub, startIndex, count, network);
+
+  return addrMap;
+};

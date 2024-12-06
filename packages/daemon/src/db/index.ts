@@ -19,6 +19,7 @@ import {
   TokenInfo,
   Miner,
   TokenSymbolsRow,
+  MaxAddressIndexRow,
 } from '../types';
 import {
   TxInput,
@@ -36,8 +37,6 @@ import {
   TransactionRow,
   TxOutputRow,
 } from '../types';
-// @ts-ignore
-import { walletUtils } from '@hathor/wallet-lib';
 import getConfig from '../config';
 
 let pool: Pool;
@@ -1058,81 +1057,6 @@ export const incrementTokensTxCount = async (
 };
 
 /**
- * Given an xpubkey, generate its addresses.
- *
- * @remarks
- * Also, check which addresses are used, taking into account the maximum gap of unused addresses (maxGap).
- * This function doesn't update anything on the database, just reads data from it.
- *
- * @param mysql - Database connection
- * @param xpubkey - The xpubkey
- * @param maxGap - Number of addresses that should have no transactions before we consider all addresses loaded
- * @returns Object with all addresses for the given xpubkey and corresponding index
- */
-export const generateAddresses = async (mysql: MysqlConnection, xpubkey: string, maxGap: number): Promise<GenerateAddresses> => {
-  const existingAddresses: AddressIndexMap = {};
-  const newAddresses: AddressIndexMap = {};
-  const allAddresses: string[] = [];
-
-  // We currently generate only addresses in change derivation path 0
-  // (more details in https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki#Change)
-  // so we derive our xpub to this path and use it to get the addresses
-  const derivedXpub = walletUtils.xpubDeriveChild(xpubkey, 0);
-
-  let highestCheckedIndex = -1;
-  let lastUsedAddressIndex = -1;
-  do {
-    const { NETWORK } = getConfig();
-    const addrMap = walletUtils.getAddresses(derivedXpub, highestCheckedIndex + 1, maxGap, NETWORK);
-    allAddresses.push(...Object.keys(addrMap));
-
-    const [results] = await mysql.query(
-      `SELECT \`address\`,
-              \`index\`,
-              \`transactions\`
-         FROM \`address\`
-        WHERE \`address\`
-           IN (?)`,
-      [Object.keys(addrMap)],
-    );
-
-    for (const entry of results) {
-      const address = entry.address as string;
-      // get index from addrMap as the one from entry might be null
-      const index = addrMap[address];
-      // add to existingAddresses
-      existingAddresses[address] = index;
-
-      // if address is used, check if its index is higher than the current highest used index
-      if (entry.transactions > 0 && index > lastUsedAddressIndex) {
-        lastUsedAddressIndex = index;
-      }
-
-      delete addrMap[address];
-    }
-
-    highestCheckedIndex += maxGap;
-    Object.assign(newAddresses, addrMap);
-  } while (lastUsedAddressIndex + maxGap > highestCheckedIndex);
-
-  // we probably generated more addresses than needed, as we always generate
-  // addresses in maxGap blocks
-  const totalAddresses = lastUsedAddressIndex + maxGap + 1;
-  for (const [address, index] of Object.entries(newAddresses)) {
-    if (index > lastUsedAddressIndex + maxGap) {
-      delete newAddresses[address];
-    }
-  }
-
-  return {
-    addresses: allAddresses.slice(0, totalAddresses),
-    newAddresses,
-    existingAddresses,
-    lastUsedAddressIndex,
-  };
-};
-
-/**
  * Add addresses to address table.
  *
  * @remarks
@@ -1608,4 +1532,59 @@ export const getTokenSymbols = async (
     prev[token.id] = token.symbol;
     return prev;
   }, {}) as unknown as StringMap<string>;
+};
+
+/**
+ * Get maximum indices for multiple wallets in a single query.
+ *
+ * This function retrieves two key metrics for each wallet:
+ *
+ * 1. `max_among_addresses`: The highest `index` value for the wallet, but only considering the specified addresses provided in `walletData`.
+ * 2. `max_wallet_index`: The highest `index` value for the wallet across all its addresses in the database.
+ *
+ * How it works:
+ * - The SQL query operates on the `address` table.
+ * - It groups the rows by `wallet_id` using `GROUP BY wallet_id`.
+ * - For each wallet group:
+ *   - The `MAX` function calculates the highest `index` value in two contexts:
+ *     a. For addresses explicitly listed in the input (`CASE WHEN address IN (?) THEN index END`).
+ *     b. For all addresses associated with the wallet (`MAX(index)`).
+ * - If no addresses for a wallet match the provided input, `max_among_addresses` will be `NULL`.
+ * - If a wallet has no addresses in the database, both `max_among_addresses` and `max_wallet_index` will be `NULL`.
+ *
+ * This allows the function to return a consolidated view of the maximum indices for each wallet
+ *
+ * @param mysql - Database connection
+ * @param walletData - Array of objects containing wallet IDs and their associated addresses
+ * @returns Map of wallet IDs to their maximum indices (both among specific addresses and overall)
+ */
+export const getMaxIndicesForWallets = async (
+  mysql: MysqlConnection,
+  walletData: Array<{walletId: string, addresses: string[]}>
+): Promise<Map<string, {maxAmongAddresses: number | null, maxWalletIndex: number | null}>> => {
+  if (walletData.length === 0) {
+    return new Map();
+  }
+
+  const allAddresses = walletData.flatMap(d => d.addresses);
+  const walletIds = walletData.map(d => d.walletId);
+
+  const [results] = await mysql.query<MaxAddressIndexRow[]>(
+    `SELECT
+       wallet_id,
+       MAX(CASE WHEN address IN (?) THEN \`index\` END) as max_among_addresses,
+       MAX(\`index\`) as max_wallet_index
+     FROM address
+     WHERE wallet_id IN (?)
+     GROUP BY wallet_id`,
+    [allAddresses, walletIds]
+  );
+
+  return new Map(results.map(r => [
+    r.wallet_id,
+    {
+      maxAmongAddresses: r.max_among_addresses,
+      maxWalletIndex: r.max_wallet_index
+    }
+  ]));
 };
