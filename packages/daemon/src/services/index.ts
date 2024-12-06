@@ -43,6 +43,7 @@ import {
   getWalletBalancesForTx,
   getFullnodeHttpUrl,
   sendMessageSQS,
+  generateAddresses,
 } from '../utils';
 import {
   getDbConnection,
@@ -57,7 +58,6 @@ import {
   getLockedUtxoFromInputs,
   incrementTokensTxCount,
   getAddressWalletInfo,
-  generateAddresses,
   addNewAddresses,
   updateWalletTablesWithTx,
   voidTransaction,
@@ -68,7 +68,7 @@ import {
   cleanupVoidedTx,
   getMaxIndicesForWallets,
 } from '../db';
-import getConfig, { NEW_TX_SQS } from '../config';
+import getConfig from '../config';
 import logger from '../logger';
 import { invokeOnTxPushNotificationRequestedLambda } from '../utils';
 
@@ -164,11 +164,16 @@ export const isBlock = (version: number): boolean => version === hathorLib.const
 export const handleVertexAccepted = async (context: Context, _event: Event) => {
   const mysql = await getDbConnection();
   await mysql.beginTransaction();
+  const {
+    NETWORK,
+    STAGE,
+    PUSH_NOTIFICATION_ENABLED,
+    NEW_TX_SQS,
+  } = getConfig();
 
   try {
     const fullNodeEvent = context.event as FullNodeEvent;
     const now = getUnixTimestamp();
-    const { PUSH_NOTIFICATION_ENABLED } = getConfig();
     const blockRewardLock = context.rewardMinBlocks;
 
     if (!blockRewardLock) {
@@ -293,12 +298,9 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       // for the addresses present on the tx, check if there are any wallets associated
       const addressWalletMap: StringMap<Wallet> = await getAddressWalletInfo(mysql, Object.keys(addressBalanceMap));
 
-      const seenWallets = new Set();
       const addressesPerWallet = Object.entries(addressWalletMap).reduce(
         (result: StringMap<{ addresses: string[], walletDetails: Wallet }>, [address, wallet]: [string, Wallet]) => {
         const { walletId } = wallet;
-
-        seenWallets.add(walletId);
 
         // Initialize the array if the walletId is not yet a key in result
         if (!result[walletId]) {
@@ -310,10 +312,11 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
         // Add the current key to the array
         result[walletId].addresses.push(address);
-        result[walletId].walletDetails = wallet;
 
         return result;
       }, {});
+
+      const seenWallets = Object.keys(addressesPerWallet);
 
       // Convert to array format expected by getMaxIndicesForWallets
       const walletDataArray = Object.entries(addressesPerWallet).map(([walletId, data]) => ({
@@ -346,7 +349,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
         if (diff < walletDetails.maxGap) {
           // We need to generate addresses
-          const addresses = await generateAddresses(walletDetails.xpubkey, maxWalletIndex + 1, walletDetails.maxGap);
+          const addresses = await generateAddresses(NETWORK as string, walletDetails.xpubkey, maxWalletIndex + 1, walletDetails.maxGap - diff);
           await addNewAddresses(mysql, walletId, addresses, maxAmongAddresses);
         }
       }
@@ -354,9 +357,6 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       // update wallet_balance and wallet_tx_history tables
       const walletBalanceMap: StringMap<TokenBalanceMap> = getWalletBalanceMap(addressWalletMap, addressBalanceMap);
       await updateWalletTablesWithTx(mysql, hash, timestamp, walletBalanceMap);
-
-      // validate address balances
-      await validateAddressBalances(mysql, Object.keys(addressBalanceMap));
 
       // prepare the transaction data to be sent to the SQS queue
       const txData: Transaction = {
@@ -376,7 +376,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       };
 
       try {
-        if (seenWallets.size > 0) {
+        if (seenWallets.length > 0) {
           const queueUrl = NEW_TX_SQS;
           if (!queueUrl) {
             throw new Error('Queue URL is invalid');
@@ -406,11 +406,6 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         logger.error(e);
       }
 
-      const {
-        NETWORK,
-        STAGE,
-      } = getConfig();
-
       const network = new hathorLib.Network(NETWORK);
 
       // Validating for NFTs only after the tx is successfully added
@@ -427,16 +422,10 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     await mysql.commit();
   } catch (e) {
     await mysql.rollback();
-    logger.error(e);
-
-    if (e instanceof Error) {
-      logger.error('Error handling vertex accepted', {
-        error: e.message,
-        stack: e.stack,
-      });
-    } else {
-      logger.error('Error handling vertex accepted', { error: e });
-    }
+    logger.error('Error handling vertex accepted', {
+      error: (e as Error).message,
+      stack: (e as Error).stack,
+    });
 
     throw e;
   } finally {

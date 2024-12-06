@@ -12,7 +12,6 @@ import {
   addUtxos,
   fetchAddressBalance,
   fetchAddressTxHistorySum,
-  generateAddresses,
   getAddressWalletInfo,
   getBestBlockHeight,
   getDbConnection,
@@ -74,6 +73,7 @@ import { DbTxOutput, StringMap, TokenInfo, WalletStatus } from '../../src/types'
 import { Authorities, TokenBalanceMap } from '@wallet-service/common';
 // @ts-ignore
 import { constants } from '@hathor/wallet-lib';
+import { generateAddresses } from '../../src/utils';
 
 // Use a single mysql connection for all tests
 let mysql: Connection;
@@ -792,7 +792,7 @@ describe('address and wallet related tests', () => {
     const address4 = ADDRESSES[4];
 
     // check first with no addresses on database, so it should return only maxGap addresses
-    let addresses = await generateAddresses(XPUBKEY, 0, maxGap);
+    let addresses = await generateAddresses('mainnet', XPUBKEY, 0, maxGap);
 
     expect(Object.keys(addresses).length).toBe(maxGap);
     expect(addresses[address0]).toBe(0);
@@ -805,14 +805,14 @@ describe('address and wallet related tests', () => {
       transactions: 0,
     }]);
 
-    addresses = await generateAddresses(XPUBKEY, 0, maxGap);
+    addresses = await generateAddresses('mainnet', XPUBKEY, 0, maxGap);
     expect(Object.keys(addresses).length).toBe(maxGap);
     expect(addresses[address0]).toBe(0);
 
     // now mark address0 as used
     let usedIndex = 0;
     await mysql.query('UPDATE `address` SET `transactions` = ? WHERE `address` = ?', [1, address0]);
-    addresses = await generateAddresses(XPUBKEY, 0, maxGap + usedIndex + 1);
+    addresses = await generateAddresses('mainnet', XPUBKEY, 0, maxGap + usedIndex + 1);
     expect(Object.keys(addresses).length).toBe(maxGap + usedIndex + 1);
     expect(addresses[address0]).toBe(0);
 
@@ -825,7 +825,7 @@ describe('address and wallet related tests', () => {
       transactions: 1,
     }]);
 
-    addresses = await generateAddresses(XPUBKEY, 0, maxGap + usedIndex + 1);
+    addresses = await generateAddresses('mainnet', XPUBKEY, 0, maxGap + usedIndex + 1);
     expect(Object.keys(addresses).length).toBe(maxGap + usedIndex + 1);
     expect(addresses[address0]).toBe(0);
     expect(addresses[address1]).toBe(1);
@@ -839,7 +839,7 @@ describe('address and wallet related tests', () => {
       transactions: 1,
     }]);
 
-    addresses = await generateAddresses(XPUBKEY, 0, maxGap + usedIndex + 1);
+    addresses = await generateAddresses('mainnet', XPUBKEY, 0, maxGap + usedIndex + 1);
     expect(Object.keys(addresses).length).toBe(maxGap + usedIndex + 1);
     expect(addresses[address0]).toBe(0);
     expect(addresses[address4]).toBe(4);
@@ -1266,7 +1266,7 @@ describe('address generation and index methods', () => {
 
     const startIndex = 0;
     const count = 3;
-    const addresses = await generateAddresses(XPUBKEY, startIndex, count);
+    const addresses = await generateAddresses('mainnet', XPUBKEY, startIndex, count);
 
     // Check if we got the expected number of addresses
     expect(Object.keys(addresses).length).toBe(count);

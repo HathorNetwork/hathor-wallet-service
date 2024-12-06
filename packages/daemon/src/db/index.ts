@@ -37,8 +37,6 @@ import {
   TransactionRow,
   TxOutputRow,
 } from '../types';
-// @ts-ignore
-import { walletUtils } from '@hathor/wallet-lib';
 import getConfig from '../config';
 
 let pool: Pool;
@@ -1059,32 +1057,6 @@ export const incrementTokensTxCount = async (
 };
 
 /**
- * Generate a batch of addresses from a given xpubkey.
- *
- * @remarks
- * This function generates addresses starting from a specific index.
- * 
- * @param xpubkey - The extended public key to derive addresses from
- * @param startIndex - The index to start generating addresses from
- * @param count - How many addresses to generate
- * @returns A map of addresses to their corresponding indices
- */
-export const generateAddresses = async (
-  xpubkey: string,
-  startIndex: number,
-  count: number,
-): Promise<StringMap<number>> => {
-  const { NETWORK } = getConfig();
-  // We currently generate only addresses in change derivation path 0
-  // (more details in https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki#Change)
-  // so we derive our xpub to this path and use it to get the addresses
-  const derivedXpub = walletUtils.xpubDeriveChild(xpubkey, 0);
-  const addrMap = walletUtils.getAddresses(derivedXpub, startIndex, count, NETWORK);
-
-  return addrMap;
-};
-
-/**
  * Add addresses to address table.
  *
  * @remarks
@@ -1564,11 +1536,7 @@ export const getTokenSymbols = async (
 
 /**
  * Get maximum indices for multiple wallets in a single query.
- * 
- * @remarks
- * This is an optimized version that combines both getMaxIndexAmongAddresses and getMaxWalletAddressIndex
- * into a single query for multiple wallets. This reduces the number of database round trips significantly.
- * 
+ *
  * @param mysql - Database connection
  * @param walletData - Array of objects containing wallet IDs and their associated addresses
  * @returns Map of wallet IDs to their maximum indices (both among specific addresses and overall)
@@ -1585,7 +1553,7 @@ export const getMaxIndicesForWallets = async (
   const walletIds = walletData.map(d => d.walletId);
 
   const [results] = await mysql.query<MaxAddressIndexRow[]>(
-    `SELECT 
+    `SELECT
        wallet_id,
        MAX(CASE WHEN address IN (?) THEN \`index\` END) as max_among_addresses,
        MAX(\`index\`) as max_wallet_index

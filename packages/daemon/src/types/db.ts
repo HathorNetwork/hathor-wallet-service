@@ -142,5 +142,6 @@ export interface TokenSymbolsRow extends RowDataPacket {
 }
 
 export interface MaxAddressIndexRow extends RowDataPacket {
-  max_index: number;
+  max_among_addresses: number,
+  max_wallet_index: number
 }

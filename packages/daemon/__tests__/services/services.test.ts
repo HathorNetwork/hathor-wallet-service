@@ -19,7 +19,6 @@ import {
   getUtxosLockedAtHeight,
   addOrUpdateTx,
   getAddressWalletInfo,
-  generateAddresses,
   storeTokenInformation,
   getMaxIndicesForWallets,
 } from '../../src/db';
@@ -40,6 +39,7 @@ import {
   getFullnodeHttpUrl,
   invokeOnTxPushNotificationRequestedLambda,
   getWalletBalancesForTx,
+  generateAddresses,
 } from '../../src/utils';
 import getConfig from '../../src/config';
 
@@ -106,6 +106,7 @@ jest.mock('../../src/utils', () => ({
   invokeOnTxPushNotificationRequestedLambda: jest.fn(),
   sendMessageSQS: jest.fn(),
   getWalletBalancesForTx: jest.fn(),
+  generateAddresses: jest.fn(),
 }));
 
 beforeEach(() => {
