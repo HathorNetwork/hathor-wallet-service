@@ -1537,6 +1537,23 @@ export const getTokenSymbols = async (
 /**
  * Get maximum indices for multiple wallets in a single query.
  *
+ * This function retrieves two key metrics for each wallet:
+ *
+ * 1. `max_among_addresses`: The highest `index` value for the wallet, but only considering the specified addresses provided in `walletData`.
+ * 2. `max_wallet_index`: The highest `index` value for the wallet across all its addresses in the database.
+ *
+ * How it works:
+ * - The SQL query operates on the `address` table.
+ * - It groups the rows by `wallet_id` using `GROUP BY wallet_id`.
+ * - For each wallet group:
+ *   - The `MAX` function calculates the highest `index` value in two contexts:
+ *     a. For addresses explicitly listed in the input (`CASE WHEN address IN (?) THEN index END`).
+ *     b. For all addresses associated with the wallet (`MAX(index)`).
+ * - If no addresses for a wallet match the provided input, `max_among_addresses` will be `NULL`.
+ * - If a wallet has no addresses in the database, both `max_among_addresses` and `max_wallet_index` will be `NULL`.
+ *
+ * This allows the function to return a consolidated view of the maximum indices for each wallet
+ *
  * @param mysql - Database connection
  * @param walletData - Array of objects containing wallet IDs and their associated addresses
  * @returns Map of wallet IDs to their maximum indices (both among specific addresses and overall)
