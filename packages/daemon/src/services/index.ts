@@ -22,6 +22,7 @@ import {
   FullNodeEvent,
   EventTxInput,
   EventTxOutput,
+  WalletStatus,
 } from '../types';
 import {
   TxInput,
@@ -341,7 +342,10 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         const { maxAmongAddresses, maxWalletIndex } = indices;
 
         if (!maxAmongAddresses || !maxWalletIndex) {
-          // Do nothing, this is unexpected and an error should have been logged already
+          // Do nothing, wallet is most likely not loaded yet.
+          if (walletDetails.status === WalletStatus.READY) {
+            logger.error('[ERROR] A wallet marked as READY does not have a max wallet index or address index was not found in the database');
+          }
           continue;
         }
 
