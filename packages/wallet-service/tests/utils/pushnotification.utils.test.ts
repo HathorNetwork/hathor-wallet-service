@@ -298,7 +298,7 @@ describe('PushNotificationUtils', () => {
     beforeEach(() => {
       sendMulticastMock.mockReset();
       messaging.mockImplementation(() => ({
-        sendMulticast: sendMulticastMock.mockReturnValue({
+        sendEachForMulticast: sendMulticastMock.mockReturnValue({
           failureCount: 0,
         }),
       }));
@@ -343,7 +343,7 @@ describe('PushNotificationUtils', () => {
 
       isFirebaseInitializedMock.mockReturnValue(true);
       messaging.mockImplementation(() => ({
-        sendMulticast: sendMulticastMock.mockReturnValue({
+        sendEachForMulticast: sendMulticastMock.mockReturnValue({
           responses: [
             {
               error: {
@@ -373,7 +373,7 @@ describe('PushNotificationUtils', () => {
 
       isFirebaseInitializedMock.mockReturnValue(true);
       messaging.mockImplementation(() => ({
-        sendMulticast: sendMulticastMock.mockReturnValue({
+        sendEachForMulticast: sendMulticastMock.mockReturnValue({
           responses: [
             {
               error: {

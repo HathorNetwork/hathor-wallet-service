@@ -40,6 +40,8 @@ import {
   updateWalletLockedBalance,
 } from '../db';
 import logger from '../logger';
+// @ts-ignore
+import { walletUtils } from '@hathor/wallet-lib';
 import { stringMapIterator } from './helpers';
 
 /**
@@ -58,6 +60,10 @@ import { stringMapIterator } from './helpers';
  *                                  metadata.
  */
 export const prepareOutputs = (outputs: EventTxOutput[], tokens: string[]): TxOutputWithIndex[] => {
+  if (outputs.length === 0) {
+    return [];
+  }
+
   const preparedOutputs: [number, TxOutputWithIndex[]] = outputs.reduce(
     ([currIndex, newOutputs]: [number, TxOutputWithIndex[]], _output: EventTxOutput): [number, TxOutputWithIndex[]] => {
       const output = new Output(_output.value, Buffer.from(_output.script, 'base64'), {
@@ -121,7 +127,9 @@ export const getAddressBalanceMap = (
 
   for (const input of inputs) {
     if (!input.decoded) {
-      throw new Error('Input has no decoded script');
+      // If we're unable to decode the script, we will also be unable to
+      // calculate the balance, so just skip this input.
+      continue;
     }
 
     const address = input.decoded?.address;
@@ -290,11 +298,11 @@ export const prepareInputs = (inputs: EventTxInput[], tokens: string[]): TxInput
       // @ts-ignore
       script: utxo.script,
       token,
-      decoded: {
+      decoded: output.decoded ? {
         type: output.decoded.type,
         address: output.decoded.address,
         timelock: output.decoded.timelock,
-      },
+      } : null,
     };
 
     return [...newInputs, input];
@@ -501,3 +509,29 @@ export class WalletBalanceMapConverter {
     return walletBalanceValueMap;
   }
 }
+
+/**
+ * Generate a batch of addresses from a given xpubkey.
+ *
+ * @remarks
+ * This function generates addresses starting from a specific index.
+ *
+ * @param xpubkey - The extended public key to derive addresses from
+ * @param startIndex - The index to start generating addresses from
+ * @param count - How many addresses to generate
+ * @returns A map of addresses to their corresponding indices
+ */
+export const generateAddresses = async (
+  network: string,
+  xpubkey: string,
+  startIndex: number,
+  count: number,
+): Promise<StringMap<number>> => {
+  // We currently generate only addresses in change derivation path 0
+  // (more details in https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki#Change)
+  // so we derive our xpub to this path and use it to get the addresses
+  const derivedXpub = walletUtils.xpubDeriveChild(xpubkey, 0);
+  const addrMap = walletUtils.getAddresses(derivedXpub, startIndex, count, network);
+
+  return addrMap;
+};

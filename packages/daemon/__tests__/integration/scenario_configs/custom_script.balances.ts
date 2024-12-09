@@ -1,5 +1,5 @@
 export default {
-  'HFtz2f59Lms4p3Jfgtsr73s97MbJHsRENh': 6400,
+  'HRXVDmLVdq8pgok1BCUKpiFWdAVAy4a5AJ': 100000000000,
   'HJQbEERnD5Ak3f2dsi8zAmsZrCWTT8FZns': 6400,
   'HRSYchTEsFFpZAkgSTMsohNGQ6eLPyhXvJ': 6400,
   'HQfVqxyxQV4BHwnsMnRXpZGmwPYiNSVmMu': 6400,
@@ -9,8 +9,8 @@ export default {
   'H8fCNrYGkj4B6VzKgtRiHBgoSxM31d65JR': 6400,
   'HAqrADnn7GyyT68fSX8zmtsRNFyabPzoRQ': 6400,
   'HRTH6uGo7zn3LWrosBYn7eXkwAeHAHTRh8': 6400,
-  'H9hHteu9QdAS5p6X743Mpfue6G19rV9GeY': 6400,
-  'HNqTfEASfdx7H4vMUGzfD2HyD3GeKuxjTJ': 5400,
-  'HRQe4CXj8AZXzSmuNztU8iQR74QTQMbnTs': 1000,
-  'HRXVDmLVdq8pgok1BCUKpiFWdAVAy4a5AJ': 100000000000
-};
+  'HJPSMHCFv2dRb78wZPMsAzwLQHSkBpfuLn': 6400,
+  'HFtz2f59Lms4p3Jfgtsr73s97MbJHsRENh': 1000,
+  'H9hHteu9QdAS5p6X743Mpfue6G19rV9GeY': 5400,
+  'HSd6PqXesUmHHv6MoN24aUiMuw7Pdcxrwk': 6400
+}

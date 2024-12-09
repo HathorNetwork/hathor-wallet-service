@@ -4,7 +4,7 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  */
-import mysql, { Connection as MysqlConnection, Pool } from 'mysql2/promise';
+import mysql, { Connection as MysqlConnection, OkPacket, Pool, ResultSetHeader } from 'mysql2/promise';
 import {
   DbTxOutput,
   StringMap,
@@ -19,6 +19,7 @@ import {
   TokenInfo,
   Miner,
   TokenSymbolsRow,
+  MaxAddressIndexRow,
 } from '../types';
 import {
   TxInput,
@@ -36,8 +37,6 @@ import {
   TransactionRow,
   TxOutputRow,
 } from '../types';
-// @ts-ignore
-import { walletUtils } from '@hathor/wallet-lib';
 import getConfig from '../config';
 
 let pool: Pool;
@@ -362,20 +361,51 @@ export const getTxOutputsAtHeight = async (
   return utxos;
 };
 
+/**
+ * Void a transaction by updating the related address and balance information in the database.
+ *
+ * @param mysql - The MySQL connection object
+ * @param txId - The ID of the transaction to be voided.
+ * @param addressBalanceMap - A map where the key is an address and the value is a map of token balances.
+ *   The TokenBalanceMap contains information about the total amount sent, unlocked and locked amounts, and authorities.
+ *
+ * @returns {Promise<void>} - A promise that resolves when the transaction has been voided and the database updated
+ *
+ * This function performs the following steps:
+ * 1. Inserts addresses with a transaction count of 0 into the `address` table or subtracts 1 from the transaction count if they already exist
+ * 2. Iterates over the addressBalanceMap to update the `address_balance` table with the received token balances.
+ * 3. Deletes the transaction entry from the `address_tx_history` table.
+ * 4. Updates the transaction entry in the `transaction` table to mark it as voided.
+ *
+ * The function ensures that the authorities are correctly updated and the smallest timelock expiration value is preserved.
+ */
 export const voidTransaction = async (
   mysql: any,
   txId: string,
   addressBalanceMap: StringMap<TokenBalanceMap>,
 ): Promise<void> => {
-  const addressEntries = Object.keys(addressBalanceMap).map((address) => [address, 0]);
-  await mysql.query(
-    `INSERT INTO \`address\`(\`address\`, \`transactions\`)
-          VALUES ?
-              ON DUPLICATE KEY UPDATE transactions = transactions - 1`,
-    [addressEntries],
+  const [result]: [ResultSetHeader] = await mysql.query(
+    `UPDATE \`transaction\`
+        SET \`voided\` = TRUE
+      WHERE \`tx_id\` = ?`,
+    [txId],
   );
 
-  const entries = [];
+  if (result.affectedRows !== 1) {
+    throw new Error('Tried to void a transaction that is not in the database.');
+  }
+
+  const addressEntries = Object.keys(addressBalanceMap).map((address) => [address, 0]);
+
+  if (addressEntries.length > 0) {
+    await mysql.query(
+      `INSERT INTO \`address\`(\`address\`, \`transactions\`)
+            VALUES ?
+                ON DUPLICATE KEY UPDATE transactions = transactions - 1`,
+      [addressEntries],
+    );
+  }
+
   for (const [address, tokenMap] of Object.entries(addressBalanceMap)) {
     for (const [token, tokenBalance] of tokenMap.iterator()) {
       // update address_balance table or update balance and transactions if there's an entry already
@@ -438,25 +468,13 @@ export const voidTransaction = async (
       // for locked authorities, it doesn't make sense to perform the same operation. The authority needs to be
       // unlocked before it can be spent. In case we're just adding new locked authorities, this will be taken
       // care by the first sql query.
-
-      // update address_tx_history with one entry for each pair (address, token)
-      entries.push(txId);
     }
   }
 
   await mysql.query(
     `DELETE FROM \`address_tx_history\`
-      WHERE \`tx_id\`
-      IN (?)`,
-    [entries],
-  );
-
-  await mysql.query(
-    `UPDATE \`transaction\`
-        SET \`voided\` = TRUE
-      WHERE \`tx_id\`
-      IN (?)`,
-    [entries],
+      WHERE \`tx_id\` = ?`,
+    [txId],
   );
 };
 
@@ -478,6 +496,10 @@ export const updateAddressTablesWithTx = async (
   timestamp: number,
   addressBalanceMap: StringMap<TokenBalanceMap>,
 ): Promise<void> => {
+  if (Object.keys(addressBalanceMap).length === 0) {
+    // No need to do anything here
+    return;
+  }
   /*
    * update address table
    *
@@ -487,12 +509,14 @@ export const updateAddressTablesWithTx = async (
    * If address is already present, just increment the transactions counter.
    */
   const addressEntries = Object.keys(addressBalanceMap).map((address) => [address, 1]);
-  await mysql.query(
-    `INSERT INTO \`address\`(\`address\`, \`transactions\`)
-          VALUES ?
-              ON DUPLICATE KEY UPDATE transactions = transactions + 1`,
-    [addressEntries],
-  );
+  if (addressEntries.length > 0) {
+    await mysql.query(
+      `INSERT INTO \`address\`(\`address\`, \`transactions\`)
+            VALUES ?
+                ON DUPLICATE KEY UPDATE transactions = transactions + 1`,
+      [addressEntries],
+    );
+  }
 
   const entries = [];
   for (const [address, tokenMap] of Object.entries(addressBalanceMap)) {
@@ -750,6 +774,10 @@ export const updateAddressLockedBalance = async (
  * @returns A map of address and corresponding wallet information
  */
 export const getAddressWalletInfo = async (mysql: MysqlConnection, addresses: string[]): Promise<StringMap<Wallet>> => {
+  if (addresses.length === 0) {
+    return {};
+  }
+
   const addressWalletMap: StringMap<Wallet> = {};
   const [results] = await mysql.query(
     `SELECT DISTINCT a.\`address\`,
@@ -1017,86 +1045,15 @@ export const incrementTokensTxCount = async (
   mysql: MysqlConnection,
   tokenList: string[],
 ): Promise<void> => {
+  if (tokenList.length === 0) {
+    return;
+  }
+
   await mysql.query(`
     UPDATE \`token\`
        SET \`transactions\` = \`transactions\` + 1
      WHERE \`id\` IN (?)
   `, [tokenList]);
-};
-
-/**
- * Given an xpubkey, generate its addresses.
- *
- * @remarks
- * Also, check which addresses are used, taking into account the maximum gap of unused addresses (maxGap).
- * This function doesn't update anything on the database, just reads data from it.
- *
- * @param mysql - Database connection
- * @param xpubkey - The xpubkey
- * @param maxGap - Number of addresses that should have no transactions before we consider all addresses loaded
- * @returns Object with all addresses for the given xpubkey and corresponding index
- */
-export const generateAddresses = async (mysql: MysqlConnection, xpubkey: string, maxGap: number): Promise<GenerateAddresses> => {
-  const existingAddresses: AddressIndexMap = {};
-  const newAddresses: AddressIndexMap = {};
-  const allAddresses: string[] = [];
-
-  // We currently generate only addresses in change derivation path 0
-  // (more details in https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki#Change)
-  // so we derive our xpub to this path and use it to get the addresses
-  const derivedXpub = walletUtils.xpubDeriveChild(xpubkey, 0);
-
-  let highestCheckedIndex = -1;
-  let lastUsedAddressIndex = -1;
-  do {
-    const { NETWORK } = getConfig();
-    const addrMap = walletUtils.getAddresses(derivedXpub, highestCheckedIndex + 1, maxGap, NETWORK);
-    allAddresses.push(...Object.keys(addrMap));
-
-    const [results] = await mysql.query(
-      `SELECT \`address\`,
-              \`index\`,
-              \`transactions\`
-         FROM \`address\`
-        WHERE \`address\`
-           IN (?)`,
-      [Object.keys(addrMap)],
-    );
-
-    for (const entry of results) {
-      const address = entry.address as string;
-      // get index from addrMap as the one from entry might be null
-      const index = addrMap[address];
-      // add to existingAddresses
-      existingAddresses[address] = index;
-
-      // if address is used, check if its index is higher than the current highest used index
-      if (entry.transactions > 0 && index > lastUsedAddressIndex) {
-        lastUsedAddressIndex = index;
-      }
-
-      delete addrMap[address];
-    }
-
-    highestCheckedIndex += maxGap;
-    Object.assign(newAddresses, addrMap);
-  } while (lastUsedAddressIndex + maxGap > highestCheckedIndex);
-
-  // we probably generated more addresses than needed, as we always generate
-  // addresses in maxGap blocks
-  const totalAddresses = lastUsedAddressIndex + maxGap + 1;
-  for (const [address, index] of Object.entries(newAddresses)) {
-    if (index > lastUsedAddressIndex + maxGap) {
-      delete newAddresses[address];
-    }
-  }
-
-  return {
-    addresses: allAddresses.slice(0, totalAddresses),
-    newAddresses,
-    existingAddresses,
-    lastUsedAddressIndex,
-  };
 };
 
 /**
@@ -1325,6 +1282,10 @@ export const markUtxosAsVoided = async (
 ): Promise<void> => {
   const txIds = utxos.map((tx) => tx.txId);
 
+  if (txIds.length === 0) {
+    return;
+  }
+
   await mysql.query(`
     UPDATE \`tx_output\`
        SET \`voided\` = TRUE
@@ -1390,6 +1351,10 @@ export const fetchAddressBalance = async (
   mysql: MysqlConnection,
   addresses: string[],
 ): Promise<AddressBalance[]> => {
+  if (addresses.length === 0) {
+    return [];
+  }
+
   const [results] = await mysql.query<AddressBalanceRow[]>(
     `SELECT *
        FROM \`address_balance\`
@@ -1420,6 +1385,10 @@ export const fetchAddressTxHistorySum = async (
   mysql: MysqlConnection,
   addresses: string[],
 ): Promise<AddressTotalBalance[]> => {
+  if (addresses.length === 0) {
+    return [];
+  }
+
   const [results] = await mysql.query<AddressTxHistorySumRow[]>(
     `SELECT address,
             token_id,
@@ -1563,4 +1532,59 @@ export const getTokenSymbols = async (
     prev[token.id] = token.symbol;
     return prev;
   }, {}) as unknown as StringMap<string>;
+};
+
+/**
+ * Get maximum indices for multiple wallets in a single query.
+ *
+ * This function retrieves two key metrics for each wallet:
+ *
+ * 1. `max_among_addresses`: The highest `index` value for the wallet, but only considering the specified addresses provided in `walletData`.
+ * 2. `max_wallet_index`: The highest `index` value for the wallet across all its addresses in the database.
+ *
+ * How it works:
+ * - The SQL query operates on the `address` table.
+ * - It groups the rows by `wallet_id` using `GROUP BY wallet_id`.
+ * - For each wallet group:
+ *   - The `MAX` function calculates the highest `index` value in two contexts:
+ *     a. For addresses explicitly listed in the input (`CASE WHEN address IN (?) THEN index END`).
+ *     b. For all addresses associated with the wallet (`MAX(index)`).
+ * - If no addresses for a wallet match the provided input, `max_among_addresses` will be `NULL`.
+ * - If a wallet has no addresses in the database, both `max_among_addresses` and `max_wallet_index` will be `NULL`.
+ *
+ * This allows the function to return a consolidated view of the maximum indices for each wallet
+ *
+ * @param mysql - Database connection
+ * @param walletData - Array of objects containing wallet IDs and their associated addresses
+ * @returns Map of wallet IDs to their maximum indices (both among specific addresses and overall)
+ */
+export const getMaxIndicesForWallets = async (
+  mysql: MysqlConnection,
+  walletData: Array<{walletId: string, addresses: string[]}>
+): Promise<Map<string, {maxAmongAddresses: number | null, maxWalletIndex: number | null}>> => {
+  if (walletData.length === 0) {
+    return new Map();
+  }
+
+  const allAddresses = walletData.flatMap(d => d.addresses);
+  const walletIds = walletData.map(d => d.walletId);
+
+  const [results] = await mysql.query<MaxAddressIndexRow[]>(
+    `SELECT
+       wallet_id,
+       MAX(CASE WHEN address IN (?) THEN \`index\` END) as max_among_addresses,
+       MAX(\`index\`) as max_wallet_index
+     FROM address
+     WHERE wallet_id IN (?)
+     GROUP BY wallet_id`,
+    [allAddresses, walletIds]
+  );
+
+  return new Map(results.map(r => [
+    r.wallet_id,
+    {
+      maxAmongAddresses: r.max_among_addresses,
+      maxWalletIndex: r.max_wallet_index
+    }
+  ]));
 };

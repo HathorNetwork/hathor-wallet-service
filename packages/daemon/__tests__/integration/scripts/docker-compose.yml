@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   mysql:
     image: mysql
@@ -9,6 +7,7 @@ services:
       MYSQL_ROOT_PASSWORD: hathor
     ports:
       - "3380:3306"
+
   unvoided_transaction:
     image: hathornetwork/hathor-core:stable
     command: [
@@ -36,6 +35,35 @@ services:
     ]
     ports:
       - "8083:8080"
+  invalid_mempool_transaction:
+    image: hathornetwork/hathor-core:stable
+    command: [
+      "events_simulator",
+      "--scenario", "INVALID_MEMPOOL_TRANSACTION",
+      "--seed", "1"
+    ]
+    ports:
+      - "8085:8080"
+
+  custom_scripts:
+    image: hathornetwork/hathor-core:stable
+    command: [
+      "events_simulator",
+      "--scenario", "CUSTOM_SCRIPT",
+      "--seed", "1"
+    ]
+    ports:
+      - "8086:8080"
+
+  empty_script:
+    image: hathornetwork/hathor-core:stable
+    command: [
+      "events_simulator",
+      "--scenario", "EMPTY_SCRIPT",
+      "--seed", "1"
+    ]
+    ports:
+      - "8087:8080"
 
 networks:
   database:
