@@ -22,6 +22,7 @@ import {
   FullNodeEvent,
   EventTxInput,
   EventTxOutput,
+  WalletStatus,
 } from '../types';
 import {
   TxInput,
@@ -42,6 +43,8 @@ import {
   validateAddressBalances,
   getWalletBalancesForTx,
   getFullnodeHttpUrl,
+  sendMessageSQS,
+  generateAddresses,
 } from '../utils';
 import {
   getDbConnection,
@@ -56,7 +59,6 @@ import {
   getLockedUtxoFromInputs,
   incrementTokensTxCount,
   getAddressWalletInfo,
-  generateAddresses,
   addNewAddresses,
   updateWalletTablesWithTx,
   voidTransaction,
@@ -65,10 +67,11 @@ import {
   getTxOutputsFromTx,
   markUtxosAsVoided,
   cleanupVoidedTx,
+  getMaxIndicesForWallets,
 } from '../db';
 import getConfig from '../config';
 import logger from '../logger';
-import { invokeOnTxPushNotificationRequestedLambda, sendMessageSQS } from '../utils';
+import { invokeOnTxPushNotificationRequestedLambda } from '../utils';
 
 export const METADATA_DIFF_EVENT_TYPES = {
   IGNORE: 'IGNORE',
@@ -162,11 +165,16 @@ export const isBlock = (version: number): boolean => version === hathorLib.const
 export const handleVertexAccepted = async (context: Context, _event: Event) => {
   const mysql = await getDbConnection();
   await mysql.beginTransaction();
+  const {
+    NETWORK,
+    STAGE,
+    PUSH_NOTIFICATION_ENABLED,
+    NEW_TX_SQS,
+  } = getConfig();
 
   try {
     const fullNodeEvent = context.event as FullNodeEvent;
     const now = getUnixTimestamp();
-    const { NEW_TX_SQS, PUSH_NOTIFICATION_ENABLED } = getConfig();
     const blockRewardLock = context.rewardMinBlocks;
 
     if (!blockRewardLock) {
@@ -272,6 +280,8 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
     // Add utxos
     await addUtxos(mysql, hash, txOutputs, heightlock);
+
+    // Mark tx utxos as spent
     await updateTxOutputSpentBy(mysql, txInputs, hash);
 
     // Genesis tx has no inputs and outputs, so nothing to be updated, avoid it
@@ -289,31 +299,78 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       // for the addresses present on the tx, check if there are any wallets associated
       const addressWalletMap: StringMap<Wallet> = await getAddressWalletInfo(mysql, Object.keys(addressBalanceMap));
 
-      // for each already started wallet, update databases
-      const seenWallets = new Set();
-      for (const wallet of Object.values(addressWalletMap)) {
-        const walletId = wallet.walletId;
+      const addressesPerWallet = Object.entries(addressWalletMap).reduce(
+        (result: StringMap<{ addresses: string[], walletDetails: Wallet }>, [address, wallet]: [string, Wallet]) => {
+        const { walletId } = wallet;
 
-        // this map might contain duplicate wallet values, as 2 different addresses might belong to the same wallet
-        if (seenWallets.has(walletId)) continue;
-        seenWallets.add(walletId);
-        const { newAddresses, lastUsedAddressIndex } = await generateAddresses(mysql, wallet.xpubkey, wallet.maxGap);
-        // might need to generate new addresses to keep maxGap
-        await addNewAddresses(mysql, walletId, newAddresses, lastUsedAddressIndex);
-        // update existing addresses' walletId and index
+        // Initialize the array if the walletId is not yet a key in result
+        if (!result[walletId]) {
+          result[walletId] = {
+            addresses: [],
+            walletDetails: wallet,
+          }
+        }
+
+        // Add the current key to the array
+        result[walletId].addresses.push(address);
+
+        return result;
+      }, {});
+
+      const seenWallets = Object.keys(addressesPerWallet);
+
+      // Convert to array format expected by getMaxIndicesForWallets
+      const walletDataArray = Object.entries(addressesPerWallet).map(([walletId, data]) => ({
+        walletId,
+        addresses: data.addresses
+      }));
+
+      // Get all max indices in a single query
+      const walletIndices = await getMaxIndicesForWallets(mysql, walletDataArray);
+
+      // Process each wallet
+      for (const [walletId, data] of Object.entries(addressesPerWallet)) {
+        const { walletDetails } = data;
+        const indices = walletIndices.get(walletId);
+
+        if (!indices) {
+          // This is unexpected as we just queried for this wallet
+          logger.error('Failed to get indices for wallet', { walletId });
+          continue;
+        }
+
+        const { maxAmongAddresses, maxWalletIndex } = indices;
+
+        if (!maxAmongAddresses || !maxWalletIndex) {
+          // Do nothing, wallet is most likely not loaded yet.
+          if (walletDetails.status === WalletStatus.READY) {
+            logger.error('[ERROR] A wallet marked as READY does not have a max wallet index or address index was not found in the database');
+          }
+          continue;
+        }
+
+        const diff = maxWalletIndex - maxAmongAddresses;
+
+        if (diff < walletDetails.maxGap) {
+          // We need to generate addresses
+          const addresses = await generateAddresses(NETWORK as string, walletDetails.xpubkey, maxWalletIndex + 1, walletDetails.maxGap - diff);
+          await addNewAddresses(mysql, walletId, addresses, maxAmongAddresses);
+        }
       }
+
       // update wallet_balance and wallet_tx_history tables
       const walletBalanceMap: StringMap<TokenBalanceMap> = getWalletBalanceMap(addressWalletMap, addressBalanceMap);
       await updateWalletTablesWithTx(mysql, hash, timestamp, walletBalanceMap);
 
-      const tx: Transaction = {
+      // prepare the transaction data to be sent to the SQS queue
+      const txData: Transaction = {
         tx_id: hash,
         nonce,
         timestamp,
+        version,
         voided: metadata.voided_by.length > 0,
         weight,
         parents,
-        version,
         inputs: txInputs,
         outputs: txOutputs,
         height: metadata.height,
@@ -323,7 +380,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       };
 
       try {
-        if (seenWallets.size > 0) {
+        if (seenWallets.length > 0) {
           const queueUrl = NEW_TX_SQS;
           if (!queueUrl) {
             throw new Error('Queue URL is invalid');
@@ -331,7 +388,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
           await sendMessageSQS(JSON.stringify({
             wallets: Array.from(seenWallets),
-            tx,
+            txData,
           }), queueUrl);
         }
       } catch (e) {
@@ -341,7 +398,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
       try {
         if (PUSH_NOTIFICATION_ENABLED) {
-          const walletBalanceMap = await getWalletBalancesForTx(mysql, tx);
+          const walletBalanceMap = await getWalletBalancesForTx(mysql, txData);
           const { length: hasAffectWallets } = Object.keys(walletBalanceMap);
           if (hasAffectWallets) {
             invokeOnTxPushNotificationRequestedLambda(walletBalanceMap)
@@ -353,18 +410,13 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         logger.error(e);
       }
 
-      const {
-        NETWORK,
-        STAGE,
-      } = getConfig();
-
       const network = new hathorLib.Network(NETWORK);
 
       // Validating for NFTs only after the tx is successfully added
-      if (NftUtils.shouldInvokeNftHandlerForTx(tx, network, logger)) {
+      if (NftUtils.shouldInvokeNftHandlerForTx(txData, network, logger)) {
         // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
         // In case of errors, just log the asynchronous exception and take no action on it.
-        NftUtils.invokeNftHandlerLambda(tx.tx_id, STAGE, logger)
+        NftUtils.invokeNftHandlerLambda(txData.tx_id, STAGE, logger)
           .catch((err: unknown) => logger.error('[ALERT] Error on nftHandlerLambda invocation', err));
       }
     }
@@ -374,7 +426,10 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     await mysql.commit();
   } catch (e) {
     await mysql.rollback();
-    logger.error(e);
+    logger.error('Error handling vertex accepted', {
+      error: (e as Error).message,
+      stack: (e as Error).stack,
+    });
 
     throw e;
   } finally {
