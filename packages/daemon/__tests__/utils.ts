@@ -6,7 +6,7 @@
  */
 
 import { Connection as MysqlConnection, RowDataPacket } from 'mysql2/promise';
-import { DbTxOutput, EventTxInput } from '../src/types';
+import { DbTxOutput, EventTxInput, TransactionTableRow } from '../src/types';
 import { TxInput, TxOutputWithIndex } from '@wallet-service/common/src/types';
 import {
   AddressBalanceRow,
@@ -23,7 +23,8 @@ import {
   TokenTableEntry,
   WalletBalanceEntry,
   WalletTableEntry,
-  AddressTxHistoryTableEntry
+  AddressTxHistoryTableEntry,
+  TransactionTableEntry
 } from './types';
 import { isEqual } from 'lodash';
 
@@ -245,6 +246,26 @@ export const addToAddressTable = async (
   [payload]);
 };
 
+export const addToTransactionTable = async (
+  mysql: MysqlConnection,
+  transactions: TransactionTableEntry[],
+): Promise<void> => {
+  const payload = transactions.map((entry) => ([
+    entry.txId,
+    entry.timestamp,
+    entry.version,
+    entry.voided,
+    entry.height,
+  ]));
+
+  await mysql.query(`
+    INSERT INTO \`transaction\` (\`tx_id\`, \`timestamp\`,
+                                 \`version\`, \`voided\`,
+                                 \`height\`)
+    VALUES ?`,
+  [payload]);
+};
+
 export const checkAddressTable = async (
   mysql: MysqlConnection,
   totalResults: number,
@@ -286,6 +307,53 @@ export const checkAddressTable = async (
       results,
     };
   }
+  return true;
+};
+
+export const checkTransactionTable = async (
+  mysql: MysqlConnection,
+  totalResults: number,
+  txId: string,
+  timestamp: number,
+  version: number,
+  voided: boolean,
+  height: number,
+): Promise<boolean | Record<string, unknown>> => {
+  // first check the total number of rows in the table
+  let [results] = await mysql.query<TransactionTableRow[]>('SELECT * FROM `transaction`');
+
+  if (results.length !== totalResults) {
+    return {
+      error: 'checkTransactionTable total results',
+      expected: totalResults,
+      received: results.length,
+      results,
+    };
+  }
+
+  if (totalResults === 0) return true;
+
+  // now fetch the exact entry
+
+  [results] = await mysql.query<TransactionTableRow[]>(`
+    SELECT *
+      FROM \`transaction\`
+     WHERE \`tx_id\` = ?
+       AND \`timestamp\` = ?
+       AND \`version\` = ?
+       AND \`voided\` = ?
+       AND \`height\` = ?
+  `, [txId, timestamp, version, voided, height],
+  );
+
+  if (results.length !== 1) {
+    return {
+      error: 'checkAddressTable query',
+      params: { txId, timestamp, version, voided, height },
+      results,
+    };
+  }
+
   return true;
 };
 

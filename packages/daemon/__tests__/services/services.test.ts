@@ -19,7 +19,8 @@ import {
   getUtxosLockedAtHeight,
   addOrUpdateTx,
   getAddressWalletInfo,
-  generateAddresses,
+  storeTokenInformation,
+  getMaxIndicesForWallets,
 } from '../../src/db';
 import {
   fetchInitialState,
@@ -36,7 +37,18 @@ import {
   prepareOutputs,
   hashTxData,
   getFullnodeHttpUrl,
+  invokeOnTxPushNotificationRequestedLambda,
+  getWalletBalancesForTx,
+  generateAddresses,
 } from '../../src/utils';
+import getConfig from '../../src/config';
+
+jest.mock('../../src/config', () => {
+  return {
+    __esModule: true, // This property is needed for mocking a default export
+    default: jest.fn(() => ({})),
+  };
+});
 
 jest.mock('@hathor/wallet-lib');
 jest.mock('../../src/logger', () => ({
@@ -72,6 +84,9 @@ jest.mock('../../src/db', () => ({
   generateAddresses: jest.fn(),
   addNewAddresses: jest.fn(),
   updateWalletTablesWithTx: jest.fn(),
+  getMaxIndicesForWallets: jest.fn(() => new Map([
+    ['wallet1', { maxAmongAddresses: 10, maxWalletIndex: 15 }]
+  ])),
 }));
 
 jest.mock('../../src/utils', () => ({
@@ -88,6 +103,10 @@ jest.mock('../../src/utils', () => ({
   getUnixTimestamp: jest.fn(),
   unlockUtxos: jest.fn(),
   getFullnodeHttpUrl: jest.fn(),
+  invokeOnTxPushNotificationRequestedLambda: jest.fn(),
+  sendMessageSQS: jest.fn(),
+  getWalletBalancesForTx: jest.fn(),
+  generateAddresses: jest.fn(),
 }));
 
 beforeEach(() => {
@@ -99,7 +118,7 @@ afterEach(() => {
 });
 
 describe('fetchInitialState', () => {
-  beforeAll(() => {
+  beforeEach(() => {
     const mockUrl = 'http://mock-host:8080/v1a/';
     (getFullnodeHttpUrl as jest.Mock).mockReturnValue(mockUrl);
 
@@ -161,6 +180,46 @@ describe('fetchInitialState', () => {
     expect(result).toEqual({
       lastEventId: expect.any(Number),
       rewardMinBlocks: 300,
+    });
+
+    expect(mockDb.destroy).toHaveBeenCalled();
+  });
+
+  it('should not fail if reward spend min blocks is 0', async () => {
+    // Mock the return values of the dependencies
+    const mockDb = { destroy: jest.fn() };
+
+    // @ts-ignore
+    axios.get.mockResolvedValue({
+      status: 200,
+      data: {
+        version: '0.58.0-rc.1',
+        network: 'mainnet',
+        min_weight: 14,
+        min_tx_weight: 14,
+        min_tx_weight_coefficient: 1.6,
+        min_tx_weight_k: 100,
+        token_deposit_percentage: 0.01,
+        reward_spend_min_blocks: 0,
+        max_number_inputs: 255,
+        max_number_outputs: 255
+      }
+    });
+
+    // @ts-ignore
+    getDbConnection.mockReturnValue(mockDb);
+    // @ts-ignore
+    getLastSyncedEvent.mockResolvedValue({
+      id: 0,
+      last_event_id: 123,
+      updated_at: Date.now(),
+    });
+
+    const result = await fetchInitialState();
+
+    expect(result).toEqual({
+      lastEventId: expect.any(Number),
+      rewardMinBlocks: 0,
     });
 
     expect(mockDb.destroy).toHaveBeenCalled();
@@ -400,11 +459,18 @@ describe('handleVertexAccepted', () => {
     jest.clearAllMocks();
 
     (getDbConnection as jest.Mock).mockResolvedValue(mockDb);
-    (getAddressWalletInfo as jest.Mock).mockResolvedValue({});
-    (generateAddresses as jest.Mock).mockResolvedValue({
-      newAddresses: ['mockAddress1', 'mockAddress2'],
-      lastUsedAddressIndex: 1
+    (getAddressWalletInfo as jest.Mock).mockResolvedValue({
+      address1: { walletId: 'wallet1', xpubkey: 'xpubkey1', maxGap: 10 }
     });
+
+    (generateAddresses as jest.Mock).mockResolvedValue({
+      'new-address-1': 16,
+      'new-address-2': 17,
+    });
+
+    (getMaxIndicesForWallets as jest.Mock).mockResolvedValue(new Map([
+      ['wallet1', { maxAmongAddresses: 10, maxWalletIndex: 15 }]
+    ]));
   });
 
   it('should handle vertex accepted successfully', async () => {
@@ -459,6 +525,142 @@ describe('handleVertexAccepted', () => {
     expect(getTransactionById).toHaveBeenCalledWith(mockDb, 'hashValue');
     expect(logger.debug).toHaveBeenCalledWith('Will add the tx with height', 123);
     expect(mockDb.commit).toHaveBeenCalled();
+    expect(mockDb.destroy).toHaveBeenCalled();
+  });
+
+  it('should handle call the push notification lambda if PUSH_NOTIFICATION_ENABLED is true', async () => {
+    const context = {
+      event: {
+        event: {
+          data: {
+            hash: 'hashValue',
+            metadata: {
+              height: 123,
+              first_block: true,
+              voided_by: [],
+            },
+            timestamp: new Date().getTime(),
+            version: 1,
+            weight: 17.17,
+            outputs: [],
+            inputs: [1],
+            tokens: [],
+          },
+          id: 'idValue',
+        },
+      },
+      rewardMinBlocks: 300,
+      txCache: {
+        get: jest.fn(),
+        set: jest.fn(),
+      },
+    };
+
+    (getConfig as jest.Mock).mockReturnValue({
+      PUSH_NOTIFICATION_ENABLED: true,
+      NEW_TX_SQS: 'http://nowhere.com',
+    });
+
+    (addOrUpdateTx as jest.Mock).mockReturnValue(Promise.resolve());
+    (getTransactionById as jest.Mock).mockResolvedValue(null); // Transaction is not in the database
+    (prepareOutputs as jest.Mock).mockReturnValue([]);
+    (prepareInputs as jest.Mock).mockReturnValue([]);
+    (getAddressBalanceMap as jest.Mock).mockReturnValue({});
+    (getUtxosLockedAtHeight as jest.Mock).mockResolvedValue([]);
+    (hashTxData as jest.Mock).mockReturnValue('hashedData');
+      (getAddressWalletInfo as jest.Mock).mockResolvedValue({
+      'address1': {
+          walletId: 'wallet1',
+          xpubkey: 'xpubkey1',
+          maxGap: 10
+      },
+    });
+    (getWalletBalancesForTx as jest.Mock).mockResolvedValue({ 'mockWallet': {} });
+    (invokeOnTxPushNotificationRequestedLambda as jest.Mock).mockResolvedValue(undefined);
+
+    await handleVertexAccepted(context as any, {} as any);
+
+    expect(invokeOnTxPushNotificationRequestedLambda).toHaveBeenCalled();
+    expect(mockDb.commit).toHaveBeenCalled();
+    expect(mockDb.destroy).toHaveBeenCalled();
+  });
+
+  it('should handle add tokens to database on token creation tx', async () => {
+    const tokenName = 'TEST_TOKEN';
+    const tokenSymbol = 'TST_TKN';
+    const hash = '000013f562dc216890f247688028754a49d21dbb2b1f7731f840dc65585b1d57';
+    const context = {
+      event: {
+        event: {
+          data: {
+            hash,
+            metadata: {
+              height: 123,
+              first_block: true,
+              voided_by: [],
+            },
+            timestamp: 'timestampValue',
+            version: 2,
+            weight: 70,
+            outputs: [],
+            inputs: [],
+            tokens: [],
+            token_name: tokenName,
+            token_symbol: tokenSymbol,
+          },
+          id: 5
+        },
+      },
+      rewardMinBlocks: 300,
+      txCache: {
+        get: jest.fn(),
+        set: jest.fn(),
+      },
+    };
+
+    (addOrUpdateTx as jest.Mock).mockReturnValue(Promise.resolve());
+    (getTransactionById as jest.Mock).mockResolvedValue(null); // Transaction is not in the database
+    (prepareOutputs as jest.Mock).mockReturnValue([]);
+    (prepareInputs as jest.Mock).mockReturnValue([]);
+    (getAddressBalanceMap as jest.Mock).mockReturnValue({});
+    (getUtxosLockedAtHeight as jest.Mock).mockResolvedValue([]);
+    (hashTxData as jest.Mock).mockReturnValue('hashedData');
+      (getAddressWalletInfo as jest.Mock).mockResolvedValue({
+      'address1': {
+          walletId: 'wallet1',
+          xpubkey: 'xpubkey1',
+          maxGap: 10
+      },
+    });
+
+    await handleVertexAccepted(context as any, {} as any);
+
+    expect(storeTokenInformation).toHaveBeenCalledWith(mockDb, hash, tokenName, tokenSymbol);
+    expect(mockDb.commit).toHaveBeenCalled();
+    expect(mockDb.destroy).toHaveBeenCalled();
+  });
+
+  it('should rollback on error and rethrow', async () => {
+    (getTransactionById as jest.Mock).mockRejectedValue(new Error('Test error'));
+
+    const context = {
+      rewardMinBlocks: 5,
+      event: {
+        event: {
+          data: {
+            hash: 'hashValue',
+            outputs: 'outputsValue',
+            inputs: 'inputsValue',
+            tokens: 'tokensValue',
+          },
+          id: 'idValue',
+        },
+      },
+    };
+
+    await expect(handleVertexAccepted(context as any, {} as any)).rejects.toThrow('Test error');
+    expect(mockDb.beginTransaction).toHaveBeenCalled();
+    expect(mockDb.rollback).toHaveBeenCalled();
     expect(mockDb.destroy).toHaveBeenCalled();
   });
 });

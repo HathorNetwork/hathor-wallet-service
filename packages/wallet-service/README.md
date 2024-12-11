@@ -69,6 +69,10 @@ PUSH_ALLOWED_PROVIDERS=android
 
 Do not modify the `STAGE` variable. The other variables should be updated accordingly.
 
+The following variables are optional:
+
+- `ALERT_MANAGER_ACCOUNT_ID`: Account ID to send alerts to. If not set, `ACCOUNT_ID` will be used instead. If neither is set, alerting will not work.
+
 ### AWS cli credentials
 
 You need to have `awscli` [configured with your credentials](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html).

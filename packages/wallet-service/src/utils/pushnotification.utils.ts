@@ -202,7 +202,8 @@ export class PushNotificationUtils {
         },
       },
     };
-    const multicastResult = await messaging().sendMulticast(message);
+
+    const multicastResult = await messaging().sendEachForMulticast(message);
 
     if (multicastResult.failureCount === 0) {
       return { success: true };

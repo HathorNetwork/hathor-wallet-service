@@ -5,7 +5,9 @@
  * LICENSE file in the root directory of this source tree.
  */
 import { Connection } from 'mysql2/promise';
-import { AddressBalance, AddressBalanceRow } from '../../../src/types';
+import { Interpreter } from 'xstate';
+import { getLastSyncedEvent } from '../../../src/db';
+import { AddressBalance, AddressBalanceRow, Context, Event } from '../../../src/types';
 
 export const cleanDatabase = async (mysql: Connection): Promise<void> => {
   const TABLES = [
@@ -68,9 +70,25 @@ export const validateBalances = async (
     const totalBalanceA = balanceA.lockedBalance + balanceA.unlockedBalance;
 
     if (totalBalanceA !== balanceB) {
-      console.log(totalBalanceA);
-      console.log(balanceB);
-      throw new Error(`Balances are not equal for address: ${address}`);
+      throw new Error(`Balances are not equal for address: ${address}, expected: ${balanceB}, received: ${totalBalanceA}`);
     }
   }
 };
+
+export async function transitionUntilEvent(mysql: Connection, machine: Interpreter<Context, any, Event>, eventId: number) {
+  return await new Promise<void>((resolve) => {
+    machine.onTransition(async (state) => {
+      if (state.matches('CONNECTED.idle')) {
+        // @ts-ignore
+        const lastSyncedEvent = await getLastSyncedEvent(mysql);
+        if (lastSyncedEvent?.last_event_id === eventId) {
+          machine.stop();
+
+          resolve();
+        }
+      }
+    });
+
+    machine.start();
+  });
+}
