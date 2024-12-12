@@ -66,7 +66,6 @@ deploy_hathor_network_account() {
         send_slack_message "New version deployed to mainnet-staging: ${GIT_REF_TO_DEPLOY}"
     elif expr "${GIT_REF_TO_DEPLOY}" : "v.*" >/dev/null; then
         echo $GIT_REF_TO_DEPLOY > /tmp/docker_image_tag
-        make build-daemon;
 
         # --- Testnet ---
         # Gets all env vars with `testnet_` prefix and re-exports them without the prefix
@@ -75,7 +74,10 @@ deploy_hathor_network_account() {
         done
 
         make migrate;
+        make build-daemon;
         make deploy-lambdas-testnet;
+        # The idea here is that if the lambdas deploy fail, the built image won't be pushed:
+        make push-daemon;
 
         # Unsets all the testnet env vars so we make sure they don't leak to other deploys
         for var in "${!testnet_@}"; do
@@ -88,15 +90,16 @@ deploy_hathor_network_account() {
             export ${var#mainnet_}="${!var}"
         done
         make migrate;
+        make build-daemon;
         make deploy-lambdas-mainnet;
+        # The idea here is that if the lambdas deploy fail, the built image won't be pushed:
+        make push-daemon;
 
         # Unsets all the mainnet env vars so we make sure they don't leak to other deploys
         for var in "${!mainnet_@}"; do
             unset ${var#mainnet_}
         done
 
-        # The idea here is that if the lambdas deploy fail, the built image won't be pushed:
-        make push-daemon;
         send_slack_message "New version deployed to testnet-production and mainnet-production: ${GIT_REF_TO_DEPLOY}"
     else
         # Gets all env vars with `dev_` prefix and re-exports them without the prefix
