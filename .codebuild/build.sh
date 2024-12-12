@@ -84,6 +84,8 @@ deploy_hathor_network_account() {
             unset ${var#testnet_}
         done
 
+        send_slack_message "New version deployed to testnet-production: ${GIT_REF_TO_DEPLOY}"
+
         # --- Mainnet ---
         # Gets all env vars with `mainnet_` prefix and re-exports them without the prefix
         for var in "${!mainnet_@}"; do
@@ -100,7 +102,7 @@ deploy_hathor_network_account() {
             unset ${var#mainnet_}
         done
 
-        send_slack_message "New version deployed to testnet-production and mainnet-production: ${GIT_REF_TO_DEPLOY}"
+        send_slack_message "New version deployed to mainnet-production: ${GIT_REF_TO_DEPLOY}"
     else
         # Gets all env vars with `dev_` prefix and re-exports them without the prefix
         for var in "${!dev_@}"; do
