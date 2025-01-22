@@ -1,0 +1,2160 @@
+{
+  "resources": {
+    "@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4>@smithy/eventstream-codec>@aws-crypto/crc32": {
+      "packages": {
+        "@aws-sdk/client-sqs>@aws-crypto/sha256-js>@aws-crypto/util": true,
+        "@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4>@smithy/eventstream-codec>@aws-crypto/crc32>tslib": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4>@smithy/eventstream-codec>@aws-crypto/crc32": {
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-crypto/sha256-js>@aws-crypto/util": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4>@smithy/eventstream-codec>@aws-crypto/crc32>tslib": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-crypto/sha256-js>@aws-crypto/util": {
+      "globals": {
+        "Buffer": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@aws-crypto/sha256-browser>@aws-sdk/util-utf8-browser": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@aws-crypto/sha256-js>@aws-crypto/util": {
+      "globals": {
+        "Buffer": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-crypto/sha256-browser>@aws-sdk/util-utf8-browser": true
+      }
+    },
+    "@aws-sdk/client-lambda": {
+      "globals": {
+        "$Command": true,
+        "__Client": true,
+        "process.version": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@aws-sdk/core": true,
+        "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node": true,
+        "@aws-sdk/client-sqs>@aws-sdk/middleware-host-header": true,
+        "@aws-sdk/client-sqs>@aws-sdk/middleware-logger": true,
+        "@aws-sdk/client-sqs>@aws-sdk/middleware-recursion-detection": true,
+        "@aws-sdk/client-sqs>@aws-sdk/middleware-user-agent": true,
+        "@aws-sdk/client-sqs>@aws-sdk/region-config-resolver": true,
+        "@aws-sdk/client-sqs>@aws-sdk/util-endpoints": true,
+        "@aws-sdk/client-sqs>@aws-sdk/util-user-agent-node": true,
+        "@aws-sdk/client-sqs>@smithy/config-resolver": true,
+        "@aws-sdk/client-sqs>@smithy/core": true,
+        "@aws-sdk/client-lambda>@smithy/eventstream-serde-config-resolver": true,
+        "@aws-sdk/client-lambda>@smithy/eventstream-serde-node": true,
+        "@aws-sdk/client-sqs>@smithy/hash-node": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-content-length": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-endpoint": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-retry": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-serde": true,
+        "@aws-sdk/client-sqs>@smithy/node-config-provider": true,
+        "@aws-sdk/client-sqs>@smithy/node-http-handler": true,
+        "@aws-sdk/client-sqs>@smithy/protocol-http": true,
+        "@aws-sdk/client-sqs>@smithy/smithy-client": true,
+        "@aws-sdk/client-sqs>@smithy/types": true,
+        "@aws-sdk/client-sqs>@smithy/url-parser": true,
+        "@aws-sdk/client-sqs>@smithy/util-base64": true,
+        "@aws-sdk/client-sqs>@smithy/util-body-length-node": true,
+        "@aws-sdk/client-sqs>@smithy/util-defaults-mode-node": true,
+        "@aws-sdk/client-sqs>@smithy/util-endpoints": true,
+        "@aws-sdk/client-sqs>@smithy/util-middleware": true,
+        "@aws-sdk/client-sqs>@smithy/util-retry": true,
+        "@aws-sdk/client-sqs>@smithy/util-utf8": true,
+        "@aws-sdk/client-lambda>@smithy/util-waiter": true,
+        "@aws-sdk/client-lambda>tslib": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-lambda": {
+      "globals": {
+        "$Command": true,
+        "__Client": true,
+        "process.version": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/core": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/credential-provider-node": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-host-header": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-logger": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-recursion-detection": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-user-agent": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/region-config-resolver": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/util-endpoints": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/util-user-agent-node": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/config-resolver": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/core": true,
+        "@wallet-service/common>@aws-sdk/client-lambda>@smithy/eventstream-serde-config-resolver": true,
+        "@wallet-service/common>@aws-sdk/client-lambda>@smithy/eventstream-serde-node": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/hash-node": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-content-length": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-endpoint": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-retry": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-serde": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-config-provider": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-http-handler": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/protocol-http": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/smithy-client": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/types": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/url-parser": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-base64": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-body-length-node": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-defaults-mode-node": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-endpoints": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-middleware": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-retry": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-utf8": true,
+        "@wallet-service/common>@aws-sdk/client-lambda>@smithy/util-waiter": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>tslib": true
+      }
+    },
+    "@aws-sdk/client-sqs": {
+      "globals": {
+        "$Command": true,
+        "__Client": true,
+        "process.version": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@aws-sdk/core": true,
+        "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node": true,
+        "@aws-sdk/client-sqs>@aws-sdk/middleware-host-header": true,
+        "@aws-sdk/client-sqs>@aws-sdk/middleware-logger": true,
+        "@aws-sdk/client-sqs>@aws-sdk/middleware-recursion-detection": true,
+        "@aws-sdk/client-sqs>@aws-sdk/middleware-sdk-sqs": true,
+        "@aws-sdk/client-sqs>@aws-sdk/middleware-user-agent": true,
+        "@aws-sdk/client-sqs>@aws-sdk/region-config-resolver": true,
+        "@aws-sdk/client-sqs>@aws-sdk/util-endpoints": true,
+        "@aws-sdk/client-sqs>@aws-sdk/util-user-agent-node": true,
+        "@aws-sdk/client-sqs>@smithy/config-resolver": true,
+        "@aws-sdk/client-sqs>@smithy/core": true,
+        "@aws-sdk/client-sqs>@smithy/hash-node": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-content-length": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-endpoint": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-retry": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-serde": true,
+        "@aws-sdk/client-sqs>@smithy/node-config-provider": true,
+        "@aws-sdk/client-sqs>@smithy/node-http-handler": true,
+        "@aws-sdk/client-sqs>@smithy/protocol-http": true,
+        "@aws-sdk/client-sqs>@smithy/smithy-client": true,
+        "@aws-sdk/client-sqs>@smithy/types": true,
+        "@aws-sdk/client-sqs>@smithy/url-parser": true,
+        "@aws-sdk/client-sqs>@smithy/util-base64": true,
+        "@aws-sdk/client-sqs>@smithy/util-body-length-node": true,
+        "@aws-sdk/client-sqs>@smithy/util-defaults-mode-node": true,
+        "@aws-sdk/client-sqs>@smithy/util-endpoints": true,
+        "@aws-sdk/client-sqs>@smithy/util-middleware": true,
+        "@aws-sdk/client-sqs>@smithy/util-retry": true,
+        "@aws-sdk/client-sqs>@smithy/util-utf8": true,
+        "@aws-sdk/client-sqs>tslib": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs": {
+      "globals": {
+        "$Command": true,
+        "__Client": true,
+        "process.version": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/core": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/credential-provider-node": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-host-header": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-logger": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-recursion-detection": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-sdk-sqs": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-user-agent": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/region-config-resolver": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/util-endpoints": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/util-user-agent-node": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/config-resolver": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/core": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/hash-node": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-content-length": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-endpoint": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-retry": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-serde": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-config-provider": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-http-handler": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/protocol-http": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/smithy-client": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/types": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/url-parser": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-base64": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-body-length-node": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-defaults-mode-node": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-endpoints": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-middleware": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-retry": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-utf8": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>tslib": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-sso>@aws-sdk/token-providers>@aws-sdk/client-sso-oidc": {
+      "globals": {
+        "$Command": true,
+        "__Client": true,
+        "process.version": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@aws-sdk/core": true,
+        "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node": true,
+        "@aws-sdk/client-sqs>@aws-sdk/middleware-host-header": true,
+        "@aws-sdk/client-sqs>@aws-sdk/middleware-logger": true,
+        "@aws-sdk/client-sqs>@aws-sdk/middleware-recursion-detection": true,
+        "@aws-sdk/client-sqs>@aws-sdk/middleware-user-agent": true,
+        "@aws-sdk/client-sqs>@aws-sdk/region-config-resolver": true,
+        "@aws-sdk/client-sqs>@aws-sdk/util-endpoints": true,
+        "@aws-sdk/client-sqs>@aws-sdk/util-user-agent-node": true,
+        "@aws-sdk/client-sqs>@smithy/config-resolver": true,
+        "@aws-sdk/client-sqs>@smithy/core": true,
+        "@aws-sdk/client-sqs>@smithy/hash-node": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-content-length": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-endpoint": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-retry": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-serde": true,
+        "@aws-sdk/client-sqs>@smithy/node-config-provider": true,
+        "@aws-sdk/client-sqs>@smithy/node-http-handler": true,
+        "@aws-sdk/client-sqs>@smithy/protocol-http": true,
+        "@aws-sdk/client-sqs>@smithy/smithy-client": true,
+        "@aws-sdk/client-sqs>@smithy/types": true,
+        "@aws-sdk/client-sqs>@smithy/url-parser": true,
+        "@aws-sdk/client-sqs>@smithy/util-base64": true,
+        "@aws-sdk/client-sqs>@smithy/util-body-length-node": true,
+        "@aws-sdk/client-sqs>@smithy/util-defaults-mode-node": true,
+        "@aws-sdk/client-sqs>@smithy/util-endpoints": true,
+        "@aws-sdk/client-sqs>@smithy/util-middleware": true,
+        "@aws-sdk/client-sqs>@smithy/util-retry": true,
+        "@aws-sdk/client-sqs>@smithy/util-utf8": true,
+        "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-sso>@aws-sdk/token-providers>@aws-sdk/client-sso-oidc>tslib": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-sso>@aws-sdk/token-providers>@aws-sdk/client-sso-oidc": {
+      "globals": {
+        "$Command": true,
+        "__Client": true,
+        "process.version": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/core": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/credential-provider-node": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-host-header": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-logger": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-recursion-detection": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-user-agent": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/region-config-resolver": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/util-endpoints": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/util-user-agent-node": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/config-resolver": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/core": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/hash-node": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-content-length": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-endpoint": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-retry": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-serde": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-config-provider": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-http-handler": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/protocol-http": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/smithy-client": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/types": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/url-parser": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-base64": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-body-length-node": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-defaults-mode-node": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-endpoints": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-middleware": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-retry": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-utf8": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>tslib": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-sso>@aws-sdk/client-sso": {
+      "globals": {
+        "$Command": true,
+        "__Client": true,
+        "process.version": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@aws-sdk/core": true,
+        "@aws-sdk/client-sqs>@aws-sdk/middleware-host-header": true,
+        "@aws-sdk/client-sqs>@aws-sdk/middleware-logger": true,
+        "@aws-sdk/client-sqs>@aws-sdk/middleware-recursion-detection": true,
+        "@aws-sdk/client-sqs>@aws-sdk/middleware-user-agent": true,
+        "@aws-sdk/client-sqs>@aws-sdk/region-config-resolver": true,
+        "@aws-sdk/client-sqs>@aws-sdk/util-endpoints": true,
+        "@aws-sdk/client-sqs>@aws-sdk/util-user-agent-node": true,
+        "@aws-sdk/client-sqs>@smithy/config-resolver": true,
+        "@aws-sdk/client-sqs>@smithy/core": true,
+        "@aws-sdk/client-sqs>@smithy/hash-node": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-content-length": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-endpoint": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-retry": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-serde": true,
+        "@aws-sdk/client-sqs>@smithy/node-config-provider": true,
+        "@aws-sdk/client-sqs>@smithy/node-http-handler": true,
+        "@aws-sdk/client-sqs>@smithy/protocol-http": true,
+        "@aws-sdk/client-sqs>@smithy/smithy-client": true,
+        "@aws-sdk/client-sqs>@smithy/types": true,
+        "@aws-sdk/client-sqs>@smithy/url-parser": true,
+        "@aws-sdk/client-sqs>@smithy/util-base64": true,
+        "@aws-sdk/client-sqs>@smithy/util-body-length-node": true,
+        "@aws-sdk/client-sqs>@smithy/util-defaults-mode-node": true,
+        "@aws-sdk/client-sqs>@smithy/util-endpoints": true,
+        "@aws-sdk/client-sqs>@smithy/util-middleware": true,
+        "@aws-sdk/client-sqs>@smithy/util-retry": true,
+        "@aws-sdk/client-sqs>@smithy/util-utf8": true,
+        "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-sso>@aws-sdk/client-sso>tslib": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-sso>@aws-sdk/client-sso": {
+      "globals": {
+        "$Command": true,
+        "__Client": true,
+        "process.version": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/core": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-host-header": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-logger": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-recursion-detection": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-user-agent": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/region-config-resolver": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/util-endpoints": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/util-user-agent-node": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/config-resolver": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/core": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/hash-node": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-content-length": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-endpoint": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-retry": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-serde": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-config-provider": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-http-handler": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/protocol-http": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/smithy-client": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/types": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/url-parser": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-base64": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-body-length-node": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-defaults-mode-node": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-endpoints": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-middleware": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-retry": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-utf8": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>tslib": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-sdk/client-sts": {
+      "globals": {
+        "$Command": true,
+        "STSClient": true,
+        "__Client": true,
+        "process.version": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@aws-sdk/core": true,
+        "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node": true,
+        "@aws-sdk/client-sqs>@aws-sdk/middleware-host-header": true,
+        "@aws-sdk/client-sqs>@aws-sdk/middleware-logger": true,
+        "@aws-sdk/client-sqs>@aws-sdk/middleware-recursion-detection": true,
+        "@aws-sdk/client-sqs>@aws-sdk/middleware-user-agent": true,
+        "@aws-sdk/client-sqs>@aws-sdk/region-config-resolver": true,
+        "@aws-sdk/client-sqs>@aws-sdk/util-endpoints": true,
+        "@aws-sdk/client-sqs>@aws-sdk/util-user-agent-node": true,
+        "@aws-sdk/client-sqs>@smithy/config-resolver": true,
+        "@aws-sdk/client-sqs>@smithy/core": true,
+        "@aws-sdk/client-sqs>@smithy/hash-node": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-content-length": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-endpoint": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-retry": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-serde": true,
+        "@aws-sdk/client-sqs>@smithy/node-config-provider": true,
+        "@aws-sdk/client-sqs>@smithy/node-http-handler": true,
+        "@aws-sdk/client-sqs>@smithy/protocol-http": true,
+        "@aws-sdk/client-sqs>@smithy/smithy-client": true,
+        "@aws-sdk/client-sqs>@smithy/types": true,
+        "@aws-sdk/client-sqs>@smithy/url-parser": true,
+        "@aws-sdk/client-sqs>@smithy/util-base64": true,
+        "@aws-sdk/client-sqs>@smithy/util-body-length-node": true,
+        "@aws-sdk/client-sqs>@smithy/util-defaults-mode-node": true,
+        "@aws-sdk/client-sqs>@smithy/util-endpoints": true,
+        "@aws-sdk/client-sqs>@smithy/util-middleware": true,
+        "@aws-sdk/client-sqs>@smithy/util-retry": true,
+        "@aws-sdk/client-sqs>@smithy/util-utf8": true,
+        "@aws-sdk/client-sqs>@aws-sdk/client-sts>tslib": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/client-sts": {
+      "globals": {
+        "$Command": true,
+        "STSClient": true,
+        "__Client": true,
+        "process.version": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/core": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/credential-provider-node": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-host-header": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-logger": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-recursion-detection": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-user-agent": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/region-config-resolver": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/util-endpoints": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/util-user-agent-node": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/config-resolver": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/core": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/hash-node": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-content-length": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-endpoint": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-retry": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-serde": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-config-provider": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-http-handler": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/protocol-http": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/smithy-client": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/types": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/url-parser": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-base64": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-body-length-node": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-defaults-mode-node": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-endpoints": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-middleware": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-retry": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-utf8": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>tslib": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-sdk/core": {
+      "globals": {
+        "console.warn": true,
+        "process.emitWarning": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/core": true,
+        "@aws-sdk/client-sqs>@smithy/protocol-http": true,
+        "@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4": true,
+        "@aws-sdk/client-sqs>@smithy/smithy-client": true,
+        "@aws-sdk/client-sqs>@aws-sdk/core>fast-xml-parser": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/core": {
+      "globals": {
+        "console.warn": true,
+        "process.emitWarning": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/core": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/protocol-http": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/smithy-client": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/core>fast-xml-parser": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-env": {
+      "globals": {
+        "process.env": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/node-config-provider>@smithy/property-provider": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-env": {
+      "globals": {
+        "process.env": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-config-provider>@smithy/property-provider": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-http": {
+      "builtin": {
+        "fs/promises": true
+      },
+      "globals": {
+        "URL": true,
+        "console.warn": true,
+        "process.env": true,
+        "setTimeout": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/node-http-handler": true,
+        "@aws-sdk/client-sqs>@smithy/node-config-provider>@smithy/property-provider": true,
+        "@aws-sdk/client-sqs>@smithy/protocol-http": true,
+        "@aws-sdk/client-sqs>@smithy/smithy-client": true,
+        "@aws-sdk/client-lambda>@smithy/util-stream": true,
+        "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-http>tslib": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-http": {
+      "builtin": {
+        "fs/promises": true
+      },
+      "globals": {
+        "URL": true,
+        "console.warn": true,
+        "process.env": true,
+        "setTimeout": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-http-handler": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-config-provider>@smithy/property-provider": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/protocol-http": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/smithy-client": true,
+        "@wallet-service/common>@aws-sdk/client-lambda>@smithy/util-stream": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>tslib": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-ini": {
+      "packages": {
+        "@aws-sdk/client-sqs>@aws-sdk/client-sts": true,
+        "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-env": true,
+        "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-process": true,
+        "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-sso": true,
+        "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-web-identity": true,
+        "@aws-sdk/client-sqs>@smithy/util-defaults-mode-node>@smithy/credential-provider-imds": true,
+        "@aws-sdk/client-sqs>@smithy/node-config-provider>@smithy/property-provider": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-endpoint>@smithy/shared-ini-file-loader": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-ini": {
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/client-sts": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-env": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-process": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-sso": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-web-identity": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-defaults-mode-node>@smithy/credential-provider-imds": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-config-provider>@smithy/property-provider": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-endpoint>@smithy/shared-ini-file-loader": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node": {
+      "globals": {
+        "process.env": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-env": true,
+        "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-http": true,
+        "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-ini": true,
+        "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-process": true,
+        "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-sso": true,
+        "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-web-identity": true,
+        "@aws-sdk/client-sqs>@smithy/util-defaults-mode-node>@smithy/credential-provider-imds": true,
+        "@aws-sdk/client-sqs>@smithy/node-config-provider>@smithy/property-provider": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-endpoint>@smithy/shared-ini-file-loader": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/credential-provider-node": {
+      "globals": {
+        "process.env": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-env": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-http": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-ini": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-process": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-sso": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-web-identity": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-defaults-mode-node>@smithy/credential-provider-imds": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-config-provider>@smithy/property-provider": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-endpoint>@smithy/shared-ini-file-loader": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-process": {
+      "builtin": {
+        "child_process.exec": true,
+        "util.promisify": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/node-config-provider>@smithy/property-provider": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-endpoint>@smithy/shared-ini-file-loader": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-process": {
+      "builtin": {
+        "child_process.exec": true,
+        "util.promisify": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-config-provider>@smithy/property-provider": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-endpoint>@smithy/shared-ini-file-loader": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-sso": {
+      "packages": {
+        "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-sso>@aws-sdk/client-sso": true,
+        "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-sso>@aws-sdk/token-providers": true,
+        "@aws-sdk/client-sqs>@smithy/node-config-provider>@smithy/property-provider": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-endpoint>@smithy/shared-ini-file-loader": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-sso": {
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-sso>@aws-sdk/client-sso": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-sso>@aws-sdk/token-providers": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-config-provider>@smithy/property-provider": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-endpoint>@smithy/shared-ini-file-loader": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-web-identity": {
+      "builtin": {
+        "fs.readFileSync": true
+      },
+      "globals": {
+        "fromTokenFile": true,
+        "fromWebToken": true,
+        "process.env": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@aws-sdk/client-sts": true,
+        "@aws-sdk/client-sqs>@smithy/node-config-provider>@smithy/property-provider": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-web-identity": {
+      "builtin": {
+        "fs.readFileSync": true
+      },
+      "globals": {
+        "fromTokenFile": true,
+        "fromWebToken": true,
+        "process.env": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/client-sts": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-config-provider>@smithy/property-provider": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-sdk/middleware-host-header": {
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/protocol-http": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-host-header": {
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/protocol-http": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-sdk/middleware-recursion-detection": {
+      "globals": {
+        "process.env": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/protocol-http": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-recursion-detection": {
+      "globals": {
+        "process.env": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/protocol-http": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-sdk/middleware-sdk-sqs": {
+      "globals": {
+        "URL": true,
+        "console": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/smithy-client": true,
+        "@aws-sdk/client-sqs>@aws-sdk/middleware-sdk-sqs>@smithy/util-hex-encoding": true,
+        "@aws-sdk/client-sqs>@smithy/util-utf8": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-sdk-sqs": {
+      "globals": {
+        "URL": true,
+        "console": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/smithy-client": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-sdk-sqs>@smithy/util-hex-encoding": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-utf8": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-sdk/middleware-user-agent": {
+      "packages": {
+        "@aws-sdk/client-sqs>@aws-sdk/util-endpoints": true,
+        "@aws-sdk/client-sqs>@smithy/protocol-http": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-user-agent": {
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/util-endpoints": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/protocol-http": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-sso>@aws-sdk/token-providers": {
+      "builtin": {
+        "fs.promises": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-sso>@aws-sdk/token-providers>@aws-sdk/client-sso-oidc": true,
+        "@aws-sdk/client-sqs>@smithy/node-config-provider>@smithy/property-provider": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-endpoint>@smithy/shared-ini-file-loader": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-sso>@aws-sdk/token-providers": {
+      "builtin": {
+        "fs.promises": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-sso>@aws-sdk/token-providers>@aws-sdk/client-sso-oidc": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-config-provider>@smithy/property-provider": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-endpoint>@smithy/shared-ini-file-loader": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-sdk/util-endpoints": {
+      "globals": {
+        "EndpointError": true,
+        "isIpAddress": true,
+        "resolveEndpoint": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/util-endpoints": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/util-endpoints": {
+      "globals": {
+        "EndpointError": true,
+        "isIpAddress": true,
+        "resolveEndpoint": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-endpoints": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-sdk/util-user-agent-node": {
+      "builtin": {
+        "os.platform": true,
+        "os.release": true,
+        "process.env.AWS_EXECUTION_ENV": true,
+        "process.versions.node": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/node-config-provider": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/util-user-agent-node": {
+      "builtin": {
+        "os.platform": true,
+        "os.release": true,
+        "process.env.AWS_EXECUTION_ENV": true,
+        "process.versions.node": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-config-provider": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-crypto/sha256-browser>@aws-sdk/util-utf8-browser": {
+      "globals": {
+        "TextDecoder": true,
+        "TextEncoder": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@aws-crypto/sha256-browser>@aws-sdk/util-utf8-browser": {
+      "globals": {
+        "TextDecoder": true,
+        "TextEncoder": true
+      }
+    },
+    "winston>logform>@colors/colors": {
+      "builtin": {
+        "os.release": true,
+        "util.inspect": true
+      },
+      "globals": {
+        "console.log": true,
+        "process.argv": true,
+        "process.env": true,
+        "process.platform": true,
+        "process.stderr": true,
+        "process.stdout": true,
+        "process.versions.node.split": true
+      }
+    },
+    "winston>@dabh/diagnostics": {
+      "builtin": {
+        "tty.isatty": true
+      },
+      "globals": {
+        "console": true,
+        "process.env.DEBUG": true,
+        "process.env.DIAGNOSTICS": true,
+        "process.env.NODE_ENV": true
+      },
+      "packages": {
+        "winston>@dabh/diagnostics>colorspace": true,
+        "winston>@dabh/diagnostics>enabled": true,
+        "winston>@dabh/diagnostics>kuler": true
+      }
+    },
+    "@hathor/wallet-lib": {
+      "builtin": {
+        "assert": true,
+        "buffer": true,
+        "crypto": true,
+        "events": true,
+        "path": true
+      },
+      "globals": {
+        "Buffer.from": true,
+        "Intl.NumberFormat": true,
+        "WalletFromXPubGuard": true,
+        "access": true,
+        "clearInterval": true,
+        "clearTimeout": true,
+        "console.error": true,
+        "console.log": true,
+        "console.warn": true,
+        "htrInputs.inputsAmount": true,
+        "setInterval": true,
+        "setTimeout": true
+      },
+      "packages": {
+        "@hathor/wallet-lib>axios": true,
+        "@hathor/wallet-lib>bitcore-lib": true,
+        "@hathor/wallet-lib>bitcore-mnemonic": true,
+        "@hathor/wallet-lib>crypto-js": true,
+        "@hathor/wallet-lib>isomorphic-ws": true,
+        "@hathor/wallet-lib>lodash": true,
+        "@hathor/wallet-lib>long": true
+      }
+    },
+    "@aws-sdk/client-sqs>@smithy/config-resolver": {
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/config-resolver>@smithy/util-config-provider": true,
+        "@aws-sdk/client-sqs>@smithy/util-middleware": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@smithy/config-resolver": {
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/config-resolver>@smithy/util-config-provider": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-middleware": true
+      }
+    },
+    "@aws-sdk/client-sqs>@smithy/core": {
+      "globals": {
+        "getSmithyContext": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/middleware-endpoint": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-retry": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-serde": true,
+        "@aws-sdk/client-sqs>@smithy/protocol-http": true,
+        "@aws-sdk/client-sqs>@smithy/smithy-client": true,
+        "@aws-sdk/client-sqs>@smithy/types": true,
+        "@aws-sdk/client-sqs>@smithy/util-middleware": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@smithy/core": {
+      "globals": {
+        "getSmithyContext": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-endpoint": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-retry": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-serde": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/protocol-http": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/smithy-client": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/types": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-middleware": true
+      }
+    },
+    "@aws-sdk/client-sqs>@smithy/util-defaults-mode-node>@smithy/credential-provider-imds": {
+      "builtin": {
+        "buffer.Buffer.concat": true,
+        "http.request": true,
+        "url.parse": true
+      },
+      "globals": {
+        "console": true,
+        "process.env": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/node-config-provider": true,
+        "@aws-sdk/client-sqs>@smithy/node-config-provider>@smithy/property-provider": true,
+        "@aws-sdk/client-sqs>@smithy/url-parser": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-defaults-mode-node>@smithy/credential-provider-imds": {
+      "builtin": {
+        "buffer.Buffer.concat": true,
+        "http.request": true,
+        "url.parse": true
+      },
+      "globals": {
+        "console": true,
+        "process.env": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-config-provider": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-config-provider>@smithy/property-provider": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/url-parser": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4>@smithy/eventstream-codec": {
+      "packages": {
+        "@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4>@smithy/eventstream-codec>@aws-crypto/crc32": true,
+        "@aws-sdk/client-sqs>@aws-sdk/middleware-sdk-sqs>@smithy/util-hex-encoding": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4>@smithy/eventstream-codec": {
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4>@smithy/eventstream-codec>@aws-crypto/crc32": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-sdk-sqs>@smithy/util-hex-encoding": true
+      }
+    },
+    "@aws-sdk/client-lambda>@smithy/eventstream-serde-node": {
+      "builtin": {
+        "stream.Readable.from": true
+      },
+      "globals": {
+        "setTimeout": true
+      },
+      "packages": {
+        "@aws-sdk/client-lambda>@smithy/eventstream-serde-node>@smithy/eventstream-serde-universal": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-lambda>@smithy/eventstream-serde-node": {
+      "builtin": {
+        "stream.Readable.from": true
+      },
+      "globals": {
+        "setTimeout": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-lambda>@smithy/eventstream-serde-node>@smithy/eventstream-serde-universal": true
+      }
+    },
+    "@aws-sdk/client-lambda>@smithy/eventstream-serde-node>@smithy/eventstream-serde-universal": {
+      "packages": {
+        "@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4>@smithy/eventstream-codec": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-lambda>@smithy/eventstream-serde-node>@smithy/eventstream-serde-universal": {
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4>@smithy/eventstream-codec": true
+      }
+    },
+    "@aws-sdk/client-sqs>@smithy/hash-node": {
+      "builtin": {
+        "buffer.Buffer.isBuffer": true,
+        "crypto.createHash": true,
+        "crypto.createHmac": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/hash-node>@smithy/util-buffer-from": true,
+        "@aws-sdk/client-sqs>@smithy/util-utf8": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@smithy/hash-node": {
+      "builtin": {
+        "buffer.Buffer.isBuffer": true,
+        "crypto.createHash": true,
+        "crypto.createHmac": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/hash-node>@smithy/util-buffer-from": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-utf8": true
+      }
+    },
+    "@aws-sdk/client-sqs>@smithy/middleware-content-length": {
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/protocol-http": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-content-length": {
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/protocol-http": true
+      }
+    },
+    "@aws-sdk/client-sqs>@smithy/middleware-endpoint": {
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/middleware-serde": true,
+        "@aws-sdk/client-sqs>@smithy/node-config-provider": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-endpoint>@smithy/shared-ini-file-loader": true,
+        "@aws-sdk/client-sqs>@smithy/url-parser": true,
+        "@aws-sdk/client-sqs>@smithy/util-middleware": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-endpoint": {
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-serde": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-config-provider": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-endpoint>@smithy/shared-ini-file-loader": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/url-parser": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-middleware": true
+      }
+    },
+    "@aws-sdk/client-sqs>@smithy/middleware-retry": {
+      "builtin": {
+        "stream.Readable": true
+      },
+      "globals": {
+        "ReadableStream": true,
+        "console": true,
+        "setTimeout": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/protocol-http": true,
+        "@aws-sdk/client-sqs>@smithy/util-retry>@smithy/service-error-classification": true,
+        "@aws-sdk/client-sqs>@smithy/smithy-client": true,
+        "@aws-sdk/client-sqs>@smithy/util-middleware": true,
+        "@aws-sdk/client-sqs>@smithy/util-retry": true,
+        "sequelize>uuid": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-retry": {
+      "builtin": {
+        "stream.Readable": true
+      },
+      "globals": {
+        "ReadableStream": true,
+        "console": true,
+        "setTimeout": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/protocol-http": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-retry>@smithy/service-error-classification": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/smithy-client": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-middleware": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-retry": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-retry>uuid": true
+      }
+    },
+    "@aws-sdk/client-sqs>@smithy/middleware-stack": {
+      "globals": {
+        "console.log": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-stack": {
+      "globals": {
+        "console.log": true
+      }
+    },
+    "@aws-sdk/client-sqs>@smithy/node-config-provider": {
+      "globals": {
+        "process.env": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/node-config-provider>@smithy/property-provider": true,
+        "@aws-sdk/client-sqs>@smithy/middleware-endpoint>@smithy/shared-ini-file-loader": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-config-provider": {
+      "globals": {
+        "process.env": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-config-provider>@smithy/property-provider": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-endpoint>@smithy/shared-ini-file-loader": true
+      }
+    },
+    "@aws-sdk/client-sqs>@smithy/node-http-handler": {
+      "builtin": {
+        "http.Agent": true,
+        "http.request": true,
+        "http2": true,
+        "https.Agent": true,
+        "https.request": true,
+        "stream.Readable": true,
+        "stream.Writable": true
+      },
+      "globals": {
+        "Buffer.concat": true,
+        "Buffer.from": true,
+        "Buffer.isBuffer": true,
+        "URL": true,
+        "clearTimeout": true,
+        "console.warn": true,
+        "setTimeout": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/protocol-http": true,
+        "@aws-sdk/client-sqs>@smithy/node-http-handler>@smithy/querystring-builder": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-http-handler": {
+      "builtin": {
+        "http.Agent": true,
+        "http.request": true,
+        "http2": true,
+        "https.Agent": true,
+        "https.request": true,
+        "stream.Readable": true,
+        "stream.Writable": true
+      },
+      "globals": {
+        "Buffer.concat": true,
+        "Buffer.from": true,
+        "Buffer.isBuffer": true,
+        "URL": true,
+        "clearTimeout": true,
+        "console.warn": true,
+        "setTimeout": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/protocol-http": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-http-handler>@smithy/querystring-builder": true
+      }
+    },
+    "@aws-sdk/client-sqs>@smithy/protocol-http": {
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/types": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@smithy/protocol-http": {
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/types": true
+      }
+    },
+    "@aws-sdk/client-sqs>@smithy/node-http-handler>@smithy/querystring-builder": {
+      "packages": {
+        "@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4>@smithy/util-uri-escape": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-http-handler>@smithy/querystring-builder": {
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4>@smithy/util-uri-escape": true
+      }
+    },
+    "@aws-sdk/client-sqs>@smithy/middleware-endpoint>@smithy/shared-ini-file-loader": {
+      "builtin": {
+        "crypto.createHash": true,
+        "fs.promises": true,
+        "os.homedir": true,
+        "path.join": true,
+        "path.sep": true
+      },
+      "globals": {
+        "getHomeDir": true,
+        "getSSOTokenFilepath": true,
+        "getSSOTokenFromFile": true,
+        "process": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/types": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-endpoint>@smithy/shared-ini-file-loader": {
+      "builtin": {
+        "crypto.createHash": true,
+        "fs.promises": true,
+        "os.homedir": true,
+        "path.join": true,
+        "path.sep": true
+      },
+      "globals": {
+        "getHomeDir": true,
+        "getSSOTokenFilepath": true,
+        "getSSOTokenFromFile": true,
+        "process": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/types": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4": {
+      "packages": {
+        "@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4>@smithy/eventstream-codec": true,
+        "@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4>@smithy/is-array-buffer": true,
+        "@aws-sdk/client-sqs>@aws-sdk/middleware-sdk-sqs>@smithy/util-hex-encoding": true,
+        "@aws-sdk/client-sqs>@smithy/util-middleware": true,
+        "@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4>@smithy/util-uri-escape": true,
+        "@aws-sdk/client-sqs>@smithy/util-utf8": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4": {
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4>@smithy/eventstream-codec": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4>@smithy/is-array-buffer": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/middleware-sdk-sqs>@smithy/util-hex-encoding": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-middleware": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4>@smithy/util-uri-escape": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-utf8": true
+      }
+    },
+    "@aws-sdk/client-sqs>@smithy/smithy-client": {
+      "globals": {
+        "console.warn": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/middleware-stack": true,
+        "@aws-sdk/client-sqs>@smithy/types": true,
+        "@aws-sdk/client-lambda>@smithy/util-stream": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@smithy/smithy-client": {
+      "globals": {
+        "console.warn": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-stack": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/types": true,
+        "@wallet-service/common>@aws-sdk/client-lambda>@smithy/util-stream": true
+      }
+    },
+    "@aws-sdk/client-sqs>@smithy/url-parser": {
+      "globals": {
+        "URL": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/url-parser>@smithy/querystring-parser": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@smithy/url-parser": {
+      "globals": {
+        "URL": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/url-parser>@smithy/querystring-parser": true
+      }
+    },
+    "@aws-sdk/client-sqs>@smithy/util-base64": {
+      "globals": {
+        "fromBase64": true,
+        "toBase64": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/hash-node>@smithy/util-buffer-from": true,
+        "@aws-sdk/client-sqs>@smithy/util-utf8": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-base64": {
+      "globals": {
+        "fromBase64": true,
+        "toBase64": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/hash-node>@smithy/util-buffer-from": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-utf8": true
+      }
+    },
+    "@aws-sdk/client-sqs>@smithy/util-body-length-node": {
+      "builtin": {
+        "fs.fstatSync": true,
+        "fs.lstatSync": true
+      },
+      "globals": {
+        "Buffer.byteLength": true,
+        "Buffer.isBuffer": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-body-length-node": {
+      "builtin": {
+        "fs.fstatSync": true,
+        "fs.lstatSync": true
+      },
+      "globals": {
+        "Buffer.byteLength": true,
+        "Buffer.isBuffer": true
+      }
+    },
+    "@aws-sdk/client-sqs>@smithy/hash-node>@smithy/util-buffer-from": {
+      "builtin": {
+        "buffer.Buffer.from": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4>@smithy/is-array-buffer": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@smithy/hash-node>@smithy/util-buffer-from": {
+      "builtin": {
+        "buffer.Buffer.from": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4>@smithy/is-array-buffer": true
+      }
+    },
+    "@aws-sdk/client-sqs>@smithy/util-defaults-mode-node": {
+      "globals": {
+        "process.env": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/config-resolver": true,
+        "@aws-sdk/client-sqs>@smithy/util-defaults-mode-node>@smithy/credential-provider-imds": true,
+        "@aws-sdk/client-sqs>@smithy/node-config-provider": true,
+        "@aws-sdk/client-sqs>@smithy/node-config-provider>@smithy/property-provider": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-defaults-mode-node": {
+      "globals": {
+        "process.env": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/config-resolver": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-defaults-mode-node>@smithy/credential-provider-imds": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-config-provider": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-config-provider>@smithy/property-provider": true
+      }
+    },
+    "@aws-sdk/client-sqs>@smithy/util-endpoints": {
+      "globals": {
+        "URL": true,
+        "console.error": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/types": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-endpoints": {
+      "globals": {
+        "URL": true,
+        "console.error": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/types": true
+      }
+    },
+    "@aws-sdk/client-sqs>@smithy/util-middleware": {
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/types": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-middleware": {
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/types": true
+      }
+    },
+    "@aws-sdk/client-sqs>@smithy/util-retry": {
+      "globals": {
+        "console.warn": true,
+        "setTimeout": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/util-retry>@smithy/service-error-classification": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-retry": {
+      "globals": {
+        "console.warn": true,
+        "setTimeout": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-retry>@smithy/service-error-classification": true
+      }
+    },
+    "@aws-sdk/client-lambda>@smithy/util-stream": {
+      "builtin": {
+        "stream.Readable": true,
+        "util.TextDecoder": true
+      },
+      "globals": {
+        "Buffer.isEncoding": true,
+        "getAwsChunkedEncodingStream": true,
+        "sdkStreamMixin": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/node-http-handler": true,
+        "@aws-sdk/client-sqs>@smithy/util-base64": true,
+        "@aws-sdk/client-sqs>@smithy/hash-node>@smithy/util-buffer-from": true,
+        "@aws-sdk/client-sqs>@smithy/util-utf8": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-lambda>@smithy/util-stream": {
+      "builtin": {
+        "stream.Readable": true,
+        "util.TextDecoder": true
+      },
+      "globals": {
+        "Buffer.isEncoding": true,
+        "getAwsChunkedEncodingStream": true,
+        "sdkStreamMixin": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/node-http-handler": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-base64": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/hash-node>@smithy/util-buffer-from": true,
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-utf8": true
+      }
+    },
+    "@aws-sdk/client-sqs>@smithy/util-utf8": {
+      "packages": {
+        "@aws-sdk/client-sqs>@smithy/hash-node>@smithy/util-buffer-from": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@smithy/util-utf8": {
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@smithy/hash-node>@smithy/util-buffer-from": true
+      }
+    },
+    "@aws-sdk/client-lambda>@smithy/util-waiter": {
+      "globals": {
+        "setTimeout": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-lambda>@smithy/util-waiter": {
+      "globals": {
+        "setTimeout": true
+      }
+    },
+    "@wallet-service/common": {
+      "globals": {
+        "process.env": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-lambda": true,
+        "@wallet-service/common>@aws-sdk/client-sqs": true,
+        "@hathor/wallet-lib": true
+      }
+    },
+    "winston>async": {
+      "globals": {
+        "process": true,
+        "queueMicrotask": true,
+        "setImmediate": true,
+        "setTimeout": true
+      }
+    },
+    "@hathor/wallet-lib>axios": {
+      "builtin": {
+        "http": true,
+        "https": true,
+        "url.parse": true,
+        "zlib.createUnzip": true
+      },
+      "globals": {
+        "Buffer": true,
+        "FormData": true,
+        "URLSearchParams": true,
+        "XMLHttpRequest": true,
+        "btoa": true,
+        "clearTimeout": true,
+        "document": true,
+        "location.href": true,
+        "navigator": true,
+        "process": true,
+        "setTimeout": true
+      },
+      "packages": {
+        "@hathor/wallet-lib>axios>follow-redirects": true,
+        "@hathor/wallet-lib>axios>is-buffer": true
+      }
+    },
+    "@hathor/wallet-lib>bitcore-lib>bs58>base-x": {
+      "packages": {
+        "@hathor/wallet-lib>bitcore-lib>bip-schnorr>safe-buffer": true
+      }
+    },
+    "@hathor/wallet-lib>bitcore-lib>bip-schnorr>bigi": {
+      "builtin": {
+        "assert.equal": true
+      },
+      "globals": {
+        "Buffer": true
+      }
+    },
+    "@hathor/wallet-lib>bitcore-lib>bip-schnorr": {
+      "packages": {
+        "@hathor/wallet-lib>bitcore-lib>bip-schnorr>bigi": true,
+        "@hathor/wallet-lib>bitcore-lib>bip-schnorr>ecurve": true,
+        "@hathor/wallet-lib>bitcore-lib>bip-schnorr>js-sha256": true,
+        "@hathor/wallet-lib>bitcore-lib>bip-schnorr>randombytes": true,
+        "@hathor/wallet-lib>bitcore-lib>bip-schnorr>safe-buffer": true
+      }
+    },
+    "@hathor/wallet-lib>bitcore-lib": {
+      "builtin": {
+        "assert": true,
+        "buffer": true,
+        "crypto.createHash": true,
+        "crypto.randomBytes": true,
+        "url.format": true,
+        "url.parse": true
+      },
+      "globals": {
+        "Buffer": true,
+        "SEQUENCE_LOCKTIME_DISABLE_FLAG": true,
+        "_bitcore": "write",
+        "console.error": true,
+        "crypto": true,
+        "msCrypto": true,
+        "process.browser": true
+      },
+      "packages": {
+        "@hathor/wallet-lib>bitcore-lib>bech32": true,
+        "@hathor/wallet-lib>bitcore-lib>bip-schnorr": true,
+        "@hathor/wallet-lib>bitcore-lib>bn.js": true,
+        "@hathor/wallet-lib>bitcore-lib>bs58": true,
+        "@hathor/wallet-lib>bitcore-lib>buffer-compare": true,
+        "@hathor/wallet-lib>bitcore-lib>elliptic": true,
+        "@hathor/wallet-lib>bitcore-lib>inherits": true,
+        "@hathor/wallet-lib>lodash": true
+      }
+    },
+    "@hathor/wallet-lib>bitcore-mnemonic": {
+      "builtin": {
+        "crypto.createHmac": true
+      },
+      "globals": {
+        "Buffer.alloc": true,
+        "Buffer.from": true,
+        "Buffer.isBuffer": true
+      },
+      "packages": {
+        "@hathor/wallet-lib>bitcore-lib": true,
+        "@hathor/wallet-lib>bitcore-mnemonic>unorm": true
+      }
+    },
+    "@hathor/wallet-lib>bitcore-lib>bn.js": {
+      "builtin": {
+        "buffer.Buffer": true
+      }
+    },
+    "@hathor/wallet-lib>bitcore-lib>elliptic>bn.js": {
+      "builtin": {
+        "buffer.Buffer": true
+      },
+      "globals": {
+        "Buffer": true
+      }
+    },
+    "@hathor/wallet-lib>bitcore-lib>elliptic>brorand": {
+      "builtin": {
+        "crypto.randomBytes": true
+      },
+      "globals": {
+        "crypto": true,
+        "msCrypto": true
+      }
+    },
+    "@hathor/wallet-lib>bitcore-lib>bs58": {
+      "packages": {
+        "@hathor/wallet-lib>bitcore-lib>bs58>base-x": true
+      }
+    },
+    "ws>bufferutil": {
+      "globals": {
+        "__dirname": true
+      },
+      "native": true,
+      "packages": {
+        "ws>bufferutil>node-gyp-build": true
+      }
+    },
+    "winston>@dabh/diagnostics>colorspace>color>color-convert": {
+      "packages": {
+        "winston>@dabh/diagnostics>colorspace>color>color-convert>color-name": true
+      }
+    },
+    "winston>@dabh/diagnostics>colorspace>color>color-string": {
+      "packages": {
+        "eslint>chalk>ansi-styles>color-convert>color-name": true,
+        "winston>@dabh/diagnostics>colorspace>color>color-string>simple-swizzle": true
+      }
+    },
+    "winston>@dabh/diagnostics>colorspace>color": {
+      "packages": {
+        "winston>@dabh/diagnostics>colorspace>color>color-convert": true,
+        "winston>@dabh/diagnostics>colorspace>color>color-string": true
+      }
+    },
+    "winston>@dabh/diagnostics>colorspace": {
+      "packages": {
+        "winston>@dabh/diagnostics>colorspace>color": true,
+        "winston>@dabh/diagnostics>colorspace>text-hex": true
+      }
+    },
+    "@hathor/wallet-lib>crypto-js": {
+      "globals": {
+        "define": true
+      }
+    },
+    "@hathor/wallet-lib>axios>follow-redirects>debug": {
+      "builtin": {
+        "tty.isatty": true,
+        "util": true
+      },
+      "globals": {
+        "chrome": true,
+        "console": true,
+        "document": true,
+        "localStorage": true,
+        "navigator": true,
+        "process": true
+      },
+      "packages": {
+        "external:../../node_modules/supports-color/index.js": true,
+        "@hathor/wallet-lib>axios>follow-redirects>debug>ms": true
+      }
+    },
+    "@hathor/wallet-lib>bitcore-lib>bip-schnorr>ecurve": {
+      "builtin": {
+        "assert": true
+      },
+      "packages": {
+        "@hathor/wallet-lib>bitcore-lib>bip-schnorr>bigi": true,
+        "@hathor/wallet-lib>bitcore-lib>bip-schnorr>safe-buffer": true
+      }
+    },
+    "@hathor/wallet-lib>bitcore-lib>elliptic": {
+      "packages": {
+        "@hathor/wallet-lib>bitcore-lib>elliptic>bn.js": true,
+        "@hathor/wallet-lib>bitcore-lib>elliptic>brorand": true,
+        "@hathor/wallet-lib>bitcore-lib>elliptic>hash.js": true,
+        "@hathor/wallet-lib>bitcore-lib>elliptic>hmac-drbg": true,
+        "@hathor/wallet-lib>bitcore-lib>elliptic>inherits": true,
+        "@hathor/wallet-lib>bitcore-lib>elliptic>minimalistic-assert": true,
+        "@hathor/wallet-lib>bitcore-lib>elliptic>minimalistic-crypto-utils": true
+      }
+    },
+    "external:../../node_modules/has-flag/index.js": {
+      "globals": {
+        "process.argv": true
+      }
+    },
+    "external:../../node_modules/supports-color/index.js": {
+      "builtin": {
+        "os.release": true,
+        "tty.isatty": true
+      },
+      "globals": {
+        "process.env": true,
+        "process.platform": true
+      },
+      "packages": {
+        "external:../../node_modules/has-flag/index.js": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-sdk/core>fast-xml-parser": {
+      "globals": {
+        "entityName": true,
+        "val": true
+      },
+      "packages": {
+        "@aws-sdk/client-sqs>@aws-sdk/core>fast-xml-parser>strnum": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/core>fast-xml-parser": {
+      "globals": {
+        "entityName": true,
+        "val": true
+      },
+      "packages": {
+        "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/core>fast-xml-parser>strnum": true
+      }
+    },
+    "winston>logform>fecha": {
+      "globals": {
+        "define": true
+      }
+    },
+    "@hathor/wallet-lib>axios>follow-redirects": {
+      "builtin": {
+        "assert.equal": true,
+        "http": true,
+        "https": true,
+        "stream.Writable.call": true,
+        "stream.Writable.prototype": true,
+        "url.format": true,
+        "url.parse": true,
+        "url.resolve": true
+      },
+      "packages": {
+        "@hathor/wallet-lib>axios>follow-redirects>debug": true
+      }
+    },
+    "mysql2>generate-function": {
+      "builtin": {
+        "util": true
+      },
+      "packages": {
+        "mysql2>generate-function>is-property": true
+      }
+    },
+    "@hathor/wallet-lib>bitcore-lib>elliptic>hash.js": {
+      "packages": {
+        "@hathor/wallet-lib>bitcore-lib>elliptic>inherits": true,
+        "@hathor/wallet-lib>bitcore-lib>elliptic>minimalistic-assert": true
+      }
+    },
+    "@hathor/wallet-lib>bitcore-lib>elliptic>hmac-drbg": {
+      "packages": {
+        "@hathor/wallet-lib>bitcore-lib>elliptic>hash.js": true,
+        "@hathor/wallet-lib>bitcore-lib>elliptic>minimalistic-assert": true,
+        "@hathor/wallet-lib>bitcore-lib>elliptic>minimalistic-crypto-utils": true
+      }
+    },
+    "mysql2>iconv-lite": {
+      "builtin": {
+        "stream": true,
+        "string_decoder.StringDecoder": true
+      },
+      "globals": {
+        "console.error": true
+      },
+      "packages": {
+        "mysql2>iconv-lite>safer-buffer": true
+      }
+    },
+    "@hathor/wallet-lib>bitcore-lib>inherits": {
+      "builtin": {
+        "util.inherits": true
+      }
+    },
+    "@hathor/wallet-lib>bitcore-lib>elliptic>inherits": {
+      "builtin": {
+        "util.inherits": true
+      }
+    },
+    "assert>util>inherits": {
+      "builtin": {
+        "util.inherits": true
+      }
+    },
+    "@hathor/wallet-lib>isomorphic-ws": {
+      "packages": {
+        "@hathor/wallet-lib>ws": true
+      }
+    },
+    "@hathor/wallet-lib>bitcore-lib>bip-schnorr>js-sha256": {
+      "globals": {
+        "define": true,
+        "process": true
+      }
+    },
+    "lodash": {
+      "globals": {
+        "define": true
+      }
+    },
+    "@hathor/wallet-lib>lodash": {
+      "globals": {
+        "define": true
+      }
+    },
+    "winston>logform": {
+      "builtin": {
+        "util.format": true,
+        "util.inspect": true
+      },
+      "packages": {
+        "winston>logform>@colors/colors": true,
+        "winston>logform>fecha": true,
+        "winston>logform>ms": true,
+        "winston>safe-stable-stringify": true,
+        "winston>triple-beam": true
+      }
+    },
+    "@hathor/wallet-lib>long": {
+      "globals": {
+        "WebAssembly.Instance": true,
+        "WebAssembly.Module": true
+      }
+    },
+    "mysql2>long": {
+      "globals": {
+        "WebAssembly.Instance": true,
+        "WebAssembly.Module": true,
+        "define": true
+      }
+    },
+    "mysql2>lru-cache": {
+      "globals": {
+        "AbortController": true,
+        "console.error": true,
+        "performance": true,
+        "process": true,
+        "setTimeout": true
+      }
+    },
+    "mysql2>named-placeholders>lru-cache": {
+      "globals": {
+        "AbortController": true,
+        "AbortSignal": true,
+        "console.error": true,
+        "performance": true,
+        "process": true,
+        "setTimeout": true
+      }
+    },
+    "mysql2": {
+      "builtin": {
+        "buffer.Buffer.prototype": true,
+        "crypto.createHash": true,
+        "crypto.publicEncrypt": true,
+        "crypto.randomBytes": true,
+        "events.EventEmitter": true,
+        "net.connect": true,
+        "net.createServer": true,
+        "process.env.NODE_DEBUG": true,
+        "process.nextTick": true,
+        "stream.Readable": true,
+        "timers.clearTimeout": true,
+        "timers.setTimeout": true,
+        "tls.checkServerIdentity": true,
+        "tls.connect": true,
+        "tls.createSecureContext": true,
+        "url.URL": true,
+        "zlib.deflate": true,
+        "zlib.inflate": true
+      },
+      "globals": {
+        "Buffer.alloc": true,
+        "Buffer.allocUnsafe": true,
+        "Buffer.byteLength": true,
+        "Buffer.concat": true,
+        "Buffer.from": true,
+        "Buffer.isBuffer": true,
+        "Buffer.isEncoding": true,
+        "clearTimeout": true,
+        "console.error": true,
+        "console.log": true,
+        "console.trace": true,
+        "console.warn": true,
+        "process.nextTick": true,
+        "setImmediate": true,
+        "setTimeout": true
+      },
+      "packages": {
+        "mysql2>denque": true,
+        "mysql2>generate-function": true,
+        "mysql2>iconv-lite": true,
+        "mysql2>long": true,
+        "mysql2>lru-cache": true,
+        "mysql2>named-placeholders": true,
+        "mysql2>seq-queue": true,
+        "mysql2>sqlstring": true
+      }
+    },
+    "mysql2>named-placeholders": {
+      "packages": {
+        "mysql2>named-placeholders>lru-cache": true
+      }
+    },
+    "ws>bufferutil>node-gyp-build": {
+      "builtin": {
+        "fs.existsSync": true,
+        "fs.readdirSync": true,
+        "os.arch": true,
+        "os.platform": true,
+        "path.dirname": true,
+        "path.join": true,
+        "path.resolve": true
+      },
+      "globals": {
+        "__non_webpack_require__": true,
+        "__webpack_require__": true,
+        "process": true
+      }
+    },
+    "winston>one-time": {
+      "packages": {
+        "winston>one-time>fn.name": true
+      }
+    },
+    "@hathor/wallet-lib>bitcore-lib>bip-schnorr>randombytes": {
+      "builtin": {
+        "crypto.randomBytes": true
+      }
+    },
+    "winston>readable-stream": {
+      "builtin": {
+        "buffer.Buffer": true,
+        "events.EventEmitter": true,
+        "stream": true,
+        "util": true
+      },
+      "globals": {
+        "process.env.READABLE_STREAM": true,
+        "process.nextTick": true,
+        "process.stderr": true,
+        "process.stdout": true
+      },
+      "packages": {
+        "assert>util>inherits": true,
+        "winston>readable-stream>string_decoder": true,
+        "winston>readable-stream>util-deprecate": true
+      }
+    },
+    "@hathor/wallet-lib>bitcore-lib>bip-schnorr>safe-buffer": {
+      "builtin": {
+        "buffer": true
+      }
+    },
+    "winston>readable-stream>string_decoder>safe-buffer": {
+      "builtin": {
+        "buffer": true
+      }
+    },
+    "mysql2>iconv-lite>safer-buffer": {
+      "builtin": {
+        "buffer": true
+      },
+      "globals": {
+        "process.binding": true
+      }
+    },
+    "mysql2>seq-queue": {
+      "builtin": {
+        "events.EventEmitter": true,
+        "util.inherits": true
+      },
+      "globals": {
+        "clearTimeout": true,
+        "process.nextTick": true,
+        "setTimeout": true
+      }
+    },
+    "winston>@dabh/diagnostics>colorspace>color>color-string>simple-swizzle": {
+      "packages": {
+        "winston>@dabh/diagnostics>colorspace>color>color-string>simple-swizzle>is-arrayish": true
+      }
+    },
+    "mysql2>sqlstring": {
+      "globals": {
+        "Buffer.isBuffer": true
+      }
+    },
+    "winston>readable-stream>string_decoder": {
+      "packages": {
+        "winston>readable-stream>string_decoder>safe-buffer": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4>@smithy/eventstream-codec>@aws-crypto/crc32>tslib": {
+      "globals": {
+        "define": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4>@smithy/eventstream-codec>@aws-crypto/crc32>tslib": {
+      "globals": {
+        "define": true
+      }
+    },
+    "@aws-sdk/client-lambda>tslib": {
+      "globals": {
+        "SuppressedError": true,
+        "define": true
+      }
+    },
+    "@aws-sdk/client-sqs>tslib": {
+      "globals": {
+        "SuppressedError": true,
+        "define": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>tslib": {
+      "globals": {
+        "SuppressedError": true,
+        "define": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-sso>@aws-sdk/token-providers>@aws-sdk/client-sso-oidc>tslib": {
+      "globals": {
+        "SuppressedError": true,
+        "define": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-sso>@aws-sdk/client-sso>tslib": {
+      "globals": {
+        "SuppressedError": true,
+        "define": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-sdk/client-sts>tslib": {
+      "globals": {
+        "SuppressedError": true,
+        "define": true
+      }
+    },
+    "@aws-sdk/client-sqs>@aws-sdk/credential-provider-node>@aws-sdk/credential-provider-http>tslib": {
+      "globals": {
+        "SuppressedError": true,
+        "define": true
+      }
+    },
+    "@hathor/wallet-lib>bitcore-mnemonic>unorm": {
+      "globals": {
+        "define": true
+      }
+    },
+    "ws>utf-8-validate": {
+      "globals": {
+        "__dirname": true
+      },
+      "native": true,
+      "packages": {
+        "ws>bufferutil>node-gyp-build": true
+      }
+    },
+    "winston>readable-stream>util-deprecate": {
+      "builtin": {
+        "util.deprecate": true
+      }
+    },
+    "@wallet-service/common>@aws-sdk/client-sqs>@smithy/middleware-retry>uuid": {
+      "builtin": {
+        "crypto": true
+      },
+      "globals": {
+        "Buffer.from": true
+      }
+    },
+    "sequelize>uuid": {
+      "builtin": {
+        "crypto": true
+      },
+      "globals": {
+        "Buffer.from": true
+      }
+    },
+    "winston": {
+      "builtin": {
+        "fs.F_OK": true,
+        "fs.access": true,
+        "fs.close": true,
+        "fs.createReadStream": true,
+        "fs.createWriteStream": true,
+        "fs.exists": true,
+        "fs.existsSync": true,
+        "fs.mkdirSync": true,
+        "fs.open": true,
+        "fs.read": true,
+        "fs.rename": true,
+        "fs.stat": true,
+        "fs.unlink": true,
+        "http": true,
+        "https": true,
+        "os.EOL": true,
+        "os.loadavg": true,
+        "os.uptime": true,
+        "path.basename": true,
+        "path.dirname": true,
+        "path.extname": true,
+        "path.join": true,
+        "string_decoder.StringDecoder": true,
+        "util.format": true,
+        "zlib.createGzip": true
+      },
+      "globals": {
+        "Buffer.alloc": true,
+        "Buffer.byteLength": true,
+        "Buffer.from": true,
+        "clearTimeout": true,
+        "console._stderr": true,
+        "console._stdout": true,
+        "console.error": true,
+        "console.log": true,
+        "console.warn": true,
+        "process._exiting": true,
+        "process.argv": true,
+        "process.cwd": true,
+        "process.execPath": true,
+        "process.exit": true,
+        "process.getgid": true,
+        "process.getuid": true,
+        "process.memoryUsage": true,
+        "process.nextTick": true,
+        "process.on": true,
+        "process.pid": true,
+        "process.removeListener": true,
+        "process.version": true,
+        "setImmediate": true,
+        "setTimeout": true
+      },
+      "packages": {
+        "winston>@dabh/diagnostics": true,
+        "winston>async": true,
+        "winston>is-stream": true,
+        "winston>logform": true,
+        "winston>one-time": true,
+        "winston>readable-stream": true,
+        "winston>safe-stable-stringify": true,
+        "winston>stack-trace": true,
+        "winston>triple-beam": true,
+        "winston>winston-transport": true
+      }
+    },
+    "winston>winston-transport": {
+      "builtin": {
+        "util.inherits": true
+      },
+      "globals": {
+        "console.error": true
+      },
+      "packages": {
+        "winston>readable-stream": true,
+        "winston>triple-beam": true
+      }
+    },
+    "ws": {
+      "builtin": {
+        "buffer.isUtf8": true,
+        "crypto.createHash": true,
+        "crypto.randomBytes": true,
+        "crypto.randomFillSync": true,
+        "events": true,
+        "http.STATUS_CODES": true,
+        "http.createServer": true,
+        "http.request": true,
+        "https": true,
+        "net": true,
+        "stream.Duplex": true,
+        "stream.Readable": true,
+        "stream.Writable": true,
+        "tls": true,
+        "url.URL": true,
+        "zlib.Z_DEFAULT_WINDOWBITS": true,
+        "zlib.Z_SYNC_FLUSH": true,
+        "zlib.createDeflateRaw": true,
+        "zlib.createInflateRaw": true
+      },
+      "globals": {
+        "Buffer": true,
+        "clearTimeout": true,
+        "process.env.WS_NO_BUFFER_UTIL": true,
+        "process.env.WS_NO_UTF_8_VALIDATE": true,
+        "process.nextTick": true,
+        "setTimeout": true
+      },
+      "packages": {
+        "ws>bufferutil": true,
+        "ws>utf-8-validate": true
+      }
+    },
+    "@hathor/wallet-lib>ws": {
+      "builtin": {
+        "crypto.createHash": true,
+        "crypto.randomBytes": true,
+        "crypto.randomFillSync": true,
+        "events": true,
+        "http.STATUS_CODES": true,
+        "http.createServer": true,
+        "http.get": true,
+        "https": true,
+        "net": true,
+        "stream.Duplex": true,
+        "stream.Readable": true,
+        "stream.Writable": true,
+        "tls": true,
+        "url.URL": true,
+        "zlib.Z_DEFAULT_WINDOWBITS": true,
+        "zlib.Z_SYNC_FLUSH": true,
+        "zlib.createDeflateRaw": true,
+        "zlib.createInflateRaw": true
+      },
+      "globals": {
+        "Buffer.alloc": true,
+        "Buffer.allocUnsafe": true,
+        "Buffer.byteLength": true,
+        "Buffer.from": true,
+        "Buffer.isBuffer": true,
+        "clearTimeout": true,
+        "process.nextTick": true,
+        "setTimeout": true
+      }
+    },
+    "xstate": {
+      "globals": {
+        "clearTimeout": true,
+        "console": true,
+        "event": true,
+        "process.env.NODE_ENV": true,
+        "setTimeout": true
+      }
+    }
+  }
+}

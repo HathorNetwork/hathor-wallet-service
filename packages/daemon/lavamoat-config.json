@@ -1,0 +1,19 @@
+{
+  "resources": {
+    "<root>": {
+      "packages": {
+        "@hathor/wallet-lib": true,
+        "@wallet-service/common": true,
+        "axios": true,
+        "dotenv": true,
+        "lodash": true,
+        "mysql2": true,
+        "sequelize": true,
+        "websocket": true,
+        "winston": true,
+        "ws": true,
+        "xstate": true
+      }
+    }
+  }
+} 
