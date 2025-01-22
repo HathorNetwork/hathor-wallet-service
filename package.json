@@ -1,6 +1,6 @@
 {
   "name": "hathor-wallet-service",
-  "version": "1.6.3",
+  "version": "1.6.4",
   "workspaces": [
     "packages/common",
     "packages/daemon",
