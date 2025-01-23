@@ -6,7 +6,7 @@
  */
 
 import { assign, AssignAction, raise, sendTo } from 'xstate';
-import { Context, Event, EventTypes } from '../types';
+import { Context, Event, EventTypes, StandardFullNodeEvent } from '../types';
 import { get } from 'lodash';
 import logger from '../logger';
 import { hashTxData } from '../utils';
@@ -164,7 +164,7 @@ export const metadataDecided = raise((_context: Context, event: Event) => ({
  * Updates the cache with the last processed event (from the context)
  */
 export const updateCache = (context: Context) => {
-  const fullNodeEvent = context.event;
+  const fullNodeEvent = context.event as StandardFullNodeEvent;
   if (!fullNodeEvent) {
     return;
   }

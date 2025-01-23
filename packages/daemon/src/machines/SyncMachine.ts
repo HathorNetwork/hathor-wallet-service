@@ -76,6 +76,7 @@ export const CONNECTED_STATES = {
   handlingVoidedTx: 'handlingVoidedTx',
   handlingUnvoidedTx: 'handlingUnvoidedTx',
   handlingFirstBlock: 'handlingFirstBlock',
+  handlingReorgStarted: 'handlingReorgStarted',
 };
 
 const { TX_CACHE_SIZE } = getConfig();
@@ -166,6 +167,10 @@ const SyncMachine = Machine<Context, any, Event>({
               actions: ['storeEvent'],
               cond: 'vertexAccepted',
               target: CONNECTED_STATES.handlingVertexAccepted,
+            }, {
+              actions: ['storeEvent'],
+              cond: 'reorgStarted',
+              target: CONNECTED_STATES.handlingReorgStarted,
             }, {
               actions: ['storeEvent'],
               target: CONNECTED_STATES.handlingUnhandledEvent,
@@ -264,6 +269,18 @@ const SyncMachine = Machine<Context, any, Event>({
             onDone: {
               target: 'idle',
               actions: ['storeEvent', 'sendAck', 'updateCache'],
+            },
+            onError: `#${SYNC_MACHINE_STATES.ERROR}`,
+          },
+        },
+        [CONNECTED_STATES.handlingReorgStarted]: {
+          id: CONNECTED_STATES.handlingReorgStarted,
+          invoke: {
+            src: 'handleReorgStarted',
+            data: (_context: Context, event: Event) => event,
+            onDone: {
+              target: 'idle',
+              actions: ['sendAck', 'storeEvent'],
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },

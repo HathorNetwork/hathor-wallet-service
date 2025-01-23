@@ -12,6 +12,7 @@ import {
   voided,
   unchanged,
   invalidNetwork,
+  reorgStarted,
 } from '../../src/guards';
 import { EventTypes } from '../../src/types';
 
@@ -170,6 +171,14 @@ describe('fullnode event guards', () => {
 
     // Any event other than FULLNODE_EVENT should return false
     expect(() => unchanged(mockContext, generateMetadataDecidedEvent('TX_NEW'))).toThrow('Invalid event type on unchanged guard: METADATA_DECIDED');
+  });
+
+  test('reorgStarted', () => {
+    expect(reorgStarted(mockContext, generateFullNodeEvent(FullNodeEventTypes.REORG_STARTED))).toBe(true);
+    expect(reorgStarted(mockContext, generateFullNodeEvent(FullNodeEventTypes.VERTEX_METADATA_CHANGED))).toBe(false);
+
+    // Any event other than FULLNODE_EVENT should throw
+    expect(() => reorgStarted(mockContext, generateMetadataDecidedEvent('TX_NEW'))).toThrow('Invalid event type on reorgStarted guard: METADATA_DECIDED');
   });
 });
 

@@ -29,6 +29,7 @@ import {
   handleVoidedTx,
   handleVertexAccepted,
   metadataDiff,
+  handleReorgStarted,
 } from '../../src/services';
 import logger from '../../src/logger';
 import {
@@ -40,8 +41,12 @@ import {
   invokeOnTxPushNotificationRequestedLambda,
   getWalletBalancesForTx,
   generateAddresses,
+  LRU,
 } from '../../src/utils';
 import getConfig from '../../src/config';
+import { addAlert } from '@wallet-service/common';
+import { Severity } from '@wallet-service/common';
+import { FullNodeEventTypes } from '../../src/types';
 
 jest.mock('../../src/config', () => {
   return {
@@ -107,6 +112,13 @@ jest.mock('../../src/utils', () => ({
   sendMessageSQS: jest.fn(),
   getWalletBalancesForTx: jest.fn(),
   generateAddresses: jest.fn(),
+}));
+
+jest.mock('@wallet-service/common', () => ({
+  addAlert: jest.fn(),
+  Severity: {
+    MAJOR: 'MAJOR',
+  },
 }));
 
 beforeEach(() => {
@@ -836,5 +848,96 @@ describe('metadataDiff', () => {
 
     const result = await metadataDiff({} as any, event as any);
     expect(result.type).toBe('TX_UNVOIDED');
+  });
+});
+
+describe('handleReorgStarted', () => {
+  const createMockContext = (event: any = null) => ({
+    socket: null,
+    healthcheck: null,
+    retryAttempt: 0,
+    initialEventId: null,
+    txCache: new LRU(10),
+    event,
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('should handle reorg started event and add alert when reorg size exceeds max', async () => {
+    const mockContext = createMockContext({
+      event: {
+        type: 'FULLNODE_EVENT',
+        event: {
+          type: FullNodeEventTypes.REORG_STARTED,
+          id: 123,
+          data: {
+            reorg_size: 5,
+            previous_best_block: 'prev123',
+            new_best_block: 'new456',
+            common_block: 'common789',
+          },
+        },
+      },
+    });
+
+    await handleReorgStarted(mockContext);
+
+    expect(addAlert).toHaveBeenCalledWith(
+      'Large Reorg Detected',
+      expect.stringContaining('reorg of size 5 has been detected'),
+      Severity.MAJOR,
+      {
+        reorg_size: 5,
+        previous_best_block: 'prev123',
+        new_best_block: 'new456',
+        common_block: 'common789',
+      },
+      expect.anything(),
+    );
+  });
+
+  it('should not add alert when reorg size is within limits', async () => {
+    const mockContext = createMockContext({
+      event: {
+        type: 'FULLNODE_EVENT',
+        event: {
+          type: FullNodeEventTypes.REORG_STARTED,
+          id: 123,
+          data: {
+            reorg_size: 2,
+            previous_best_block: 'prev123',
+            new_best_block: 'new456',
+            common_block: 'common789',
+          },
+        },
+      },
+    });
+
+    await handleReorgStarted(mockContext);
+
+    expect(addAlert).not.toHaveBeenCalled();
+  });
+
+  it('should throw error when event is missing', async () => {
+    const mockContext = createMockContext(null);
+
+    await expect(handleReorgStarted(mockContext)).rejects.toThrow('No event in context');
+  });
+
+  it('should throw error when event type is incorrect', async () => {
+    const mockContext = createMockContext({
+      event: {
+        type: 'FULLNODE_EVENT',
+        event: {
+          type: FullNodeEventTypes.VERTEX_METADATA_CHANGED,
+          id: 123,
+          data: {},
+        },
+      },
+    });
+
+    await expect(handleReorgStarted(mockContext)).rejects.toThrow('Invalid event type for REORG_STARTED');
   });
 });
