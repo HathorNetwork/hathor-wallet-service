@@ -25,6 +25,7 @@ import {
   updateLastSyncedEvent,
   fetchInitialState,
   handleUnvoidedTx,
+  handleReorgStarted,
 } from '../services';
 import {
   metadataIgnore,
@@ -302,14 +303,15 @@ export const SyncMachine = Machine<Context, any, Event>({
   },
 }, {
   services: {
-    fetchInitialState,
     handleVertexAccepted,
     handleVertexRemoved,
-    metadataDiff,
     handleVoidedTx,
     handleTxFirstBlock,
-    updateLastSyncedEvent,
     handleUnvoidedTx,
+    handleReorgStarted,
+    fetchInitialState,
+    metadataDiff,
+    updateLastSyncedEvent,
   },
   guards: {
     metadataIgnore,
