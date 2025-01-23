@@ -1,4 +1,4 @@
-import { Context, Event, FullNodeEventTypes } from '../../src/types';
+import { Context, Event, FullNodeEventTypes, FullNodeEvent, StandardFullNodeEvent } from '../../src/types';
 import {
   metadataIgnore,
   metadataVoided,
@@ -46,7 +46,7 @@ const mockContext: Context = {
   txCache: TxCache,
 };
 
-const generateFullNodeEvent = (type: FullNodeEventTypes, data = {} as any): Event => ({
+const generateStandardFullNodeEvent = (type: Exclude<FullNodeEventTypes, FullNodeEventTypes.REORG_STARTED>, data = {} as any): Event => ({
   type: EventTypes.FULLNODE_EVENT,
   event: {
     type: 'EVENT',
@@ -63,14 +63,78 @@ const generateFullNodeEvent = (type: FullNodeEventTypes, data = {} as any): Even
   },
 });
 
-const generateMetadataDecidedEvent = (type: string): Event => ({
-  type: EventTypes.METADATA_DECIDED,
+const generateReorgStartedEvent = (data = {
+  reorg_size: 1,
+  previous_best_block: 'prev',
+  new_best_block: 'new',
+  common_block: 'common',
+}): Event => ({
+  type: EventTypes.FULLNODE_EVENT,
   event: {
-    type,
-    // @ts-ignore
-    originalEvent: {} as any,
+    type: 'EVENT',
+    network: 'mainnet',
+    peer_id: '',
+    stream_id: '',
+    event: {
+      id: 0,
+      timestamp: 0,
+      type: FullNodeEventTypes.REORG_STARTED,
+      data,
+      group_id: 1,
+    },
+    latest_event_id: 0,
   },
 });
+
+const generateFullNodeEvent = (type: FullNodeEventTypes, data = {} as any): Event => {
+  if (type === FullNodeEventTypes.REORG_STARTED) {
+    return generateReorgStartedEvent(data);
+  }
+  return generateStandardFullNodeEvent(type, data);
+};
+
+const generateMetadataDecidedEvent = (type: 'TX_VOIDED' | 'TX_UNVOIDED' | 'TX_NEW' | 'TX_FIRST_BLOCK' | 'IGNORE'): Event => {
+  const fullNodeEvent: StandardFullNodeEvent = {
+    stream_id: '',
+    peer_id: '',
+    network: 'mainnet',
+    type: 'EVENT',
+    latest_event_id: 0,
+    event: {
+      id: 0,
+      timestamp: 0,
+      type: FullNodeEventTypes.VERTEX_METADATA_CHANGED,
+      data: {
+        hash: 'hash',
+        timestamp: 0,
+        version: 1,
+        weight: 1,
+        nonce: 1,
+        inputs: [],
+        outputs: [],
+        parents: [],
+        tokens: [],
+        token_name: null,
+        token_symbol: null,
+        signal_bits: 1,
+        metadata: {
+          hash: 'hash',
+          voided_by: [],
+          first_block: null,
+          height: 1,
+        },
+      },
+    },
+  };
+
+  return {
+    type: EventTypes.METADATA_DECIDED,
+    event: {
+      type,
+      originalEvent: fullNodeEvent,
+    },
+  };
+};
 
 describe('metadata decided tests', () => {
   test('metadataIgnore', async () => {

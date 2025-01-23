@@ -519,7 +519,7 @@ describe('Event handling', () => {
     expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.handlingUnhandledEvent}`)).toBeTruthy();
   });
 
-  it('should ignore REORG_STARTED event but still send ack', () => {
+  it('should handle REORG_STARTED event', () => {
     const MockedFetchMachine = SyncMachine.withConfig({
       guards: {
         invalidPeerId: () => false,
@@ -535,6 +535,6 @@ describe('Event handling', () => {
       event: REORG_STARTED as unknown as FullNodeEvent,
     });
 
-    expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.handlingUnhandledEvent}`)).toBeTruthy();
+    expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.handlingReorgStarted}`)).toBeTruthy();
   });
 });

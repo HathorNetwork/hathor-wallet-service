@@ -47,6 +47,7 @@ import getConfig from '../../src/config';
 import { addAlert } from '@wallet-service/common';
 import { Severity } from '@wallet-service/common';
 import { FullNodeEventTypes } from '../../src/types';
+import { EventTypes } from '../../src/types';
 
 jest.mock('../../src/config', () => {
   return {
@@ -118,6 +119,10 @@ jest.mock('@wallet-service/common', () => ({
   addAlert: jest.fn(),
   Severity: {
     MAJOR: 'MAJOR',
+  },
+  NftUtils: {
+    shouldInvokeNftHandlerForTx: jest.fn().mockReturnValue(false),
+    invokeNftHandlerLambda: jest.fn(),
   },
 }));
 
@@ -863,21 +868,22 @@ describe('handleReorgStarted', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    (getConfig as jest.Mock).mockReturnValue({
+      MAX_REORG_SIZE: 3,
+    });
   });
 
   it('should handle reorg started event and add alert when reorg size exceeds max', async () => {
     const mockContext = createMockContext({
+      type: EventTypes.FULLNODE_EVENT,
       event: {
-        type: 'FULLNODE_EVENT',
-        event: {
-          type: FullNodeEventTypes.REORG_STARTED,
-          id: 123,
-          data: {
-            reorg_size: 5,
-            previous_best_block: 'prev123',
-            new_best_block: 'new456',
-            common_block: 'common789',
-          },
+        type: FullNodeEventTypes.REORG_STARTED,
+        id: 123,
+        data: {
+          reorg_size: 5,
+          previous_best_block: 'prev123',
+          new_best_block: 'new456',
+          common_block: 'common789',
         },
       },
     });
@@ -900,17 +906,15 @@ describe('handleReorgStarted', () => {
 
   it('should not add alert when reorg size is within limits', async () => {
     const mockContext = createMockContext({
+      type: EventTypes.FULLNODE_EVENT,
       event: {
-        type: 'FULLNODE_EVENT',
-        event: {
-          type: FullNodeEventTypes.REORG_STARTED,
-          id: 123,
-          data: {
-            reorg_size: 2,
-            previous_best_block: 'prev123',
-            new_best_block: 'new456',
-            common_block: 'common789',
-          },
+        type: FullNodeEventTypes.REORG_STARTED,
+        id: 123,
+        data: {
+          reorg_size: 2,
+          previous_best_block: 'prev123',
+          new_best_block: 'new456',
+          common_block: 'common789',
         },
       },
     });
@@ -928,13 +932,11 @@ describe('handleReorgStarted', () => {
 
   it('should throw error when event type is incorrect', async () => {
     const mockContext = createMockContext({
+      type: EventTypes.FULLNODE_EVENT,
       event: {
-        type: 'FULLNODE_EVENT',
-        event: {
-          type: FullNodeEventTypes.VERTEX_METADATA_CHANGED,
-          id: 123,
-          data: {},
-        },
+        type: FullNodeEventTypes.VERTEX_METADATA_CHANGED,
+        id: 123,
+        data: {},
       },
     });
 
