@@ -1711,9 +1711,38 @@
       }
     },
     "@hathor/wallet-lib>bitcore-lib>bip-schnorr>js-sha256": {
+      "builtin": {
+        "buffer": true,
+        "crypto": true,
+        "fs": true,
+        "module": true,
+        "path": true,
+        "require": true,
+        "stream": true,
+        "util": true
+      },
+      "environment": "node",
       "globals": {
+        "Array.isArray": true,
+        "Array.prototype": true,
+        "ArrayBuffer.isView": true,
+        "Object.prototype": true,
+        "__dirname": true,
+        "__filename": true,
         "define": true,
-        "process": true
+        "eval": true,
+        "exports": true,
+        "global": true,
+        "module": true,
+        "process": true,
+        "require": "write",
+        "root": true,
+        "window": true
+      },
+      "moduleSystem": true,
+      "native": true,
+      "packages": {
+        "js-sha256": true
       }
     },
     "lodash": {

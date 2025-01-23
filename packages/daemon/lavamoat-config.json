@@ -12,7 +12,21 @@
         "websocket": true,
         "winston": true,
         "ws": true,
-        "xstate": true
+        "xstate": true,
+        "@aws-sdk/client-lambda": true,
+        "@aws-sdk/client-sqs": true,
+        "assert": true,
+        "aws-sdk": true
+      }
+    },
+    "js-sha256": {
+      "globals": {
+        "require": true,
+        "module": true,
+        "exports": true,
+        "process": true,
+        "__dirname": true,
+        "__filename": true
       }
     }
   }
