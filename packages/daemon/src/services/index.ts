@@ -668,7 +668,7 @@ export const fetchInitialState = async () => {
 
 export const handleReorgStarted = async (context: Context) => {
   const mysql = await getDbConnection();
-  const { MAX_REORG_SIZE } = getConfig();
+  const { REORG_SIZE_INFO, REORG_SIZE_MINOR, REORG_SIZE_MAJOR, REORG_SIZE_CRITICAL } = getConfig();
 
   try {
     if (!context.event) {
@@ -681,19 +681,44 @@ export const handleReorgStarted = async (context: Context) => {
     }
 
     const { reorg_size, previous_best_block, new_best_block, common_block } = fullNodeEvent.event.data;
+    const metadata = {
+      reorg_size,
+      previous_best_block,
+      new_best_block,
+      common_block,
+    };
 
-    if (reorg_size > MAX_REORG_SIZE) {
+    if (reorg_size > REORG_SIZE_CRITICAL) {
       await addAlert(
-        'Large Reorg Detected',
-        `A reorg of size ${reorg_size} has been detected, which is larger than the configured maximum of ${MAX_REORG_SIZE}`,
+        'Critical Reorg Detected',
+        `A critical reorg of size ${reorg_size} has occurred.`,
+        Severity.CRITICAL,
+        metadata,
+        logger
+      );
+    } else if (reorg_size > REORG_SIZE_MAJOR) {
+      await addAlert(
+        'Major Reorg Detected',
+        `A major reorg of size ${reorg_size} has occurred.`,
         Severity.MAJOR,
-        {
-          reorg_size,
-          previous_best_block,
-          new_best_block,
-          common_block,
-        },
-        logger,
+        metadata,
+        logger
+      );
+    } else if (reorg_size > REORG_SIZE_MINOR) {
+      await addAlert(
+        'Minor Reorg Detected',
+        `A minor blockchain reorg of size ${reorg_size} has occurred.`,
+        Severity.MINOR,
+        metadata,
+        logger
+      );
+    } else if (reorg_size >= REORG_SIZE_INFO) {
+      await addAlert(
+        'Reorg Detected',
+        `A reorg of size ${reorg_size} has occurred.`,
+        Severity.INFO,
+        metadata,
+        logger
       );
     }
 
