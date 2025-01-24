@@ -388,7 +388,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
           await sendMessageSQS(JSON.stringify({
             wallets: Array.from(seenWallets),
-            txData,
+            tx: txData,
           }), queueUrl);
         }
       } catch (e) {
