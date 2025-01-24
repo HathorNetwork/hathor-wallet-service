@@ -170,7 +170,6 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     NETWORK,
     STAGE,
     PUSH_NOTIFICATION_ENABLED,
-    NEW_TX_SQS,
   } = getConfig();
 
   try {
