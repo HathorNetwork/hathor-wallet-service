@@ -4,7 +4,7 @@ import { SendMessageCommand, SendMessageCommandOutput, SQSClient, MessageAttribu
 import { StringMap } from '../types';
 import getConfig from '../config';
 import logger from '../logger';
-import { addAlert } from '@wallet-service/common';
+import { addAlert, Transaction } from '@wallet-service/common';
 
 export function buildFunctionName(functionName: string): string {
   const { STAGE } = getConfig();
@@ -54,6 +54,25 @@ export const invokeOnTxPushNotificationRequestedLambda = async (walletBalanceVal
     );
     throw new Error(`${ON_TX_PUSH_NOTIFICATION_REQUESTED_FUNCTION_NAME} lambda invoke failed for wallets: ${walletIdList}`);
   }
+}
+
+/**
+ * Sends a message to the real-time wallet-service SQS queue.
+ *
+ * @param wallets - A list of wallets to notify
+ * @param tx - The transaction details to send to the clients
+ */
+export const sendRealtimeTx = async (wallets: string[], tx: Transaction): Promise<void> => {
+  const { NEW_TX_SQS } = getConfig();
+
+  if (!NEW_TX_SQS) {
+    throw new Error('Queue URL is invalid');
+  }
+
+  await sendMessageSQS(JSON.stringify({
+    wallets,
+    tx,
+  }), NEW_TX_SQS);
 }
 
 /**
