@@ -666,70 +666,64 @@ export const fetchInitialState = async () => {
   };
 };
 
-export const handleReorgStarted = async (context: Context) => {
-  const mysql = await getDbConnection();
+export const handleReorgStarted = async (context: Context): Promise<void> => {
+  if (!context.event) {
+    throw new Error('No event in context');
+  }
+
+  const fullNodeEvent = context.event;
+  if (fullNodeEvent.event.type !== FullNodeEventTypes.REORG_STARTED) {
+    throw new Error('Invalid event type for REORG_STARTED');
+  }
+
+  const { reorg_size, previous_best_block, new_best_block, common_block } = fullNodeEvent.event.data;
   const { REORG_SIZE_INFO, REORG_SIZE_MINOR, REORG_SIZE_MAJOR, REORG_SIZE_CRITICAL } = getConfig();
 
-  try {
-    if (!context.event) {
-      throw new Error('No event in context');
-    }
+  const metadata = {
+    reorg_size,
+    previous_best_block,
+    new_best_block,
+    common_block,
+  };
 
-    const fullNodeEvent = context.event;
-    if (fullNodeEvent.event.type !== FullNodeEventTypes.REORG_STARTED) {
-      throw new Error('Invalid event type for REORG_STARTED');
-    }
+  console.log(reorg_size, {
+    REORG_SIZE_CRITICAL,
+    REORG_SIZE_INFO,
+    REORG_SIZE_MAJOR,
+    REORG_SIZE_MINOR,
+  });
 
-    const { reorg_size, previous_best_block, new_best_block, common_block } = fullNodeEvent.event.data;
-    const metadata = {
-      reorg_size,
-      previous_best_block,
-      new_best_block,
-      common_block,
-    };
-
-    if (reorg_size > REORG_SIZE_CRITICAL) {
-      await addAlert(
-        'Critical Reorg Detected',
-        `A critical reorg of size ${reorg_size} has occurred.`,
-        Severity.CRITICAL,
-        metadata,
-        logger
-      );
-    } else if (reorg_size > REORG_SIZE_MAJOR) {
-      await addAlert(
-        'Major Reorg Detected',
-        `A major reorg of size ${reorg_size} has occurred.`,
-        Severity.MAJOR,
-        metadata,
-        logger
-      );
-    } else if (reorg_size > REORG_SIZE_MINOR) {
-      await addAlert(
-        'Minor Reorg Detected',
-        `A minor blockchain reorg of size ${reorg_size} has occurred.`,
-        Severity.MINOR,
-        metadata,
-        logger
-      );
-    } else if (reorg_size >= REORG_SIZE_INFO) {
-      await addAlert(
-        'Reorg Detected',
-        `A reorg of size ${reorg_size} has occurred.`,
-        Severity.INFO,
-        metadata,
-        logger
-      );
-    }
-
-    await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
-  } catch (e) {
-    logger.error('Error handling reorg started', {
-      error: (e as Error).message,
-      stack: (e as Error).stack,
-    });
-    throw e;
-  } finally {
-    mysql.destroy();
+  if (reorg_size > REORG_SIZE_CRITICAL) {
+    await addAlert(
+      'Critical Reorg Detected',
+      `A critical reorg of size ${reorg_size} has occurred.`,
+      Severity.CRITICAL,
+      metadata,
+      logger,
+    );
+  } else if (reorg_size > REORG_SIZE_MAJOR) {
+    await addAlert(
+      'Major Reorg Detected',
+      `A major reorg of size ${reorg_size} has occurred.`,
+      Severity.MAJOR,
+      metadata,
+      logger,
+    );
+  } else if (reorg_size > REORG_SIZE_MINOR) {
+    await addAlert(
+      'Minor Reorg Detected',
+      `A minor reorg of size ${reorg_size} has occurred.`,
+      Severity.MINOR,
+      metadata,
+      logger,
+    );
+  } else if (reorg_size >= REORG_SIZE_INFO) {
+    await addAlert(
+      'Reorg Detected',
+      `A reorg of size ${reorg_size} has occurred.`,
+      Severity.INFO,
+      metadata,
+      logger,
+    );
   }
 };
