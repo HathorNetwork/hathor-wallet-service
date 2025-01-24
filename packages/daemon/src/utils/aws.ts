@@ -56,6 +56,12 @@ export const invokeOnTxPushNotificationRequestedLambda = async (walletBalanceVal
   }
 }
 
+/**
+ * Sends a message to the real-time wallet-service SQS queue.
+ *
+ * @param wallets - A list of wallets to notify
+ * @param tx - The transaction details to send to the clients
+ */
 export const sendRealtimeTx = async (wallets: string[], tx: Transaction): Promise<void> => {
   const { NEW_TX_SQS } = getConfig();
 
