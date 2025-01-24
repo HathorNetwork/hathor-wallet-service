@@ -45,6 +45,7 @@ import {
   getFullnodeHttpUrl,
   sendMessageSQS,
   generateAddresses,
+  sendRealtimeTx,
 } from '../utils';
 import {
   getDbConnection,
@@ -169,7 +170,6 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     NETWORK,
     STAGE,
     PUSH_NOTIFICATION_ENABLED,
-    NEW_TX_SQS,
   } = getConfig();
 
   try {
@@ -381,15 +381,10 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
       try {
         if (seenWallets.length > 0) {
-          const queueUrl = NEW_TX_SQS;
-          if (!queueUrl) {
-            throw new Error('Queue URL is invalid');
-          }
-
-          await sendMessageSQS(JSON.stringify({
-            wallets: Array.from(seenWallets),
+          await sendRealtimeTx(
+            Array.from(seenWallets),
             txData,
-          }), queueUrl);
+          );
         }
       } catch (e) {
         logger.error('Failed to send transaction to SQS queue');
