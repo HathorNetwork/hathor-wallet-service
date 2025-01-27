@@ -686,14 +686,7 @@ export const handleReorgStarted = async (context: Context): Promise<void> => {
     common_block,
   };
 
-  console.log(reorg_size, {
-    REORG_SIZE_CRITICAL,
-    REORG_SIZE_INFO,
-    REORG_SIZE_MAJOR,
-    REORG_SIZE_MINOR,
-  });
-
-  if (reorg_size > REORG_SIZE_CRITICAL) {
+  if (reorg_size >= REORG_SIZE_CRITICAL) {
     await addAlert(
       'Critical Reorg Detected',
       `A critical reorg of size ${reorg_size} has occurred.`,
@@ -701,7 +694,7 @@ export const handleReorgStarted = async (context: Context): Promise<void> => {
       metadata,
       logger,
     );
-  } else if (reorg_size > REORG_SIZE_MAJOR) {
+  } else if (reorg_size >= REORG_SIZE_MAJOR) {
     await addAlert(
       'Major Reorg Detected',
       `A major reorg of size ${reorg_size} has occurred.`,
@@ -709,7 +702,7 @@ export const handleReorgStarted = async (context: Context): Promise<void> => {
       metadata,
       logger,
     );
-  } else if (reorg_size > REORG_SIZE_MINOR) {
+  } else if (reorg_size >= REORG_SIZE_MINOR) {
     await addAlert(
       'Minor Reorg Detected',
       `A minor reorg of size ${reorg_size} has occurred.`,

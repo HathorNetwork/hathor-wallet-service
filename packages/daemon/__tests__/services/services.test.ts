@@ -48,24 +48,6 @@ import { FullNodeEventTypes } from '../../src/types';
 import { Context } from '../../src/types';
 import { generateFullNodeEvent } from '../utils';
 
-jest.mock('../../src/config', () => {
-  return {
-    __esModule: true, // This property is needed for mocking a default export
-    default: jest.fn(() => ({
-      REORG_SIZE_INFO: 1,
-      REORG_SIZE_MINOR: 3,
-      REORG_SIZE_MAJOR: 5,
-      REORG_SIZE_CRITICAL: 10,
-    })),
-    getConfig: jest.fn(() => ({
-      REORG_SIZE_INFO: 1,
-      REORG_SIZE_MINOR: 3,
-      REORG_SIZE_MAJOR: 5,
-      REORG_SIZE_CRITICAL: 10,
-    })),
-  };
-});
-
 jest.mock('@hathor/wallet-lib');
 jest.mock('../../src/logger', () => ({
   debug: jest.fn(),
@@ -139,6 +121,24 @@ jest.mock('@wallet-service/common', () => {
       shouldInvokeNftHandlerForTx: jest.fn().mockReturnValue(false),
       invokeNftHandlerLambda: jest.fn(),
     },
+  };
+});
+
+jest.mock('../../src/config', () => {
+  return {
+    __esModule: true, // This property is needed for mocking a default export
+    default: jest.fn(() => ({
+      REORG_SIZE_INFO: 1,
+      REORG_SIZE_MINOR: 3,
+      REORG_SIZE_MAJOR: 5,
+      REORG_SIZE_CRITICAL: 10,
+    })),
+    getConfig: jest.fn(() => ({
+      REORG_SIZE_INFO: 1,
+      REORG_SIZE_MINOR: 3,
+      REORG_SIZE_MAJOR: 5,
+      REORG_SIZE_CRITICAL: 10,
+    })),
   };
 });
 
@@ -874,6 +874,15 @@ describe('metadataDiff', () => {
 
 describe('handleReorgStarted', () => {
   beforeEach(() => {
+    (getConfig as jest.Mock).mockReturnValue({
+      REORG_SIZE_INFO: 1,
+      REORG_SIZE_MINOR: 3,
+      REORG_SIZE_MAJOR: 5,
+      REORG_SIZE_CRITICAL: 10,
+    });
+  });
+
+  afterEach(() => {
     jest.clearAllMocks();
   });
 
@@ -919,11 +928,9 @@ describe('handleReorgStarted', () => {
     // @ts-ignore
     await handleReorgStarted({ event } as Context);
 
-    console.log('ADD ALERT:', addAlert);
-
     expect(addAlert).toHaveBeenCalledWith(
       'Minor Reorg Detected',
-      'A minor blockchain reorg of size 3 has occurred.',
+      'A minor reorg of size 3 has occurred.',
       Severity.MINOR,
       {
         reorg_size: 3,

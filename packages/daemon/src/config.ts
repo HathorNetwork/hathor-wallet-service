@@ -43,8 +43,6 @@ export const CONSOLE_LEVEL = process.env.CONSOLE_LEVEL ?? 'debug';
 export const TX_CACHE_SIZE = parseInt(process.env.TX_CACHE_SIZE ?? '10000', 10);
 // Number of blocks before unlocking a block utxo
 export const BLOCK_REWARD_LOCK = parseInt(process.env.BLOCK_REWARD_LOCK ?? '10', 10);
-// Maximum size of a reorg before triggering an alert
-export const MAX_REORG_SIZE = parseInt(process.env.MAX_REORG_SIZE ?? '3', 10);
 export const STAGE = process.env.STAGE ?? 'local';
 
 // Fullnode information, used to make sure we're connected to the same fullnode
@@ -123,7 +121,6 @@ export default () => ({
   HEALTHCHECK_SERVER_URL,
   HEALTHCHECK_SERVER_API_KEY,
   HEALTHCHECK_PING_INTERVAL,
-  MAX_REORG_SIZE,
   REORG_SIZE_INFO,
   REORG_SIZE_MINOR,
   REORG_SIZE_MAJOR,
