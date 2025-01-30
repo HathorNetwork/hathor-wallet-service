@@ -60,16 +60,19 @@ export interface VertexRemovedEventData {
   vertex_id: string;
 }
 
-export type FullNodeEvent = {
+export type FullNodeEventBase = {
   stream_id: string;
   peer_id: string;
   network: string;
   type: string;
   latest_event_id: number;
+};
+
+export type StandardFullNodeEvent = FullNodeEventBase & {
   event: {
     id: number;
     timestamp: number;
-    type: FullNodeEventTypes;
+    type: Exclude<FullNodeEventTypes, "REORG_STARTED">; // All types except "REORG_STARTED"
     data: {
       hash: string;
       timestamp: number;
@@ -89,9 +92,26 @@ export type FullNodeEvent = {
         first_block: null | string;
         height: number;
       };
-    }
-  }
-}
+    };
+  };
+};
+
+export type ReorgFullNodeEvent = FullNodeEventBase & {
+  event: {
+    id: number;
+    timestamp: number;
+    type: "REORG_STARTED";
+    data: {
+      reorg_size: number;
+      previous_best_block: string;
+      new_best_block: string;
+      common_block: string;
+    };
+    group_id: number;
+  };
+};
+
+export type FullNodeEvent = StandardFullNodeEvent | ReorgFullNodeEvent;
 
 export interface EventTxInput {
   tx_id: string;

@@ -25,6 +25,7 @@ import {
   updateLastSyncedEvent,
   fetchInitialState,
   handleUnvoidedTx,
+  handleReorgStarted,
 } from '../services';
 import {
   metadataIgnore,
@@ -41,6 +42,7 @@ import {
   voided,
   unchanged,
   vertexRemoved,
+  reorgStarted,
 } from '../guards';
 import {
   storeInitialState,
@@ -76,11 +78,12 @@ export const CONNECTED_STATES = {
   handlingVoidedTx: 'handlingVoidedTx',
   handlingUnvoidedTx: 'handlingUnvoidedTx',
   handlingFirstBlock: 'handlingFirstBlock',
+  handlingReorgStarted: 'handlingReorgStarted',
 };
 
 const { TX_CACHE_SIZE } = getConfig();
 
-const SyncMachine = Machine<Context, any, Event>({
+export const SyncMachine = Machine<Context, any, Event>({
   id: 'SyncMachine',
   initial: SYNC_MACHINE_STATES.INITIALIZING,
   context: {
@@ -166,6 +169,10 @@ const SyncMachine = Machine<Context, any, Event>({
               actions: ['storeEvent'],
               cond: 'vertexAccepted',
               target: CONNECTED_STATES.handlingVertexAccepted,
+            }, {
+              actions: ['storeEvent'],
+              cond: 'reorgStarted',
+              target: CONNECTED_STATES.handlingReorgStarted,
             }, {
               actions: ['storeEvent'],
               target: CONNECTED_STATES.handlingUnhandledEvent,
@@ -268,6 +275,18 @@ const SyncMachine = Machine<Context, any, Event>({
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
         },
+        [CONNECTED_STATES.handlingReorgStarted]: {
+          id: CONNECTED_STATES.handlingReorgStarted,
+          invoke: {
+            src: 'handleReorgStarted',
+            data: (_context: Context, event: Event) => event,
+            onDone: {
+              target: 'idle',
+              actions: ['sendAck', 'storeEvent'],
+            },
+            onError: `#${SYNC_MACHINE_STATES.ERROR}`,
+          },
+        },
       },
       on: {
         WEBSOCKET_EVENT: [{
@@ -283,10 +302,18 @@ const SyncMachine = Machine<Context, any, Event>({
     },
   },
 }, {
+  services: {
+    handleVertexAccepted,
+    handleVertexRemoved,
+    handleVoidedTx,
+    handleTxFirstBlock,
+    handleUnvoidedTx,
+    handleReorgStarted,
+    fetchInitialState,
+    metadataDiff,
+    updateLastSyncedEvent,
+  },
   guards: {
-    invalidStreamId,
-    invalidPeerId,
-    invalidNetwork,
     metadataIgnore,
     metadataVoided,
     metadataUnvoided,
@@ -294,10 +321,14 @@ const SyncMachine = Machine<Context, any, Event>({
     metadataFirstBlock,
     metadataChanged,
     vertexAccepted,
+    invalidPeerId,
+    invalidStreamId,
+    invalidNetwork,
     websocketDisconnected,
     voided,
     unchanged,
     vertexRemoved,
+    reorgStarted,
   },
   delays: { BACKOFF_DELAYED_RECONNECT },
   actions: {
@@ -313,16 +344,6 @@ const SyncMachine = Machine<Context, any, Event>({
     updateCache,
     startHealthcheckPing,
     stopHealthcheckPing,
-  },
-  services: {
-    handleVoidedTx,
-    handleUnvoidedTx,
-    handleVertexAccepted,
-    handleVertexRemoved,
-    handleTxFirstBlock,
-    metadataDiff,
-    updateLastSyncedEvent,
-    fetchInitialState,
   },
 });
 
