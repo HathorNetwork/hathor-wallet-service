@@ -1,5 +1,41 @@
 {
   "resources": {
+    "$root": {
+      "builtin": {
+        "fs": true,
+        "http": true,
+        "https": true,
+        "module": true,
+        "path": true,
+        "require": true,
+        "stream": true,
+        "url": true,
+        "util": true
+      },
+      "environment": "node",
+      "globals": {
+        "Buffer": true,
+        "URL": true,
+        "__dirname": true,
+        "__filename": true,
+        "clearTimeout": true,
+        "console": true,
+        "exports": true,
+        "global": true,
+        "module": true,
+        "process": true,
+        "require": true,
+        "setTimeout": true
+      },
+      "moduleSystem": true,
+      "packages": {
+        "@hathor/wallet-lib": true,
+        "@wallet-service/common": true,
+        "axios": true,
+        "xstate": true
+      },
+      "type": "module"
+    },
     "@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4>@smithy/eventstream-codec>@aws-crypto/crc32": {
       "packages": {
         "@aws-sdk/client-sqs>@aws-crypto/sha256-js>@aws-crypto/util": true,
@@ -1409,6 +1445,55 @@
         "setTimeout": true
       }
     },
+    "axios>form-data>asynckit": {
+      "builtin": {
+        "stream": true
+      }
+    },
+    "axios": {
+      "builtin": {
+        "buffer": true,
+        "fs": true,
+        "http": true,
+        "https": true,
+        "module": true,
+        "net": true,
+        "path": true,
+        "require": true,
+        "stream": true,
+        "tls": true,
+        "url": true,
+        "util": true,
+        "zlib": true
+      },
+      "environment": "node",
+      "globals": {
+        "AbortController": true,
+        "Blob": true,
+        "Buffer": true,
+        "FormData": true,
+        "TextDecoder": true,
+        "TextEncoder": true,
+        "URL": true,
+        "URLSearchParams": true,
+        "__dirname": true,
+        "__filename": true,
+        "console": true,
+        "exports": true,
+        "global": true,
+        "module": true,
+        "navigator": true,
+        "process": true,
+        "require": true
+      },
+      "mainPath": "./dist/node/axios.cjs",
+      "moduleSystem": true,
+      "packages": {
+        "follow-redirects": true,
+        "form-data": true
+      },
+      "type": "module"
+    },
     "@hathor/wallet-lib>axios": {
       "builtin": {
         "http": true,
@@ -1558,6 +1643,15 @@
         "winston>@dabh/diagnostics>colorspace>text-hex": true
       }
     },
+    "axios>form-data>combined-stream": {
+      "builtin": {
+        "stream": true,
+        "util": true
+      },
+      "packages": {
+        "delayed-stream": true
+      }
+    },
     "@hathor/wallet-lib>crypto-js": {
       "globals": {
         "define": true
@@ -1579,6 +1673,15 @@
       "packages": {
         "external:../../node_modules/supports-color/index.js": true,
         "@hathor/wallet-lib>axios>follow-redirects>debug>ms": true
+      }
+    },
+    "axios>form-data>combined-stream>delayed-stream": {
+      "builtin": {
+        "stream": true,
+        "util": true
+      },
+      "packages": {
+        "delayed-stream": true
       }
     },
     "@hathor/wallet-lib>bitcore-lib>bip-schnorr>ecurve": {
@@ -1657,6 +1760,16 @@
         "@hathor/wallet-lib>axios>follow-redirects>debug": true
       }
     },
+    "axios>form-data": {
+      "builtin": {
+        "fs": true,
+        "http": true,
+        "https": true,
+        "path": true,
+        "stream": true,
+        "util": true
+      }
+    },
     "mysql2>generate-function": {
       "builtin": {
         "util": true
@@ -1670,6 +1783,42 @@
         "@hathor/wallet-lib>bitcore-lib>elliptic>inherits": true,
         "@hathor/wallet-lib>bitcore-lib>elliptic>minimalistic-assert": true
       }
+    },
+    "hathor-wallet-service": {
+      "builtin": {
+        "fs": true,
+        "http": true,
+        "https": true,
+        "module": true,
+        "path": true,
+        "require": true,
+        "stream": true,
+        "url": true,
+        "util": true
+      },
+      "environment": "node",
+      "globals": {
+        "Buffer": true,
+        "URL": true,
+        "__dirname": true,
+        "__filename": true,
+        "clearTimeout": true,
+        "console": true,
+        "exports": true,
+        "global": true,
+        "module": true,
+        "process": true,
+        "require": true,
+        "setTimeout": true
+      },
+      "moduleSystem": true,
+      "packages": {
+        "@hathor/wallet-lib": true,
+        "@wallet-service/common": true,
+        "axios": true,
+        "xstate": true
+      },
+      "type": "module"
     },
     "@hathor/wallet-lib>bitcore-lib>elliptic>hmac-drbg": {
       "packages": {
@@ -1943,6 +2092,42 @@
         "winston>readable-stream>string_decoder>safe-buffer": true
       }
     },
+    "sync-daemon": {
+      "builtin": {
+        "fs": true,
+        "http": true,
+        "https": true,
+        "module": true,
+        "path": true,
+        "require": true,
+        "stream": true,
+        "url": true,
+        "util": true
+      },
+      "environment": "node",
+      "globals": {
+        "Buffer": true,
+        "URL": true,
+        "__dirname": true,
+        "__filename": true,
+        "clearTimeout": true,
+        "console": true,
+        "exports": true,
+        "global": true,
+        "module": true,
+        "process": true,
+        "require": true,
+        "setTimeout": true
+      },
+      "moduleSystem": true,
+      "packages": {
+        "@hathor/wallet-lib": true,
+        "@wallet-service/common": true,
+        "axios": true,
+        "xstate": true
+      },
+      "type": "module"
+    },
     "@aws-sdk/client-sqs>@aws-sdk/core>@smithy/signature-v4>@smithy/eventstream-codec>@aws-crypto/crc32>tslib": {
       "globals": {
         "define": true
@@ -2181,7 +2366,7 @@
         "clearTimeout": true,
         "console": true,
         "event": true,
-        "process.env.NODE_ENV": true,
+        "process": true,
         "setTimeout": true
       }
     }

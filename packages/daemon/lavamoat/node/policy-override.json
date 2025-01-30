@@ -33,6 +33,127 @@
       "native": true,
       "environment": "node",
       "moduleSystem": true
+    },
+    "axios": {
+      "environment": "node",
+      "moduleSystem": true,
+      "globals": {
+        "console": true,
+        "URL": true,
+        "URLSearchParams": true,
+        "TextEncoder": true,
+        "TextDecoder": true,
+        "AbortController": true,
+        "FormData": true,
+        "Blob": true,
+        "navigator": true,
+        "process": true,
+        "Buffer": true,
+        "global": true,
+        "require": true,
+        "module": true,
+        "exports": true,
+        "__filename": true,
+        "__dirname": true
+      },
+      "builtin": {
+        "http": true,
+        "https": true,
+        "url": true,
+        "stream": true,
+        "zlib": true,
+        "util": true,
+        "net": true,
+        "tls": true,
+        "buffer": true,
+        "path": true,
+        "fs": true,
+        "module": true,
+        "require": true
+      },
+      "packages": {
+        "follow-redirects": true,
+        "form-data": true
+      }
+    },
+    "axios>form-data": {
+      "builtin": {
+        "util": true,
+        "stream": true,
+        "path": true,
+        "http": true,
+        "https": true,
+        "fs": true
+      }
+    },
+    "axios>form-data>combined-stream": {
+      "builtin": {
+        "util": true,
+        "stream": true
+      },
+      "packages": {
+        "delayed-stream": true
+      }
+    },
+    "axios>form-data>combined-stream>delayed-stream": {
+      "builtin": {
+        "stream": true,
+        "util": true
+      },
+      "packages": {
+        "delayed-stream": true
+      }
+    },
+    "axios>form-data>asynckit": {
+      "builtin": {
+        "stream": true
+      }
+    },
+    "xstate": {
+      "globals": {
+        "process": true,
+        "process.env": true,
+        "console": true,
+        "setTimeout": true,
+        "clearTimeout": true,
+        "event": true
+      }
+    },
+    "$root": {
+      "type": "module",
+      "environment": "node",
+      "moduleSystem": true,
+      "globals": {
+        "process": true,
+        "console": true,
+        "Buffer": true,
+        "URL": true,
+        "setTimeout": true,
+        "clearTimeout": true,
+        "require": true,
+        "module": true,
+        "exports": true,
+        "__filename": true,
+        "__dirname": true,
+        "global": true
+      },
+      "builtin": {
+        "path": true,
+        "fs": true,
+        "http": true,
+        "https": true,
+        "stream": true,
+        "util": true,
+        "url": true,
+        "module": true,
+        "require": true
+      },
+      "packages": {
+        "axios": true,
+        "xstate": true,
+        "@hathor/wallet-lib": true,
+        "@wallet-service/common": true
+      }
     }
   }
-} 
+}
