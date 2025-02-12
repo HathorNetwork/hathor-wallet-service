@@ -237,3 +237,14 @@ export const unchanged = (context: Context, event: Event) => {
 
   return txHashFromCache === txHashFromEvent;
 };
+
+/*
+ * This guard is used to detect if the event is a REORG_STARTED event
+ */
+export const reorgStarted = (_context: Context, event: Event) => {
+  if (event.type !== EventTypes.FULLNODE_EVENT) {
+    throw new Error(`Invalid event type on reorgStarted guard: ${event.type}`);
+  }
+
+  return event.event.event.type === FullNodeEventTypes.REORG_STARTED;
+};

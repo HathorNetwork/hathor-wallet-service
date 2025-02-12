@@ -27,6 +27,7 @@ import {
   TransactionTableEntry
 } from './types';
 import { isEqual } from 'lodash';
+import { EventTypes } from '../src/types';
 
 export const XPUBKEY = 'xpub6CsZPtBWMkwxVxyBTKT8AWZcYqzwZ5K2qMkqjFpibMbBZ72JAvLMz7LquJNs4svfTiNYy6GbLo8gqECWsC6hTRt7imnphUFNEMz6VuRSjww';
 export const ADDRESSES = [
@@ -775,3 +776,16 @@ export const addToAddressTxHistoryTable = async (
     VALUES ?`,
   [payload]);
 };
+
+export const generateFullNodeEvent = (event: any) => ({
+  type: EventTypes.FULLNODE_EVENT,
+  event: {
+    peer_id: 'peer123',
+    stream_id: 'stream456',
+    network: 'mainnet',
+    id: 123,
+    timestamp: Date.now(),
+    type: event.type,
+    data: event.data,
+  },
+});

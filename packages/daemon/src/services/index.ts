@@ -19,10 +19,11 @@ import {
   LastSyncedEvent,
   Event,
   Context,
-  FullNodeEvent,
   EventTxInput,
   EventTxOutput,
   WalletStatus,
+  FullNodeEventTypes,
+  StandardFullNodeEvent,
 } from '../types';
 import {
   TxInput,
@@ -73,6 +74,7 @@ import {
 import getConfig from '../config';
 import logger from '../logger';
 import { invokeOnTxPushNotificationRequestedLambda } from '../utils';
+import { addAlert, Severity } from '@wallet-service/common';
 
 export const METADATA_DIFF_EVENT_TYPES = {
   IGNORE: 'IGNORE',
@@ -86,7 +88,7 @@ export const metadataDiff = async (_context: Context, event: Event) => {
   const mysql = await getDbConnection();
 
   try {
-    const fullNodeEvent = event.event as FullNodeEvent;
+    const fullNodeEvent = event.event as StandardFullNodeEvent;
     const {
       hash,
       metadata: { voided_by, first_block },
@@ -173,7 +175,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
   } = getConfig();
 
   try {
-    const fullNodeEvent = context.event as FullNodeEvent;
+    const fullNodeEvent = context.event as StandardFullNodeEvent;
     const now = getUnixTimestamp();
     const blockRewardLock = context.rewardMinBlocks;
 
@@ -437,7 +439,7 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
   await mysql.beginTransaction();
 
   try {
-    const fullNodeEvent = context.event as FullNodeEvent;
+    const fullNodeEvent = context.event as StandardFullNodeEvent;
 
     const {
       hash,
@@ -512,7 +514,7 @@ export const handleVoidedTx = async (context: Context) => {
   await mysql.beginTransaction();
 
   try {
-    const fullNodeEvent = context.event as FullNodeEvent;
+    const fullNodeEvent = context.event as StandardFullNodeEvent;
 
     const {
       hash,
@@ -548,7 +550,7 @@ export const handleUnvoidedTx = async (context: Context) => {
   await mysql.beginTransaction();
 
   try {
-    const fullNodeEvent = context.event as FullNodeEvent;
+    const fullNodeEvent = context.event as StandardFullNodeEvent;
 
     const { hash } = fullNodeEvent.event.data;
 
@@ -574,7 +576,7 @@ export const handleTxFirstBlock = async (context: Context) => {
   await mysql.beginTransaction();
 
   try {
-    const fullNodeEvent = context.event as FullNodeEvent;
+    const fullNodeEvent = context.event as StandardFullNodeEvent;
 
     const {
       hash,
@@ -657,4 +659,59 @@ export const fetchInitialState = async () => {
     lastEventId: lastEvent?.last_event_id,
     rewardMinBlocks,
   };
+};
+
+export const handleReorgStarted = async (context: Context): Promise<void> => {
+  if (!context.event) {
+    throw new Error('No event in context');
+  }
+
+  const fullNodeEvent = context.event;
+  if (fullNodeEvent.event.type !== FullNodeEventTypes.REORG_STARTED) {
+    throw new Error('Invalid event type for REORG_STARTED');
+  }
+
+  const { reorg_size, previous_best_block, new_best_block, common_block } = fullNodeEvent.event.data;
+  const { REORG_SIZE_INFO, REORG_SIZE_MINOR, REORG_SIZE_MAJOR, REORG_SIZE_CRITICAL } = getConfig();
+
+  const metadata = {
+    reorg_size,
+    previous_best_block,
+    new_best_block,
+    common_block,
+  };
+
+  if (reorg_size >= REORG_SIZE_CRITICAL) {
+    await addAlert(
+      'Critical Reorg Detected',
+      `A critical reorg of size ${reorg_size} has occurred.`,
+      Severity.CRITICAL,
+      metadata,
+      logger,
+    );
+  } else if (reorg_size >= REORG_SIZE_MAJOR) {
+    await addAlert(
+      'Major Reorg Detected',
+      `A major reorg of size ${reorg_size} has occurred.`,
+      Severity.MAJOR,
+      metadata,
+      logger,
+    );
+  } else if (reorg_size >= REORG_SIZE_MINOR) {
+    await addAlert(
+      'Minor Reorg Detected',
+      `A minor reorg of size ${reorg_size} has occurred.`,
+      Severity.MINOR,
+      metadata,
+      logger,
+    );
+  } else if (reorg_size >= REORG_SIZE_INFO) {
+    await addAlert(
+      'Reorg Detected',
+      `A reorg of size ${reorg_size} has occurred.`,
+      Severity.INFO,
+      metadata,
+      logger,
+    );
+  }
 };

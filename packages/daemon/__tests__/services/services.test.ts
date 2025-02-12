@@ -29,6 +29,7 @@ import {
   handleVoidedTx,
   handleVertexAccepted,
   metadataDiff,
+  handleReorgStarted,
 } from '../../src/services';
 import logger from '../../src/logger';
 import {
@@ -42,13 +43,10 @@ import {
   generateAddresses,
 } from '../../src/utils';
 import getConfig from '../../src/config';
-
-jest.mock('../../src/config', () => {
-  return {
-    __esModule: true, // This property is needed for mocking a default export
-    default: jest.fn(() => ({})),
-  };
-});
+import { addAlert, Severity } from '@wallet-service/common';
+import { FullNodeEventTypes } from '../../src/types';
+import { Context } from '../../src/types';
+import { generateFullNodeEvent } from '../utils';
 
 jest.mock('@hathor/wallet-lib');
 jest.mock('../../src/logger', () => ({
@@ -108,6 +106,41 @@ jest.mock('../../src/utils', () => ({
   getWalletBalancesForTx: jest.fn(),
   generateAddresses: jest.fn(),
 }));
+
+jest.mock('@wallet-service/common', () => {
+  const addAlertMock = jest.fn();
+  return {
+    addAlert: addAlertMock,
+    Severity: {
+      INFO: 'INFO',
+      MINOR: 'MINOR',
+      MAJOR: 'MAJOR',
+      CRITICAL: 'CRITICAL',
+    },
+    NftUtils: {
+      shouldInvokeNftHandlerForTx: jest.fn().mockReturnValue(false),
+      invokeNftHandlerLambda: jest.fn(),
+    },
+  };
+});
+
+jest.mock('../../src/config', () => {
+  return {
+    __esModule: true, // This property is needed for mocking a default export
+    default: jest.fn(() => ({
+      REORG_SIZE_INFO: 1,
+      REORG_SIZE_MINOR: 3,
+      REORG_SIZE_MAJOR: 5,
+      REORG_SIZE_CRITICAL: 10,
+    })),
+    getConfig: jest.fn(() => ({
+      REORG_SIZE_INFO: 1,
+      REORG_SIZE_MINOR: 3,
+      REORG_SIZE_MAJOR: 5,
+      REORG_SIZE_CRITICAL: 10,
+    })),
+  };
+});
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -836,5 +869,167 @@ describe('metadataDiff', () => {
 
     const result = await metadataDiff({} as any, event as any);
     expect(result.type).toBe('TX_UNVOIDED');
+  });
+});
+
+describe('handleReorgStarted', () => {
+  beforeEach(() => {
+    (getConfig as jest.Mock).mockReturnValue({
+      REORG_SIZE_INFO: 1,
+      REORG_SIZE_MINOR: 3,
+      REORG_SIZE_MAJOR: 5,
+      REORG_SIZE_CRITICAL: 10,
+    });
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('should add INFO alert when reorg size equals REORG_SIZE_INFO', async () => {
+    const event = generateFullNodeEvent({
+      type: FullNodeEventTypes.REORG_STARTED,
+      data: {
+        reorg_size: 1,
+        previous_best_block: 'prev',
+        new_best_block: 'new',
+        common_block: 'common',
+      },
+    });
+
+    // @ts-ignore
+    await handleReorgStarted({ event } as Context);
+
+    expect(addAlert).toHaveBeenCalledWith(
+      'Reorg Detected',
+      'A reorg of size 1 has occurred.',
+      Severity.INFO,
+      {
+        reorg_size: 1,
+        previous_best_block: 'prev',
+        new_best_block: 'new',
+        common_block: 'common',
+      },
+      expect.anything(),
+    );
+  });
+
+  it('should add MINOR alert when reorg size is between REORG_SIZE_MINOR and REORG_SIZE_MAJOR', async () => {
+    const event = generateFullNodeEvent({
+      type: FullNodeEventTypes.REORG_STARTED,
+      data: {
+        reorg_size: 3,
+        previous_best_block: 'prev',
+        new_best_block: 'new',
+        common_block: 'common',
+      },
+    });
+
+    // @ts-ignore
+    await handleReorgStarted({ event } as Context);
+
+    expect(addAlert).toHaveBeenCalledWith(
+      'Minor Reorg Detected',
+      'A minor reorg of size 3 has occurred.',
+      Severity.MINOR,
+      {
+        reorg_size: 3,
+        previous_best_block: 'prev',
+        new_best_block: 'new',
+        common_block: 'common',
+      },
+      expect.anything(),
+    );
+  });
+
+  it('should add MAJOR alert when reorg size is between REORG_SIZE_MAJOR and REORG_SIZE_CRITICAL', async () => {
+    const event = generateFullNodeEvent({
+      type: FullNodeEventTypes.REORG_STARTED,
+      data: {
+        reorg_size: 7,
+        previous_best_block: 'prev',
+        new_best_block: 'new',
+        common_block: 'common',
+      },
+    });
+
+    // @ts-ignore
+    await handleReorgStarted({ event } as Context);
+
+    expect(addAlert).toHaveBeenCalledWith(
+      'Major Reorg Detected',
+      'A major reorg of size 7 has occurred.',
+      Severity.MAJOR,
+      {
+        reorg_size: 7,
+        previous_best_block: 'prev',
+        new_best_block: 'new',
+        common_block: 'common',
+      },
+      expect.anything(),
+    );
+  });
+
+  it('should add CRITICAL alert when reorg size is greater than REORG_SIZE_CRITICAL', async () => {
+    const event = generateFullNodeEvent({
+      type: FullNodeEventTypes.REORG_STARTED,
+      data: {
+        reorg_size: 11,
+        previous_best_block: 'prev',
+        new_best_block: 'new',
+        common_block: 'common',
+      },
+    });
+
+    // @ts-ignore
+    await handleReorgStarted({ event } as Context);
+
+    expect(addAlert).toHaveBeenCalledWith(
+      'Critical Reorg Detected',
+      'A critical reorg of size 11 has occurred.',
+      Severity.CRITICAL,
+      {
+        reorg_size: 11,
+        previous_best_block: 'prev',
+        new_best_block: 'new',
+        common_block: 'common',
+      },
+      expect.anything(),
+    );
+  });
+
+  it('should not add alert when reorg size is less than REORG_SIZE_INFO', async () => {
+    const event = generateFullNodeEvent({
+      type: FullNodeEventTypes.REORG_STARTED,
+      data: {
+        reorg_size: 0,
+        previous_best_block: 'prev',
+        new_best_block: 'new',
+        common_block: 'common',
+      },
+    });
+
+    // @ts-ignore
+    await handleReorgStarted({ event } as Context);
+
+    expect(addAlert).not.toHaveBeenCalled();
+  });
+
+  it('should throw error when event is missing', async () => {
+    await expect(handleReorgStarted({} as Context))
+      .rejects
+      .toThrow('No event in context');
+  });
+
+  it('should throw error when event type is incorrect', async () => {
+    const event = generateFullNodeEvent({
+      type: FullNodeEventTypes.VERTEX_METADATA_CHANGED,
+      data: {},
+    });
+
+    // @ts-ignore
+    await expect(handleReorgStarted({ event } as Context))
+      .rejects
+      .toThrow('Invalid event type for REORG_STARTED');
   });
 });
