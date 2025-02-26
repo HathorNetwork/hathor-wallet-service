@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { constants, Output, walletUtils } from '@hathor/wallet-lib';
+import { constants, Output, walletUtils, addressUtils } from '@hathor/wallet-lib';
 import { Connection as MysqlConnection } from 'mysql2/promise';
 import { strict as assert } from 'assert';
 import {
@@ -529,7 +529,11 @@ export const generateAddresses = async (
   // (more details in https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki#Change)
   // so we derive our xpub to this path and use it to get the addresses
   const derivedXpub = walletUtils.xpubDeriveChild(xpubkey, 0);
-  const addrMap = walletUtils.getAddresses(derivedXpub, startIndex, count, network);
+  const addrMap: StringMap<number> = {};
+  for (let index = startIndex; index < startIndex + count; index++) {
+    const address = addressUtils.deriveAddressFromXPubP2PKH(derivedXpub, index, network);
+    addrMap[address.base58] = index;
+  }
 
   return addrMap;
 };
