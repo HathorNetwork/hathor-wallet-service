@@ -26,7 +26,7 @@ import { APIGatewayProxyResult } from 'aws-lambda';
 import { ApiError } from '@src/api/errors';
 
 import hathorLib from '@hathor/wallet-lib';
-import CreateTokenTransaction from '@hathor/wallet-lib/lib/models/create_token_transaction';
+import CreateTokenTransaction from '@hathor/wallet-lib';
 
 const defaultDerivationPath = `m/44'/${hathorLib.constants.HATHOR_BIP44_CODE}'/0'/0/`;
 

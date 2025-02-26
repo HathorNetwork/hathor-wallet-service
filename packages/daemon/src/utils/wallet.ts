@@ -5,8 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-// @ts-ignore
-import hathorLib, { constants, Output } from '@hathor/wallet-lib';
+import { constants, Output, walletUtils } from '@hathor/wallet-lib';
 import { Connection as MysqlConnection } from 'mysql2/promise';
 import { strict as assert } from 'assert';
 import {
@@ -40,8 +39,6 @@ import {
   updateWalletLockedBalance,
 } from '../db';
 import logger from '../logger';
-// @ts-ignore
-import { walletUtils } from '@hathor/wallet-lib';
 import { stringMapIterator } from './helpers';
 
 /**
@@ -66,6 +63,7 @@ export const prepareOutputs = (outputs: EventTxOutput[], tokens: string[]): TxOu
 
   const preparedOutputs: [number, TxOutputWithIndex[]] = outputs.reduce(
     ([currIndex, newOutputs]: [number, TxOutputWithIndex[]], _output: EventTxOutput): [number, TxOutputWithIndex[]] => {
+      // XXX: Output typing makes no sense here, maybe we should convert from Output to the wallet-service's own TxOutput
       const output = new Output(_output.value, Buffer.from(_output.script, 'base64'), {
         tokenData: _output.token_data,
       });
@@ -185,7 +183,7 @@ export const unlockUtxos = async (mysql: MysqlConnection, utxos: DbTxOutput[], u
       decoded,
       locked: false,
       // set authority bit if necessary
-      token_data: utxo.authorities > 0 ? hathorLib.constants.TOKEN_AUTHORITY_MASK : 0,
+      token_data: utxo.authorities > 0 ? constants.TOKEN_AUTHORITY_MASK : 0,
       // we don't care about spent_by and script
       spent_by: null,
       script: '',

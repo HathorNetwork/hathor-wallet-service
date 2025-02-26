@@ -8,7 +8,6 @@
 import { LambdaClient, InvokeCommand, InvokeCommandOutput } from '@aws-sdk/client-lambda';
 import { addAlert } from './alerting.utils';
 import { Transaction, Severity } from '../types';
-// @ts-ignore
 import { Network, constants, CreateTokenTransaction, helpersUtils } from '@hathor/wallet-lib';
 import { Logger } from 'winston';
 

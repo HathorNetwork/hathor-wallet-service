@@ -5,7 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-// @ts-ignore
 import hathorLib from '@hathor/wallet-lib';
 import { Connection as MysqlConnection } from 'mysql2/promise';
 import axios from 'axios';
@@ -44,7 +43,6 @@ import {
   validateAddressBalances,
   getWalletBalancesForTx,
   getFullnodeHttpUrl,
-  sendMessageSQS,
   generateAddresses,
   sendRealtimeTx,
 } from '../utils';
