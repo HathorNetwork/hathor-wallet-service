@@ -21,7 +21,7 @@ import cors from '@middy/http-cors';
 import Joi from 'joi';
 
 const MAX_COUNT = parseInt(process.env.TX_HISTORY_MAX_COUNT || '50', 10);
-const htrToken = hathorLib.constants.HATHOR_TOKEN_CONFIG.uid;
+const htrToken = hathorLib.constants.NATIVE_TOKEN_UID;
 
 const paramsSchema = Joi.object({
   token_id: Joi.string()

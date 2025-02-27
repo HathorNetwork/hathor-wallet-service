@@ -305,7 +305,9 @@ export const maybeRefreshWalletConstants = async (mysql: ServerlessMysql): Promi
 
   if (!lastVersionData || now - lastVersionData.timestamp > VERSION_CHECK_MAX_DIFF) {
     // Query and update versions
-    const apiResponse = await hathorLib.version.checkApiVersion();
+    // XXX: DEC-0001
+    const apiResponse = await hathorLib.versionApi.asyncGetVersion();
+    // const apiResponse = await hathorLib.version.checkApiVersion();
     const versionData: FullNodeVersionData = {
       timestamp: now,
       version: apiResponse.version,
@@ -322,15 +324,16 @@ export const maybeRefreshWalletConstants = async (mysql: ServerlessMysql): Promi
 
     await updateVersionData(mysql, versionData);
   } else {
-    hathorLib.transaction.updateTransactionWeightConstants(
-      lastVersionData.minTxWeight,
-      lastVersionData.minTxWeightCoefficient,
-      lastVersionData.minTxWeightK,
-    );
-    hathorLib.tokens.updateDepositPercentage(lastVersionData.tokenDepositPercentage);
-    hathorLib.transaction.updateMaxInputsConstant(lastVersionData.maxNumberInputs);
-    hathorLib.transaction.updateMaxOutputsConstant(lastVersionData.maxNumberOutputs);
-    hathorLib.wallet.updateRewardLockConstant(lastVersionData.rewardSpendMinBlocks);
+    // XXX: DEC-0001
+    // hathorLib.transaction.updateTransactionWeightConstants(
+    //   lastVersionData.minTxWeight,
+    //   lastVersionData.minTxWeightCoefficient,
+    //   lastVersionData.minTxWeightK,
+    // );
+    // hathorLib.tokens.updateDepositPercentage(lastVersionData.tokenDepositPercentage);
+    // hathorLib.transaction.updateMaxInputsConstant(lastVersionData.maxNumberInputs);
+    // hathorLib.transaction.updateMaxOutputsConstant(lastVersionData.maxNumberOutputs);
+    // hathorLib.wallet.updateRewardLockConstant(lastVersionData.rewardSpendMinBlocks);
   }
 };
 

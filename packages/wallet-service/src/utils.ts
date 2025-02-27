@@ -18,6 +18,7 @@ import BIP32Factory from 'bip32';
 
 const bip32 = BIP32Factory(ecc);
 
+// XXX - Check effects of this storage
 /* TODO: We should remove this as soon as the wallet-lib is refactored
 *  (https://github.com/HathorNetwork/hathor-wallet-lib/issues/122)
 */
@@ -49,20 +50,21 @@ export class CustomStorage {
   }
 
   preStart(): void {
+    // XXX: DEC-0002
+    // DEFAULT_SERVER - 'https://node1.mainnet.hathor.network/v1a/'
     this.store = {
-      'wallet:server': process.env.DEFAULT_SERVER || hathorLib.constants.DEFAULT_SERVER,
-      'wallet:defaultServer': process.env.DEFAULT_SERVER || hathorLib.constants.DEFAULT_SERVER,
+      'wallet:server': process.env.DEFAULT_SERVER || 'https://node1.mainnet.hathor.network/v1a/',
+      'wallet:defaultServer': process.env.DEFAULT_SERVER || 'https://node1.mainnet.hathor.network/v1a/',
     };
   }
 }
 
 hathorLib.network.setNetwork(process.env.NETWORK);
-hathorLib.storage.setStore(new CustomStorage());
 
 const libNetwork = hathorLib.network.getNetwork();
 const hathorNetwork = {
   messagePrefix: '\x18Hathor Signed Message:\n',
-  bech32: hathorLib.network.bech32prefix,
+  bech32: libNetwork.bech32prefix,
   bip32: {
     public: libNetwork.xpubkey,
     private: libNetwork.xprivkey,

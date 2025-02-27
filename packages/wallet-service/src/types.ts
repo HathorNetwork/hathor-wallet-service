@@ -111,9 +111,9 @@ export class TokenInfo {
     this.symbol = symbol;
     this.transactions = transactions || 0;
 
-    const hathorConfig = hathorLib.constants.HATHOR_TOKEN_CONFIG;
+    const hathorConfig = hathorLib.constants.DEFAULT_NATIVE_TOKEN_CONFIG;
 
-    if (this.id === hathorConfig.uid) {
+    if (this.id === hathorLib.constants.NATIVE_TOKEN_UID) {
       this.name = hathorConfig.name;
       this.symbol = hathorConfig.symbol;
     }
