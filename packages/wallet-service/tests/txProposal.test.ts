@@ -747,12 +747,14 @@ test('PUT /txproposals/{proposalId} with an invalid txHex should fail and update
   // Create the spy to mock wallet-lib
   const spy = jest.spyOn(hathorLib.axios, 'createRequestInstance');
   spy.mockReturnValue({
+    // @ts-ignore
     post: () => Promise.resolve({
       data: {
         success: false,
         message: 'invalid txhex',
       },
     }),
+    // @ts-ignore
     get: () => Promise.resolve({
       data: {
         success: true,
@@ -896,6 +898,7 @@ test('PUT /txproposals/{proposalId} should update tx_proposal to SEND_ERROR on f
     post: () => {
       throw new Error('Wallet lib error');
     },
+    // @ts-ignore
     get: () => Promise.resolve({
       data: {
         success: true,
@@ -1529,9 +1532,11 @@ test('PUT /txproposals/{proposalId} with txhex', async () => {
   // Create the spy to mock wallet-lib
   const spy = jest.spyOn(hathorLib.axios, 'createRequestInstance');
   spy.mockReturnValue({
+    // @ts-ignore
     post: () => Promise.resolve({
       data: { success: true },
     }),
+    // @ts-ignore
     get: () => Promise.resolve({
       data: {
         success: true,
@@ -1669,9 +1674,11 @@ test('PUT /txproposals/{proposalId} with a different txhex than the one sent in 
   // Create the spy to mock wallet-lib
   const spy = jest.spyOn(hathorLib.axios, 'createRequestInstance');
   spy.mockReturnValue({
+    // @ts-ignore
     post: () => Promise.resolve({
       data: { success: true },
     }),
+    // @ts-ignore
     get: () => Promise.resolve({
       data: {
         success: true,

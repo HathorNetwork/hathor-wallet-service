@@ -533,11 +533,13 @@ test('maybeRefreshWalletConstants with an uninitialized version_data database sh
   }));
 
   spy.mockReturnValue({
+    // @ts-ignore
     post: () => Promise.resolve({
       data: {
         success: true,
       },
     }),
+    // @ts-ignore
     get: mockGet,
   });
 
