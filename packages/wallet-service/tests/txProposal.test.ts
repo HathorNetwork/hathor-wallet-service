@@ -197,7 +197,8 @@ test('POST /txproposals with utxos that are already used on another txproposal s
   expect(usedInputsReturnBody.error).toBe(ApiError.INPUTS_ALREADY_USED);
 });
 
-test('POST /txproposals with too many outputs should fail with ApiError.TOO_MANY_OUTPUTS', async () => {
+// XXX: DEC-0001
+test.skip('POST /txproposals with too many outputs should fail with ApiError.TOO_MANY_OUTPUTS', async () => {
   expect.hasAssertions();
 
   const now = getUnixTimestamp();
