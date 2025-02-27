@@ -1,4 +1,3 @@
-// @ts-ignore: Using old wallet-lib version, no types exported
 import hathorLib from '@hathor/wallet-lib';
 import { mockedAddAlert } from './alerting.utils.mock';
 import { NftUtils } from '@src/utils/nft.utils';
@@ -96,7 +95,6 @@ describe('isTransactionNFTCreation', () => {
 
     // Preparing mocks
     const spyCreateTx = jest.spyOn(hathorLib.helpersUtils, 'createTxFromHistoryObject');
-    spyCreateTx.mockImplementation(() => ({}));
     let tx;
     let result;
 
@@ -265,7 +263,7 @@ describe('_updateMetadata', () => {
     });
 
     // eslint-disable-next-line jest/valid-expect
-    expect(NftUtils._updateMetadata('sampleUid', { sampleData: 'fake' }, network, logger))
+    expect(NftUtils._updateMetadata('sampleUid', { sampleData: 'fake' }, 3, logger))
       .rejects.toThrow(new Error('Metadata update failed for tx_id: sampleUid.'));
   });
 });
