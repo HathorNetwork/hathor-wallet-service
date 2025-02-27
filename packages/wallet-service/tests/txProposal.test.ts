@@ -25,8 +25,7 @@ import { APIGatewayProxyResult } from 'aws-lambda';
 
 import { ApiError } from '@src/api/errors';
 
-import hathorLib from '@hathor/wallet-lib';
-import CreateTokenTransaction from '@hathor/wallet-lib';
+import hathorLib, { CreateTokenTransaction } from '@hathor/wallet-lib';
 
 const defaultDerivationPath = `m/44'/${hathorLib.constants.HATHOR_BIP44_CODE}'/0'/0/`;
 
@@ -236,7 +235,7 @@ test('POST /txproposals with too many outputs should fail with ApiError.TOO_MANY
   const token1 = '004d75c1edd4294379e7e5b7ab6c118c53c8b07a506728feb5688c8d26a97e50';
   const token2 = '002f2bcc3261b4fb8510a458ed9df9f6ba2a413ee35901b3c5f81b0c085287e2';
 
-  const utxos = [
+  const utxos: [string, number, string, string, number, number, null, null, boolean][] = [
     ['004d75c1edd4294379e7e5b7ab6c118c53c8b07a506728feb5688c8d26a97e50', 0, token1, ADDRESSES[0], 300, 0, null, null, false],
     ['0000001e39bc37fe8710c01cc1e8c0a937bf6f9337551fbbfddc222bfc28c197', 0, token1, ADDRESSES[0], 100, 0, null, null, false],
     ['00000060a25077e48926bcd9473d77259296e123ec6af1c1a16c1c381093ab90', 0, token2, ADDRESSES[0], 300, 0, null, null, false],
@@ -1510,9 +1509,7 @@ test('POST /txproposals a tx create action on txHex', async () => {
 
   const name = 'Test token';
   const symbol = 'TSTKN';
-  const transaction = new CreateTokenTransaction(name, symbol, inputs, outputs, {
-    version: hathorLib.constants.CREATE_TOKEN_TX_VERSION,
-  });
+  const transaction = new CreateTokenTransaction(name, symbol, inputs, outputs);
 
   const txHex = transaction.toHex();
   const event = makeGatewayEventWithAuthorizer('my-wallet', null, JSON.stringify({ txHex }));

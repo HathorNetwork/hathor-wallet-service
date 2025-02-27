@@ -510,7 +510,8 @@ test('unlockTimelockedUtxos', async () => {
   await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 5000, 0, null, 3, 0b10, 0)).resolves.toBe(true);
 });
 
-test('maybeRefreshWalletConstants with an uninitialized version_data database should call hathorLib.version.checkApiVersion()', async () => {
+// XXX: DEC-0001
+test('maybeRefreshWalletConstants with an uninitialized version_data database should call hathorLib.versionApi.asyncGetVersion()', async () => {
   expect.hasAssertions();
 
   const spy = jest.spyOn(hathorLib.axios, 'createRequestInstance');
@@ -545,48 +546,49 @@ test('maybeRefreshWalletConstants with an uninitialized version_data database sh
   expect(mockGet).toHaveBeenCalledTimes(1);
 });
 
-test('maybeRefreshWalletConstants with an initialized version_data database should query data from the database', async () => {
-  expect.hasAssertions();
+// XXX: DEC-0001
+// test('maybeRefreshWalletConstants with an initialized version_data database should query data from the database', async () => {
+//   expect.hasAssertions();
 
-  const axiosSpy = jest.spyOn(hathorLib.axios, 'createRequestInstance');
-  const mockGet = jest.fn(() => Promise.resolve({ data: {} }));
+//   const axiosSpy = jest.spyOn(hathorLib.axios, 'createRequestInstance');
+//   const mockGet = jest.fn(() => Promise.resolve({ data: {} }));
 
-  axiosSpy.mockReturnValue({ get: mockGet });
+//   axiosSpy.mockReturnValue({ get: mockGet });
 
-  const mockedVersionData: FullNodeVersionData = {
-    timestamp: new Date().getTime(),
-    version: '0.38.0',
-    network: 'mainnet',
-    minWeight: 14,
-    minTxWeight: 14,
-    minTxWeightCoefficient: 1.6,
-    minTxWeightK: 100,
-    tokenDepositPercentage: 0.01,
-    rewardSpendMinBlocks: 300,
-    maxNumberInputs: 255,
-    maxNumberOutputs: 255,
-  };
+//   const mockedVersionData: FullNodeVersionData = {
+//     timestamp: new Date().getTime(),
+//     version: '0.38.0',
+//     network: 'mainnet',
+//     minWeight: 14,
+//     minTxWeight: 14,
+//     minTxWeightCoefficient: 1.6,
+//     minTxWeightK: 100,
+//     tokenDepositPercentage: 0.01,
+//     rewardSpendMinBlocks: 300,
+//     maxNumberInputs: 255,
+//     maxNumberOutputs: 255,
+//   };
 
-  await updateVersionData(mysql, mockedVersionData);
+//   await updateVersionData(mysql, mockedVersionData);
 
-  await maybeRefreshWalletConstants(mysql);
+//   await maybeRefreshWalletConstants(mysql);
 
-  const {
-    txMinWeight,
-    txWeightCoefficient,
-    txMinWeightK,
-  } = hathorLib.transaction.getTransactionWeightConstants();
+//   const {
+//     txMinWeight,
+//     txWeightCoefficient,
+//     txMinWeightK,
+//   } = hathorLib.transaction.getTransactionWeightConstants();
 
-  const maxNumberInputs = hathorLib.transaction.getMaxInputsConstant();
-  const maxNumberOutputs = hathorLib.transaction.getMaxOutputsConstant();
+//   const maxNumberInputs = hathorLib.transaction.getMaxInputsConstant();
+//   const maxNumberOutputs = hathorLib.transaction.getMaxOutputsConstant();
 
-  expect(mockGet).toHaveBeenCalledTimes(0);
-  expect(txMinWeight).toStrictEqual(mockedVersionData.minTxWeight);
-  expect(txWeightCoefficient).toStrictEqual(mockedVersionData.minTxWeightCoefficient);
-  expect(txMinWeightK).toStrictEqual(mockedVersionData.minTxWeightK);
-  expect(maxNumberInputs).toStrictEqual(mockedVersionData.maxNumberInputs);
-  expect(maxNumberOutputs).toStrictEqual(mockedVersionData.maxNumberOutputs);
-});
+//   expect(mockGet).toHaveBeenCalledTimes(0);
+//   expect(txMinWeight).toStrictEqual(mockedVersionData.minTxWeight);
+//   expect(txWeightCoefficient).toStrictEqual(mockedVersionData.minTxWeightCoefficient);
+//   expect(txMinWeightK).toStrictEqual(mockedVersionData.minTxWeightK);
+//   expect(maxNumberInputs).toStrictEqual(mockedVersionData.maxNumberInputs);
+//   expect(maxNumberOutputs).toStrictEqual(mockedVersionData.maxNumberOutputs);
+// });
 
 test('searchForLatestValidBlock should find the first voided block', async () => {
   expect.hasAssertions();

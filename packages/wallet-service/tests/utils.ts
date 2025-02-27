@@ -12,7 +12,7 @@ import {
 } from '@src/types';
 import { TxInput } from '@wallet-service/common/src/types';
 import { getWalletId } from '@src/utils';
-import { walletUtils, Network, network, HathorWalletServiceWallet } from '@hathor/wallet-lib';
+import { addressUtils, walletUtils, Network, network, HathorWalletServiceWallet } from '@hathor/wallet-lib';
 import {
   AddressTxHistoryTableEntry,
   AddressTableEntry,
@@ -920,7 +920,8 @@ export const redisCleanup = (
 export const getAuthData = (now: number): any => {
   // get the first address
   const xpubChangeDerivation = walletUtils.xpubDeriveChild(XPUBKEY, 0);
-  const firstAddress = walletUtils.getAddressAtIndex(xpubChangeDerivation, 0, process.env.NETWORK);
+  const firstAddressData = addressUtils.deriveAddressFromXPubP2PKH(xpubChangeDerivation, 0, process.env.NETWORK);
+  const firstAddress = firstAddressData.base58;
 
   // we need signatures for both the account path and the purpose path:
   const walletId = getWalletId(XPUBKEY);

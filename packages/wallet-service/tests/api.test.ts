@@ -30,7 +30,7 @@ import { ApiError } from '@src/api/errors';
 import { closeDbConnection, getDbConnection, getUnixTimestamp, getWalletId } from '@src/utils';
 import { STATUS_CODE_TABLE } from '@src/api/utils';
 import { WalletStatus, FullNodeVersionData } from '@src/types';
-import { walletUtils, constants, network, HathorWalletServiceWallet } from '@hathor/wallet-lib';
+import { walletUtils, addressUtils, constants, network, HathorWalletServiceWallet } from '@hathor/wallet-lib';
 import bitcore from 'bitcore-lib';
 import {
   ADDRESSES,
@@ -793,7 +793,8 @@ test('POST /wallet', async () => {
 
   // get the first address
   const xpubChangeDerivation = walletUtils.xpubDeriveChild(XPUBKEY, 0);
-  const firstAddress = walletUtils.getAddressAtIndex(xpubChangeDerivation, 0, process.env.NETWORK);
+  const firstAddressData = addressUtils.deriveAddressFromXPubP2PKH(xpubChangeDerivation, 0, process.env.NETWORK);
+  const firstAddress = firstAddressData.base58;
 
   // Wrong first address
   event = makeGatewayEvent({}, JSON.stringify({
@@ -926,7 +927,8 @@ test('POST /wallet should fail with ApiError.WALLET_MAX_RETRIES when max retries
 
   // get the first address
   const xpubChangeDerivation = walletUtils.xpubDeriveChild(XPUBKEY, 0);
-  const firstAddress = walletUtils.getAddressAtIndex(xpubChangeDerivation, 0, process.env.NETWORK);
+  const firstAddressData = addressUtils.deriveAddressFromXPubP2PKH(xpubChangeDerivation, 0, process.env.NETWORK);
+  const firstAddress = firstAddressData.base58;
 
   // we need signatures for both the account path and the purpose path:
   const now = Math.floor(Date.now() / 1000);
@@ -1157,7 +1159,8 @@ test('PUT /wallet/auth should change the auth_xpub only after validating both th
 
   // get the first address
   const xpubChangeDerivation = walletUtils.xpubDeriveChild(XPUBKEY, 0);
-  const firstAddress = walletUtils.getAddressAtIndex(xpubChangeDerivation, 0, process.env.NETWORK);
+  const firstAddressData = addressUtils.deriveAddressFromXPubP2PKH(xpubChangeDerivation, 0, process.env.NETWORK);
+  const firstAddress = firstAddressData.base58;
 
   // we need signatures for both the account path and the purpose path:
   const now = Math.floor(Date.now() / 1000);
@@ -1181,7 +1184,8 @@ test('loadWallet API should fail if a wrong signature is sent', async () => {
   expect.hasAssertions();
 
   const xpubChangeDerivation = walletUtils.xpubDeriveChild(XPUBKEY, 0);
-  const firstAddress = walletUtils.getAddressAtIndex(xpubChangeDerivation, 0, process.env.NETWORK);
+  const firstAddressData = addressUtils.deriveAddressFromXPubP2PKH(xpubChangeDerivation, 0, process.env.NETWORK);
+  const firstAddress = firstAddressData.base58;
 
   const now = Math.floor(Date.now() / 1000);
   const walletId = getWalletId(XPUBKEY);
@@ -1522,7 +1526,7 @@ test('GET /wallet/tokens/token_id/details', async () => {
   expect(returnBody.details.authorities.melt).toStrictEqual(true);
   expect(returnBody.details.tokenInfo).toStrictEqual(token2);
 
-  event = makeGatewayEventWithAuthorizer('my-wallet', { token_id: constants.HATHOR_TOKEN_CONFIG.uid });
+  event = makeGatewayEventWithAuthorizer('my-wallet', { token_id: constants.NATIVE_TOKEN_UID });
   result = await getTokenDetails(event, null, null) as APIGatewayProxyResult;
   returnBody = JSON.parse(result.body as string);
 
@@ -1539,11 +1543,12 @@ test('GET /wallet/tokens/token_id/details', async () => {
   ]
   `);
 
-  const oldHathorTokenConfig = constants.HATHOR_TOKEN_CONFIG.uid;
+  const oldHathorTokenConfig = constants.NATIVE_TOKEN_UID;
 
-  constants.HATHOR_TOKEN_CONFIG.uid = TX_IDS[4];
+  // @ts-ignore
+  constants.NATIVE_TOKEN_UID = TX_IDS[4];
 
-  event = makeGatewayEventWithAuthorizer('my-wallet', { token_id: constants.HATHOR_TOKEN_CONFIG.uid });
+  event = makeGatewayEventWithAuthorizer('my-wallet', { token_id: constants.NATIVE_TOKEN_UID });
   result = await getTokenDetails(event, null, null) as APIGatewayProxyResult;
   returnBody = JSON.parse(result.body as string);
 
@@ -1551,7 +1556,8 @@ test('GET /wallet/tokens/token_id/details', async () => {
   expect(returnBody.success).toBe(false);
   expect(returnBody.details).toStrictEqual([{ message: 'Invalid tokenId' }]);
 
-  constants.HATHOR_TOKEN_CONFIG.uid = oldHathorTokenConfig;
+  // @ts-ignore
+  constants.NATIVE_TOKEN_UID = oldHathorTokenConfig;
 });
 
 test('GET /wallet/utxos', async () => {

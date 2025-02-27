@@ -3,13 +3,14 @@ import hathorLib from '@hathor/wallet-lib';
 import * as Fullnode from '@src/fullnode';
 import { TEST_SEED, XPUBKEY, AUTH_XPUBKEY, ADDRESSES } from '@tests/utils';
 
+// XXX: DEC-0002
 test('CustomStorage', () => {
   expect.hasAssertions();
 
   const store = new CustomStorage();
   // Should be initialized with hathor default server and server
-  expect(store.getItem('wallet:defaultServer')).toBe(hathorLib.constants.DEFAULT_SERVER);
-  expect(store.getItem('wallet:server')).toBe(hathorLib.constants.DEFAULT_SERVER);
+  expect(store.getItem('wallet:defaultServer')).toBe('https://node1.mainnet.hathor.network/v1a/');
+  expect(store.getItem('wallet:server')).toBe('https://node1.mainnet.hathor.network/v1a/');
 
   store.setItem('hathor', 'hathor');
   expect(store.getItem('hathor')).toBe('hathor');
@@ -22,8 +23,8 @@ test('CustomStorage', () => {
   expect(store.getItem('hathor')).toBeUndefined();
 
   store.preStart();
-  expect(store.getItem('wallet:defaultServer')).toBe(hathorLib.constants.DEFAULT_SERVER);
-  expect(store.getItem('wallet:server')).toBe(hathorLib.constants.DEFAULT_SERVER);
+  expect(store.getItem('wallet:defaultServer')).toBe('https://node1.mainnet.hathor.network/v1a/');
+  expect(store.getItem('wallet:server')).toBe('https://node1.mainnet.hathor.network/v1a/');
 });
 
 test('sha256d', () => {
@@ -89,6 +90,10 @@ test('XPUBKEY, AUTH_XPUBKEY and ADDRESSES should be derived from TEST_SEED', asy
 
   // Generate addresses in change derivation path 0
   const derivedXpub = hathorLib.walletUtils.xpubDeriveChild(xpubkey, 0);
-  const addresses = Object.keys(hathorLib.walletUtils.getAddresses(derivedXpub, 0, 17));
+  const addresses: string[] = [];
+  for (let index = 0; index < 17; index++) {
+    const addressInfo = hathorLib.addressUtils.deriveAddressFromXPubP2PKH(derivedXpub, index, 'mainnet');
+    addresses.push(addressInfo.base58);
+  }
   expect(addresses).toStrictEqual(ADDRESSES);
 });
