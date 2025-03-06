@@ -1984,7 +1984,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@hapi/hoek@npm:^9.0.0":
+"@hapi/hoek@npm:^9.0.0, @hapi/hoek@npm:^9.3.0":
   version: 9.3.0
   resolution: "@hapi/hoek@npm:9.3.0"
   checksum: 10/ad83a223787749f3873bce42bd32a9a19673765bf3edece0a427e138859ff729469e68d5fdf9ff6bbee6fb0c8e21bab61415afa4584f527cfc40b59ea1957e70
@@ -2105,7 +2105,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@hapi/topo@npm:^5.0.0":
+"@hapi/topo@npm:^5.0.0, @hapi/topo@npm:^5.1.0":
   version: 5.1.0
   resolution: "@hapi/topo@npm:5.1.0"
   dependencies:
@@ -2871,7 +2871,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@sideway/address@npm:^4.1.0":
+"@sideway/address@npm:^4.1.0, @sideway/address@npm:^4.1.5":
   version: 4.1.5
   resolution: "@sideway/address@npm:4.1.5"
   dependencies:
@@ -2880,7 +2880,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@sideway/formula@npm:^3.0.0":
+"@sideway/formula@npm:^3.0.0, @sideway/formula@npm:^3.0.1":
   version: 3.0.1
   resolution: "@sideway/formula@npm:3.0.1"
   checksum: 10/8d3ee7f80df4e5204b2cbe92a2a711ca89684965a5c9eb3b316b7051212d3522e332a65a0bb2a07cc708fcd1d0b27fcb30f43ff0bcd5089d7006c7160a89eefe
@@ -4211,6 +4211,15 @@ __metadata:
     expect: "npm:^29.0.0"
     pretty-format: "npm:^29.0.0"
   checksum: 10/c56081b958c06f4f3a30f7beabf4e94e70db96a4b41b8a73549fea7f9bf0a8c124ab3998ea4e6d040d1b8c95cfbe0b8d4a607da4bdea03c9e116f92c147df193
+  languageName: node
+  linkType: hard
+
+"@types/joi@npm:^17.2.3":
+  version: 17.2.3
+  resolution: "@types/joi@npm:17.2.3"
+  dependencies:
+    joi: "npm:*"
+  checksum: 10/f26d0132b4e16d667176a0dce52a013fce1557a9d7a7b68c67e1bdb1ca470a221e638f2ad4566ca8fcfad544ca0845f6e241b3e86cb387ffee07910bad1147bb
   languageName: node
   linkType: hard
 
@@ -11079,6 +11088,19 @@ __metadata:
   languageName: node
   linkType: hard
 
+"joi@npm:*":
+  version: 17.13.3
+  resolution: "joi@npm:17.13.3"
+  dependencies:
+    "@hapi/hoek": "npm:^9.3.0"
+    "@hapi/topo": "npm:^5.1.0"
+    "@sideway/address": "npm:^4.1.5"
+    "@sideway/formula": "npm:^3.0.1"
+    "@sideway/pinpoint": "npm:^2.0.0"
+  checksum: 10/4c150db0c820c3a52f4a55c82c1fc5e144a5b5f4da9ffebc7339a15469d1a447ebb427ced446efcb9709ab56bd71a06c4c67c9381bc1b9f9ae63fc7c89209bdf
+  languageName: node
+  linkType: hard
+
 "joi@npm:17.4.0":
   version: 17.4.0
   resolution: "joi@npm:17.4.0"
@@ -16227,6 +16249,7 @@ __metadata:
     "@middy/http-cors": "npm:2.5.7"
     "@types/aws-lambda": "npm:8.10.95"
     "@types/jest": "npm:^29.5.13"
+    "@types/joi": "npm:^17.2.3"
     "@types/node": "npm:18.0.4"
     "@types/redis": "npm:2.8.28"
     "@typescript-eslint/eslint-plugin": "npm:6.7.4"

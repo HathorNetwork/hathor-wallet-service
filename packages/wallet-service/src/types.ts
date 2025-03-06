@@ -51,6 +51,9 @@ export interface FullNodeVersionData {
   rewardSpendMinBlocks: number;
   maxNumberInputs: number;
   maxNumberOutputs: number;
+  decimalPlaces: number;
+  nativeTokenName: string;
+  nativeTokenSymbol: string;
 }
 
 export interface TxProposal {

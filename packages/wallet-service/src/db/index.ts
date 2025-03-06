@@ -1600,6 +1600,9 @@ export const updateVersionData = async (mysql: ServerlessMysql, data: FullNodeVe
     reward_spend_min_blocks: data.rewardSpendMinBlocks,
     max_number_inputs: data.maxNumberInputs,
     max_number_outputs: data.maxNumberOutputs,
+    decimal_places: data.decimalPlaces,
+    native_token_name: data.nativeTokenName,
+    native_token_symbol: data.nativeTokenSymbol,
   };
 
   await mysql.query(
@@ -1632,6 +1635,10 @@ export const getVersionData = async (mysql: ServerlessMysql): Promise<FullNodeVe
       rewardSpendMinBlocks: data.reward_spend_min_blocks as number,
       maxNumberInputs: data.max_number_inputs as number,
       maxNumberOutputs: data.max_number_outputs as number,
+      // FIXME: update values after migration
+      decimalPlaces: 2,
+      nativeTokenName: 'Hathor',
+      nativeTokenSymbol: 'HTR',
     };
 
     return entry;
