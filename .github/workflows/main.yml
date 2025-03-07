@@ -114,6 +114,8 @@ jobs:
         ALERT_MANAGER_REGION: us-east-1
         ALERT_MANAGER_TOPIC: alert-topic
         PUSH_ALLOWED_PROVIDERS: ""
+        REDIS_HOST: 127.0.0.1
+        REDIS_PORT: 6379
 
     - name: Run integration tests on the daemon
       run: |
