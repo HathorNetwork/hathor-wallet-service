@@ -6,7 +6,7 @@
  */
 
 import Joi from 'joi';
-import { FullNodeApiVersionResponse } from '@src/types';
+import { FullNodeApiVersionResponse, EnvironmentConfig } from '@src/types';
 
 export const FullnodeVersionSchema = Joi.object<FullNodeApiVersionResponse>({
   version: Joi.string().min(1).required(),
