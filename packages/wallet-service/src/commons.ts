@@ -295,49 +295,6 @@ export const getWalletBalances = async (
 };
 
 /**
- * Updates the wallet-lib constants if needed.
- *
- * @returns {Promise<void>} A promise that resolves when the wallet-lib constants have been set.
- */
-export const maybeRefreshWalletConstants = async (mysql: ServerlessMysql): Promise<void> => {
-  const lastVersionData: FullNodeVersionData = await getVersionData(mysql);
-  const now = getUnixTimestamp();
-
-  if (!lastVersionData || now - lastVersionData.timestamp > VERSION_CHECK_MAX_DIFF) {
-    // Query and update versions
-    // XXX: DEC-0001
-    const apiResponse = await hathorLib.versionApi.asyncGetVersion();
-    // const apiResponse = await hathorLib.version.checkApiVersion();
-    const versionData: FullNodeVersionData = {
-      timestamp: now,
-      version: apiResponse.version,
-      network: apiResponse.network,
-      minWeight: apiResponse.min_weight,
-      minTxWeight: apiResponse.min_tx_weight,
-      minTxWeightCoefficient: apiResponse.min_tx_weight_coefficient,
-      minTxWeightK: apiResponse.min_tx_weight_k,
-      tokenDepositPercentage: apiResponse.token_deposit_percentage,
-      rewardSpendMinBlocks: apiResponse.reward_spend_min_blocks,
-      maxNumberInputs: apiResponse.max_number_inputs,
-      maxNumberOutputs: apiResponse.max_number_outputs,
-    };
-
-    await updateVersionData(mysql, versionData);
-  } else {
-    // XXX: DEC-0001
-    // hathorLib.transaction.updateTransactionWeightConstants(
-    //   lastVersionData.minTxWeight,
-    //   lastVersionData.minTxWeightCoefficient,
-    //   lastVersionData.minTxWeightK,
-    // );
-    // hathorLib.tokens.updateDepositPercentage(lastVersionData.tokenDepositPercentage);
-    // hathorLib.transaction.updateMaxInputsConstant(lastVersionData.maxNumberInputs);
-    // hathorLib.transaction.updateMaxOutputsConstant(lastVersionData.maxNumberOutputs);
-    // hathorLib.wallet.updateRewardLockConstant(lastVersionData.rewardSpendMinBlocks);
-  }
-};
-
-/**
  * Searches our blocks database for the last block that is not voided.
  *
  * @param mysql - Database connection

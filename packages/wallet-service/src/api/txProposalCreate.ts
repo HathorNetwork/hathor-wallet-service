@@ -10,7 +10,7 @@ import { v4 as uuidv4 } from 'uuid';
 import Joi from 'joi';
 
 import { ApiError } from '@src/api/errors';
-import { maybeRefreshWalletConstants, walletIdProxyHandler } from '@src/commons';
+import { walletIdProxyHandler } from '@src/commons';
 import {
   createTxProposal,
   getUtxos,
@@ -29,6 +29,7 @@ import { closeDbConnection, getDbConnection, getUnixTimestamp } from '@src/utils
 import middy from '@middy/core';
 import cors from '@middy/http-cors';
 import { constants, Network, Transaction, helpersUtils } from '@hathor/wallet-lib';
+import { getFullnodeData } from '@src/nodeConfig';
 
 const mysql = getDbConnection();
 
@@ -42,7 +43,7 @@ const bodySchema = Joi.object({
  * This lambda is called by API Gateway on POST /txproposals
  */
 export const create = middy(walletIdProxyHandler(async (walletId, event) => {
-  await maybeRefreshWalletConstants(mysql);
+  const versionData = await getFullnodeData(mysql);
 
   const eventBody = (function parseBody(body) {
     try {
@@ -69,8 +70,7 @@ export const create = middy(walletIdProxyHandler(async (walletId, event) => {
   const body = value;
   const tx: Transaction = helpersUtils.createTxFromHex(body.txHex, new Network(process.env.NETWORK));
 
-  // XXX: DEC-0001
-  if (tx.outputs.length > constants.MAX_OUTPUTS) {
+  if (tx.outputs.length > versionData.maxNumberOutputs) {
     return closeDbAndGetError(mysql, ApiError.TOO_MANY_OUTPUTS, { outputs: tx.outputs.length });
   }
 
@@ -111,7 +111,7 @@ export const create = middy(walletIdProxyHandler(async (walletId, event) => {
     return closeDbAndGetError(mysql, ApiError.INPUTS_ALREADY_USED);
   }
 
-  if (inputUtxos.length > constants.MAX_OUTPUTS) {
+  if (inputUtxos.length > versionData.maxNumberOutputs) {
     return closeDbAndGetError(mysql, ApiError.TOO_MANY_INPUTS, { inputs: inputUtxos.length });
   }
 

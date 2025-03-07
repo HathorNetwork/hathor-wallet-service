@@ -39,6 +39,7 @@ import {
   PushDevice,
   TxByIdToken,
   PushDeviceSettings,
+  FullNodeApiVersionResponse,
 } from '@src/types';
 import {
   getUnixTimestamp,
@@ -57,6 +58,7 @@ import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 import { TxInput, Severity } from '@wallet-service/common/src/types';
 import { Logger } from 'winston';
 import createDefaultLogger from '@src/logger';
+import { FullnodeVersionSchema } from '@src/schemas';
 
 const logger: Logger = createDefaultLogger();
 
@@ -1586,23 +1588,11 @@ export const getWalletUnlockedUtxos = async (
  * @param mysql - Database connection
  * @param data - Latest version data to store
  */
-export const updateVersionData = async (mysql: ServerlessMysql, data: FullNodeVersionData): Promise<void> => {
+export const updateVersionData = async (mysql: ServerlessMysql, timestamp: number, data: FullNodeApiVersionResponse): Promise<void> => {
   const entry = {
     id: 1,
-    timestamp: data.timestamp,
-    version: data.version,
-    network: data.network,
-    min_weight: data.minWeight,
-    min_tx_weight: data.minTxWeight,
-    min_tx_weight_coefficient: data.minTxWeightCoefficient,
-    min_tx_weight_k: data.minTxWeightK,
-    token_deposit_percentage: data.tokenDepositPercentage,
-    reward_spend_min_blocks: data.rewardSpendMinBlocks,
-    max_number_inputs: data.maxNumberInputs,
-    max_number_outputs: data.maxNumberOutputs,
-    decimal_places: data.decimalPlaces,
-    native_token_name: data.nativeTokenName,
-    native_token_symbol: data.nativeTokenSymbol,
+    timestamp,
+    data: JSON.stringify(data),
   };
 
   await mysql.query(
@@ -1617,31 +1607,22 @@ export const updateVersionData = async (mysql: ServerlessMysql, data: FullNodeVe
  * @param mysql - Database connection
  * @returns
  */
-export const getVersionData = async (mysql: ServerlessMysql): Promise<FullNodeVersionData | null> => {
+export const getVersionData = async (mysql: ServerlessMysql): Promise<{ timestamp: number, data: FullNodeApiVersionResponse } | null> => {
   const results: DbSelectResult = await mysql.query('SELECT * FROM `version_data` WHERE id = 1 LIMIT 1;');
 
   if (results.length > 0) {
     const data = results[0];
 
-    const entry: FullNodeVersionData = {
-      timestamp: data.timestamp as number,
-      version: data.version as string,
-      network: data.network as string,
-      minWeight: data.min_weight as number,
-      minTxWeight: data.min_tx_weight as number,
-      minTxWeightCoefficient: data.min_tx_weight_coefficient as number,
-      minTxWeightK: data.min_tx_weight_k as number,
-      tokenDepositPercentage: data.token_deposit_percentage as number,
-      rewardSpendMinBlocks: data.reward_spend_min_blocks as number,
-      maxNumberInputs: data.max_number_inputs as number,
-      maxNumberOutputs: data.max_number_outputs as number,
-      // FIXME: update values after migration
-      decimalPlaces: 2,
-      nativeTokenName: 'Hathor',
-      nativeTokenSymbol: 'HTR',
-    };
+    const entry: FullNodeApiVersionResponse = JSON.parse(data.data as string);
+    const { error } = FullnodeVersionSchema.validate(entry);
+    if (error) {
+      throw error;
+    }
 
-    return entry;
+    return {
+      timestamp: data.timestamp as number,
+      data: entry as FullNodeApiVersionResponse,
+    };
   }
 
   return null;

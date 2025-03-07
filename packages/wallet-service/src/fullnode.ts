@@ -8,51 +8,11 @@
 import axios from 'axios';
 import Joi from 'joi';
 import config from '@src/config';
+import { FullNodeApiVersionResponse } from '@src/types';
+import { FullnodeVersionSchema } from '@src/schemas';
 
 export const BASE_URL = config.defaultServer;
 export const TIMEOUT = 10000;
-
-/**
- * Fullnode API response.
- */
-interface FullnodeApiVersionResponse {
-  version: string;
-  network: string;
-  min_weight: number;
-  min_tx_weight: number;
-  min_tx_weight_coefficient: number; // float
-  min_tx_weight_k: number;
-  token_deposit_percentage: number; // float
-  reward_spend_min_blocks: number;
-  max_number_inputs: number;
-  max_number_outputs: number;
-  decimal_places: number;
-  genesis_block_hash: string,
-  genesis_tx1_hash: string,
-  genesis_tx2_hash: string,
-  native_token: { name: string, symbol: string};
-}
-
-const FullnodeVersionSchema = Joi.object<FullnodeApiVersionResponse>({
-  version: Joi.string().min(1).required(),
-  network: Joi.string().min(1).required(),
-  min_weight: Joi.number().integer().positive().required(),
-  min_tx_weight: Joi.number().integer().positive().required(),
-  min_tx_weight_coefficient: Joi.number().positive().required(),
-  min_tx_weight_k: Joi.number().integer().positive().required(),
-  token_deposit_percentage: Joi.number().positive().required(),
-  reward_spend_min_blocks: Joi.number().integer().positive().required(),
-  max_number_inputs: Joi.number().integer().positive().required(),
-  max_number_outputs: Joi.number().integer().positive().required(),
-  decimal_places: Joi.number().integer().positive().required(),
-  genesis_block_hash: Joi.string().min(1).required(),
-  genesis_tx1_hash: Joi.string().hex().length(64).required(),
-  genesis_tx2_hash: Joi.string().hex().length(64).required(),
-  native_token: Joi.object({
-    name: Joi.string().min(1).max(30).required(),
-    symbol: Joi.string().min(1).max(5).required(),
-  }),
-})
 
 /**
  * Creates a handler for requesting data from the fullnode
@@ -66,7 +26,7 @@ export const create = (baseURL = BASE_URL) => {
     timeout: TIMEOUT,
   });
 
-  const version = async (): Promise<FullnodeApiVersionResponse> => {
+  const version = async (): Promise<FullNodeApiVersionResponse> => {
     const response = await api.get('version', {
       data: null,
       headers: { 'content-type': 'application/json' },
@@ -76,7 +36,7 @@ export const create = (baseURL = BASE_URL) => {
       throw new Error(error.message);
     }
 
-    return value as FullnodeApiVersionResponse;
+    return value as FullNodeApiVersionResponse;
   };
 
   const downloadTx = async (txId: string) => {

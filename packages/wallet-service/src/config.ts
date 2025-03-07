@@ -5,33 +5,12 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-interface EnvironmentConfig {
-  defaultServer: string;
-  stage: string;
-  network: string;
-  serviceName: string;
-  maxAddressGap: number;
-  voidedTxOffset: number;
-  blockRewardLock: number;
-  confirmFirstAddress: boolean;
-  wsDomain: string;
-  dbEndpoint: string;
-  dbName: string;
-  dbUser: string;
-  dbPass: string;
-  redisHost: string;
-  redisPort: number;
-  authSecret: string;
-  explorerServiceLambdaEndpoint: string;
-  walletServiceLambdaEndpoint: string;
-  pushNotification: boolean;
-  pushAllowedProviders: string;
-}
+import Joi from 'joi';
+import { EnvironmentConfig } from '@src/types';
+import { EnvironmentConfigSchema } from '@src/schemas';
 
-let ENVIRONMENT_CONFIG: EnvironmentConfig = null;
-
-function loadEnvConfig() {
-  ENVIRONMENT_CONFIG = {
+export function loadEnvConfig(): EnvironmentConfig {
+  const config = {
     defaultServer: process.env.DEFAULT_SERVER ?? 'https://node1.mainnet.hathor.network/v1a/',
     stage: process.env.STAGE,
     network: process.env.NETWORK,
@@ -46,22 +25,40 @@ function loadEnvConfig() {
     dbUser: process.env.DB_USER,
     dbPass: process.env.DB_PASS,
     redisHost: process.env.REDIS_HOST,
-    redisPort: Number.parseInt(process.env.REDIS_PORT,  10),
+    redisPort: Number.parseInt(process.env.REDIS_PORT, 10),
     authSecret: process.env.AUTH_SECRET,
     explorerServiceLambdaEndpoint: process.env.EXPLORER_SERVICE_LAMBDA_ENDPOINT,
     walletServiceLambdaEndpoint: process.env.WALLET_SERVICE_LAMBDA_ENDPOINT,
     pushNotification: process.env.PUSH_NOTIFICATION === 'true',
     pushAllowedProviders: process.env.PUSH_ALLOWED_PROVIDERS,
   };
-}
 
-const handler = {
-  get(target, prop, receiver) {
-    if (ENVIRONMENT_CONFIG === null) {
-      loadEnvConfig();
-    }
-    return Reflect.get(target, prop, receiver);
-  },
+  const { value, error } = EnvironmentConfigSchema.validate(config);
+  if (error) {
+    throw error;
+  }
+
+  return value;
 };
 
-export default new Proxy<EnvironmentConfig>(ENVIRONMENT_CONFIG, handler);
+/**
+ * Get a lazy loaded config.
+ */
+function getConfig(): EnvironmentConfig {
+  let loaded = false;
+  // @ts-ignore
+  let config: EnvironmentConfig = {};
+  const handler = {
+    get(target, prop, receiver) {
+      if (!loaded) {
+        config = loadEnvConfig();
+        loaded = true;
+      }
+      config[prop];
+    },
+  };
+
+  return new Proxy<EnvironmentConfig>(config, handler);
+}
+
+export default getConfig();
