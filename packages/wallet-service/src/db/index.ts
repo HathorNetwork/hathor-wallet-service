@@ -29,7 +29,6 @@ import {
   Wallet,
   WalletStatus,
   WalletTokenBalance,
-  FullNodeVersionData,
   Block,
   Tx,
   AddressBalance,
@@ -3081,7 +3080,7 @@ export const getPushDeviceSettingsList = async (
  * @param mysql - Database connection
  * @returns - total of stale device from now
  */
-export const countStalePushDevices = async (mysql): Promise<number> => {
+export const countStalePushDevices = async (mysql: ServerlessMysql): Promise<number> => {
   const [{ count }] = await mysql.query(
     `
     SELECT COUNT(device_id) as count
@@ -3096,7 +3095,7 @@ export const countStalePushDevices = async (mysql): Promise<number> => {
  *
  * @param mysql - Database connection
  */
-export const deleteStalePushDevices = async (mysql) => {
+export const deleteStalePushDevices = async (mysql: ServerlessMysql) => {
   await mysql.query(
     `
     DELETE

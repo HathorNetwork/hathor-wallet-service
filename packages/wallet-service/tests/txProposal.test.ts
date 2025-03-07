@@ -36,20 +36,24 @@ beforeEach(async () => {
   const now = getUnixTimestamp();
 
   const versionData = {
-    timestamp: now,
     version: '0.38.4',
     network: process.env.NETWORK,
-    minWeight: 8,
-    minTxWeight: 8,
-    minTxWeightCoefficient: 0,
-    minTxWeightK: 0,
-    tokenDepositPercentage: 0.01,
-    rewardSpendMinBlocks: 300,
-    maxNumberInputs: 255,
-    maxNumberOutputs: 255,
+    min_weight: 8,
+    min_tx_weight: 8,
+    min_tx_weight_coefficient: 1.6,
+    min_tx_weight_k: 100,
+    token_deposit_percentage: 0.01,
+    reward_spend_min_blocks: 300,
+    max_number_inputs: 255,
+    max_number_outputs: 255,
+    decimal_places: 2,
+    genesis_block_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
+    genesis_tx1_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
+    genesis_tx2_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
+    native_token: { name: 'Hathor', symbol: 'HTR'},
   };
 
-  await addToVersionDataTable(mysql, versionData);
+  await addToVersionDataTable(mysql, now, versionData);
 });
 
 afterAll(async () => {
@@ -203,24 +207,28 @@ test.skip('POST /txproposals with too many outputs should fail with ApiError.TOO
 
   const now = getUnixTimestamp();
 
-  await updateVersionData(mysql, {
-    timestamp: now,
+  await updateVersionData(mysql, now, {
     version: '0.38.4',
     network: process.env.NETWORK,
-    minWeight: 8,
-    minTxWeight: 8,
-    minTxWeightCoefficient: 0,
-    minTxWeightK: 0,
-    tokenDepositPercentage: 0.01,
-    rewardSpendMinBlocks: 300,
-    maxNumberInputs: 255,
-    maxNumberOutputs: 2, // mocking to force a failure
+    min_weight: 8,
+    min_tx_weight: 8,
+    min_tx_weight_coefficient: 0,
+    min_tx_weight_k: 0,
+    token_deposit_percentage: 0.01,
+    reward_spend_min_blocks: 300,
+    max_number_inputs: 255,
+    max_number_outputs: 2, // mocking to force a failure
+    decimal_places: 2,
+    genesis_block_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
+    genesis_tx1_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
+    genesis_tx2_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
+    native_token: { name: 'Hathor', symbol: 'HTR'},
   });
 
   await addToWalletTable(mysql, [{
     id: 'my-wallet',
     xpubkey: 'xpubkey',
-    authXpubkey: 'auth_xpubkey',
+   authXpubkey: 'auth_xpubkey',
     status: 'ready',
     maxGap: 5,
     createdAt: 10000,

@@ -29,7 +29,7 @@ import * as Db from '@src/db';
 import { ApiError } from '@src/api/errors';
 import { closeDbConnection, getDbConnection, getUnixTimestamp, getWalletId } from '@src/utils';
 import { STATUS_CODE_TABLE } from '@src/api/utils';
-import { WalletStatus, FullNodeVersionData } from '@src/types';
+import { WalletStatus, FullNodeApiVersionResponse } from '@src/types';
 import { walletUtils, addressUtils, constants, network, HathorWalletServiceWallet } from '@hathor/wallet-lib';
 import bitcore from 'bitcore-lib';
 import {
@@ -55,7 +55,6 @@ import {
 } from '@tests/utils';
 import fullnode from '@src/fullnode';
 import { getHealthcheck } from '@src/api/healthcheck';
-import { ping } from "@src/redis";
 
 // Monkey patch bitcore-lib
 
@@ -1593,21 +1592,25 @@ test('DELETE /tx/proposal/{txProposalId}', async () => {
 test('GET /version', async () => {
   expect.hasAssertions();
 
-  const mockData: FullNodeVersionData = {
-    timestamp: 1614875031449,
+  const mockData: FullNodeApiVersionResponse = {
     version: '0.38.0',
     network: 'mainnet',
-    minWeight: 14,
-    minTxWeight: 14,
-    minTxWeightCoefficient: 1.6,
-    minTxWeightK: 100,
-    tokenDepositPercentage: 0.01,
-    rewardSpendMinBlocks: 300,
-    maxNumberInputs: 255,
-    maxNumberOutputs: 255,
+    min_weight: 14,
+    min_tx_weight: 14,
+    min_tx_weight_coefficient: 1.6,
+    min_tx_weight_k: 100,
+    token_deposit_percentage: 0.01,
+    reward_spend_min_blocks: 300,
+    max_number_inputs: 255,
+    max_number_outputs: 255,
+    decimal_places: 2,
+    genesis_block_hash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    genesis_tx1_hash: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    genesis_tx2_hash: 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+    native_token: { name: 'Hathor', symbol: 'HTR'},
   };
 
-  await updateVersionData(mysql, mockData);
+  await updateVersionData(mysql, 1614875031449, mockData);
 
   const event = makeGatewayEvent({});
   const result = await getVersionDataGet(event, null, null) as APIGatewayProxyResult;

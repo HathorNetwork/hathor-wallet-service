@@ -19,8 +19,6 @@ import {
   unlockUtxos as dbUnlockUtxos,
   updateAddressLockedBalance,
   updateWalletLockedBalance,
-  getVersionData,
-  updateVersionData,
   getBlockByHeight,
   getTxsAfterHeight,
   markTxsAsVoided,
@@ -47,7 +45,6 @@ import {
   Wallet,
   Block,
   WalletTokenBalance,
-  FullNodeVersionData,
   AddressBalance,
   AddressTotalBalance,
   WalletProxyHandler,
@@ -64,15 +61,11 @@ import {
 } from '@wallet-service/common/src/types';
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 
-import {
-  getUnixTimestamp,
-  isTxVoided,
-} from '@src/utils';
+import { isTxVoided } from '@src/utils';
 
 import hathorLib from '@hathor/wallet-lib';
 import { stringMapIterator, WalletBalanceMapConverter } from '@src/db/utils';
 
-const VERSION_CHECK_MAX_DIFF = 60 * 60 * 1000; // 1 hour
 const WARN_MAX_REORG_SIZE = parseInt(process.env.WARN_MAX_REORG_SIZE || '100', 10);
 
 /**
