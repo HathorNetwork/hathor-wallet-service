@@ -2,6 +2,7 @@
   "resources": {
     "$root": {
       "builtin": {
+        "events": true,
         "fs": true,
         "http": true,
         "https": true,
@@ -31,7 +32,14 @@
       "packages": {
         "@hathor/wallet-lib": true,
         "@wallet-service/common": true,
+        "asynckit": true,
         "axios": true,
+        "combined-stream": true,
+        "delayed-stream": true,
+        "follow-redirects": true,
+        "mime-db": true,
+        "mime-types": true,
+        "proxy-from-env": true,
         "xstate": true
       },
       "type": "module"
@@ -1445,6 +1453,11 @@
         "setTimeout": true
       }
     },
+    "asynckit": {
+      "builtin": {
+        "stream": true
+      }
+    },
     "axios>form-data>asynckit": {
       "builtin": {
         "stream": true
@@ -1453,6 +1466,7 @@
     "axios": {
       "builtin": {
         "buffer": true,
+        "events": true,
         "fs": true,
         "http": true,
         "https": true,
@@ -1489,8 +1503,19 @@
       "mainPath": "./dist/node/axios.cjs",
       "moduleSystem": true,
       "packages": {
+        "asynckit": true,
+        "combined-stream": true,
+        "form-data>combined-stream": true,
+        "delayed-stream": true,
+        "form-data>delayed-stream": true,
         "follow-redirects": true,
-        "form-data": true
+        "axios>follow-redirects": true,
+        "form-data": true,
+        "axios>form-data": true,
+        "mime-db": true,
+        "mime-types": true,
+        "proxy-from-env": true,
+        "axios>proxy-from-env": true
       },
       "type": "module"
     },
@@ -1643,13 +1668,23 @@
         "winston>@dabh/diagnostics>colorspace>text-hex": true
       }
     },
-    "axios>form-data>combined-stream": {
+    "combined-stream": {
       "builtin": {
         "stream": true,
         "util": true
       },
       "packages": {
         "delayed-stream": true
+      }
+    },
+    "axios>form-data>combined-stream": {
+      "builtin": {
+        "stream": true,
+        "util": true
+      },
+      "packages": {
+        "delayed-stream": true,
+        "axios>form-data>combined-stream>delayed-stream": true
       }
     },
     "@hathor/wallet-lib>crypto-js": {
@@ -1673,6 +1708,12 @@
       "packages": {
         "external:../../node_modules/supports-color/index.js": true,
         "@hathor/wallet-lib>axios>follow-redirects>debug>ms": true
+      }
+    },
+    "delayed-stream": {
+      "builtin": {
+        "stream": true,
+        "util": true
       }
     },
     "axios>form-data>combined-stream>delayed-stream": {
@@ -1745,6 +1786,36 @@
         "define": true
       }
     },
+    "follow-redirects": {
+      "builtin": {
+        "assert": true,
+        "http": true,
+        "https": true,
+        "stream": true,
+        "url": true,
+        "util": true
+      },
+      "globals": {
+        "clearTimeout": true,
+        "process": true,
+        "setTimeout": true
+      }
+    },
+    "axios>follow-redirects": {
+      "builtin": {
+        "assert": true,
+        "http": true,
+        "https": true,
+        "stream": true,
+        "url": true,
+        "util": true
+      },
+      "globals": {
+        "clearTimeout": true,
+        "process": true,
+        "setTimeout": true
+      }
+    },
     "@hathor/wallet-lib>axios>follow-redirects": {
       "builtin": {
         "assert.equal": true,
@@ -1767,7 +1838,21 @@
         "https": true,
         "path": true,
         "stream": true,
+        "url": true,
         "util": true
+      },
+      "packages": {
+        "asynckit": true,
+        "axios>form-data>asynckit": true,
+        "combined-stream": true,
+        "combined-stream>combined-stream": true,
+        "axios>form-data>combined-stream": true,
+        "delayed-stream": true,
+        "combined-stream>delayed-stream": true,
+        "axios>form-data>combined-stream>delayed-stream": true,
+        "mime-db": true,
+        "mime-types": true,
+        "axios>form-data>mime-types": true
       }
     },
     "mysql2>generate-function": {
@@ -1949,6 +2034,23 @@
         "setTimeout": true
       }
     },
+    "mime-types": {
+      "builtin": {
+        "path": true
+      },
+      "packages": {
+        "mime-db": true
+      }
+    },
+    "axios>form-data>mime-types": {
+      "builtin": {
+        "path": true
+      },
+      "packages": {
+        "mime-db": true,
+        "axios>form-data>mime-types>mime-db": true
+      }
+    },
     "mysql2": {
       "builtin": {
         "buffer.Buffer.prototype": true,
@@ -2022,6 +2124,22 @@
     "winston>one-time": {
       "packages": {
         "winston>one-time>fn.name": true
+      }
+    },
+    "proxy-from-env": {
+      "builtin": {
+        "url": true
+      },
+      "globals": {
+        "process": true
+      }
+    },
+    "axios>proxy-from-env": {
+      "builtin": {
+        "url": true
+      },
+      "globals": {
+        "process": true
       }
     },
     "@hathor/wallet-lib>bitcore-lib>bip-schnorr>randombytes": {

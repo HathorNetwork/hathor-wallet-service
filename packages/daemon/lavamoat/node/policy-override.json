@@ -69,11 +69,21 @@
         "path": true,
         "fs": true,
         "module": true,
-        "require": true
+        "require": true,
+        "events": true
       },
       "packages": {
         "follow-redirects": true,
-        "form-data": true
+        "form-data": true,
+        "delayed-stream": true,
+        "combined-stream": true,
+        "mime-types": true,
+        "mime-db": true,
+        "asynckit": true,
+        "axios>form-data": true,
+        "proxy-from-env": true,
+        "axios>proxy-from-env": true,
+        "axios>follow-redirects": true
       }
     },
     "axios>form-data": {
@@ -83,7 +93,81 @@
         "path": true,
         "http": true,
         "https": true,
-        "fs": true
+        "fs": true,
+        "url": true
+      },
+      "packages": {
+        "combined-stream": true,
+        "asynckit": true,
+        "delayed-stream": true,
+        "axios>form-data>combined-stream": true,
+        "mime-types": true,
+        "mime-db": true,
+        "axios>form-data>mime-types": true,
+        "axios>form-data>asynckit": true
+      }
+    },
+    "axios>proxy-from-env": {
+      "builtin": {
+        "url": true
+      },
+      "globals": {
+        "process": true
+      }
+    },
+    "axios>follow-redirects": {
+      "builtin": {
+        "url": true,
+        "http": true,
+        "https": true,
+        "stream": true,
+        "assert": true,
+        "util": true
+      },
+      "globals": {
+        "process": true,
+        "setTimeout": true,
+        "clearTimeout": true
+      }
+    },
+    "follow-redirects": {
+      "builtin": {
+        "url": true,
+        "http": true,
+        "https": true,
+        "stream": true,
+        "assert": true,
+        "util": true
+      },
+      "globals": {
+        "process": true,
+        "setTimeout": true,
+        "clearTimeout": true
+      }
+    },
+    "proxy-from-env": {
+      "builtin": {
+        "url": true
+      },
+      "globals": {
+        "process": true
+      }
+    },
+    "mime-types": {
+      "builtin": {
+        "path": true
+      },
+      "packages": {
+        "mime-db": true
+      }
+    },
+    "axios>form-data>mime-types": {
+      "builtin": {
+        "path": true
+      },
+      "packages": {
+        "mime-db": true,
+        "axios>form-data>mime-types>mime-db": true
       }
     },
     "axios>form-data>combined-stream": {
@@ -95,13 +179,15 @@
         "delayed-stream": true
       }
     },
-    "axios>form-data>combined-stream>delayed-stream": {
+    "delayed-stream": {
       "builtin": {
         "stream": true,
         "util": true
-      },
-      "packages": {
-        "delayed-stream": true
+      }
+    },
+    "asynckit": {
+      "builtin": {
+        "stream": true
       }
     },
     "axios>form-data>asynckit": {
@@ -146,13 +232,21 @@
         "util": true,
         "url": true,
         "module": true,
-        "require": true
+        "require": true,
+        "events": true
       },
       "packages": {
         "axios": true,
         "xstate": true,
         "@hathor/wallet-lib": true,
-        "@wallet-service/common": true
+        "@wallet-service/common": true,
+        "delayed-stream": true,
+        "combined-stream": true,
+        "mime-types": true,
+        "mime-db": true,
+        "asynckit": true,
+        "proxy-from-env": true,
+        "follow-redirects": true
       }
     }
   }
