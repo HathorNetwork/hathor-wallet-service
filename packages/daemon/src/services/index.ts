@@ -8,7 +8,8 @@
 // @ts-ignore
 import hathorLib from '@hathor/wallet-lib';
 import { Connection as MysqlConnection } from 'mysql2/promise';
-import axios from 'axios';
+// Import the CommonJS version of axios directly
+import axios from 'axios/dist/node/axios.cjs';
 import { get } from 'lodash';
 import { NftUtils } from '@wallet-service/common';
 import {
