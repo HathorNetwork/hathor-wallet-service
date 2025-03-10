@@ -49,20 +49,38 @@ export interface EnvironmentConfig {
   serviceName: string;
   maxAddressGap: number;
   voidedTxOffset: number;
-  blockRewardLock: number;
+  blockRewardLock: number; // *
   confirmFirstAddress: boolean;
   wsDomain: string;
   dbEndpoint: string;
   dbName: string;
   dbUser: string;
   dbPass: string;
-  redisHost: string;
-  redisPort: number;
+  dbPort: number;
+  redisUrl: string;
+  redisPassword: string;
   authSecret: string;
-  explorerServiceLambdaEndpoint: string;
+  explorerServiceLambdaEndpoint: string; // *
   walletServiceLambdaEndpoint: string;
-  pushNotification: boolean;
+  pushNotificationEnabled: boolean;
   pushAllowedProviders: string;
+  isOffline: boolean;
+  txHistoryMaxCount: number;
+  healthCheckMaximumHeightDifference: number;
+  awsRegion: string;
+  firebaseProjectId: string;
+  firebasePrivateKeyId: string;
+  firebaseClientEmail: string;
+  firebaseClientId: string;
+  firebaseAuthUri: string;
+  firebaseTokenUri: string;
+  firebaseAuthProviderX509CertUrl: string;
+  firebaseClientX509CertUrl: string;
+  firebasePrivateKey: string|null;
+  maxLoadWalletRetries: number;
+  logLevel: string;
+  createNftMaxRetries: number;
+  warnMaxReorgSize: number;
 };
 
 /**

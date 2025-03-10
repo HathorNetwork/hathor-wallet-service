@@ -15,6 +15,7 @@ import * as bitcoin from 'bitcoinjs-lib';
 import * as bitcoinMessage from 'bitcoinjs-message';
 import * as ecc from 'tiny-secp256k1';
 import BIP32Factory from 'bip32';
+import config from '@src/config';
 
 const bip32 = BIP32Factory(ecc);
 
@@ -53,13 +54,13 @@ export class CustomStorage {
     // XXX: DEC-0002
     // DEFAULT_SERVER - 'https://node1.mainnet.hathor.network/v1a/'
     this.store = {
-      'wallet:server': process.env.DEFAULT_SERVER || 'https://node1.mainnet.hathor.network/v1a/',
-      'wallet:defaultServer': process.env.DEFAULT_SERVER || 'https://node1.mainnet.hathor.network/v1a/',
+      'wallet:server': config.defaultServer,
+      'wallet:defaultServer': config.defaultServer,
     };
   }
 }
 
-hathorLib.network.setNetwork(process.env.NETWORK);
+hathorLib.network.setNetwork(config.network);
 
 const libNetwork = hathorLib.network.getNetwork();
 const hathorNetwork = {
@@ -119,19 +120,19 @@ export const getUnixTimestamp = (): number => (
 export const getDbConnection = (): ServerlessMysql => (
   serverlessMysql({
     config: {
-      host: process.env.DB_ENDPOINT,
-      database: process.env.DB_NAME,
-      user: process.env.DB_USER,
-      port: parseInt(process.env.DB_PORT, 10),
+      host: config.dbEndpoint,
+      database: config.dbName,
+      user: config.dbUser,
+      port: config.dbPort,
       // TODO if not on local env, get IAM token
       // https://aws.amazon.com/blogs/database/iam-role-based-authentication-to-amazon-aurora-from-serverless-applications/
-      password: process.env.DB_PASS,
+      password: config.dbPass,
     },
   })
 );
 
 export const closeDbConnection = async (mysql: ServerlessMysql): Promise<void> => {
-  if (process.env.STAGE === 'local') {
+  if (config.stage === 'local') {
     // mysql.end() leaves the function hanging in the local environment. Some issues:
     // https://github.com/jeremydaly/serverless-mysql/issues/61
     // https://github.com/jeremydaly/serverless-mysql/issues/79

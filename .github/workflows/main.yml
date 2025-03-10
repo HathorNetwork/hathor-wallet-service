@@ -98,7 +98,7 @@ jobs:
         DEFAULT_SERVER: https://node1.mainnet.hathor.network/v1a/
         VOIDED_TX_OFFSET: 5
         WS_DOMAIN: ws.wallet-service.hathor.network
-        AUTH_SECRET: ""
+        AUTH_SECRET: "foobar"
         WALLET_SERVICE_LAMBDA_ENDPOINT: ""
         FIREBASE_PROJECT_ID: ""
         FIREBASE_PRIVATE_KEY_ID: ""
@@ -114,8 +114,9 @@ jobs:
         ALERT_MANAGER_REGION: us-east-1
         ALERT_MANAGER_TOPIC: alert-topic
         PUSH_ALLOWED_PROVIDERS: ""
-        REDIS_HOST: 127.0.0.1
-        REDIS_PORT: 6379
+        REDIS_URL: 127.0.0.1:6379
+        REDIS_PASSWORD: ""
+        IS_OFFLINE: 'true'
 
     - name: Run integration tests on the daemon
       run: |

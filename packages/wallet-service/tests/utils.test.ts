@@ -68,6 +68,7 @@ test('isTxVoided', async () => {
     };
   });
 
+  // @ts-ignore
   spy.mockImplementation(mockImplementation);
 
   expect(await isTxVoided('0000000f1fbb4bd8a8e71735af832be210ac9a6c1e2081b21faeea3c0f5797f7')).toStrictEqual([

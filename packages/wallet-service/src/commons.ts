@@ -65,8 +65,9 @@ import { isTxVoided } from '@src/utils';
 
 import hathorLib from '@hathor/wallet-lib';
 import { stringMapIterator, WalletBalanceMapConverter } from '@src/db/utils';
+import config from '@src/config';
 
-const WARN_MAX_REORG_SIZE = parseInt(process.env.WARN_MAX_REORG_SIZE || '100', 10);
+const WARN_MAX_REORG_SIZE = config.warnMaxReorgSize;
 
 /**
  * Update the unlocked/locked balances for addresses and wallets connected to the given UTXOs.

@@ -30,6 +30,7 @@ import middy from '@middy/core';
 import cors from '@middy/http-cors';
 import { constants, Network, Transaction, helpersUtils } from '@hathor/wallet-lib';
 import { getFullnodeData } from '@src/nodeConfig';
+import config from '@src/config';
 
 const mysql = getDbConnection();
 
@@ -68,7 +69,7 @@ export const create = middy(walletIdProxyHandler(async (walletId, event) => {
   }
 
   const body = value;
-  const tx: Transaction = helpersUtils.createTxFromHex(body.txHex, new Network(process.env.NETWORK));
+  const tx: Transaction = helpersUtils.createTxFromHex(body.txHex, new Network(config.network));
 
   if (tx.outputs.length > versionData.maxNumberOutputs) {
     return closeDbAndGetError(mysql, ApiError.TOO_MANY_OUTPUTS, { outputs: tx.outputs.length });
