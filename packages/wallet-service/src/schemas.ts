@@ -47,7 +47,6 @@ export const EnvironmentConfigSchema = Joi.object<EnvironmentConfig>({
   redisUrl: Joi.string().required(),
   redisPassword: Joi.string(),
   authSecret: Joi.string().required(),
-  explorerServiceLambdaEndpoint: Joi.string().required(),
   walletServiceLambdaEndpoint: Joi.string().required(),
   pushNotificationEnabled: Joi.boolean().required(),
   pushAllowedProviders: Joi.string().required(),

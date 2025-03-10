@@ -5,7 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import Joi from 'joi';
 import { EnvironmentConfig } from '@src/types';
 import { EnvironmentConfigSchema } from '@src/schemas';
 
@@ -28,7 +27,6 @@ export function loadEnvConfig(): EnvironmentConfig {
     redisUrl: process.env.REDIS_URL,
     redisPassword: process.env.REDIS_PASSWORD,
     authSecret: process.env.AUTH_SECRET,
-    explorerServiceLambdaEndpoint: process.env.EXPLORER_SERVICE_LAMBDA_ENDPOINT,
     walletServiceLambdaEndpoint: process.env.WALLET_SERVICE_LAMBDA_ENDPOINT,
     pushNotificationEnabled: process.env.PUSH_NOTIFICATION_ENABLED === 'true',
     pushAllowedProviders: process.env.PUSH_ALLOWED_PROVIDERS,

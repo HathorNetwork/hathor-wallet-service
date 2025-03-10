@@ -60,7 +60,6 @@ export interface EnvironmentConfig {
   redisUrl: string;
   redisPassword: string;
   authSecret: string;
-  explorerServiceLambdaEndpoint: string; // *
   walletServiceLambdaEndpoint: string;
   pushNotificationEnabled: boolean;
   pushAllowedProviders: string;
