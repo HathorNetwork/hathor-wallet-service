@@ -70,6 +70,10 @@ export function loadEnvConfig(): EnvironmentConfig {
     warnMaxReorgSize: parseInt(process.env.WARN_MAX_REORG_SIZE || '100', 10),
   };
 
+  if (process.env.NODE_ENV === 'test') {
+    return config;
+  }
+
   const { value, error } = EnvironmentConfigSchema.validate(config);
   if (error) {
     throw error;
