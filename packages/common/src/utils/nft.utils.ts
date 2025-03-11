@@ -40,7 +40,6 @@ export class NftUtils {
    * @param {Transaction} tx
    * @returns {boolean}
    *
-   * TODO: change tx type to HistoryTransaction
    * TODO: Remove the logger param after we unify the logger from both projects
    */
   static isTransactionNFTCreation(tx: HistoryTransaction, network: Network, logger: Logger): boolean {
