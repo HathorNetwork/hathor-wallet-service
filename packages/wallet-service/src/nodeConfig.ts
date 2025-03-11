@@ -11,7 +11,7 @@ import { getVersionData, updateVersionData } from '@src/db';
 import { FullNodeVersionData, FullNodeApiVersionResponse } from '@src/types';
 import fullnode from '@src/fullnode';
 
-const VERSION_CHECK_MAX_DIFF = 60 * 60 * 1000; // 1 hour
+const VERSION_CHECK_MAX_DIFF = 60 * 60; // 1 hour
 
 let RAW_FULLNODE_VERSION: FullNodeApiVersionResponse = null;
 
