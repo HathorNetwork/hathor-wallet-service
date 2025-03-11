@@ -7,7 +7,6 @@ import { getHandlerContext, getTransaction } from '../events/nftCreationTx';
 import {
   LambdaClient as LambdaClientMock,
   InvokeCommandOutput,
-  InvokeCommand,
 } from '@aws-sdk/client-lambda';
 import { Logger } from 'winston';
 
@@ -47,61 +46,61 @@ const logger = new Logger();
 
 // Real event data from production
 const REAL_NFT_EVENT_DATA = {
-  "hash": "000041f860a327969fa03685ed05cf316fc941708c53801cf81f426ac4a55866",
-  "nonce": 257857,
-  "timestamp": 1741649846,
-  "signal_bits": 0,
-  "version": 2,
-  "weight": 17.30946054227969,
-  "inputs": [
+  'hash': '000041f860a327969fa03685ed05cf316fc941708c53801cf81f426ac4a55866',
+  'nonce': 257857,
+  'timestamp': 1741649846,
+  'signal_bits': 0,
+  'version': 2,
+  'weight': 17.30946054227969,
+  'inputs': [
     {
-      "tx_id": "00000000ba6f3fc01a3e8561f2905c50c98422e7112604a8971bdaba1535e797",
-      "index": 1,
-      "spent_output": {
-        "value": 4,
-        "token_data": 0,
-        "script": "dqkUWDMJLPqtb9X+jPcBSP6WLg6NIC6IrA==",
-        "decoded": {
-          "type": "P2PKH",
-          "address": "WWiPUqkLJbb6YMQRgHWPMBS6voJjpeWqas",
-          "timelock": null
+      'tx_id': '00000000ba6f3fc01a3e8561f2905c50c98422e7112604a8971bdaba1535e797',
+      'index': 1,
+      'spent_output': {
+        'value': 4,
+        'token_data': 0,
+        'script': 'dqkUWDMJLPqtb9X+jPcBSP6WLg6NIC6IrA==',
+        'decoded': {
+          'type': 'P2PKH',
+          'address': 'WWiPUqkLJbb6YMQRgHWPMBS6voJjpeWqas',
+          'timelock': null
         }
       }
     }
   ],
-  "outputs": [
+  'outputs': [
     {
-      "value": 1,
-      "token_data": 0,
-      "script": "C2lwZnM6Ly8xMTExrA==",
-      "decoded": null
+      'value': 1,
+      'token_data': 0,
+      'script': 'C2lwZnM6Ly8xMTExrA==',
+      'decoded': null
     },
     {
-      "value": 2,
-      "token_data": 0,
-      "script": "dqkUFUs/hBsLnxy5Jd94WWV24BCmIhmIrA==",
-      "decoded": {
-        "type": "P2PKH",
-        "address": "WQcdDHZriSQwE4neuzf9UW2xJkdhEqrt7F",
-        "timelock": null
+      'value': 2,
+      'token_data': 0,
+      'script': 'dqkUFUs/hBsLnxy5Jd94WWV24BCmIhmIrA==',
+      'decoded': {
+        'type': 'P2PKH',
+        'address': 'WQcdDHZriSQwE4neuzf9UW2xJkdhEqrt7F',
+        'timelock': null
       }
     },
     {
-      "value": 1,
-      "token_data": 1,
-      "script": "dqkUhM3YhAjNc5p/oqX+yqEYcX+miNmIrA==",
-      "decoded": {
-        "type": "P2PKH",
-        "address": "WanEffTDdFo8giEj2CuNqGWsEeWjU7crnF",
-        "timelock": null
+      'value': 1,
+      'token_data': 1,
+      'script': 'dqkUhM3YhAjNc5p/oqX+yqEYcX+miNmIrA==',
+      'decoded': {
+        'type': 'P2PKH',
+        'address': 'WanEffTDdFo8giEj2CuNqGWsEeWjU7crnF',
+        'timelock': null
       }
     }
   ],
-  "tokens": [
-    "000041f860a327969fa03685ed05cf316fc941708c53801cf81f426ac4a55866"
+  'tokens': [
+    '000041f860a327969fa03685ed05cf316fc941708c53801cf81f426ac4a55866'
   ],
-  "token_name": "Test",
-  "token_symbol": "TST"
+  'token_name': 'Test',
+  'token_symbol': 'TST'
 };
 
 // Create the transformed version of the event as it would be processed
@@ -660,7 +659,7 @@ describe('processNftEvent', () => {
 
     // Real event data from production
     const eventData = {
-      hash: "000041f860a327969fa03685ed05cf316fc941708c53801cf81f426ac4a55866",
+      hash: '000041f860a327969fa03685ed05cf316fc941708c53801cf81f426ac4a55866',
       nonce: 257857,
       timestamp: 1741649846,
       signal_bits: 0,
@@ -668,15 +667,15 @@ describe('processNftEvent', () => {
       weight: 17.30946054227969,
       inputs: [
         {
-          tx_id: "00000000ba6f3fc01a3e8561f2905c50c98422e7112604a8971bdaba1535e797",
+          tx_id: '00000000ba6f3fc01a3e8561f2905c50c98422e7112604a8971bdaba1535e797',
           index: 1,
           spent_output: {
             value: 4,
             token_data: 0,
-            script: "dqkUWDMJLPqtb9X+jPcBSP6WLg6NIC6IrA==",
+            script: 'dqkUWDMJLPqtb9X+jPcBSP6WLg6NIC6IrA==',
             decoded: {
-              type: "P2PKH",
-              address: "WWiPUqkLJbb6YMQRgHWPMBS6voJjpeWqas",
+              type: 'P2PKH',
+              address: 'WWiPUqkLJbb6YMQRgHWPMBS6voJjpeWqas',
               timelock: null
             }
           }
@@ -686,35 +685,35 @@ describe('processNftEvent', () => {
         {
           value: 1,
           token_data: 0,
-          script: "C2lwZnM6Ly8xMTExrA==",
+          script: 'C2lwZnM6Ly8xMTExrA==',
           decoded: null
         },
         {
           value: 2,
           token_data: 0,
-          script: "dqkUFUs/hBsLnxy5Jd94WWV24BCmIhmIrA==",
+          script: 'dqkUFUs/hBsLnxy5Jd94WWV24BCmIhmIrA==',
           decoded: {
-            type: "P2PKH",
-            address: "WQcdDHZriSQwE4neuzf9UW2xJkdhEqrt7F",
+            type: 'P2PKH',
+            address: 'WQcdDHZriSQwE4neuzf9UW2xJkdhEqrt7F',
             timelock: null
           }
         },
         {
           value: 1,
           token_data: 1,
-          script: "dqkUhM3YhAjNc5p/oqX+yqEYcX+miNmIrA==",
+          script: 'dqkUhM3YhAjNc5p/oqX+yqEYcX+miNmIrA==',
           decoded: {
-            type: "P2PKH",
-            address: "WanEffTDdFo8giEj2CuNqGWsEeWjU7crnF",
+            type: 'P2PKH',
+            address: 'WanEffTDdFo8giEj2CuNqGWsEeWjU7crnF',
             timelock: null
           }
         }
       ],
       tokens: [
-        "000041f860a327969fa03685ed05cf316fc941708c53801cf81f426ac4a55866"
+        '000041f860a327969fa03685ed05cf316fc941708c53801cf81f426ac4a55866'
       ],
-      token_name: "Test",
-      token_symbol: "TST",
+      token_name: 'Test',
+      token_symbol: 'TST',
     };
 
     // Mock network
@@ -769,12 +768,12 @@ describe('processNftEvent', () => {
 
     // Mock network
     const mockNetwork = { name: 'testnet' };
-    
+
     // Call the method
     const result = await NftUtils.processNftEvent(
-      eventData, 
-      'test-stage', 
-      mockNetwork as any, 
+      eventData,
+      'test-stage',
+      mockNetwork as any,
       logger
     );
 
@@ -783,7 +782,7 @@ describe('processNftEvent', () => {
 
     // Verify shouldInvokeNftHandlerForTx was NOT called
     expect(shouldInvokeSpy).not.toHaveBeenCalled();
-    
+
     // Verify the lambda was NOT invoked
     expect(invokeNftLambdaSpy).not.toHaveBeenCalled();
   });
@@ -799,12 +798,12 @@ describe('processNftEvent', () => {
 
     // Mock network
     const mockNetwork = { name: 'testnet' };
-    
+
     // Call the method
     const result = await NftUtils.processNftEvent(
-      eventData, 
-      'test-stage', 
-      mockNetwork as any, 
+      eventData,
+      'test-stage',
+      mockNetwork as any,
       logger
     );
 
@@ -813,7 +812,7 @@ describe('processNftEvent', () => {
 
     // Verify shouldInvokeNftHandlerForTx was called
     expect(shouldInvokeSpy).toHaveBeenCalledTimes(1);
-    
+
     // Verify the lambda was NOT invoked
     expect(invokeNftLambdaSpy).not.toHaveBeenCalled();
   });
@@ -829,12 +828,12 @@ describe('processNftEvent', () => {
 
     // Mock network
     const mockNetwork = { name: 'testnet' };
-    
+
     // Call the method - it should not throw
     const result = await NftUtils.processNftEvent(
-      eventData, 
-      'test-stage', 
-      mockNetwork as any, 
+      eventData,
+      'test-stage',
+      mockNetwork as any,
       logger
     );
 
@@ -843,10 +842,10 @@ describe('processNftEvent', () => {
 
     // Verify shouldInvokeNftHandlerForTx was called
     expect(shouldInvokeSpy).toHaveBeenCalledTimes(1);
-    
+
     // Verify the lambda was invoked
     expect(invokeNftLambdaSpy).toHaveBeenCalledTimes(1);
-    
+
     // Verify error was logged
     expect(logger.error).toHaveBeenCalled();
   });
@@ -895,13 +894,13 @@ it('should perform full NFT processing with real event data and no mocks', async
           conflict_with: [],
           voided_by: [],
           received_by: [],
-          children: ["000000000007e794cd3e660e34af838c063370c5127f19ccab444052c2b5dadf"],
+          children: ['000000000007e794cd3e660e34af838c063370c5127f19ccab444052c2b5dadf'],
           twins: [],
           accumulated_weight: 17.30946054227969,
           score: 0,
-          first_block: "000000000007e794cd3e660e34af838c063370c5127f19ccab444052c2b5dadf",
+          first_block: '000000000007e794cd3e660e34af838c063370c5127f19ccab444052c2b5dadf',
           height: 0,
-          validation: "full"
+          validation: 'full'
         }
       } as any; // Type assertion to avoid TypeScript errors
 
