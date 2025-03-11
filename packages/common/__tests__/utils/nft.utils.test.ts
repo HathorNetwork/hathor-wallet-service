@@ -764,25 +764,17 @@ describe('processNftEvent', () => {
     // Disable NFT auto review
     process.env.NFT_AUTO_REVIEW_ENABLED = 'false';
 
-    // Real event data from production (simplified)
-    const eventData = {
-      hash: "000041f860a327969fa03685ed05cf316fc941708c53801cf81f426ac4a55866",
-      version: 2,
-      inputs: [{ tx_id: "tx1", index: 0, spent_output: { value: 1, token_data: 0, script: "s" } }],
-      outputs: [{ value: 1, token_data: 0, script: "s" }],
-      tokens: ["token1"],
-      token_name: "Test",
-      token_symbol: "TST",
-    };
+    // Use the real event data constant
+    const eventData = { ...REAL_NFT_EVENT_DATA };
 
     // Mock network
     const mockNetwork = { name: 'testnet' };
-
+    
     // Call the method
     const result = await NftUtils.processNftEvent(
-      eventData,
-      'test-stage',
-      mockNetwork as any,
+      eventData, 
+      'test-stage', 
+      mockNetwork as any, 
       logger
     );
 
@@ -791,7 +783,7 @@ describe('processNftEvent', () => {
 
     // Verify shouldInvokeNftHandlerForTx was NOT called
     expect(shouldInvokeSpy).not.toHaveBeenCalled();
-
+    
     // Verify the lambda was NOT invoked
     expect(invokeNftLambdaSpy).not.toHaveBeenCalled();
   });
@@ -802,25 +794,17 @@ describe('processNftEvent', () => {
     // Make shouldInvokeNftHandlerForTx return false
     shouldInvokeSpy.mockReturnValue(false);
 
-    // Simplified event data
-    const eventData = {
-      hash: "000041f860a327969fa03685ed05cf316fc941708c53801cf81f426ac4a55866",
-      version: 2,
-      inputs: [{ tx_id: "tx1", index: 0, spent_output: { value: 1, token_data: 0, script: "s" } }],
-      outputs: [{ value: 1, token_data: 0, script: "s" }],
-      tokens: ["token1"],
-      token_name: "Test",
-      token_symbol: "TST",
-    };
+    // Use the real event data constant
+    const eventData = { ...REAL_NFT_EVENT_DATA };
 
     // Mock network
     const mockNetwork = { name: 'testnet' };
-
+    
     // Call the method
     const result = await NftUtils.processNftEvent(
-      eventData,
-      'test-stage',
-      mockNetwork as any,
+      eventData, 
+      'test-stage', 
+      mockNetwork as any, 
       logger
     );
 
@@ -829,7 +813,7 @@ describe('processNftEvent', () => {
 
     // Verify shouldInvokeNftHandlerForTx was called
     expect(shouldInvokeSpy).toHaveBeenCalledTimes(1);
-
+    
     // Verify the lambda was NOT invoked
     expect(invokeNftLambdaSpy).not.toHaveBeenCalled();
   });
@@ -840,25 +824,17 @@ describe('processNftEvent', () => {
     // Make invokeNftHandlerLambda throw an error
     invokeNftLambdaSpy.mockRejectedValue(new Error('Lambda invocation failed'));
 
-    // Simplified event data
-    const eventData = {
-      hash: "000041f860a327969fa03685ed05cf316fc941708c53801cf81f426ac4a55866",
-      version: 2,
-      inputs: [{ tx_id: "tx1", index: 0, spent_output: { value: 1, token_data: 0, script: "s" } }],
-      outputs: [{ value: 1, token_data: 0, script: "s" }],
-      tokens: ["token1"],
-      token_name: "Test",
-      token_symbol: "TST",
-    };
+    // Use the real event data constant
+    const eventData = { ...REAL_NFT_EVENT_DATA };
 
     // Mock network
     const mockNetwork = { name: 'testnet' };
-
+    
     // Call the method - it should not throw
     const result = await NftUtils.processNftEvent(
-      eventData,
-      'test-stage',
-      mockNetwork as any,
+      eventData, 
+      'test-stage', 
+      mockNetwork as any, 
       logger
     );
 
@@ -867,10 +843,10 @@ describe('processNftEvent', () => {
 
     // Verify shouldInvokeNftHandlerForTx was called
     expect(shouldInvokeSpy).toHaveBeenCalledTimes(1);
-
+    
     // Verify the lambda was invoked
     expect(invokeNftLambdaSpy).toHaveBeenCalledTimes(1);
-
+    
     // Verify error was logged
     expect(logger.error).toHaveBeenCalled();
   });
