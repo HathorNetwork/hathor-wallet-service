@@ -1624,7 +1624,10 @@ export const getVersionData = async (mysql: ServerlessMysql): Promise<{ timestam
     };
   }
 
-  return null;
+  return {
+    timestamp: 0,
+    data: null,
+  };
 };
 
 /**

@@ -80,24 +80,4 @@ export function loadEnvConfig(): EnvironmentConfig {
   return value;
 };
 
-/**
- * Get a lazy loaded config.
- */
-function getConfig(): EnvironmentConfig {
-  let loaded = false;
-  // @ts-ignore
-  let config: EnvironmentConfig = {};
-  const handler = {
-    get(target, prop, receiver) {
-      if (!loaded) {
-        config = loadEnvConfig();
-        loaded = true;
-      }
-      config[prop];
-    },
-  };
-
-  return new Proxy<EnvironmentConfig>(config, handler);
-}
-
-export default getConfig();
+export default loadEnvConfig();
