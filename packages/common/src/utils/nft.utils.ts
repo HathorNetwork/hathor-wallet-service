@@ -13,6 +13,7 @@ import { Network, constants, CreateTokenTransaction, helpersUtils } from '@hatho
 // @ts-ignore
 import type { HistoryTransaction } from '@hathor/wallet-lib';
 import { Logger } from 'winston';
+import { FullNodeTransaction, FullNodeInput, FullNodeOutput } from '../types';
 
 /**
  * A helper for generating and updating a NFT Token's metadata.
@@ -187,46 +188,11 @@ export class NftUtils {
   }
 
   /**
-   * Process an event from the full node and invoke the NFT handler lambda if needed.
-   * @param eventData The full node event data
-   * @param stage The deployment stage
-   * @param network The network
-   * @param logger The logger instance
-   * @returns A promise that resolves when the processing is complete
+   * Process a new NFT event by transforming the data, checking if it should invoke the NFT handler,
+   * and invoking the lambda if appropriate.
    */
   static async processNftEvent(
-    eventData: {
-      hash: string;
-      version: number;
-      tokens: string[];
-      token_name?: string | null;
-      token_symbol?: string | null;
-      inputs: Array<{
-        tx_id: string;
-        index: number;
-        spent_output: {
-          value: number;
-          token_data: number;
-          script: string;
-          decoded?: {
-            type: string;
-            address: string;
-            timelock: unknown;
-          } | null;
-        }
-      }>;
-      outputs: Array<{
-        value: number;
-        token_data: number;
-        script: string;
-        decoded?: {
-          type: string;
-          address: string;
-          timelock: unknown;
-        } | null;
-      }>;
-      [key: string]: unknown; // Allow other properties
-    },
+    eventData: FullNodeTransaction,
     stage: string,
     network: unknown,
     logger: Logger
@@ -238,50 +204,65 @@ export class NftUtils {
     }
 
     try {
-      // Transform the full node data to the format expected by the wallet library
-      const txFromEvent = {
-        ...eventData,
-        tx_id: eventData.hash,
-        inputs: eventData.inputs.map((input) => {
-          const tokenIndex = (input.spent_output.token_data & constants.TOKEN_INDEX_MASK) - 1;
-
-          return {
-            token: tokenIndex < 0 ? constants.HATHOR_TOKEN_CONFIG.uid : eventData.tokens[tokenIndex],
-            value: input.spent_output.value,
-            token_data: input.spent_output.token_data,
-            script: input.spent_output.script,
-            decoded: {
-              ...(input.spent_output.decoded || {}),
-            },
-            tx_id: input.tx_id,
-            index: input.index
-          };
-        }),
-        outputs: eventData.outputs.map((output) => {
-          const tokenIndex = (output.token_data & constants.TOKEN_INDEX_MASK) - 1;
-          return {
-            ...output,
-            decoded: output.decoded ? output.decoded : {},
-            spent_by: null,
-            token: tokenIndex < 0 ? constants.HATHOR_TOKEN_CONFIG.uid : eventData.tokens[tokenIndex],
-          };
-        }),
-      };
-
+      // Transform the data to a format compatible with shouldInvokeNftHandlerForTx
+      const transformedTx = NftUtils.transformFullNodeTxForNftDetection(eventData);
+      
       // Check if we should invoke the NFT handler for this transaction
-      if (this.shouldInvokeNftHandlerForTx(txFromEvent, network, logger)) {
-        try {
-          await this.invokeNftHandlerLambda(txFromEvent.tx_id, stage, logger);
-          return true;
-        } catch (err) {
-          logger.error('[ALERT] Error on nftHandlerLambda invocation', err);
-          return false;
-        }
+      if (NftUtils.shouldInvokeNftHandlerForTx(transformedTx, network, logger)) {
+        // Get the transaction hash
+        const txId = eventData.hash;
+        
+        // Invoke the lambda function
+        await NftUtils.invokeNftHandlerLambda(txId, stage, logger);
+        return true;
       }
-    } catch (err) {
-      logger.error('[ALERT] Error processing NFT event', err);
+      
+      return false;
+    } catch (error) {
+      logger.error(`Error processing NFT event: ${error}`);
+      return false;
     }
-
-    return false;
+  }
+  
+  /**
+   * Transform transaction data from the full node to a format compatible with the NFT detection logic.
+   */
+  static transformFullNodeTxForNftDetection(fullNodeData: FullNodeTransaction): HistoryTransaction {
+    // Create a new object with the required properties
+    const transformedTx: any = {
+      hash: fullNodeData.hash,
+      tx_id: fullNodeData.hash, // Add tx_id for compatibility
+      version: fullNodeData.version,
+      tokens: fullNodeData.tokens,
+      token_name: fullNodeData.token_name,
+      token_symbol: fullNodeData.token_symbol,
+      inputs: fullNodeData.inputs.map((input: FullNodeInput) => {
+        const tokenIndex = (input.spent_output.token_data & constants.TOKEN_INDEX_MASK) - 1;
+        
+        return {
+          tx_id: input.tx_id,
+          index: input.index,
+          token: tokenIndex < 0 ? constants.HATHOR_TOKEN_CONFIG.uid : fullNodeData.tokens[tokenIndex],
+          token_data: input.spent_output.token_data,
+          value: input.spent_output.value,
+          script: input.spent_output.script,
+          decoded: input.spent_output.decoded || {},
+        };
+      }),
+      outputs: fullNodeData.outputs.map((output: FullNodeOutput) => {
+        const tokenIndex = (output.token_data & constants.TOKEN_INDEX_MASK) - 1;
+        
+        return {
+          value: output.value,
+          token_data: output.token_data,
+          script: output.script,
+          token: tokenIndex < 0 ? constants.HATHOR_TOKEN_CONFIG.uid : fullNodeData.tokens[tokenIndex],
+          decoded: output.decoded || {},
+          spent_by: null,
+        };
+      }),
+    };
+    
+    return transformedTx;
   }
 }
