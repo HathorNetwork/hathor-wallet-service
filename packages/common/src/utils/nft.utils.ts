@@ -149,12 +149,23 @@ export class NftUtils {
    * This is to improve the failure tolerance on this non-critical step of the sync loop.
    */
   static async invokeNftHandlerLambda(txId: string, stage: string, logger: Logger): Promise<void> {
+    // Check for required environment variables
+    if (!process.env.WALLET_SERVICE_LAMBDA_ENDPOINT || !process.env.AWS_REGION) {
+      throw new Error('Environment variables WALLET_SERVICE_LAMBDA_ENDPOINT and AWS_REGION are not set.');
+    }
+
+    // Skip if NFT auto review is disabled
+    if (!isNftAutoReviewEnabled()) {
+      logger.debug('NFT auto review is disabled. Skipping lambda invocation.');
+      return;
+    }
+
     const client = new LambdaClient({
       endpoint: process.env.WALLET_SERVICE_LAMBDA_ENDPOINT,
       region: process.env.AWS_REGION,
     });
     // invoke lambda asynchronously to metadata update
-   const command = new InvokeCommand({
+    const command = new InvokeCommand({
       FunctionName: `hathor-wallet-service-${stage}-onNewNftEvent`,
       InvocationType: 'Event',
       Payload: JSON.stringify({ nftUid: txId }),
@@ -220,51 +231,55 @@ export class NftUtils {
     network: unknown,
     logger: Logger
   ): Promise<boolean> {
+    // Early return if NFT auto review is disabled
     if (!isNftAutoReviewEnabled()) {
       logger.debug('NFT auto review is disabled. Skipping NFT handler invocation.');
       return false;
     }
 
-    // Transform the full node data to the format expected by the wallet library
-    const txFromEvent = {
-      ...eventData,
-      tx_id: eventData.hash,
-      inputs: eventData.inputs.map((input) => {
-        const tokenIndex = (input.spent_output.token_data & constants.TOKEN_INDEX_MASK) - 1;
+    try {
+      // Transform the full node data to the format expected by the wallet library
+      const txFromEvent = {
+        ...eventData,
+        tx_id: eventData.hash,
+        inputs: eventData.inputs.map((input) => {
+          const tokenIndex = (input.spent_output.token_data & constants.TOKEN_INDEX_MASK) - 1;
 
-        return {
-          token: tokenIndex < 0 ? constants.HATHOR_TOKEN_CONFIG.uid : eventData.tokens[tokenIndex],
-          value: input.spent_output.value,
-          token_data: input.spent_output.token_data,
-          script: input.spent_output.script,
-          decoded: {
-            ...(input.spent_output.decoded || {}),
-          },
-          tx_id: input.tx_id,
-          index: input.index
-        };
-      }),
-      outputs: eventData.outputs.map((output) => {
-        const tokenIndex = (output.token_data & constants.TOKEN_INDEX_MASK) - 1;
-        return {
-          ...output,
-          decoded: output.decoded ? output.decoded : {},
-          spent_by: null,
-          token: tokenIndex < 0 ? constants.HATHOR_TOKEN_CONFIG.uid : eventData.tokens[tokenIndex],
-        };
-      }),
-    };
+          return {
+            token: tokenIndex < 0 ? constants.HATHOR_TOKEN_CONFIG.uid : eventData.tokens[tokenIndex],
+            value: input.spent_output.value,
+            token_data: input.spent_output.token_data,
+            script: input.spent_output.script,
+            decoded: {
+              ...(input.spent_output.decoded || {}),
+            },
+            tx_id: input.tx_id,
+            index: input.index
+          };
+        }),
+        outputs: eventData.outputs.map((output) => {
+          const tokenIndex = (output.token_data & constants.TOKEN_INDEX_MASK) - 1;
+          return {
+            ...output,
+            decoded: output.decoded ? output.decoded : {},
+            spent_by: null,
+            token: tokenIndex < 0 ? constants.HATHOR_TOKEN_CONFIG.uid : eventData.tokens[tokenIndex],
+          };
+        }),
+      };
 
-    // Check if we should invoke the NFT handler for this transaction
-    if (this.shouldInvokeNftHandlerForTx(txFromEvent, network, logger)) {
-      try {
-        // This process is not critical, so we run it but don't throw errors
-        await this.invokeNftHandlerLambda(txFromEvent.tx_id, stage, logger);
-        return true;
-      } catch (err) {
-        logger.error('[ALERT] Error on nftHandlerLambda invocation', err);
-        return false;
+      // Check if we should invoke the NFT handler for this transaction
+      if (this.shouldInvokeNftHandlerForTx(txFromEvent, network, logger)) {
+        try {
+          await this.invokeNftHandlerLambda(txFromEvent.tx_id, stage, logger);
+          return true;
+        } catch (err) {
+          logger.error('[ALERT] Error on nftHandlerLambda invocation', err);
+          return false;
+        }
       }
+    } catch (err) {
+      logger.error('[ALERT] Error processing NFT event', err);
     }
 
     return false;
