@@ -13,8 +13,6 @@ import fullnode from '@src/fullnode';
 
 const VERSION_CHECK_MAX_DIFF = 60 * 60; // 1 hour
 
-let RAW_FULLNODE_VERSION: FullNodeApiVersionResponse = null;
-
 export async function getRawFullnodeData(mysql: ServerlessMysql): Promise<FullNodeApiVersionResponse> {
   const {
     timestamp,
@@ -25,12 +23,10 @@ export async function getRawFullnodeData(mysql: ServerlessMysql): Promise<FullNo
   if (!lastVersionData || now - timestamp > VERSION_CHECK_MAX_DIFF) {
     const versionData = await fullnode.version();
     await updateVersionData(mysql, timestamp, versionData);
-    RAW_FULLNODE_VERSION = versionData;
-  } else if (RAW_FULLNODE_VERSION === null) {
-    RAW_FULLNODE_VERSION = lastVersionData;
+    return versionData;
   }
 
-  return RAW_FULLNODE_VERSION;
+  return lastVersionData;
 }
 
 export function convertApiVersionData(data: FullNodeApiVersionResponse): FullNodeVersionData {

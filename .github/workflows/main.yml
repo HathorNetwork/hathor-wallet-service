@@ -114,7 +114,7 @@ jobs:
         ALERT_MANAGER_REGION: us-east-1
         ALERT_MANAGER_TOPIC: alert-topic
         PUSH_ALLOWED_PROVIDERS: ""
-        REDIS_URL: 127.0.0.1:6379
+        REDIS_URL: redis://127.0.0.1:6379
         REDIS_PASSWORD: ""
         IS_OFFLINE: 'true'
 
