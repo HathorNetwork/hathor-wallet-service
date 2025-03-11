@@ -760,16 +760,10 @@ describe('processNftEvent', () => {
   it('should not invoke the NFT handler when NFT_AUTO_REVIEW_ENABLED is false', async () => {
     expect.hasAssertions();
 
-    // Disable NFT auto review
     process.env.NFT_AUTO_REVIEW_ENABLED = 'false';
 
-    // Use the real event data constant
     const eventData = { ...REAL_NFT_EVENT_DATA };
-
-    // Mock network
     const mockNetwork = { name: 'testnet' };
-
-    // Call the method
     const result = await NftUtils.processNftEvent(
       eventData,
       'test-stage',
@@ -777,29 +771,18 @@ describe('processNftEvent', () => {
       logger
     );
 
-    // Verify result is false (no invocation)
     expect(result).toBe(false);
-
-    // Verify shouldInvokeNftHandlerForTx was NOT called
     expect(shouldInvokeSpy).not.toHaveBeenCalled();
-
-    // Verify the lambda was NOT invoked
     expect(invokeNftLambdaSpy).not.toHaveBeenCalled();
   });
 
   it('should return false when shouldInvokeNftHandlerForTx returns false', async () => {
     expect.hasAssertions();
 
-    // Make shouldInvokeNftHandlerForTx return false
     shouldInvokeSpy.mockReturnValue(false);
 
-    // Use the real event data constant
     const eventData = { ...REAL_NFT_EVENT_DATA };
-
-    // Mock network
     const mockNetwork = { name: 'testnet' };
-
-    // Call the method
     const result = await NftUtils.processNftEvent(
       eventData,
       'test-stage',
@@ -807,13 +790,8 @@ describe('processNftEvent', () => {
       logger
     );
 
-    // Verify result is false (no invocation)
     expect(result).toBe(false);
-
-    // Verify shouldInvokeNftHandlerForTx was called
     expect(shouldInvokeSpy).toHaveBeenCalledTimes(1);
-
-    // Verify the lambda was NOT invoked
     expect(invokeNftLambdaSpy).not.toHaveBeenCalled();
   });
 
@@ -848,6 +826,52 @@ describe('processNftEvent', () => {
 
     // Verify error was logged
     expect(logger.error).toHaveBeenCalled();
+  });
+
+  it('should return false for non-token-creation transactions', async () => {
+    expect.hasAssertions();
+
+    // Store original value to restore later
+    const originalVersion = constants.CREATE_TOKEN_TX_VERSION;
+
+    try {
+      // Set CREATE_TOKEN_TX_VERSION to a specific value
+      constants.CREATE_TOKEN_TX_VERSION = 1;
+
+      // Use the real event data constant with a non-matching version
+      const eventData = {
+        ...REAL_NFT_EVENT_DATA,
+        version: 2 // Different from CREATE_TOKEN_TX_VERSION
+      };
+
+      // Mock network
+      const mockNetwork = { name: 'testnet' };
+
+      // Call the method
+      const result = await NftUtils.processNftEvent(
+        eventData,
+        'test-stage',
+        mockNetwork as any,
+        logger
+      );
+
+      // Verify result is false (non-token-creation tx)
+      expect(result).toBe(false);
+
+      // Verify shouldInvokeNftHandlerForTx was NOT called
+      expect(shouldInvokeSpy).not.toHaveBeenCalled();
+
+      // Verify the lambda was NOT invoked
+      expect(invokeNftLambdaSpy).not.toHaveBeenCalled();
+
+      // Verify debug message was logged
+      expect(logger.debug).toHaveBeenCalledWith(
+        expect.stringContaining('not a token creation transaction')
+      );
+    } finally {
+      // Restore original value
+      constants.CREATE_TOKEN_TX_VERSION = originalVersion;
+    }
   });
 });
 

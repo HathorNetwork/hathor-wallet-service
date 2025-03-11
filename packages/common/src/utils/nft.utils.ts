@@ -203,27 +203,33 @@ export class NftUtils {
       return false;
     }
 
+    // Early return if not a token creation transaction
+    if (eventData.version !== constants.CREATE_TOKEN_TX_VERSION) {
+      logger.debug(`Transaction version ${eventData.version} is not a token creation transaction (${constants.CREATE_TOKEN_TX_VERSION}). Skipping NFT handler invocation.`);
+      return false;
+    }
+
     try {
       // Transform the data to a format compatible with shouldInvokeNftHandlerForTx
       const transformedTx = NftUtils.transformFullNodeTxForNftDetection(eventData);
-      
+
       // Check if we should invoke the NFT handler for this transaction
       if (NftUtils.shouldInvokeNftHandlerForTx(transformedTx, network, logger)) {
         // Get the transaction hash
         const txId = eventData.hash;
-        
+
         // Invoke the lambda function
         await NftUtils.invokeNftHandlerLambda(txId, stage, logger);
         return true;
       }
-      
+
       return false;
     } catch (error) {
       logger.error(`Error processing NFT event: ${error}`);
       return false;
     }
   }
-  
+
   /**
    * Transform transaction data from the full node to a format compatible with the NFT detection logic.
    */
@@ -238,7 +244,7 @@ export class NftUtils {
       token_symbol: fullNodeData.token_symbol,
       inputs: fullNodeData.inputs.map((input: FullNodeInput) => {
         const tokenIndex = (input.spent_output.token_data & constants.TOKEN_INDEX_MASK) - 1;
-        
+
         return {
           tx_id: input.tx_id,
           index: input.index,
@@ -251,7 +257,7 @@ export class NftUtils {
       }),
       outputs: fullNodeData.outputs.map((output: FullNodeOutput) => {
         const tokenIndex = (output.token_data & constants.TOKEN_INDEX_MASK) - 1;
-        
+
         return {
           value: output.value,
           token_data: output.token_data,
@@ -262,7 +268,7 @@ export class NftUtils {
         };
       }),
     };
-    
+
     return transformedTx;
   }
 }
