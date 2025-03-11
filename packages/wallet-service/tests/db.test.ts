@@ -1614,9 +1614,10 @@ test('updateVersionData', async () => {
     version: '0.39.2',
   };
 
-  await updateVersionData(mysql, 1614875031449, mockData);
-  await updateVersionData(mysql, 1614875031449, mockData2);
-  await updateVersionData(mysql, 1614875031449, mockData3);
+  const ts = getUnixTimestamp();
+  await updateVersionData(mysql, ts, mockData);
+  await updateVersionData(mysql, ts, mockData2);
+  await updateVersionData(mysql, ts, mockData3);
 
   await expect(
     checkVersionDataTable(mysql, mockData3),
@@ -1644,7 +1645,8 @@ test('getVersionData', async () => {
     native_token: { name: 'Hathor', symbol: 'HTR'},
   };
 
-  await updateVersionData(mysql, 1614875031449, mockData);
+  const ts = getUnixTimestamp();
+  await updateVersionData(mysql, ts, mockData);
 
   const { data } = await getVersionData(mysql);
 

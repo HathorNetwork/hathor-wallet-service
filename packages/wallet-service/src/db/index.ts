@@ -1585,6 +1585,7 @@ export const getWalletUnlockedUtxos = async (
  * Update latest version_data on the database
  *
  * @param mysql - Database connection
+ * @param timestamp - Unix timestamp to mark when the data was fetched
  * @param data - Latest version data to store
  */
 export const updateVersionData = async (mysql: ServerlessMysql, timestamp: number, data: FullNodeApiVersionResponse): Promise<void> => {

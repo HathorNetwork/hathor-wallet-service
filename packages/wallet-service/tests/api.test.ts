@@ -1610,7 +1610,8 @@ test('GET /version', async () => {
     native_token: { name: 'Hathor', symbol: 'HTR'},
   };
 
-  await updateVersionData(mysql, 1614875031449, mockData);
+  const ts = getUnixTimestamp()
+  await updateVersionData(mysql, ts, mockData);
 
   const event = makeGatewayEvent({});
   const result = await getVersionDataGet(event, null, null) as APIGatewayProxyResult;
