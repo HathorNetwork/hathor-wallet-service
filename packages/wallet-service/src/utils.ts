@@ -19,47 +19,6 @@ import config from '@src/config';
 
 const bip32 = BIP32Factory(ecc);
 
-// XXX - Check effects of this storage
-/* TODO: We should remove this as soon as the wallet-lib is refactored
-*  (https://github.com/HathorNetwork/hathor-wallet-lib/issues/122)
-*/
-export class CustomStorage {
-  store: unknown;
-
-  constructor() {
-    this.preStart();
-  }
-
-  getItem(key: string): string {
-    return this.store[key];
-  }
-
-  setItem(key: string, value: string): string {
-    this.store[key] = value;
-
-    return value;
-  }
-
-  removeItem(key: string): string {
-    delete this.store[key];
-
-    return key;
-  }
-
-  clear(): void {
-    this.store = {};
-  }
-
-  preStart(): void {
-    // XXX: DEC-0002
-    // DEFAULT_SERVER - 'https://node1.mainnet.hathor.network/v1a/'
-    this.store = {
-      'wallet:server': config.defaultServer,
-      'wallet:defaultServer': config.defaultServer,
-    };
-  }
-}
-
 hathorLib.network.setNetwork(config.network);
 
 const libNetwork = hathorLib.network.getNetwork();

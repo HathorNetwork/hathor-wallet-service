@@ -443,6 +443,7 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
       );
     }
   } catch (e) {
+    logger.error('Error during loadWalletFailed', e);
     await addAlert(
       'Failed to handle loadWalletFailed event',
       `Failed to process the loadWalletFailed event. This indicates that wallets failed to load and we weren't able to recover, please check the logs as soon as possible.`,

@@ -3,30 +3,6 @@ import hathorLib from '@hathor/wallet-lib';
 import * as Fullnode from '@src/fullnode';
 import { TEST_SEED, XPUBKEY, AUTH_XPUBKEY, ADDRESSES } from '@tests/utils';
 
-// XXX: DEC-0002
-test('CustomStorage', () => {
-  expect.hasAssertions();
-
-  const store = new CustomStorage();
-  // Should be initialized with hathor default server and server
-  expect(store.getItem('wallet:defaultServer')).toBe('https://node1.mainnet.hathor.network/v1a/');
-  expect(store.getItem('wallet:server')).toBe('https://node1.mainnet.hathor.network/v1a/');
-
-  store.setItem('hathor', 'hathor');
-  expect(store.getItem('hathor')).toBe('hathor');
-  store.removeItem('hathor');
-
-  expect(store.getItem('hathor')).toBeUndefined();
-
-  store.setItem('hathor', 'hathor2');
-  store.clear();
-  expect(store.getItem('hathor')).toBeUndefined();
-
-  store.preStart();
-  expect(store.getItem('wallet:defaultServer')).toBe('https://node1.mainnet.hathor.network/v1a/');
-  expect(store.getItem('wallet:server')).toBe('https://node1.mainnet.hathor.network/v1a/');
-});
-
 test('sha256d', () => {
   expect.hasAssertions();
   // sha256d(my-test-data) -> 4f1ba9a4204e97a293b16ead6caced38f6d91d95618b96e261c6332ed24f7894
