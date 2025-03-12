@@ -1,4 +1,4 @@
-import { APIGatewayProxyEvent } from 'aws-lambda';
+import { APIGatewayProxyEvent, SNSEvent, SNSEventRecord } from 'aws-lambda';
 import { ServerlessMysql } from 'serverless-mysql';
 import { isEqual } from 'lodash';
 import {
@@ -818,6 +818,39 @@ export const makeGatewayEventWithAuthorizer = (
   },
   resource: null,
 });
+
+export function makeLoadWalletFailedSNSEvent(count: number, xpubkey: string, requestId?: string, errorMessage?: string): SNSEvent {
+  const event: SNSEventRecord = {
+    EventVersion: '',
+    EventSubscriptionArn: '',
+    EventSource: '',
+    Sns: {
+      SignatureVersion: '',
+      Timestamp: '',
+      Signature: '',
+      SigningCertUrl: '',
+      MessageId: '',
+      Message: JSON.stringify({
+        source: '',
+        xpubkey,
+        maxGap: 20,
+      }),
+      MessageAttributes: {
+        RequestId: { Type: 'string', Value: requestId || 'request-id' },
+        ErrorMessage: { Type: 'string', Value: errorMessage || 'error-message' },
+      },
+      Type: '',
+      UnsubscribeUrl: '',
+      TopicArn: '',
+      Subject: '',
+      Token: '',
+    },
+  };
+
+  return {
+    Records: Array(count).fill(event),
+  };
+}
 
 export const addToVersionDataTable = async (mysql: ServerlessMysql, timestamp: number, versionData: FullNodeApiVersionResponse): Promise<void> => {
   const payload = [[ 1, timestamp, JSON.stringify(versionData) ]];

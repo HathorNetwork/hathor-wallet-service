@@ -19,6 +19,7 @@ import {
   get as walletGet,
   load as walletLoad,
   loadWallet,
+  loadWalletFailed,
   changeAuthXpub,
 } from '@src/api/wallet';
 import {
@@ -52,9 +53,13 @@ import {
   makeGatewayEventWithAuthorizer,
   getAuthData,
   getXPrivKeyFromSeed,
+  makeLoadWalletFailedSNSEvent,
 } from '@tests/utils';
 import fullnode from '@src/fullnode';
 import { getHealthcheck } from '@src/api/healthcheck';
+import { mockedAddAlert } from '@tests/utils/alerting.utils.mock';
+import { Severity } from '@wallet-service/common';
+import { ErrorMessages } from '@hathor/wallet-lib/lib/errorMessages';
 
 // Monkey patch bitcore-lib
 
@@ -1153,6 +1158,47 @@ test('changeAuthXpub should fail if signatures do not match', async () => {
   expect(returnBody.details[0].message).toBe('Signatures are not valid');
 });
 
+test('PUT /wallet/auth should fail if we cannot confirm the firstAddress', async () => {
+  expect.hasAssertions();
+
+  // get the first address
+  const xpubChangeDerivation = walletUtils.xpubDeriveChild(XPUBKEY, 0);
+  // Get address at wrong derivation index
+  const secondAddressData = addressUtils.deriveAddressFromXPubP2PKH(xpubChangeDerivation, 1, process.env.NETWORK);
+  const secondAddress = secondAddressData.base58;
+
+  // we need signatures for both the account path and the purpose path:
+  const now = Math.floor(Date.now() / 1000);
+  const walletId = getWalletId(XPUBKEY);
+  const xpriv = getXPrivKeyFromSeed(TEST_SEED, {
+    passphrase: '',
+    networkName: process.env.NETWORK,
+  });
+
+  // account path
+  const accountDerivationIndex = '0\'';
+
+  const derivedPrivKey = walletUtils.deriveXpriv(xpriv, accountDerivationIndex);
+  const address = derivedPrivKey.publicKey.toAddress(network.getNetwork()).toString();
+  const message = new bitcore.Message(String(now).concat(walletId).concat(address));
+
+  const event = makeGatewayEvent({}, JSON.stringify({
+    xpubkey: XPUBKEY,
+    xpubkeySignature: 'xpubkey-signature',
+    authXpubkey: AUTH_XPUBKEY,
+    authXpubkeySignature: 'auth-xpubkey-signature',
+    firstAddress: ADDRESSES[1],
+    timestamp: Math.floor(Date.now() / 1000),
+  }));
+
+  const result = await changeAuthXpub(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+
+  expect(result.statusCode).toBe(400);
+  expect(returnBody.success).toBe(false);
+  expect(returnBody.details[0].message).toBe('Expected first address to be');
+}, 30000);
+
 test('PUT /wallet/auth should change the auth_xpub only after validating both the xpub and the auth_xpubkey', async () => {
   expect.hasAssertions();
 
@@ -1325,6 +1371,24 @@ test('loadWallet should update wallet status to ERROR if an error occurs', async
 
   expect(wallet.status).toStrictEqual(WalletStatus.ERROR);
 }, 30000);
+
+test('loadWalletFailed should create alert if xpubkey is missing', async () => {
+  expect.hasAssertions();
+
+  const event = makeLoadWalletFailedSNSEvent(1, XPUBKEY, 'a-req-01', 'an-error-01');
+  event.Records[0].Sns.Message = '{}';
+  await loadWalletFailed(event, null, null);
+  expect(mockedAddAlert).toHaveBeenCalledWith(
+    'Wallet failed to load, but no xpubkey received.',
+    `An event reached loadWalletFailed lambda but the xpubkey was not sent. This indicates that a wallet has failed to load and we weren't able to recover, please check the logs as soon as possible.`,
+    Severity.MAJOR,
+    {
+      RequestId: 'a-req-01',
+      ErrorMessage: 'an-error-01'
+    },
+    expect.anything(),
+  );
+});
 
 test('GET /wallet/tokens', async () => {
   expect.hasAssertions();
