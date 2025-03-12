@@ -836,7 +836,7 @@ export function makeLoadWalletFailedSNSEvent(count: number, xpubkey: string, req
         maxGap: 20,
       }),
       MessageAttributes: {
-        RequestId: { Type: 'string', Value: requestId || 'request-id' },
+        RequestID: { Type: 'string', Value: requestId || 'request-id' },
         ErrorMessage: { Type: 'string', Value: errorMessage || 'error-message' },
       },
       Type: '',
