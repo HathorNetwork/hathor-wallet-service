@@ -1610,6 +1610,7 @@ test('GET /version', async () => {
     native_token: { name: 'Hathor', symbol: 'HTR'},
   };
 
+  console.log(`GET /version`);
   const ts = getUnixTimestamp()
   await updateVersionData(mysql, ts, mockData);
 

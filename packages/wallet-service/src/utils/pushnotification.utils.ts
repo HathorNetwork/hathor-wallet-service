@@ -66,7 +66,23 @@ const FIREBASE_AUTH_URI = config.firebaseAuthUri;
 const FIREBASE_TOKEN_URI = config.firebaseTokenUri;
 const FIREBASE_AUTH_PROVIDER_X509_CERT_URL = config.firebaseAuthProviderX509CertUrl;
 const FIREBASE_CLIENT_X509_CERT_URL = config.firebaseClientX509CertUrl;
-const FIREBASE_PRIVATE_KEY = config.firebasePrivateKey;
+const FIREBASE_PRIVATE_KEY = (() => {
+  try {
+    /**
+     * To fix the error 'Error: Invalid PEM formatted message.',
+     * when initializing the firebase admin app, we need to replace
+     * the escaped line break with an unescaped line break.
+     * https://github.com/gladly-team/next-firebase-auth/discussions/95#discussioncomment-2891225
+     */
+    const privateKey = config.firebasePrivateKey;
+    return privateKey
+      ? privateKey.replace(/\\n/gm, '\n')
+      : null;
+  } catch (error) {
+    logger.error('[ALERT] Error while parsing the env.FIREBASE_PRIVATE_KEY.');
+    return null;
+  }
+})();
 
 /** Local feature toggle that disable the push notification by default */
 const PUSH_NOTIFICATION_ENABLED = config.pushNotificationEnabled;

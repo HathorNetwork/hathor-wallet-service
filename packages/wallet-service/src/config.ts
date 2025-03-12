@@ -7,6 +7,7 @@
 
 import { EnvironmentConfig } from '@src/types';
 import { EnvironmentConfigSchema } from '@src/schemas';
+import { Severity, addAlert } from '@wallet-service/common';
 
 export function loadEnvConfig(): EnvironmentConfig {
   const config: EnvironmentConfig = {
@@ -44,23 +45,7 @@ export function loadEnvConfig(): EnvironmentConfig {
     firebaseTokenUri: process.env.FIREBASE_TOKEN_URI,
     firebaseAuthProviderX509CertUrl: process.env.FIREBASE_AUTH_PROVIDER_X509_CERT_URL,
     firebaseClientX509CertUrl: process.env.FIREBASE_CLIENT_X509_CERT_URL,
-    firebasePrivateKey: (() => {
-      try {
-        /**
-         * To fix the error 'Error: Invalid PEM formatted message.',
-         * when initializing the firebase admin app, we need to replace
-         * the escaped line break with an unescaped line break.
-         * https://github.com/gladly-team/next-firebase-auth/discussions/95#discussioncomment-2891225
-         */
-        const privateKey = process.env.FIREBASE_PRIVATE_KEY;
-        return privateKey
-          ? privateKey.replace(/\\n/gm, '\n')
-          : null;
-      } catch (error) {
-        console.error('[ALERT] Error while parsing the env.FIREBASE_PRIVATE_KEY.');
-        return null;
-      }
-    })(),
+    firebasePrivateKey: process.env.FIREBASE_PRIVATE_KEY,
 
     maxLoadWalletRetries: parseInt(process.env.MAX_LOAD_WALLET_RETRIES || '5', 10),
     logLevel: process.env.LOG_LEVEL || 'info',
@@ -74,6 +59,14 @@ export function loadEnvConfig(): EnvironmentConfig {
 
   const { value, error } = EnvironmentConfigSchema.validate(config);
   if (error) {
+    addAlert(
+      'Environment config ',
+      error.message,
+      Severity.CRITICAL,
+      null,
+      // @ts-ignore: cannot import logger on this file, creates an import cycle
+      { error: console.error },
+    );
     throw error;
   }
 

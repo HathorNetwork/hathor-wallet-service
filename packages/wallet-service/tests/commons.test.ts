@@ -16,6 +16,7 @@ import {
   Block,
   FullNodeApiVersionResponse,
 } from '@src/types';
+import fullnode from '@src/fullnode';
 import {
   TxInput,
   TxOutput,
@@ -513,40 +514,37 @@ test('unlockTimelockedUtxos', async () => {
 test('getFullnodeData with an uninitialized version_data database should call the version api', async () => {
   expect.hasAssertions();
 
-  const spy = jest.spyOn(hathorLib.axios, 'createRequestInstance');
+  const mockData = {
+    version: '0.38.0',
+    network: 'mainnet',
+    min_weight: 14,
+    min_tx_weight: 14,
+    min_tx_weight_coefficient: 1.6,
+    min_tx_weight_k: 100,
+    token_deposit_percentage: 0.01,
+    reward_spend_min_blocks: 300,
+    max_number_inputs: 255,
+    max_number_outputs: 255,
+    decimal_places: 2,
+    genesis_block_hash: '1234567812345678123456781234567812345678123456781234567812345678',
+    genesis_tx1_hash: 'abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd',
+    genesis_tx2_hash: 'd00d500fd00d500fd00d500fd00d500fd00d500fd00d500fd00d500fd00d500f',
+    native_token: { name: 'Hathor', symbol: 'HTR'},
+  };
 
-  const mockGet = jest.fn(() => Promise.resolve({
-    data: {
-      success: true,
-      version: '0.38.0',
-      network: 'mainnet',
-      min_weight: 14,
-      min_tx_weight: 14,
-      min_tx_weight_coefficient: 1.6,
-      min_tx_weight_k: 100,
-      token_deposit_percentage: 0.01,
-      reward_spend_min_blocks: 300,
-      max_number_inputs: 255,
-      max_number_outputs: 255,
-      decimal_places: 2,
-      native_token: { name: 'Hathor', symbol: 'HTR'},
-    },
+  const spy = jest.spyOn(fullnode.api, 'get');
+  spy.mockImplementation(() => Promise.resolve({
+    status: 200,
+    data: mockData,
   }));
 
-  spy.mockReturnValue({
-    // @ts-ignore
-    post: () => Promise.resolve({
-      data: {
-        success: true,
-      },
-    }),
-    // @ts-ignore
-    get: mockGet,
-  });
+  await mysql.query('DELETE FROM`version_data`');
 
-  await getFullnodeData(mysql);
+  const data = await getFullnodeData(mysql);
+  console.log(JSON.stringify(data));
 
-  expect(mockGet).toHaveBeenCalledTimes(1);
+  expect(spy).toHaveBeenCalledTimes(1);
+  expect(spy).toHaveBeenCalledWith('version', expect.any(Object));
 });
 
 test('getFullnodeData with an initialized version_data database should query data from the database', async () => {

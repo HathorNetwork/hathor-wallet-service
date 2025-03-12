@@ -27,7 +27,7 @@ export const FullnodeVersionSchema = Joi.object<FullNodeApiVersionResponse>({
     name: Joi.string().min(1).max(30).required(),
     symbol: Joi.string().min(1).max(5).required(),
   }),
-});
+}).unknown(true);
 
 export const EnvironmentConfigSchema = Joi.object<EnvironmentConfig>({
   defaultServer: Joi.string().required(),
