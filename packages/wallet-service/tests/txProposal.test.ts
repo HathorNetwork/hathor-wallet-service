@@ -211,8 +211,8 @@ test('POST /txproposals with too many outputs should fail with ApiError.TOO_MANY
     network: process.env.NETWORK,
     min_weight: 8,
     min_tx_weight: 8,
-    min_tx_weight_coefficient: 0,
-    min_tx_weight_k: 0,
+    min_tx_weight_coefficient: 1.8,
+    min_tx_weight_k: 90,
     token_deposit_percentage: 0.01,
     reward_spend_min_blocks: 300,
     max_number_inputs: 255,
@@ -223,6 +223,7 @@ test('POST /txproposals with too many outputs should fail with ApiError.TOO_MANY
     genesis_tx2_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
     native_token: { name: 'Hathor', symbol: 'HTR'},
   });
+  jest.resetModules();
 
   await addToWalletTable(mysql, [{
     id: 'my-wallet',
