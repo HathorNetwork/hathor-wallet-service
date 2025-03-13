@@ -1,5 +1,6 @@
 import { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
 
+import { mockedAddAlert } from '@tests/utils/alerting.utils.mock';
 import { get as addressesGet, checkMine } from '@src/api/addresses';
 import { get as newAddressesGet } from '@src/api/newAddresses';
 import { get as balancesGet } from '@src/api/balances';
@@ -19,17 +20,19 @@ import {
   get as walletGet,
   load as walletLoad,
   loadWallet,
+  loadWalletFailed,
   changeAuthXpub,
 } from '@src/api/wallet';
 import {
   updateVersionData,
+  createWallet,
 } from '@src/db';
 import * as Wallet from '@src/api/wallet';
 import * as Db from '@src/db';
 import { ApiError } from '@src/api/errors';
 import { closeDbConnection, getDbConnection, getUnixTimestamp, getWalletId } from '@src/utils';
 import { STATUS_CODE_TABLE } from '@src/api/utils';
-import { WalletStatus, FullNodeVersionData } from '@src/types';
+import { WalletStatus, FullNodeApiVersionResponse } from '@src/types';
 import { walletUtils, addressUtils, constants, network, HathorWalletServiceWallet } from '@hathor/wallet-lib';
 import bitcore from 'bitcore-lib';
 import {
@@ -52,10 +55,12 @@ import {
   makeGatewayEventWithAuthorizer,
   getAuthData,
   getXPrivKeyFromSeed,
+  makeLoadWalletFailedSNSEvent,
 } from '@tests/utils';
 import fullnode from '@src/fullnode';
 import { getHealthcheck } from '@src/api/healthcheck';
-import { ping } from "@src/redis";
+import { Severity } from '@wallet-service/common';
+import { ErrorMessages } from '@hathor/wallet-lib/lib/errorMessages';
 
 // Monkey patch bitcore-lib
 
@@ -1154,6 +1159,53 @@ test('changeAuthXpub should fail if signatures do not match', async () => {
   expect(returnBody.details[0].message).toBe('Signatures are not valid');
 });
 
+test('PUT /wallet/auth should fail if we cannot confirm the firstAddress', async () => {
+  expect.hasAssertions();
+
+  // get the first address
+  const xpubChangeDerivation = walletUtils.xpubDeriveChild(XPUBKEY, 0);
+
+  const firstAddressData = addressUtils.deriveAddressFromXPubP2PKH(xpubChangeDerivation, 0, process.env.NETWORK);
+  const firstAddress = firstAddressData.base58;
+  // Get address at wrong derivation index
+  const secondAddressData = addressUtils.deriveAddressFromXPubP2PKH(xpubChangeDerivation, 1, process.env.NETWORK);
+  const secondAddress = secondAddressData.base58;
+
+  // we need signatures for both the account path and the purpose path:
+  const now = Math.floor(Date.now() / 1000);
+  const walletId = getWalletId(XPUBKEY);
+  const xpriv = getXPrivKeyFromSeed(TEST_SEED, {
+    passphrase: '',
+    networkName: process.env.NETWORK,
+  });
+
+  const wallet = await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 20);
+
+  // account path
+  const accountDerivationIndex = '0\'';
+
+  const derivedPrivKey = walletUtils.deriveXpriv(xpriv, accountDerivationIndex);
+  const address = derivedPrivKey.publicKey.toAddress(network.getNetwork()).toString();
+  const message = new bitcore.Message(String(now).concat(walletId).concat(address));
+
+  const event = makeGatewayEvent({}, JSON.stringify({
+    xpubkey: XPUBKEY,
+    xpubkeySignature: 'xpubkey-signature',
+    authXpubkey: AUTH_XPUBKEY,
+    authXpubkeySignature: 'auth-xpubkey-signature',
+    firstAddress: ADDRESSES[1],
+    timestamp: Math.floor(Date.now() / 1000),
+  }));
+
+  const result = await changeAuthXpub(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+
+  expect(result.statusCode).toBe(400);
+  expect(returnBody.success).toBe(false);
+  expect(returnBody.error).toBe('invalid-payload');
+  expect(returnBody.message).toBe(`Expected first address to be ${secondAddress} but it is ${firstAddress}`);
+}, 30000);
+
 test('PUT /wallet/auth should change the auth_xpub only after validating both the xpub and the auth_xpubkey', async () => {
   expect.hasAssertions();
 
@@ -1326,6 +1378,27 @@ test('loadWallet should update wallet status to ERROR if an error occurs', async
 
   expect(wallet.status).toStrictEqual(WalletStatus.ERROR);
 }, 30000);
+
+test('loadWalletFailed should create alert if xpubkey is missing', async () => {
+  expect.hasAssertions();
+
+  const event = makeLoadWalletFailedSNSEvent(1, XPUBKEY, 'a-req-01', 'an-error-01');
+  event.Records[0].Sns.Message = '{}';
+  mockedAddAlert.mockReset();
+
+  await loadWalletFailed(event, null, null);
+
+  expect(mockedAddAlert).toHaveBeenCalledWith(
+    'Wallet failed to load, but no xpubkey received.',
+    `An event reached loadWalletFailed lambda but the xpubkey was not sent. This indicates that a wallet has failed to load and we weren't able to recover, please check the logs as soon as possible.`,
+    Severity.MAJOR,
+    {
+      RequestID: 'a-req-01',
+      ErrorMessage: 'an-error-01'
+    },
+    expect.anything(),
+  );
+});
 
 test('GET /wallet/tokens', async () => {
   expect.hasAssertions();
@@ -1593,21 +1666,26 @@ test('DELETE /tx/proposal/{txProposalId}', async () => {
 test('GET /version', async () => {
   expect.hasAssertions();
 
-  const mockData: FullNodeVersionData = {
-    timestamp: 1614875031449,
+  const mockData: FullNodeApiVersionResponse = {
     version: '0.38.0',
     network: 'mainnet',
-    minWeight: 14,
-    minTxWeight: 14,
-    minTxWeightCoefficient: 1.6,
-    minTxWeightK: 100,
-    tokenDepositPercentage: 0.01,
-    rewardSpendMinBlocks: 300,
-    maxNumberInputs: 255,
-    maxNumberOutputs: 255,
+    min_weight: 14,
+    min_tx_weight: 14,
+    min_tx_weight_coefficient: 1.6,
+    min_tx_weight_k: 100,
+    token_deposit_percentage: 0.01,
+    reward_spend_min_blocks: 300,
+    max_number_inputs: 255,
+    max_number_outputs: 255,
+    decimal_places: 2,
+    genesis_block_hash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    genesis_tx1_hash: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    genesis_tx2_hash: 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+    native_token: { name: 'Hathor', symbol: 'HTR'},
   };
 
-  await updateVersionData(mysql, mockData);
+  const ts = getUnixTimestamp()
+  await updateVersionData(mysql, ts, mockData);
 
   const event = makeGatewayEvent({});
   const result = await getVersionDataGet(event, null, null) as APIGatewayProxyResult;

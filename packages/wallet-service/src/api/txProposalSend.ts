@@ -28,6 +28,7 @@ import {
 import { closeDbAndGetError } from '@src/api/utils';
 import middy from '@middy/core';
 import cors from '@middy/http-cors';
+import config from '@src/config';
 
 const mysql = getDbConnection();
 
@@ -91,7 +92,7 @@ export const send: APIGatewayProxyHandler = middy(walletIdProxyHandler(async (wa
 
   const now = getUnixTimestamp();
   const txProposalInputs = await getTxProposalInputs(mysql, txProposalId);
-  const tx = hathorLib.helpersUtils.createTxFromHex(txHex, new hathorLib.Network(process.env.NETWORK));
+  const tx = hathorLib.helpersUtils.createTxFromHex(txHex, new hathorLib.Network(config.network));
 
   if (tx.inputs.length !== txProposalInputs.length) {
     return closeDbAndGetError(mysql, ApiError.TX_PROPOSAL_NO_MATCH);

@@ -1,14 +1,14 @@
-import { APIGatewayProxyEvent } from 'aws-lambda';
+import { APIGatewayProxyEvent, SNSEvent, SNSEventRecord } from 'aws-lambda';
 import { ServerlessMysql } from 'serverless-mysql';
 import { isEqual } from 'lodash';
 import {
   DbSelectResult,
   TxOutputWithIndex,
-  FullNodeVersionData,
   WalletBalanceValue,
   StringMap,
   PushProvider,
   DbTxOutput,
+  FullNodeApiVersionResponse,
 } from '@src/types';
 import { TxInput } from '@wallet-service/common/src/types';
 import { getWalletId } from '@src/utils';
@@ -819,35 +819,50 @@ export const makeGatewayEventWithAuthorizer = (
   resource: null,
 });
 
-export const addToVersionDataTable = async (mysql: ServerlessMysql, versionData: FullNodeVersionData): Promise<void> => {
-  const payload = [[
-    1,
-    versionData.timestamp,
-    versionData.version,
-    versionData.network,
-    versionData.minWeight,
-    versionData.minTxWeight,
-    versionData.minTxWeightCoefficient,
-    versionData.minTxWeightK,
-    versionData.tokenDepositPercentage,
-    versionData.rewardSpendMinBlocks,
-    versionData.maxNumberInputs,
-    versionData.maxNumberOutputs,
-  ]];
+export function makeLoadWalletFailedSNSEvent(count: number, xpubkey: string, requestId?: string, errorMessage?: string): SNSEvent {
+  const event: SNSEventRecord = {
+    EventVersion: '',
+    EventSubscriptionArn: '',
+    EventSource: '',
+    Sns: {
+      SignatureVersion: '',
+      Timestamp: '',
+      Signature: '',
+      SigningCertUrl: '',
+      MessageId: '',
+      Message: JSON.stringify({
+        source: '',
+        xpubkey,
+        maxGap: 20,
+      }),
+      MessageAttributes: {
+        RequestID: { Type: 'string', Value: requestId || 'request-id' },
+        ErrorMessage: { Type: 'string', Value: errorMessage || 'error-message' },
+      },
+      Type: '',
+      UnsubscribeUrl: '',
+      TopicArn: '',
+      Subject: '',
+      Token: '',
+    },
+  };
+
+  return {
+    Records: Array(count).fill(event),
+  };
+}
+
+export const addToVersionDataTable = async (mysql: ServerlessMysql, timestamp: number, versionData: FullNodeApiVersionResponse): Promise<void> => {
+  const payload = [[ 1, timestamp, JSON.stringify(versionData) ]];
 
   await mysql.query(
-    `INSERT INTO \`version_data\`(\`id\`, \`timestamp\`,
-                          \`version\`, \`network\`,
-                          \`min_weight\`, \`min_tx_weight\`,
-                          \`min_tx_weight_coefficient\`, \`min_tx_weight_k\`,
-                          \`token_deposit_percentage\`, \`reward_spend_min_blocks\`,
-                          \`max_number_inputs\`, \`max_number_outputs\`)
+    `INSERT INTO \`version_data\`(\`id\`, \`timestamp\`, \`data\`)
      VALUES ?`,
     [payload],
   );
 };
 
-export const checkVersionDataTable = async (mysql: ServerlessMysql, versionData: FullNodeVersionData): Promise<boolean | Record<string, unknown>> => {
+export const checkVersionDataTable = async (mysql: ServerlessMysql, versionData: FullNodeApiVersionResponse): Promise<boolean | Record<string, unknown>> => {
   // first check the total number of rows in the table
   let results: DbSelectResult = await mysql.query('SELECT * FROM `version_data`');
 
@@ -875,19 +890,7 @@ export const checkVersionDataTable = async (mysql: ServerlessMysql, versionData:
     };
   }
 
-  const dbVersionData: FullNodeVersionData = {
-    timestamp: results[0].timestamp as number,
-    version: results[0].version as string,
-    network: results[0].network as string,
-    minWeight: results[0].min_weight as number,
-    minTxWeight: results[0].min_tx_weight as number,
-    minTxWeightCoefficient: results[0].min_tx_weight_coefficient as number,
-    minTxWeightK: results[0].min_tx_weight_k as number,
-    tokenDepositPercentage: results[0].token_deposit_percentage as number,
-    rewardSpendMinBlocks: results[0].reward_spend_min_blocks as number,
-    maxNumberInputs: results[0].max_number_inputs as number,
-    maxNumberOutputs: results[0].max_number_outputs as number,
-  };
+  const dbVersionData: FullNodeApiVersionResponse = JSON.parse(results[0].data as string);
 
   if (Object.entries(dbVersionData).toString() !== Object.entries(versionData).toString()) {
     return {

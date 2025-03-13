@@ -40,10 +40,11 @@ import Joi from 'joi';
 import createDefaultLogger from '@src/logger';
 import { Severity } from '@wallet-service/common/src/types';
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
+import config from '@src/config';
 
 const mysql = getDbConnection();
 
-const MAX_LOAD_WALLET_RETRIES: number = parseInt(process.env.MAX_LOAD_WALLET_RETRIES || '5', 10);
+const MAX_LOAD_WALLET_RETRIES: number = config.maxLoadWalletRetries;
 
 /*
  * Get the status of a wallet
@@ -67,7 +68,7 @@ export const get: APIGatewayProxyHandler = middy(walletIdProxyHandler(async (wal
 
 // If the env requires to validate the first address
 // then we must set the firstAddress field as required
-const shouldConfirmFirstAddress = process.env.CONFIRM_FIRST_ADDRESS === 'true';
+const shouldConfirmFirstAddress = config.confirmFirstAddress;
 const firstAddressJoi = shouldConfirmFirstAddress ? Joi.string().required() : Joi.string();
 
 const loadBodySchema = Joi.object({
@@ -92,14 +93,14 @@ const loadBodySchema = Joi.object({
 /* istanbul ignore next */
 export const invokeLoadWalletAsync = async (xpubkey: string, maxGap: number): Promise<void> => {
   const client = new LambdaClient({
-    endpoint: process.env.STAGE === 'dev'
+    endpoint: config.stage === 'dev'
       ? 'http://localhost:3002'
-      : `https://lambda.${process.env.AWS_REGION}.amazonaws.com`,
-    region: process.env.AWS_REGION,
+      : `https://lambda.${config.awsRegion}.amazonaws.com`,
+    region: config.awsRegion,
   });
   const command = new InvokeCommand({
     // FunctionName is composed of: service name - stage - function name
-    FunctionName: `${process.env.SERVICE_NAME}-${process.env.STAGE}-loadWalletAsync`,
+    FunctionName: `${config.serviceName}-${config.stage}-loadWalletAsync`,
     InvocationType: 'Event',
     Payload: JSON.stringify({ xpubkey, maxGap }),
   });
@@ -276,7 +277,7 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
 
   const xpubkeyStr = value.xpubkey;
   const authXpubkeyStr = value.authXpubkey;
-  const maxGap = parseInt(process.env.MAX_ADDRESS_GAP, 10);
+  const maxGap = config.maxAddressGap;
 
   const timestamp = value.timestamp;
   const xpubkeySignature = value.xpubkeySignature;
@@ -442,6 +443,7 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
       );
     }
   } catch (e) {
+    logger.error('Error during loadWalletFailed', e);
     await addAlert(
       'Failed to handle loadWalletFailed event',
       `Failed to process the loadWalletFailed event. This indicates that wallets failed to load and we weren't able to recover, please check the logs as soon as possible.`,

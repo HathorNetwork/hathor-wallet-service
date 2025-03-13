@@ -1,6 +1,6 @@
 import { Logger } from 'winston';
 import { mockedAddAlert } from '@tests/utils/alerting.utils.mock';
-import { connectionInfoFromEvent, sendMessageToClient } from '@src/ws/utils';
+import { sendMessageToClient } from '@src/ws/utils';
 import { Severity } from '@wallet-service/common/src/types';
 
 import { logger } from '@tests/winston.mock';
@@ -45,6 +45,9 @@ import { endWsConnection } from '@src/redis';
 
 test('connectionInfoFromEvent', async () => {
   expect.hasAssertions();
+  const oldValue = process.env.IS_OFFLINE;
+  process.env.IS_OFFLINE = 'false';
+  jest.resetModules();
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
   // @ts-ignore
   const event = {
@@ -54,16 +57,27 @@ test('connectionInfoFromEvent', async () => {
       stage: 'test123',
     },
   };
-  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-  // @ts-ignore
-  const connInfo = connectionInfoFromEvent(event);
-  expect(connInfo).toStrictEqual({ id: 'abc123', url: `https://${process.env.WS_DOMAIN}` });
+  try {
+
+    const { connectionInfoFromEvent } = await import('@src/ws/utils');
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    const connInfo = connectionInfoFromEvent(event);
+    expect(connInfo).toStrictEqual({ id: 'abc123', url: `https://${process.env.WS_DOMAIN}` });
+  } finally {
+    process.env.IS_OFFLINE = oldValue;
+    jest.resetModules();
+  }
 });
 
-test('missing WS_DOMAIN should throw', () => {
+test('missing WS_DOMAIN should throw', async () => {
   expect.hasAssertions();
 
+  const oldOffline = process.env.IS_OFFLINE;
+  process.env.IS_OFFLINE = 'false';
+  const oldDomain = process.env.WS_DOMAIN;
   delete process.env.WS_DOMAIN;
+  jest.resetModules();
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
   // @ts-ignore
   const event = {
@@ -74,16 +88,23 @@ test('missing WS_DOMAIN should throw', () => {
     },
   };
 
-  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-  // @ts-ignore
-  expect(() => connectionInfoFromEvent(event)).toThrow('Domain not on env variables');
-  expect(mockedAddAlert).toHaveBeenCalledWith(
-    'Erroed while fetching connection info',
-    'Domain not on env variables',
-    Severity.MINOR,
-    null,
-    expect.any(Logger),
-  );
+  try {
+    const { connectionInfoFromEvent } = await import('@src/ws/utils');
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    expect(() => connectionInfoFromEvent(event)).toThrow('Domain not on env variables');
+    expect(mockedAddAlert).toHaveBeenCalledWith(
+      'Erroed while fetching connection info',
+      'Domain not on env variables',
+      Severity.MINOR,
+      null,
+      expect.anything(),
+    );
+  } finally {
+    process.env.WS_DOMAIN = oldDomain;
+    process.env.IS_OFFLINE = oldOffline;
+    jest.resetModules();
+  }
 });
 
 describe('sendMessageToClient', () => {

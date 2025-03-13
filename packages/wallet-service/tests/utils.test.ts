@@ -1,31 +1,7 @@
-import { CustomStorage, arrayShuffle, sha256d, isTxVoided } from '@src/utils';
+import { arrayShuffle, sha256d, isTxVoided } from '@src/utils';
 import hathorLib from '@hathor/wallet-lib';
 import * as Fullnode from '@src/fullnode';
 import { TEST_SEED, XPUBKEY, AUTH_XPUBKEY, ADDRESSES } from '@tests/utils';
-
-// XXX: DEC-0002
-test('CustomStorage', () => {
-  expect.hasAssertions();
-
-  const store = new CustomStorage();
-  // Should be initialized with hathor default server and server
-  expect(store.getItem('wallet:defaultServer')).toBe('https://node1.mainnet.hathor.network/v1a/');
-  expect(store.getItem('wallet:server')).toBe('https://node1.mainnet.hathor.network/v1a/');
-
-  store.setItem('hathor', 'hathor');
-  expect(store.getItem('hathor')).toBe('hathor');
-  store.removeItem('hathor');
-
-  expect(store.getItem('hathor')).toBeUndefined();
-
-  store.setItem('hathor', 'hathor2');
-  store.clear();
-  expect(store.getItem('hathor')).toBeUndefined();
-
-  store.preStart();
-  expect(store.getItem('wallet:defaultServer')).toBe('https://node1.mainnet.hathor.network/v1a/');
-  expect(store.getItem('wallet:server')).toBe('https://node1.mainnet.hathor.network/v1a/');
-});
 
 test('sha256d', () => {
   expect.hasAssertions();
@@ -68,6 +44,7 @@ test('isTxVoided', async () => {
     };
   });
 
+  // @ts-ignore
   spy.mockImplementation(mockImplementation);
 
   expect(await isTxVoided('0000000f1fbb4bd8a8e71735af832be210ac9a6c1e2081b21faeea3c0f5797f7')).toStrictEqual([

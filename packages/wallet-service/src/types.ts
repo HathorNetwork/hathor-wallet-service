@@ -39,8 +39,53 @@ export enum TxProposalStatus {
   CANCELLED = 'cancelled',
 }
 
+/**
+ * wallet-service environment config.
+ */
+export interface EnvironmentConfig {
+  defaultServer: string;
+  stage: string;
+  network: string;
+  serviceName: string;
+  maxAddressGap: number;
+  voidedTxOffset: number;
+  blockRewardLock: number; // *
+  confirmFirstAddress: boolean;
+  wsDomain: string;
+  dbEndpoint: string;
+  dbName: string;
+  dbUser: string;
+  dbPass: string;
+  dbPort: number;
+  redisUrl: string;
+  redisPassword: string;
+  authSecret: string;
+  walletServiceLambdaEndpoint: string;
+  pushNotificationEnabled: boolean;
+  pushAllowedProviders: string;
+  isOffline: boolean;
+  txHistoryMaxCount: number;
+  healthCheckMaximumHeightDifference: number;
+  awsRegion: string;
+  firebaseProjectId: string;
+  firebasePrivateKeyId: string;
+  firebaseClientEmail: string;
+  firebaseClientId: string;
+  firebaseAuthUri: string;
+  firebaseTokenUri: string;
+  firebaseAuthProviderX509CertUrl: string;
+  firebaseClientX509CertUrl: string;
+  firebasePrivateKey: string|null;
+  maxLoadWalletRetries: number;
+  logLevel: string;
+  createNftMaxRetries: number;
+  warnMaxReorgSize: number;
+};
+
+/**
+ * Fullnode converted version data.
+ */
 export interface FullNodeVersionData {
-  timestamp: number;
   version: string;
   network: string;
   minWeight: number;
@@ -51,6 +96,30 @@ export interface FullNodeVersionData {
   rewardSpendMinBlocks: number;
   maxNumberInputs: number;
   maxNumberOutputs: number;
+  decimalPlaces: number;
+  nativeTokenName: string;
+  nativeTokenSymbol: string;
+}
+
+/**
+ * Fullnode API response.
+ */
+export interface FullNodeApiVersionResponse {
+  version: string;
+  network: string;
+  min_weight: number;
+  min_tx_weight: number;
+  min_tx_weight_coefficient: number; // float
+  min_tx_weight_k: number;
+  token_deposit_percentage: number; // float
+  reward_spend_min_blocks: number;
+  max_number_inputs: number;
+  max_number_outputs: number;
+  decimal_places: number;
+  genesis_block_hash: string,
+  genesis_tx1_hash: string,
+  genesis_tx2_hash: string,
+  native_token: { name: string, symbol: string};
 }
 
 export interface TxProposal {
