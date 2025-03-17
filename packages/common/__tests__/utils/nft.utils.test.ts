@@ -558,7 +558,7 @@ describe('transaction transformation compatibility', () => {
 
       // Test that the transformed transaction is valid for NFT handling
       const network = { name: 'testnet' };
-      const result = NftUtils.shouldInvokeNftHandlerForTx(txFromEvent, network as any, logger);
+      const result = NftUtils.shouldInvokeNftHandlerForTx(txFromEvent, network as unknown as hathorLib.Network, logger);
       expect(result).toBe(true);
       expect(isNftTransactionSpy).toHaveBeenCalledTimes(1);
     } finally {
@@ -607,7 +607,7 @@ describe('transaction transformation compatibility', () => {
 
       // Test that this transaction is detected as an NFT
       expect(isNftTransactionSpy).toHaveBeenCalledTimes(0);
-      const shouldInvoke = NftUtils.shouldInvokeNftHandlerForTx(txFromEvent, mockNetwork as any, logger);
+      const shouldInvoke = NftUtils.shouldInvokeNftHandlerForTx(txFromEvent, mockNetwork as unknown as hathorLib.Network, logger);
       expect(shouldInvoke).toBe(true);
       expect(isNftTransactionSpy).toHaveBeenCalledTimes(1);
     } finally {
@@ -723,7 +723,7 @@ describe('processNftEvent', () => {
     const result = await NftUtils.processNftEvent(
       eventData,
       'test-stage',
-      mockNetwork as any,
+      mockNetwork as unknown as hathorLib.Network,
       logger
     );
 
@@ -767,7 +767,7 @@ describe('processNftEvent', () => {
     const result = await NftUtils.processNftEvent(
       eventData,
       'test-stage',
-      mockNetwork as any,
+      mockNetwork as unknown as hathorLib.Network,
       logger
     );
 
@@ -786,7 +786,7 @@ describe('processNftEvent', () => {
     const result = await NftUtils.processNftEvent(
       eventData,
       'test-stage',
-      mockNetwork as any,
+      mockNetwork as unknown as hathorLib.Network,
       logger
     );
 
@@ -811,7 +811,7 @@ describe('processNftEvent', () => {
     const result = await NftUtils.processNftEvent(
       eventData,
       'test-stage',
-      mockNetwork as any,
+      mockNetwork as unknown as hathorLib.Network,
       logger
     );
 
@@ -851,7 +851,7 @@ describe('processNftEvent', () => {
       const result = await NftUtils.processNftEvent(
         eventData,
         'test-stage',
-        mockNetwork as any,
+        mockNetwork as unknown as hathorLib.Network,
         logger
       );
 
@@ -937,7 +937,7 @@ it('should perform full NFT processing with real event data and no mocks', async
       const result = await NftUtils.processNftEvent(
         eventData,
         'test-stage',
-        mockNetwork as any,
+        mockNetwork as unknown as hathorLib.Network,
         logger
       );
 
