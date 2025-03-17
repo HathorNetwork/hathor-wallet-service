@@ -243,6 +243,10 @@ export class NftUtils {
       token_name: fullNodeData.token_name,
       token_symbol: fullNodeData.token_symbol,
       inputs: fullNodeData.inputs.map((input: FullNodeInput) => {
+        // Extract the token index from token_data using hathor's TOKEN_INDEX_MASK
+        // The token_data field contains both the token index and other flags
+        // TOKEN_INDEX_MASK is used to isolate just the token index bits
+        // We subtract 1 because token indexes are 1-based in token_data but 0-based in the tokens array
         const tokenIndex = (input.spent_output.token_data & constants.TOKEN_INDEX_MASK) - 1;
 
         return {
@@ -256,6 +260,9 @@ export class NftUtils {
         };
       }),
       outputs: fullNodeData.outputs.map((output: FullNodeOutput) => {
+        // Extract the token index from token_data using the same bit masking technique
+        // A negative result means it's the HTR token (index < 0)
+        // A positive result is an index into the tokens array (custom tokens)
         const tokenIndex = (output.token_data & constants.TOKEN_INDEX_MASK) - 1;
 
         return {
