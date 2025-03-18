@@ -49,7 +49,6 @@ export interface EnvironmentConfig {
   serviceName: string;
   maxAddressGap: number;
   voidedTxOffset: number;
-  blockRewardLock: number; // *
   confirmFirstAddress: boolean;
   wsDomain: string;
   dbEndpoint: string;

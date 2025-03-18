@@ -17,7 +17,6 @@ export function loadEnvConfig(): EnvironmentConfig {
     serviceName: process.env.SERVICE_NAME,
     maxAddressGap: Number.parseInt(process.env.MAX_ADDRESS_GAP, 10),
     voidedTxOffset: Number.parseInt(process.env.VOIDED_TX_OFFSET, 10),
-    blockRewardLock: Number.parseInt(process.env.BLOCK_REWARD_LOCK, 10),
     confirmFirstAddress: process.env.CONFIRM_FIRST_ADDRESS === 'true',
     wsDomain: process.env.WS_DOMAIN,
     dbEndpoint: process.env.DB_ENDPOINT,

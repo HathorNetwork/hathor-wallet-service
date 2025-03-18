@@ -13,6 +13,10 @@ import fullnode from '@src/fullnode';
 
 const VERSION_CHECK_MAX_DIFF = 60 * 60; // 1 hour
 
+/**
+ * Get fullnode version data as an Object exactly as the fullnode sent it.
+ * Will get from database if the cached version data is valid.
+ */
 export async function getRawFullnodeData(mysql: ServerlessMysql): Promise<FullNodeApiVersionResponse> {
   const {
     timestamp,
@@ -29,6 +33,9 @@ export async function getRawFullnodeData(mysql: ServerlessMysql): Promise<FullNo
   return lastVersionData;
 }
 
+/**
+ * Convert the raw version data from the fullnode to a camel-cased object.
+ */
 export function convertApiVersionData(data: FullNodeApiVersionResponse): FullNodeVersionData {
   return {
     version: data.version,
@@ -47,6 +54,10 @@ export function convertApiVersionData(data: FullNodeApiVersionResponse): FullNod
   };
 }
 
+/**
+ * Gets the converted fullnode version data.
+ * Will get from database if the cached version data is valid.
+ */
 export async function getFullnodeData(mysql: ServerlessMysql): Promise<FullNodeVersionData> {
   const data = await getRawFullnodeData(mysql);
   return convertApiVersionData(data);
