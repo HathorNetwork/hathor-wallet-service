@@ -217,7 +217,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     const txOutputs: TxOutputWithIndex[] = prepareOutputs(outputs, tokens);
     const txInputs: TxInput[] = prepareInputs(inputs, tokens);
 
-    let heightlock = null;
+    let heightlock: number|null = null;
     if (isBlock(version)) {
       if (typeof height !== 'number' && !height) {
         throw new Error('Block with no height set in metadata.');

@@ -60,7 +60,6 @@ import {
 import fullnode from '@src/fullnode';
 import { getHealthcheck } from '@src/api/healthcheck';
 import { Severity } from '@wallet-service/common';
-import { ErrorMessages } from '@hathor/wallet-lib/lib/errorMessages';
 
 // Monkey patch bitcore-lib
 

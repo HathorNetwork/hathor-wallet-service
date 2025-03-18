@@ -1,4 +1,4 @@
-import hathorLib, { helpersUtils, constants } from '@hathor/wallet-lib';
+import hathorLib, { constants } from '@hathor/wallet-lib';
 import { mockedAddAlert } from './alerting.utils.mock';
 import { NftUtils } from '@src/utils/nft.utils';
 import { Severity } from '@src/types';
@@ -110,7 +110,7 @@ const createTransformedEvent = (fullNodeData = REAL_NFT_EVENT_DATA) => {
     inputs: fullNodeData.inputs.map((input) => {
       const tokenIndex = (input.spent_output.token_data & hathorLib.constants.TOKEN_INDEX_MASK) - 1;
       return {
-        token: tokenIndex < 0 ? hathorLib.constants.HATHOR_TOKEN_CONFIG.uid : fullNodeData.tokens[tokenIndex],
+        token: tokenIndex < 0 ? hathorLib.constants.NATIVE_TOKEN_UID : fullNodeData.tokens[tokenIndex],
         value: input.spent_output.value,
         token_data: input.spent_output.token_data,
         script: input.spent_output.script,
@@ -127,7 +127,7 @@ const createTransformedEvent = (fullNodeData = REAL_NFT_EVENT_DATA) => {
         ...output,
         decoded: output.decoded ? output.decoded : {},
         spent_by: null,
-        token: tokenIndex < 0 ? hathorLib.constants.HATHOR_TOKEN_CONFIG.uid : fullNodeData.tokens[tokenIndex],
+        token: tokenIndex < 0 ? hathorLib.constants.NATIVE_TOKEN_UID : fullNodeData.tokens[tokenIndex],
       };
     }),
   };
@@ -532,7 +532,7 @@ describe('transaction transformation compatibility', () => {
           const tokenIndex = (input.spent_output.token_data & hathorLib.constants.TOKEN_INDEX_MASK) - 1;
 
           return {
-            token: tokenIndex < 0 ? hathorLib.constants.HATHOR_TOKEN_CONFIG.uid : fullNodeData.tokens[tokenIndex],
+            token: tokenIndex < 0 ? hathorLib.constants.NATIVE_TOKEN_UID : fullNodeData.tokens[tokenIndex],
             value: input.spent_output.value,
             token_data: input.spent_output.token_data,
             script: input.spent_output.script,
@@ -549,7 +549,7 @@ describe('transaction transformation compatibility', () => {
             ...output,
             decoded: output.decoded ? output.decoded : {},
             spent_by: null,
-            token: tokenIndex < 0 ? hathorLib.constants.HATHOR_TOKEN_CONFIG.uid : fullNodeData.tokens[tokenIndex],
+            token: tokenIndex < 0 ? hathorLib.constants.NATIVE_TOKEN_UID : fullNodeData.tokens[tokenIndex],
           };
         }),
       };
@@ -586,11 +586,11 @@ describe('transaction transformation compatibility', () => {
 
       // Verify token handling is correct
       // First input should be HTR token
-      expect(txFromEvent.inputs[0].token).toBe(hathorLib.constants.HATHOR_TOKEN_CONFIG.uid);
+      expect(txFromEvent.inputs[0].token).toBe(hathorLib.constants.NATIVE_TOKEN_UID);
 
       // First and second outputs should be HTR tokens
-      expect(txFromEvent.outputs[0].token).toBe(hathorLib.constants.HATHOR_TOKEN_CONFIG.uid);
-      expect(txFromEvent.outputs[1].token).toBe(hathorLib.constants.HATHOR_TOKEN_CONFIG.uid);
+      expect(txFromEvent.outputs[0].token).toBe(hathorLib.constants.NATIVE_TOKEN_UID);
+      expect(txFromEvent.outputs[1].token).toBe(hathorLib.constants.NATIVE_TOKEN_UID);
 
       // Third output should be the NFT token
       expect(txFromEvent.outputs[2].token).toBe(fullNodeData.tokens[0]);
@@ -744,7 +744,7 @@ describe('processNftEvent', () => {
     expect(callArg.outputs.length).toBe(eventData.outputs.length);
     expect(callArg.outputs[0].spent_by).toBeNull();
     expect(callArg.outputs[0].decoded).toEqual({});
-    expect(callArg.outputs[0].token).toBe(hathorLib.constants.HATHOR_TOKEN_CONFIG.uid);
+    expect(callArg.outputs[0].token).toBe(hathorLib.constants.NATIVE_TOKEN_UID);
 
     // Verify the lambda was invoked with the correct parameters
     expect(invokeNftLambdaSpy).toHaveBeenCalledTimes(1);

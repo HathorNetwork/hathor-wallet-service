@@ -9,8 +9,8 @@ import { LambdaClient, InvokeCommand, InvokeCommandOutput } from '@aws-sdk/clien
 import { addAlert } from './alerting.utils';
 import { Severity } from '../types';
 import { Network, constants, CreateTokenTransaction, helpersUtils } from '@hathor/wallet-lib';
-// @ts-ignore
-import type { HistoryTransaction } from '@hathor/wallet-lib';
+// FIXME: import from lib path on HathorLib
+import type { HistoryTransaction } from '@hathor/wallet-lib/lib/models/types';
 import { Logger } from 'winston';
 import { FullNodeTransaction, FullNodeInput, FullNodeOutput } from '../types';
 
@@ -251,7 +251,7 @@ export class NftUtils {
         return {
           tx_id: input.tx_id,
           index: input.index,
-          token: tokenIndex < 0 ? constants.HATHOR_TOKEN_CONFIG.uid : fullNodeData.tokens[tokenIndex],
+          token: tokenIndex < 0 ? constants.NATIVE_TOKEN_UID : fullNodeData.tokens[tokenIndex],
           token_data: input.spent_output.token_data,
           value: input.spent_output.value,
           script: input.spent_output.script,
@@ -268,7 +268,7 @@ export class NftUtils {
           value: output.value,
           token_data: output.token_data,
           script: output.script,
-          token: tokenIndex < 0 ? constants.HATHOR_TOKEN_CONFIG.uid : fullNodeData.tokens[tokenIndex],
+          token: tokenIndex < 0 ? constants.NATIVE_TOKEN_UID : fullNodeData.tokens[tokenIndex],
           decoded: output.decoded || {},
           spent_by: null,
         };
