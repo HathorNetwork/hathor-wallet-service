@@ -10,7 +10,7 @@ import hathorLib from '@hathor/wallet-lib';
 import { Connection as MysqlConnection } from 'mysql2/promise';
 import axios from 'axios';
 import { get } from 'lodash';
-import { NftUtils } from '@wallet-service/common';
+import { NftUtils } from '@wallet-service/common/src/utils/nft.utils';
 import {
   StringMap,
   Wallet,
@@ -183,6 +183,8 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       throw new Error('No block reward lock set');
     }
 
+    const fullNodeData = fullNodeEvent.event.data;
+
     const {
       hash,
       metadata,
@@ -196,7 +198,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       token_name,
       token_symbol,
       parents,
-    } = fullNodeEvent.event.data;
+    } = fullNodeData;
 
     const dbTx: DbTransaction | null = await getTransactionById(mysql, hash);
 
@@ -409,13 +411,10 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
       const network = new hathorLib.Network(NETWORK);
 
-      // Validating for NFTs only after the tx is successfully added
-      if (NftUtils.shouldInvokeNftHandlerForTx(txData, network, logger)) {
-        // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
-        // In case of errors, just log the asynchronous exception and take no action on it.
-        NftUtils.invokeNftHandlerLambda(txData.tx_id, STAGE, logger)
-          .catch((err: unknown) => logger.error('[ALERT] Error on nftHandlerLambda invocation', err));
-      }
+      // Call to process the data for NFT handling (if applicable)
+      // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
+      NftUtils.processNftEvent(fullNodeData, STAGE, network, logger)
+        .catch((err: unknown) => logger.error('[ALERT] Error processing NFT event', err));
     }
 
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);

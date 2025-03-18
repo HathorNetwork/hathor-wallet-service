@@ -436,3 +436,34 @@ export class TokenBalanceMap {
     return obj;
   }
 }
+
+// The output structure in full node events is similar to TxOutput but with some differences
+export interface FullNodeOutput extends Omit<TxOutput, 'decoded' | 'token' | 'spent_by'> {
+  // In full node data, decoded can be null
+  decoded: DecodedOutput | null;
+}
+
+// The input structure in full node events is different - it contains a reference to the spent output
+export interface FullNodeInput extends Omit<TxInput, 'value' | 'token_data' | 'script' | 'token' | 'decoded'> {
+  // Instead of having these fields directly, it has a spent_output property
+  spent_output: FullNodeOutput;
+}
+
+// The FullNodeTransaction interface represents a transaction as it comes from the full node
+// which has a slightly different structure than our internal Transaction type
+export interface FullNodeTransaction extends Omit<Transaction, 'tx_id' | 'inputs' | 'outputs' | 'parents'> {
+  // From full node events we get 'hash' instead of 'tx_id'
+  hash: string;
+  // The input and output structures are different from our internal Transaction type
+  inputs: FullNodeInput[];
+  outputs: FullNodeOutput[];
+  // Additional fields specific to full node events
+  tokens: string[];
+  parents?: string[];
+  metadata?: {
+    hash: string;
+    voided_by: string[];
+    first_block: null | string;
+    height: number;
+  };
+}

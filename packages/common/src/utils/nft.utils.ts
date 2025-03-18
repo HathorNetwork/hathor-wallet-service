@@ -7,10 +7,13 @@
 
 import { LambdaClient, InvokeCommand, InvokeCommandOutput } from '@aws-sdk/client-lambda';
 import { addAlert } from './alerting.utils';
-import { Transaction, Severity } from '../types';
+import { Severity } from '../types';
 // @ts-ignore
 import { Network, constants, CreateTokenTransaction, helpersUtils } from '@hathor/wallet-lib';
+// @ts-ignore
+import type { HistoryTransaction } from '@hathor/wallet-lib';
 import { Logger } from 'winston';
+import { FullNodeTransaction, FullNodeInput, FullNodeOutput } from '../types';
 
 /**
  * A helper for generating and updating a NFT Token's metadata.
@@ -29,7 +32,7 @@ export class NftUtils {
    *
    * TODO: Remove the logger param after we unify the logger from both projects
    */
-  static shouldInvokeNftHandlerForTx(tx: Transaction, network: Network, logger: Logger): boolean {
+  static shouldInvokeNftHandlerForTx(tx: HistoryTransaction, network: Network, logger: Logger): boolean {
     return isNftAutoReviewEnabled() && this.isTransactionNFTCreation(tx, network, logger);
   }
 
@@ -38,10 +41,9 @@ export class NftUtils {
    * @param {Transaction} tx
    * @returns {boolean}
    *
-   * TODO: change tx type to HistoryTransaction
    * TODO: Remove the logger param after we unify the logger from both projects
    */
-  static isTransactionNFTCreation(tx: any, network: Network, logger: Logger): boolean {
+  static isTransactionNFTCreation(tx: HistoryTransaction, network: Network, logger: Logger): boolean {
   /*
    * To fully check if a transaction is a NFT creation, we need to instantiate a new Transaction object in the lib.
    * So first we do some very fast checks to filter the bulk of the requests for NFTs with minimum processing.
@@ -148,12 +150,23 @@ export class NftUtils {
    * This is to improve the failure tolerance on this non-critical step of the sync loop.
    */
   static async invokeNftHandlerLambda(txId: string, stage: string, logger: Logger): Promise<void> {
+    // Check for required environment variables
+    if (!process.env.WALLET_SERVICE_LAMBDA_ENDPOINT || !process.env.AWS_REGION) {
+      throw new Error('Environment variables WALLET_SERVICE_LAMBDA_ENDPOINT and AWS_REGION are not set.');
+    }
+
+    // Skip if NFT auto review is disabled
+    if (!isNftAutoReviewEnabled()) {
+      logger.debug('NFT auto review is disabled. Skipping lambda invocation.');
+      return;
+    }
+
     const client = new LambdaClient({
       endpoint: process.env.WALLET_SERVICE_LAMBDA_ENDPOINT,
       region: process.env.AWS_REGION,
     });
     // invoke lambda asynchronously to metadata update
-   const command = new InvokeCommand({
+    const command = new InvokeCommand({
       FunctionName: `hathor-wallet-service-${stage}-onNewNftEvent`,
       InvocationType: 'Event',
       Payload: JSON.stringify({ nftUid: txId }),
@@ -172,5 +185,97 @@ export class NftUtils {
       );
       throw new Error(`onNewNftEvent lambda invoke failed for tx: ${txId}`);
     }
+  }
+
+  /**
+   * Process a new NFT event by transforming the data, checking if it should invoke the NFT handler,
+   * and invoking the lambda if appropriate.
+   */
+  static async processNftEvent(
+    eventData: FullNodeTransaction,
+    stage: string,
+    network: unknown,
+    logger: Logger
+  ): Promise<boolean> {
+    // Early return if NFT auto review is disabled
+    if (!isNftAutoReviewEnabled()) {
+      logger.debug('NFT auto review is disabled. Skipping NFT handler invocation.');
+      return false;
+    }
+
+    // Early return if not a token creation transaction
+    if (eventData.version !== constants.CREATE_TOKEN_TX_VERSION) {
+      logger.debug(`Transaction version ${eventData.version} is not a token creation transaction (${constants.CREATE_TOKEN_TX_VERSION}). Skipping NFT handler invocation.`);
+      return false;
+    }
+
+    try {
+      // Transform the data to a format compatible with shouldInvokeNftHandlerForTx
+      const transformedTx = NftUtils.transformFullNodeTxForNftDetection(eventData);
+
+      // Check if we should invoke the NFT handler for this transaction
+      if (NftUtils.shouldInvokeNftHandlerForTx(transformedTx, network, logger)) {
+        // Get the transaction hash
+        const txId = eventData.hash;
+
+        // Invoke the lambda function
+        await NftUtils.invokeNftHandlerLambda(txId, stage, logger);
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      logger.error(`Error processing NFT event: ${error}`);
+      return false;
+    }
+  }
+
+  /**
+   * Transform transaction data from the full node to a format compatible with the NFT detection logic.
+   */
+  static transformFullNodeTxForNftDetection(fullNodeData: FullNodeTransaction): HistoryTransaction {
+    // Create a new object with the required properties
+    const transformedTx: any = {
+      hash: fullNodeData.hash,
+      tx_id: fullNodeData.hash, // Add tx_id for compatibility
+      version: fullNodeData.version,
+      tokens: fullNodeData.tokens,
+      token_name: fullNodeData.token_name,
+      token_symbol: fullNodeData.token_symbol,
+      inputs: fullNodeData.inputs.map((input: FullNodeInput) => {
+        // Extract the token index from token_data using hathor's TOKEN_INDEX_MASK
+        // The token_data field contains both the token index and other flags
+        // TOKEN_INDEX_MASK is used to isolate just the token index bits
+        // We subtract 1 because token indexes are 1-based in token_data but 0-based in the tokens array
+        const tokenIndex = (input.spent_output.token_data & constants.TOKEN_INDEX_MASK) - 1;
+
+        return {
+          tx_id: input.tx_id,
+          index: input.index,
+          token: tokenIndex < 0 ? constants.HATHOR_TOKEN_CONFIG.uid : fullNodeData.tokens[tokenIndex],
+          token_data: input.spent_output.token_data,
+          value: input.spent_output.value,
+          script: input.spent_output.script,
+          decoded: input.spent_output.decoded || {},
+        };
+      }),
+      outputs: fullNodeData.outputs.map((output: FullNodeOutput) => {
+        // Extract the token index from token_data using the same bit masking technique
+        // A negative result means it's the HTR token (index < 0)
+        // A positive result is an index into the tokens array (custom tokens)
+        const tokenIndex = (output.token_data & constants.TOKEN_INDEX_MASK) - 1;
+
+        return {
+          value: output.value,
+          token_data: output.token_data,
+          script: output.script,
+          token: tokenIndex < 0 ? constants.HATHOR_TOKEN_CONFIG.uid : fullNodeData.tokens[tokenIndex],
+          decoded: output.decoded || {},
+          spent_by: null,
+        };
+      }),
+    };
+
+    return transformedTx;
   }
 }
