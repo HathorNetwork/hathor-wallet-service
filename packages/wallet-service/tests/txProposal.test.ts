@@ -228,7 +228,7 @@ test('POST /txproposals with too many outputs should fail with ApiError.TOO_MANY
   await addToWalletTable(mysql, [{
     id: 'my-wallet',
     xpubkey: 'xpubkey',
-   authXpubkey: 'auth_xpubkey',
+    authXpubkey: 'auth_xpubkey',
     status: 'ready',
     maxGap: 5,
     createdAt: 10000,

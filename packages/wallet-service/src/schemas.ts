@@ -36,7 +36,6 @@ export const EnvironmentConfigSchema = Joi.object<EnvironmentConfig>({
   serviceName: Joi.string().required(),
   maxAddressGap: Joi.number().required(),
   voidedTxOffset: Joi.number().required(),
-  blockRewardLock: Joi.number().required(),
   confirmFirstAddress: Joi.boolean().required(),
   wsDomain: Joi.string().required(),
   dbEndpoint: Joi.string().required(),
