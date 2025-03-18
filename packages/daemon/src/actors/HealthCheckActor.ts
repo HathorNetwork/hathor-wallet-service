@@ -5,7 +5,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import axios from 'axios';
+// Import the CommonJS version of axios directly
+import axios from 'axios/dist/node/axios.cjs';
 import logger from '../logger';
 import getConfig from '../config';
 import { Event, EventTypes } from '../types';
