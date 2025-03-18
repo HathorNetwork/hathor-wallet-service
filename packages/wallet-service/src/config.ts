@@ -23,7 +23,7 @@ export function loadEnvConfig(): EnvironmentConfig {
     dbEndpoint: process.env.DB_ENDPOINT,
     dbName: process.env.DB_NAME,
     dbUser: process.env.DB_USER,
-    dbPort: parseInt(process.env.DB_PORT, 10),
+    dbPort: Number.parseInt(process.env.DB_PORT, 10),
     dbPass: process.env.DB_PASS,
     redisUrl: process.env.REDIS_URL,
     redisPassword: process.env.REDIS_PASSWORD,
@@ -32,8 +32,8 @@ export function loadEnvConfig(): EnvironmentConfig {
     pushNotificationEnabled: process.env.PUSH_NOTIFICATION_ENABLED === 'true',
     pushAllowedProviders: process.env.PUSH_ALLOWED_PROVIDERS,
     isOffline: process.env.IS_OFFLINE === 'true',
-    txHistoryMaxCount: parseInt(process.env.TX_HISTORY_MAX_COUNT || '50', 10),
-    healthCheckMaximumHeightDifference: Number(process.env.HEALTHCHECK_MAXIMUM_HEIGHT_DIFFERENCE ?? 5),
+    txHistoryMaxCount: Number.parseInt(process.env.TX_HISTORY_MAX_COUNT || '50', 10),
+    healthCheckMaximumHeightDifference: Number.parseInt(process.env.HEALTHCHECK_MAXIMUM_HEIGHT_DIFFERENCE ?? '5', 10),
 
     awsRegion: process.env.AWS_REGION,
 
@@ -47,10 +47,10 @@ export function loadEnvConfig(): EnvironmentConfig {
     firebaseClientX509CertUrl: process.env.FIREBASE_CLIENT_X509_CERT_URL,
     firebasePrivateKey: process.env.FIREBASE_PRIVATE_KEY,
 
-    maxLoadWalletRetries: parseInt(process.env.MAX_LOAD_WALLET_RETRIES || '5', 10),
+    maxLoadWalletRetries: Number.parseInt(process.env.MAX_LOAD_WALLET_RETRIES || '5', 10),
     logLevel: process.env.LOG_LEVEL || 'info',
-    createNftMaxRetries: parseInt(process.env.CREATE_NFT_MAX_RETRIES || '3', 10),
-    warnMaxReorgSize: parseInt(process.env.WARN_MAX_REORG_SIZE || '100', 10),
+    createNftMaxRetries: Number.parseInt(process.env.CREATE_NFT_MAX_RETRIES || '3', 10),
+    warnMaxReorgSize: Number.parseInt(process.env.WARN_MAX_REORG_SIZE || '100', 10),
   };
 
   if (process.env.NODE_ENV === 'test') {
