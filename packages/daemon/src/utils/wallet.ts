@@ -68,7 +68,7 @@ export const prepareOutputs = (outputs: EventTxOutput[], tokens: string[]): TxOu
         tokenData: _output.token_data,
       });
 
-      let token = '00';
+      let token = constants.NATIVE_TOKEN_UID;
       if (!output.isTokenHTR()) {
         token = tokens[output.getTokenIndex()];
       }
