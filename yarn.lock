@@ -4194,7 +4194,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/jest@npm:29.5.13, @types/jest@npm:^29.5.13":
+"@types/jest@npm:29.5.13":
   version: 29.5.13
   resolution: "@types/jest@npm:29.5.13"
   dependencies:
@@ -4214,7 +4214,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/joi@npm:^17.2.3":
+"@types/joi@npm:17.2.3":
   version: 17.2.3
   resolution: "@types/joi@npm:17.2.3"
   dependencies:
@@ -16248,8 +16248,8 @@ __metadata:
     "@middy/core": "npm:2.5.7"
     "@middy/http-cors": "npm:2.5.7"
     "@types/aws-lambda": "npm:8.10.95"
-    "@types/jest": "npm:^29.5.13"
-    "@types/joi": "npm:^17.2.3"
+    "@types/jest": "npm:29.5.13"
+    "@types/joi": "npm:17.2.3"
     "@types/node": "npm:18.0.4"
     "@types/redis": "npm:2.8.28"
     "@typescript-eslint/eslint-plugin": "npm:6.7.4"
