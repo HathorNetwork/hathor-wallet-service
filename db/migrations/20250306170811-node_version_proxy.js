@@ -3,7 +3,7 @@
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
   async up (queryInterface, Sequelize) {
-    // Dropping the table and recreating it is easier than deleting the fields then addind the new
+    // Dropping the table and recreating it is easier than deleting the fields then adding the new
     // one, there is also no danger of losing any data since this is fetched from the fullnode
     await queryInterface.dropTable('version_data');
     await queryInterface.createTable('version_data', {
