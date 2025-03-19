@@ -37,9 +37,6 @@ export class NftUtils {
 
   /**
    * Returns if the transaction in the parameter is a NFT Creation.
-   * @param {Transaction} tx
-   * @returns {boolean}
-   *
    * TODO: Remove the logger param after we unify the logger from both projects
    */
   static isTransactionNFTCreation(tx: HistoryTransaction, network: Network, logger: Logger): boolean {

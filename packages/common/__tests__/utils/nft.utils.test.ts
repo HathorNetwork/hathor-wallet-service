@@ -162,7 +162,6 @@ describe('shouldInvokeNftHandlerForTx', () => {
     expect(process.env.NFT_AUTO_REVIEW_ENABLED).not.toStrictEqual('true');
 
     // Execution
-    // @ts-ignore
     const shouldInvoke = NftUtils.shouldInvokeNftHandlerForTx(tx, network, logger);
 
     // Since NFT_AUTO_REVIEW_ENABLED is false, the function should return false
@@ -486,10 +485,6 @@ describe('transaction transformation compatibility', () => {
   it('should correctly transform fullNodeData to a format compatible with shouldInvokeNftHandlerForTx', () => {
     expect.hasAssertions();
 
-    // Save original value and mock for this test
-    const originalVersion = constants.CREATE_TOKEN_TX_VERSION;
-    constants.CREATE_TOKEN_TX_VERSION = 2;
-
     // Set up environment variables
     const originalEnv = process.env;
     process.env = { ...originalEnv, NFT_AUTO_REVIEW_ENABLED: 'true' };
@@ -561,17 +556,12 @@ describe('transaction transformation compatibility', () => {
       expect(isNftTransactionSpy).toHaveBeenCalledTimes(1);
     } finally {
       // Restore original values
-      constants.CREATE_TOKEN_TX_VERSION = originalVersion;
       process.env = originalEnv;
     }
   });
 
   it('should correctly process a real event from production', () => {
     expect.hasAssertions();
-
-    // Save original value and mock
-    const originalVersion = constants.CREATE_TOKEN_TX_VERSION;
-    constants.CREATE_TOKEN_TX_VERSION = 2;
 
     // Set up environment variables
     const originalEnv = process.env;
@@ -611,7 +601,6 @@ describe('transaction transformation compatibility', () => {
     } finally {
       // Restore environment and constants
       process.env = originalEnv;
-      constants.CREATE_TOKEN_TX_VERSION = originalVersion;
     }
   });
 });
@@ -620,7 +609,6 @@ describe('processNftEvent', () => {
   let originalEnv: NodeJS.ProcessEnv;
   let invokeNftLambdaSpy: jest.SpyInstance;
   let shouldInvokeSpy: jest.SpyInstance;
-  let originalVersion: number;
 
   beforeEach(() => {
     // Save original env
@@ -631,10 +619,6 @@ describe('processNftEvent', () => {
       WALLET_SERVICE_LAMBDA_ENDPOINT: 'http://localhost:3000',
       AWS_REGION: 'us-east-1'
     };
-
-    // Save original constants
-    originalVersion = constants.CREATE_TOKEN_TX_VERSION;
-    constants.CREATE_TOKEN_TX_VERSION = 2;
 
     // Set up spies
     invokeNftLambdaSpy = jest.spyOn(NftUtils, 'invokeNftHandlerLambda').mockResolvedValue();
@@ -649,7 +633,6 @@ describe('processNftEvent', () => {
     // Clean up
     process.env = originalEnv;
     jest.restoreAllMocks();
-    constants.CREATE_TOKEN_TX_VERSION = originalVersion;
   });
 
   it('should invoke the NFT handler for a valid NFT event', async () => {
@@ -829,47 +812,36 @@ describe('processNftEvent', () => {
   it('should return false for non-token-creation transactions', async () => {
     expect.hasAssertions();
 
-    // Store original value to restore later
-    const originalVersion = constants.CREATE_TOKEN_TX_VERSION;
+    // Use the real event data constant with a non-matching version
+    const eventData = {
+      ...REAL_NFT_EVENT_DATA,
+      version: 1 // Different from CREATE_TOKEN_TX_VERSION
+    };
 
-    try {
-      // Set CREATE_TOKEN_TX_VERSION to a specific value
-      constants.CREATE_TOKEN_TX_VERSION = 1;
+    // Mock network
+    const mockNetwork = { name: 'testnet' };
 
-      // Use the real event data constant with a non-matching version
-      const eventData = {
-        ...REAL_NFT_EVENT_DATA,
-        version: 2 // Different from CREATE_TOKEN_TX_VERSION
-      };
+    // Call the method
+    const result = await NftUtils.processNftEvent(
+      eventData,
+      'test-stage',
+      mockNetwork as unknown as hathorLib.Network,
+      logger
+    );
 
-      // Mock network
-      const mockNetwork = { name: 'testnet' };
+    // Verify result is false (non-token-creation tx)
+    expect(result).toBe(false);
 
-      // Call the method
-      const result = await NftUtils.processNftEvent(
-        eventData,
-        'test-stage',
-        mockNetwork as unknown as hathorLib.Network,
-        logger
-      );
+    // Verify shouldInvokeNftHandlerForTx was NOT called
+    expect(shouldInvokeSpy).not.toHaveBeenCalled();
 
-      // Verify result is false (non-token-creation tx)
-      expect(result).toBe(false);
+    // Verify the lambda was NOT invoked
+    expect(invokeNftLambdaSpy).not.toHaveBeenCalled();
 
-      // Verify shouldInvokeNftHandlerForTx was NOT called
-      expect(shouldInvokeSpy).not.toHaveBeenCalled();
-
-      // Verify the lambda was NOT invoked
-      expect(invokeNftLambdaSpy).not.toHaveBeenCalled();
-
-      // Verify debug message was logged
-      expect(logger.debug).toHaveBeenCalledWith(
-        expect.stringContaining('not a token creation transaction')
-      );
-    } finally {
-      // Restore original value
-      constants.CREATE_TOKEN_TX_VERSION = originalVersion;
-    }
+    // Verify debug message was logged
+    expect(logger.debug).toHaveBeenCalledWith(
+      expect.stringContaining('not a token creation transaction')
+    );
   });
 });
 
@@ -888,10 +860,6 @@ it('should perform full NFT processing with real event data and no mocks', async
       WALLET_SERVICE_LAMBDA_ENDPOINT: 'http://localhost:3000',
       AWS_REGION: 'us-east-1'
     };
-
-    // Save original constants
-    const originalVersion = constants.CREATE_TOKEN_TX_VERSION;
-    constants.CREATE_TOKEN_TX_VERSION = 2;
 
     // Mock the Lambda client to prevent actual AWS calls
     const mockSend = jest.fn().mockImplementation(() => {
@@ -964,7 +932,6 @@ it('should perform full NFT processing with real event data and no mocks', async
     } finally {
       // Restore original values
       process.env = originalEnv;
-      constants.CREATE_TOKEN_TX_VERSION = originalVersion;
     }
   } finally {
     // Restore spies
