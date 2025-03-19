@@ -190,7 +190,7 @@ export class NftUtils {
   static async processNftEvent(
     eventData: FullNodeTransaction,
     stage: string,
-    network: unknown,
+    network: Network,
     logger: Logger
   ): Promise<boolean> {
     // Early return if NFT auto review is disabled
@@ -231,13 +231,10 @@ export class NftUtils {
    */
   static transformFullNodeTxForNftDetection(fullNodeData: FullNodeTransaction): HistoryTransaction {
     // Create a new object with the required properties
-    const transformedTx: any = {
-      hash: fullNodeData.hash,
+    let transformedTx: HistoryTransaction = {
       tx_id: fullNodeData.hash, // Add tx_id for compatibility
       version: fullNodeData.version,
       tokens: fullNodeData.tokens,
-      token_name: fullNodeData.token_name,
-      token_symbol: fullNodeData.token_symbol,
       inputs: fullNodeData.inputs.map((input: FullNodeInput) => {
         // Extract the token index from token_data using hathor's TOKEN_INDEX_MASK
         // The token_data field contains both the token index and other flags
@@ -270,7 +267,18 @@ export class NftUtils {
           spent_by: null,
         };
       }),
+      signalBits: fullNodeData.signal_bits,
+      weight: fullNodeData.weight,
+      timestamp: fullNodeData.timestamp,
+      is_voided: !!fullNodeData.voided,
+      nonce: fullNodeData.nonce,
+      parents: fullNodeData.parents ?? [],
     };
+
+    if (fullNodeData.token_name && fullNodeData.token_symbol) {
+      transformedTx.token_name = fullNodeData.token_name;
+      transformedTx.token_symbol = fullNodeData.token_symbol;
+    }
 
     return transformedTx;
   }

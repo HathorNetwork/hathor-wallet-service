@@ -1,7 +1,7 @@
-import hathorLib, { constants } from '@hathor/wallet-lib';
+import hathorLib, { constants, Network } from '@hathor/wallet-lib';
 import { mockedAddAlert } from './alerting.utils.mock';
 import { NftUtils } from '@src/utils/nft.utils';
-import { Severity } from '@src/types';
+import { FullNodeTransaction, Severity } from '@src/types';
 import { getHandlerContext, getTransaction } from '../events/nftCreationTx';
 import {
   LambdaClient as LambdaClientMock,
@@ -104,33 +104,7 @@ const REAL_NFT_EVENT_DATA = {
 
 // Create the transformed version of the event as it would be processed
 const createTransformedEvent = (fullNodeData = REAL_NFT_EVENT_DATA) => {
-  return {
-    ...fullNodeData,
-    tx_id: fullNodeData.hash,
-    inputs: fullNodeData.inputs.map((input) => {
-      const tokenIndex = (input.spent_output.token_data & hathorLib.constants.TOKEN_INDEX_MASK) - 1;
-      return {
-        token: tokenIndex < 0 ? hathorLib.constants.NATIVE_TOKEN_UID : fullNodeData.tokens[tokenIndex],
-        value: input.spent_output.value,
-        token_data: input.spent_output.token_data,
-        script: input.spent_output.script,
-        decoded: {
-          ...(input.spent_output.decoded || {}),
-        },
-        tx_id: input.tx_id,
-        index: input.index
-      };
-    }),
-    outputs: fullNodeData.outputs.map((output) => {
-      const tokenIndex = (output.token_data & hathorLib.constants.TOKEN_INDEX_MASK) - 1;
-      return {
-        ...output,
-        decoded: output.decoded ? output.decoded : {},
-        spent_by: null,
-        token: tokenIndex < 0 ? hathorLib.constants.NATIVE_TOKEN_UID : fullNodeData.tokens[tokenIndex],
-      };
-    }),
-  };
+  return NftUtils.transformFullNodeTxForNftDetection(fullNodeData);
 };
 
 describe('shouldInvokeNftHandlerForTx', () => {
@@ -155,7 +129,7 @@ describe('shouldInvokeNftHandlerForTx', () => {
     const tx = getTransaction();
     const network = {
       name: 'testnet',
-    };
+    } as unknown as Network;
 
     // Explicitly disable the feature
     process.env.NFT_AUTO_REVIEW_ENABLED = 'false';
@@ -490,7 +464,7 @@ describe('transaction transformation compatibility', () => {
     process.env = { ...originalEnv, NFT_AUTO_REVIEW_ENABLED: 'true' };
 
     try {
-      const fullNodeData = {
+      const fullNodeData: FullNodeTransaction = {
         hash: 'test-hash',
         version: constants.CREATE_TOKEN_TX_VERSION,
         token_name: 'Test NFT',
@@ -505,7 +479,8 @@ describe('transaction transformation compatibility', () => {
             script: 'script1',
             decoded: {
               type: 'P2PKH',
-              address: 'addr1'
+              address: 'addr1',
+              timelock: null
             }
           }
         }],
@@ -515,12 +490,18 @@ describe('transaction transformation compatibility', () => {
           script: 'script2',
           decoded: {
             type: 'P2PKH',
-            address: 'addr2'
+            address: 'addr2',
+            timelock: null,
           }
-        }]
+        }],
+        nonce: 0,
+        signal_bits: 1,
+        timestamp: 0,
+        weight: 18.2,
       };
 
-      const txFromEvent = {
+      const txFromEvent = NftUtils.transformFullNodeTxForNftDetection(fullNodeData);
+      const txFromEvent2 = {
         ...fullNodeData,
         tx_id: fullNodeData.hash,
         inputs: fullNodeData.inputs.map((input) => {
