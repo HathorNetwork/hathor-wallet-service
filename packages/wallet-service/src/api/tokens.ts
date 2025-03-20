@@ -68,7 +68,7 @@ export const getTokenDetails = middy(walletIdProxyHandler(async (walletId, event
   const tokenId = value.token_id;
   const tokenInfo: TokenInfo = await getTokenInformation(mysql, tokenId);
 
-  if (tokenId === constants.HATHOR_TOKEN_CONFIG.uid) {
+  if (tokenId === constants.NATIVE_TOKEN_UID) {
     const details = [{
       message: 'Invalid tokenId',
     }];

@@ -30,6 +30,7 @@ import middy from '@middy/core';
 import cors from '@middy/http-cors';
 import createDefaultLogger from '@src/logger';
 import { Logger } from 'winston';
+import config from '@src/config';
 
 const EXPIRATION_TIME_IN_SECONDS = 1800;
 
@@ -141,7 +142,7 @@ export const tokenHandler: APIGatewayProxyHandler = middy(async (event) => {
       addr: address.toString(),
       wid: walletId,
     },
-    process.env.AUTH_SECRET,
+    config.authSecret,
     {
       expiresIn: EXPIRATION_TIME_IN_SECONDS,
       jwtid: uuid4(),
@@ -200,7 +201,7 @@ export const bearerAuthorizer: APIGatewayTokenAuthorizerHandler = middy(async (e
   try {
     data = jwt.verify(
       sanitizedToken,
-      process.env.AUTH_SECRET,
+      config.authSecret,
     );
   } catch (e) {
     // XXX: find a way to return specific error to frontend or make all errors Unauthorized?

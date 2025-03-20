@@ -11,6 +11,7 @@ import { Severity } from '@wallet-service/common/src/types';
 import fcmAdmin, { credential, messaging, ServiceAccount } from 'firebase-admin';
 import { MulticastMessage } from 'firebase-admin/messaging';
 import createDefaultLogger from '@src/logger';
+import config from '@src/config';
 import { assertEnvVariablesExistence } from '@wallet-service/common/src/utils/index.utils';
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 
@@ -44,7 +45,7 @@ try {
 }
 
 export function buildFunctionName(functionName: string): string {
-  return `hathor-wallet-service-${process.env.STAGE}-${functionName}`;
+  return `hathor-wallet-service-${config.stage}-${functionName}`;
 }
 
 export enum FunctionName {
@@ -52,19 +53,19 @@ export enum FunctionName {
   ON_TX_PUSH_NOTIFICATION_REQUESTED = 'txPushRequested',
 }
 
-const STAGE = process.env.STAGE;
-const AWS_REGION = process.env.AWS_REGION;
-const WALLET_SERVICE_LAMBDA_ENDPOINT = process.env.WALLET_SERVICE_LAMBDA_ENDPOINT;
+const STAGE = config.stage;
+const AWS_REGION = config.awsRegion;
+const WALLET_SERVICE_LAMBDA_ENDPOINT = config.walletServiceLambdaEndpoint;
 const SEND_NOTIFICATION_FUNCTION_NAME = buildFunctionName(FunctionName.SEND_NOTIFICATION_TO_DEVICE);
 const ON_TX_PUSH_NOTIFICATION_REQUESTED_FUNCTION_NAME = buildFunctionName(FunctionName.ON_TX_PUSH_NOTIFICATION_REQUESTED);
-const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID;
-const FIREBASE_PRIVATE_KEY_ID = process.env.FIREBASE_PRIVATE_KEY_ID;
-const FIREBASE_CLIENT_EMAIL = process.env.FIREBASE_CLIENT_EMAIL;
-const FIREBASE_CLIENT_ID = process.env.FIREBASE_CLIENT_ID;
-const FIREBASE_AUTH_URI = process.env.FIREBASE_AUTH_URI;
-const FIREBASE_TOKEN_URI = process.env.FIREBASE_TOKEN_URI;
-const FIREBASE_AUTH_PROVIDER_X509_CERT_URL = process.env.FIREBASE_AUTH_PROVIDER_X509_CERT_URL;
-const FIREBASE_CLIENT_X509_CERT_URL = process.env.FIREBASE_CLIENT_X509_CERT_URL;
+const FIREBASE_PROJECT_ID = config.firebaseProjectId;
+const FIREBASE_PRIVATE_KEY_ID = config.firebasePrivateKeyId;
+const FIREBASE_CLIENT_EMAIL = config.firebaseClientEmail;
+const FIREBASE_CLIENT_ID = config.firebaseClientId;
+const FIREBASE_AUTH_URI = config.firebaseAuthUri;
+const FIREBASE_TOKEN_URI = config.firebaseTokenUri;
+const FIREBASE_AUTH_PROVIDER_X509_CERT_URL = config.firebaseAuthProviderX509CertUrl;
+const FIREBASE_CLIENT_X509_CERT_URL = config.firebaseClientX509CertUrl;
 const FIREBASE_PRIVATE_KEY = (() => {
   try {
     /**
@@ -73,7 +74,7 @@ const FIREBASE_PRIVATE_KEY = (() => {
      * the escaped line break with an unescaped line break.
      * https://github.com/gladly-team/next-firebase-auth/discussions/95#discussioncomment-2891225
      */
-    const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+    const privateKey = config.firebasePrivateKey;
     return privateKey
       ? privateKey.replace(/\\n/gm, '\n')
       : null;
@@ -84,7 +85,7 @@ const FIREBASE_PRIVATE_KEY = (() => {
 })();
 
 /** Local feature toggle that disable the push notification by default */
-const PUSH_NOTIFICATION_ENABLED = process.env.PUSH_NOTIFICATION_ENABLED;
+const PUSH_NOTIFICATION_ENABLED = config.pushNotificationEnabled;
 /**
  * Controls which providers are allowed to send notification when it is enabled
  * @example
@@ -101,7 +102,7 @@ const PUSH_NOTIFICATION_ENABLED = process.env.PUSH_NOTIFICATION_ENABLED;
  * ```
  * */
 const PUSH_ALLOWED_PROVIDERS = (() => {
-  const providers = process.env.PUSH_ALLOWED_PROVIDERS;
+  const providers = config.pushAllowedProviders;
   if (!providers) {
     // If no providers are set, we allow android by default, but alert the environment variable is empty
     logger.error('[ALERT] env.PUSH_ALLOWED_PROVIDERS is empty.');
@@ -112,7 +113,8 @@ const PUSH_ALLOWED_PROVIDERS = (() => {
 
 export const isPushProviderAllowed = (provider: string): boolean => PUSH_ALLOWED_PROVIDERS.includes(provider);
 
-export const isPushNotificationEnabled = (): boolean => PUSH_NOTIFICATION_ENABLED === 'true';
+// XXX: PUSH_NOTIFICATION_ENABLED already is a boolean, this became an identity function
+export const isPushNotificationEnabled = (): boolean => PUSH_NOTIFICATION_ENABLED;
 
 const serviceAccount = {
   type: 'service_account',

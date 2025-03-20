@@ -19,7 +19,7 @@ import cors from '@middy/http-cors';
 import hathorLib from '@hathor/wallet-lib';
 import Joi from 'joi';
 
-const htrToken = hathorLib.constants.HATHOR_TOKEN_CONFIG.uid;
+const htrToken = hathorLib.constants.NATIVE_TOKEN_UID;
 const mysql = getDbConnection();
 const paramsSchema = Joi.object({
   tokenId: Joi.string()

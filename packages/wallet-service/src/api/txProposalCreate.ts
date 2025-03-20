@@ -10,7 +10,7 @@ import { v4 as uuidv4 } from 'uuid';
 import Joi from 'joi';
 
 import { ApiError } from '@src/api/errors';
-import { maybeRefreshWalletConstants, walletIdProxyHandler } from '@src/commons';
+import { walletIdProxyHandler } from '@src/commons';
 import {
   createTxProposal,
   getUtxos,
@@ -28,7 +28,9 @@ import { closeDbAndGetError } from '@src/api/utils';
 import { closeDbConnection, getDbConnection, getUnixTimestamp } from '@src/utils';
 import middy from '@middy/core';
 import cors from '@middy/http-cors';
-import hathorLib from '@hathor/wallet-lib';
+import { constants, Network, Transaction, helpersUtils } from '@hathor/wallet-lib';
+import { getFullnodeData } from '@src/nodeConfig';
+import config from '@src/config';
 
 const mysql = getDbConnection();
 
@@ -42,7 +44,7 @@ const bodySchema = Joi.object({
  * This lambda is called by API Gateway on POST /txproposals
  */
 export const create = middy(walletIdProxyHandler(async (walletId, event) => {
-  await maybeRefreshWalletConstants(mysql);
+  const versionData = await getFullnodeData(mysql);
 
   const eventBody = (function parseBody(body) {
     try {
@@ -67,9 +69,9 @@ export const create = middy(walletIdProxyHandler(async (walletId, event) => {
   }
 
   const body = value;
-  const tx: hathorLib.Transaction = hathorLib.helpersUtils.createTxFromHex(body.txHex, new hathorLib.Network(process.env.NETWORK));
+  const tx: Transaction = helpersUtils.createTxFromHex(body.txHex, new Network(config.network));
 
-  if (tx.outputs.length > hathorLib.transaction.getMaxOutputsConstant()) {
+  if (tx.outputs.length > versionData.maxNumberOutputs) {
     return closeDbAndGetError(mysql, ApiError.TOO_MANY_OUTPUTS, { outputs: tx.outputs.length });
   }
 
@@ -110,7 +112,7 @@ export const create = middy(walletIdProxyHandler(async (walletId, event) => {
     return closeDbAndGetError(mysql, ApiError.INPUTS_ALREADY_USED);
   }
 
-  if (inputUtxos.length > hathorLib.transaction.getMaxInputsConstant()) {
+  if (inputUtxos.length > versionData.maxNumberOutputs) {
     return closeDbAndGetError(mysql, ApiError.TOO_MANY_INPUTS, { inputs: inputUtxos.length });
   }
 
@@ -127,7 +129,7 @@ export const create = middy(walletIdProxyHandler(async (walletId, event) => {
     // XXX We should store in address table the path of the address, not the index
     // For now we return the hardcoded path with only the address index as variable
     // The client will be prepared to receive any path when we add this in the service in the future
-    const addressPath = `m/44'/${hathorLib.constants.HATHOR_BIP44_CODE}'/0'/0/${addressDetail.index}`;
+    const addressPath = `m/44'/${constants.HATHOR_BIP44_CODE}'/0'/0/${addressDetail.index}`;
     return { txId: utxo.txId, index: utxo.index, addressPath };
   });
 

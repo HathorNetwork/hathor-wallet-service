@@ -11,6 +11,7 @@ import {
 } from '@aws-sdk/client-apigatewaymanagementapi';
 import { Logger } from 'winston';
 import createDefaultLogger from '@src/logger';
+import config from '@src/config';
 import util from 'util';
 
 import { Severity } from '@wallet-service/common/src/types';
@@ -24,7 +25,7 @@ export const connectionInfoFromEvent = (
 ): WsConnectionInfo => {
   const logger: Logger = createDefaultLogger();
   const connID = event.requestContext.connectionId;
-  if (process.env.IS_OFFLINE === 'true') {
+  if (config.isOffline) {
     // This will enter when running the service on serverless offline mode
     return {
       id: connID,
@@ -32,7 +33,7 @@ export const connectionInfoFromEvent = (
     };
   }
 
-  const domain = process.env.WS_DOMAIN;
+  const domain = config.wsDomain;
 
   if (!domain) {
     addAlert(

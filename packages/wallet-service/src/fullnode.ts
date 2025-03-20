@@ -6,8 +6,12 @@
  */
 
 import axios from 'axios';
+import Joi from 'joi';
+import config from '@src/config';
+import { FullNodeApiVersionResponse } from '@src/types';
+import { FullnodeVersionSchema } from '@src/schemas';
 
-export const BASE_URL = process.env.DEFAULT_SERVER;
+export const BASE_URL = config.defaultServer;
 export const TIMEOUT = 10000;
 
 /**
@@ -15,12 +19,25 @@ export const TIMEOUT = 10000;
  *
  * @param baseURL - The base URL for the full-node. Defaults to `env.DEFAULT_SERVER`
  */
-export const create = (baseURL = BASE_URL): any => {
+export const create = (baseURL = BASE_URL) => {
   const api = axios.create({
     baseURL,
     headers: {},
     timeout: TIMEOUT,
   });
+
+  const version = async (): Promise<FullNodeApiVersionResponse> => {
+    const response = await api.get('version', {
+      data: null,
+      headers: { 'content-type': 'application/json' },
+    });
+    const { value, error } = FullnodeVersionSchema.validate(response.data);
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return value as FullNodeApiVersionResponse;
+  };
 
   const downloadTx = async (txId: string) => {
     const response = await api.get(`transaction?id=${txId}`, {
@@ -74,6 +91,7 @@ export const create = (baseURL = BASE_URL): any => {
 
   return {
     api, // exported so we can mock it on the tests
+    version,
     downloadTx,
     getConfirmationData,
     queryGraphvizNeighbours,

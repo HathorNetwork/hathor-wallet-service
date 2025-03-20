@@ -5,18 +5,18 @@ import {
   markLockedOutputs,
   unlockUtxos,
   unlockTimelockedUtxos,
-  maybeRefreshWalletConstants,
   searchForLatestValidBlock,
   getWalletBalancesForTx,
 } from '@src/commons';
 import {
-  FullNodeVersionData,
   Authorities,
   Balance,
   TokenBalanceMap,
   DbTxOutput,
   Block,
+  FullNodeApiVersionResponse,
 } from '@src/types';
+import fullnode from '@src/fullnode';
 import {
   TxInput,
   TxOutput,
@@ -50,6 +50,7 @@ import {
 } from '@src/db';
 import * as Utils from '@src/utils';
 import hathorLib from '@hathor/wallet-lib';
+import { convertApiVersionData, getFullnodeData } from '@src/nodeConfig';
 
 const mysql = getDbConnection();
 const OLD_ENV = process.env;
@@ -510,14 +511,52 @@ test('unlockTimelockedUtxos', async () => {
   await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 5000, 0, null, 3, 0b10, 0)).resolves.toBe(true);
 });
 
-test('maybeRefreshWalletConstants with an uninitialized version_data database should call hathorLib.version.checkApiVersion()', async () => {
+test('getFullnodeData with an uninitialized version_data database should call the version api', async () => {
   expect.hasAssertions();
 
-  const spy = jest.spyOn(hathorLib.axios, 'createRequestInstance');
+  const mockData = {
+    version: '0.38.0',
+    network: 'mainnet',
+    min_weight: 14,
+    min_tx_weight: 14,
+    min_tx_weight_coefficient: 1.6,
+    min_tx_weight_k: 100,
+    token_deposit_percentage: 0.01,
+    reward_spend_min_blocks: 300,
+    max_number_inputs: 255,
+    max_number_outputs: 255,
+    decimal_places: 2,
+    genesis_block_hash: '1234567812345678123456781234567812345678123456781234567812345678',
+    genesis_tx1_hash: 'abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd',
+    genesis_tx2_hash: 'd00d500fd00d500fd00d500fd00d500fd00d500fd00d500fd00d500fd00d500f',
+    native_token: { name: 'Hathor', symbol: 'HTR'},
+  };
 
-  const mockGet = jest.fn(() => Promise.resolve({
-    data: {
-      success: true,
+  const spy = jest.spyOn(fullnode.api, 'get');
+  spy.mockImplementation(() => Promise.resolve({
+    status: 200,
+    data: mockData,
+  }));
+
+  await mysql.query('DELETE FROM`version_data`');
+
+  const data = await getFullnodeData(mysql);
+  console.log(JSON.stringify(data));
+
+  expect(spy).toHaveBeenCalledTimes(1);
+  expect(spy).toHaveBeenCalledWith('version', expect.any(Object));
+});
+
+test('getFullnodeData with an initialized version_data database should query data from the database', async () => {
+  expect.hasAssertions();
+
+  const axiosSpy = jest.spyOn(hathorLib.axios, 'createRequestInstance');
+  const mockGet = jest.fn(() => Promise.resolve({ data: {} }));
+
+  // @ts-ignore
+  axiosSpy.mockReturnValue({ get: mockGet });
+
+  const mockedVersionData: FullNodeApiVersionResponse = {
       version: '0.38.0',
       network: 'mainnet',
       min_weight: 14,
@@ -528,64 +567,19 @@ test('maybeRefreshWalletConstants with an uninitialized version_data database sh
       reward_spend_min_blocks: 300,
       max_number_inputs: 255,
       max_number_outputs: 255,
-    },
-  }));
+      decimal_places: 2,
+      genesis_block_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
+      genesis_tx1_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
+      genesis_tx2_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
+      native_token: { name: 'Hathor', symbol: 'HTR'},
+    };
 
-  spy.mockReturnValue({
-    post: () => Promise.resolve({
-      data: {
-        success: true,
-      },
-    }),
-    get: mockGet,
-  });
+  await updateVersionData(mysql, new Date().getTime(), mockedVersionData);
 
-  await maybeRefreshWalletConstants(mysql);
-
-  expect(mockGet).toHaveBeenCalledTimes(1);
-});
-
-test('maybeRefreshWalletConstants with an initialized version_data database should query data from the database', async () => {
-  expect.hasAssertions();
-
-  const axiosSpy = jest.spyOn(hathorLib.axios, 'createRequestInstance');
-  const mockGet = jest.fn(() => Promise.resolve({ data: {} }));
-
-  axiosSpy.mockReturnValue({ get: mockGet });
-
-  const mockedVersionData: FullNodeVersionData = {
-    timestamp: new Date().getTime(),
-    version: '0.38.0',
-    network: 'mainnet',
-    minWeight: 14,
-    minTxWeight: 14,
-    minTxWeightCoefficient: 1.6,
-    minTxWeightK: 100,
-    tokenDepositPercentage: 0.01,
-    rewardSpendMinBlocks: 300,
-    maxNumberInputs: 255,
-    maxNumberOutputs: 255,
-  };
-
-  await updateVersionData(mysql, mockedVersionData);
-
-  await maybeRefreshWalletConstants(mysql);
-
-  const {
-    txMinWeight,
-    txWeightCoefficient,
-    txMinWeightK,
-  } = hathorLib.transaction.getTransactionWeightConstants();
-
-  const maxNumberInputs = hathorLib.transaction.getMaxInputsConstant();
-  const maxNumberOutputs = hathorLib.transaction.getMaxOutputsConstant();
+  const data = await getFullnodeData(mysql);
 
   expect(mockGet).toHaveBeenCalledTimes(0);
-  expect(txMinWeight).toStrictEqual(mockedVersionData.minTxWeight);
-  expect(txWeightCoefficient).toStrictEqual(mockedVersionData.minTxWeightCoefficient);
-  expect(txMinWeightK).toStrictEqual(mockedVersionData.minTxWeightK);
-  expect(maxNumberInputs).toStrictEqual(mockedVersionData.maxNumberInputs);
-  expect(maxNumberOutputs).toStrictEqual(mockedVersionData.maxNumberOutputs);
+  expect(data).toEqual(convertApiVersionData(mockedVersionData));
 });
 
 test('searchForLatestValidBlock should find the first voided block', async () => {

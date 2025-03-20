@@ -12,10 +12,9 @@ import fullnode from '@src/fullnode';
 import { closeDbConnection, getDbConnection } from '@src/utils';
 import { APIGatewayProxyHandler } from 'aws-lambda';
 import { getRedisClient, ping } from '@src/redis';
+import config from '@src/config';
 
 const mysql = getDbConnection();
-
-const HEALTHCHECK_MAXIMUM_HEIGHT_DIFFERENCE = Number(process.env.HEALTHCHECK_MAXIMUM_HEIGHT_DIFFERENCE ?? 5)
 
 const checkDatabaseHeight: HealthcheckCallbackResponse = async () => {
   try {
@@ -26,10 +25,10 @@ const checkDatabaseHeight: HealthcheckCallbackResponse = async () => {
 
     const currentFullnodeHeight = fullnodeStatus['dag']['best_block']['height'];
 
-    if (currentFullnodeHeight - currentHeight < HEALTHCHECK_MAXIMUM_HEIGHT_DIFFERENCE) {
+    if (currentFullnodeHeight - currentHeight < config.healthCheckMaximumHeightDifference) {
       return new HealthcheckCallbackResponse({
         status: HealthcheckStatus.PASS,
-        output: `Database and fullnode heights are within ${HEALTHCHECK_MAXIMUM_HEIGHT_DIFFERENCE} blocks difference`,
+        output: `Database and fullnode heights are within ${config.healthCheckMaximumHeightDifference} blocks difference`,
       });
     } else {
       return new HealthcheckCallbackResponse({

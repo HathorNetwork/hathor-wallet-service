@@ -9,8 +9,9 @@ import { Handler } from 'aws-lambda';
 import 'source-map-support/register';
 import createDefaultLogger from '@src/logger';
 import { NftUtils } from '@wallet-service/common/src/utils/nft.utils';
+import config from '@src/config';
 
-export const CREATE_NFT_MAX_RETRIES: number = parseInt(process.env.CREATE_NFT_MAX_RETRIES || '3', 10);
+export const CREATE_NFT_MAX_RETRIES: number = config.createNftMaxRetries;
 
 /**
  * This intermediary handler is responsible for making the final validations and calling

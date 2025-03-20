@@ -12,7 +12,9 @@
 /* eslint-disable @typescript-eslint/no-empty-function */
 
 import { Context } from 'aws-lambda';
-import { Transaction, TxOutput } from '../../src/types';
+import { TxOutput } from '../../src/types';
+// FIXME: import from lib path on HathorLib
+import { HistoryTransaction } from '@hathor/wallet-lib/lib/models/types';
 
 /**
  * A sample transaction for a NFT creation, as obtained by a wallet's history methods
@@ -115,12 +117,12 @@ export const nftCreationTx = {
 /**
  * Gets a copy of the `nftCreationTx` in the Wallet Service's Transaction format.
  */
-export function getTransaction(): Transaction {
-  const result = {
+export function getTransaction(): HistoryTransaction {
+  return {
     tx_id: nftCreationTx.tx_id,
     nonce: 1,
     timestamp: nftCreationTx.timestamp,
-    signal_bits: nftCreationTx.signal_bits,
+    signalBits: nftCreationTx.signal_bits,
     version: nftCreationTx.version,
     weight: nftCreationTx.weight,
     parents: nftCreationTx.parents,
@@ -150,12 +152,11 @@ export function getTransaction(): Transaction {
       token_data: o.token_data,
       locked: false,
     })) as TxOutput[],
-    height: 8,
     token_name: nftCreationTx.token_name,
     token_symbol: nftCreationTx.token_symbol,
+    is_voided: nftCreationTx.is_voided,
+    tokens: nftCreationTx.tokens,
   };
-
-  return result;
 }
 
 /**

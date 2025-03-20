@@ -4,7 +4,7 @@
 import { mockedAddAlert } from '@tests/utils/alerting.utils.mock';
 import { sendMulticastMock, messaging, initFirebaseAdminMock } from '@tests/utils/firebase-admin.mock';
 import { logger } from '@tests/winston.mock';
-import { PushNotificationUtils, PushNotificationError, buildFunctionName, FunctionName } from '@src/utils/pushnotification.utils';
+import { PushNotificationUtils, PushNotificationError, FunctionName } from '@src/utils/pushnotification.utils';
 import * as pushnotificationUtils from '@src/utils/pushnotification.utils';
 import { SendNotificationToDevice } from '@src/types';
 import { Severity } from '@wallet-service/common/src/types';
@@ -43,6 +43,7 @@ describe('PushNotificationUtils', () => {
 
   afterEach(() => {
     process.env = initEnv;
+    jest.resetModules();
   });
 
   // test firebase initialization error
@@ -57,6 +58,7 @@ describe('PushNotificationUtils', () => {
     });
 
     // reload module
+    jest.resetModules();
     await import('@src/utils/pushnotification.utils');
 
     const resultMessageOfLastCallToLoggerError = logger.error.mock.calls[0][0];
@@ -71,6 +73,7 @@ describe('PushNotificationUtils', () => {
       process.env.WALLET_SERVICE_LAMBDA_ENDPOINT = '';
 
       // reload module
+      jest.resetModules();
       await import('@src/utils/pushnotification.utils');
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
@@ -89,6 +92,7 @@ describe('PushNotificationUtils', () => {
       process.env.STAGE = '';
 
       // reload module
+      jest.resetModules();
       await import('@src/utils/pushnotification.utils');
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
@@ -107,6 +111,7 @@ describe('PushNotificationUtils', () => {
       process.env.FIREBASE_PROJECT_ID = '';
 
       // reload module
+      jest.resetModules();
       await import('@src/utils/pushnotification.utils');
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
@@ -125,6 +130,7 @@ describe('PushNotificationUtils', () => {
       process.env.FIREBASE_PRIVATE_KEY_ID = '';
 
       // reload module
+      jest.resetModules();
       await import('@src/utils/pushnotification.utils');
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
@@ -143,6 +149,7 @@ describe('PushNotificationUtils', () => {
       process.env.FIREBASE_PRIVATE_KEY = '';
 
       // reload module
+      jest.resetModules();
       await import('@src/utils/pushnotification.utils');
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
@@ -162,6 +169,7 @@ describe('PushNotificationUtils', () => {
       process.env.FIREBASE_CLIENT_EMAIL = '';
 
       // reload module
+      jest.resetModules();
       await import('@src/utils/pushnotification.utils');
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
@@ -181,6 +189,7 @@ describe('PushNotificationUtils', () => {
       process.env.FIREBASE_CLIENT_ID = '';
 
       // reload module
+      jest.resetModules();
       await import('@src/utils/pushnotification.utils');
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
@@ -200,6 +209,7 @@ describe('PushNotificationUtils', () => {
       process.env.FIREBASE_AUTH_URI = '';
 
       // reload module
+      jest.resetModules();
       await import('@src/utils/pushnotification.utils');
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
@@ -219,6 +229,7 @@ describe('PushNotificationUtils', () => {
       process.env.FIREBASE_TOKEN_URI = '';
 
       // reload module
+      jest.resetModules();
       await import('@src/utils/pushnotification.utils');
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
@@ -238,6 +249,7 @@ describe('PushNotificationUtils', () => {
       process.env.FIREBASE_AUTH_PROVIDER_X509_CERT_URL = '';
 
       // reload module
+      jest.resetModules();
       await import('@src/utils/pushnotification.utils');
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
@@ -257,6 +269,7 @@ describe('PushNotificationUtils', () => {
       process.env.FIREBASE_CLIENT_X509_CERT_URL = '';
 
       // reload module
+      jest.resetModules();
       await import('@src/utils/pushnotification.utils');
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
@@ -276,6 +289,7 @@ describe('PushNotificationUtils', () => {
       process.env.FIREBASE_PRIVATE_KEY = true as unknown as string;
 
       // reload module
+      jest.resetModules();
       await import('@src/utils/pushnotification.utils');
 
       expect(logger.error).toHaveBeenLastCalledWith('[ALERT] Error while parsing the env.FIREBASE_PRIVATE_KEY.');
@@ -288,6 +302,7 @@ describe('PushNotificationUtils', () => {
       process.env.PUSH_ALLOWED_PROVIDERS = '';
 
       // reload module
+      jest.resetModules();
       await import('@src/utils/pushnotification.utils');
 
       expect(logger.error).toHaveBeenLastCalledWith('[ALERT] env.PUSH_ALLOWED_PROVIDERS is empty.');
@@ -427,6 +442,7 @@ describe('PushNotificationUtils', () => {
       process.env.STAGE = fakeStage;
 
       // reload module
+      jest.resetModules();
       const { PushNotificationUtils } = await import('@src/utils/pushnotification.utils');
 
       const notification = {
@@ -469,6 +485,7 @@ describe('PushNotificationUtils', () => {
       process.env.STAGE = fakeStage;
 
       // reload module
+      jest.resetModules();
       const { PushNotificationUtils } = await import('@src/utils/pushnotification.utils');
 
       const notification = {
@@ -499,6 +516,7 @@ describe('PushNotificationUtils', () => {
       process.env.STAGE = fakeStage;
 
       // reload module
+      jest.resetModules();
       const { PushNotificationUtils } = await import('@src/utils/pushnotification.utils');
 
       const notification = {
@@ -526,7 +544,8 @@ describe('PushNotificationUtils', () => {
       sendMock.mockReturnValueOnce({
         StatusCode: 202,
       });
-      const { PushNotificationUtils } = await import('@src/utils/pushnotification.utils');
+      jest.resetModules();
+      const { PushNotificationUtils, buildFunctionName } = await import('@src/utils/pushnotification.utils');
 
       const walletMap = buildWalletBalanceValueMap();
       const result = await PushNotificationUtils.invokeOnTxPushNotificationRequestedLambda(walletMap);
@@ -559,6 +578,7 @@ describe('PushNotificationUtils', () => {
       jest.clearAllMocks();
       // reload module
       process.env.PUSH_NOTIFICATION_ENABLED = 'false';
+      jest.resetModules();
       const { PushNotificationUtils } = await import('@src/utils/pushnotification.utils');
 
       const walletMap = buildWalletBalanceValueMap();
@@ -588,6 +608,7 @@ describe('PushNotificationUtils', () => {
 
       // reload module
       process.env.PUSH_NOTIFICATION_ENABLED = 'true';
+      jest.resetModules();
       const { PushNotificationUtils } = await import('@src/utils/pushnotification.utils');
 
       const walletMap = buildWalletBalanceValueMap();

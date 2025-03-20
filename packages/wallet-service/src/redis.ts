@@ -5,10 +5,11 @@ import {
 
 import redis from 'redis';
 import { promisify } from 'util';
+import config from '@src/config';
 
 const redisConfig: RedisConfig = {
-  url: process.env.REDIS_URL,
-  password: process.env.REDIS_PASSWORD,
+  url: config.redisUrl,
+  password: config.redisPassword,
 };
 
 export const svcPrefix = 'walletsvc';

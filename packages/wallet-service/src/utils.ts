@@ -15,54 +15,16 @@ import * as bitcoin from 'bitcoinjs-lib';
 import * as bitcoinMessage from 'bitcoinjs-message';
 import * as ecc from 'tiny-secp256k1';
 import BIP32Factory from 'bip32';
+import config from '@src/config';
 
 const bip32 = BIP32Factory(ecc);
 
-/* TODO: We should remove this as soon as the wallet-lib is refactored
-*  (https://github.com/HathorNetwork/hathor-wallet-lib/issues/122)
-*/
-export class CustomStorage {
-  store: unknown;
-
-  constructor() {
-    this.preStart();
-  }
-
-  getItem(key: string): string {
-    return this.store[key];
-  }
-
-  setItem(key: string, value: string): string {
-    this.store[key] = value;
-
-    return value;
-  }
-
-  removeItem(key: string): string {
-    delete this.store[key];
-
-    return key;
-  }
-
-  clear(): void {
-    this.store = {};
-  }
-
-  preStart(): void {
-    this.store = {
-      'wallet:server': process.env.DEFAULT_SERVER || hathorLib.constants.DEFAULT_SERVER,
-      'wallet:defaultServer': process.env.DEFAULT_SERVER || hathorLib.constants.DEFAULT_SERVER,
-    };
-  }
-}
-
-hathorLib.network.setNetwork(process.env.NETWORK);
-hathorLib.storage.setStore(new CustomStorage());
+hathorLib.network.setNetwork(config.network);
 
 const libNetwork = hathorLib.network.getNetwork();
 const hathorNetwork = {
   messagePrefix: '\x18Hathor Signed Message:\n',
-  bech32: hathorLib.network.bech32prefix,
+  bech32: libNetwork.bech32prefix,
   bip32: {
     public: libNetwork.xpubkey,
     private: libNetwork.xprivkey,
@@ -117,19 +79,19 @@ export const getUnixTimestamp = (): number => (
 export const getDbConnection = (): ServerlessMysql => (
   serverlessMysql({
     config: {
-      host: process.env.DB_ENDPOINT,
-      database: process.env.DB_NAME,
-      user: process.env.DB_USER,
-      port: parseInt(process.env.DB_PORT, 10),
+      host: config.dbEndpoint,
+      database: config.dbName,
+      user: config.dbUser,
+      port: config.dbPort,
       // TODO if not on local env, get IAM token
       // https://aws.amazon.com/blogs/database/iam-role-based-authentication-to-amazon-aurora-from-serverless-applications/
-      password: process.env.DB_PASS,
+      password: config.dbPass,
     },
   })
 );
 
 export const closeDbConnection = async (mysql: ServerlessMysql): Promise<void> => {
-  if (process.env.STAGE === 'local') {
+  if (config.stage === 'local') {
     // mysql.end() leaves the function hanging in the local environment. Some issues:
     // https://github.com/jeremydaly/serverless-mysql/issues/61
     // https://github.com/jeremydaly/serverless-mysql/issues/79

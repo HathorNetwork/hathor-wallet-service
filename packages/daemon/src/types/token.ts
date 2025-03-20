@@ -5,8 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-// @ts-ignore
-import hathorLib from '@hathor/wallet-lib';
+import { constants } from '@hathor/wallet-lib';
 
 export class TokenInfo {
   id: string;
@@ -23,9 +22,10 @@ export class TokenInfo {
     this.symbol = symbol;
     this.transactions = transactions || 0;
 
-    const hathorConfig = hathorLib.constants.HATHOR_TOKEN_CONFIG;
+    // XXX: get config from settings?
+    const hathorConfig = constants.DEFAULT_NATIVE_TOKEN_CONFIG;
 
-    if (this.id === hathorConfig.uid) {
+    if (this.id === constants.NATIVE_TOKEN_UID) {
       this.name = hathorConfig.name;
       this.symbol = hathorConfig.symbol;
     }

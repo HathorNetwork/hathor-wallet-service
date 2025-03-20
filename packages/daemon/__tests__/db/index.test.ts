@@ -71,7 +71,6 @@ import {
 import { isAuthority } from '@wallet-service/common';
 import { DbTxOutput, StringMap, TokenInfo, WalletStatus } from '../../src/types';
 import { Authorities, TokenBalanceMap } from '@wallet-service/common';
-// @ts-ignore
 import { constants } from '@hathor/wallet-lib';
 import { generateAddresses } from '../../src/utils';
 

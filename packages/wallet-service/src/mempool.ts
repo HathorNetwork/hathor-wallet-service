@@ -22,6 +22,7 @@ import {
 import createDefaultLogger from '@src/logger';
 import { Severity } from '@wallet-service/common/src/types';
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
+import config from '@src/config';
 
 const mysql = getDbConnection();
 
@@ -36,7 +37,7 @@ const mysql = getDbConnection();
 export const onHandleOldVoidedTxs = async (): Promise<void> => {
   const logger = createDefaultLogger();
 
-  const VOIDED_TX_OFFSET: number = parseInt(process.env.VOIDED_TX_OFFSET, 10) * 60; // env is in minutes
+  const VOIDED_TX_OFFSET: number = config.voidedTxOffset * 60; // env is in minutes
   const bestBlock: Block = await getLatestBlockByHeight(mysql);
   const bestBlockTimestamp = bestBlock.timestamp;
 
@@ -44,7 +45,7 @@ export const onHandleOldVoidedTxs = async (): Promise<void> => {
 
   // Fetch voided transactions that are older than 20m
   const voidedTransactions: Tx[] = await getMempoolTransactionsBeforeDate(mysql, date);
-  logger.debug(`Found ${voidedTransactions.length} voided transactions older than ${process.env.VOIDED_TX_OFFSET}m from the best block`, {
+  logger.debug(`Found ${voidedTransactions.length} voided transactions older than ${config.voidedTxOffset}m from the best block`, {
     voidedTransactions,
   });
 

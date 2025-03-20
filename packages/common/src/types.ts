@@ -10,7 +10,6 @@
  * https://github.com/HathorNetwork/ops-tools/blob/master/docs/on-call/guide.md#alert-severitypriority
  */
 
-// @ts-ignore
 import { constants } from '@hathor/wallet-lib';
 import { isAuthority } from './utils/wallet.utils';
 

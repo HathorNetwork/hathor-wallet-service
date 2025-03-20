@@ -1,30 +1,7 @@
-import { CustomStorage, arrayShuffle, sha256d, isTxVoided } from '@src/utils';
+import { arrayShuffle, sha256d, isTxVoided } from '@src/utils';
 import hathorLib from '@hathor/wallet-lib';
 import * as Fullnode from '@src/fullnode';
 import { TEST_SEED, XPUBKEY, AUTH_XPUBKEY, ADDRESSES } from '@tests/utils';
-
-test('CustomStorage', () => {
-  expect.hasAssertions();
-
-  const store = new CustomStorage();
-  // Should be initialized with hathor default server and server
-  expect(store.getItem('wallet:defaultServer')).toBe(hathorLib.constants.DEFAULT_SERVER);
-  expect(store.getItem('wallet:server')).toBe(hathorLib.constants.DEFAULT_SERVER);
-
-  store.setItem('hathor', 'hathor');
-  expect(store.getItem('hathor')).toBe('hathor');
-  store.removeItem('hathor');
-
-  expect(store.getItem('hathor')).toBeUndefined();
-
-  store.setItem('hathor', 'hathor2');
-  store.clear();
-  expect(store.getItem('hathor')).toBeUndefined();
-
-  store.preStart();
-  expect(store.getItem('wallet:defaultServer')).toBe(hathorLib.constants.DEFAULT_SERVER);
-  expect(store.getItem('wallet:server')).toBe(hathorLib.constants.DEFAULT_SERVER);
-});
 
 test('sha256d', () => {
   expect.hasAssertions();
@@ -67,6 +44,7 @@ test('isTxVoided', async () => {
     };
   });
 
+  // @ts-ignore
   spy.mockImplementation(mockImplementation);
 
   expect(await isTxVoided('0000000f1fbb4bd8a8e71735af832be210ac9a6c1e2081b21faeea3c0f5797f7')).toStrictEqual([
@@ -89,6 +67,10 @@ test('XPUBKEY, AUTH_XPUBKEY and ADDRESSES should be derived from TEST_SEED', asy
 
   // Generate addresses in change derivation path 0
   const derivedXpub = hathorLib.walletUtils.xpubDeriveChild(xpubkey, 0);
-  const addresses = Object.keys(hathorLib.walletUtils.getAddresses(derivedXpub, 0, 17));
+  const addresses: string[] = [];
+  for (let index = 0; index < 17; index++) {
+    const addressInfo = hathorLib.addressUtils.deriveAddressFromXPubP2PKH(derivedXpub, index, 'mainnet');
+    addresses.push(addressInfo.base58);
+  }
   expect(addresses).toStrictEqual(ADDRESSES);
 });

@@ -11,13 +11,14 @@ import 'source-map-support/register';
 
 import { getLatestHeight } from '@src/db';
 import { closeDbConnection, getDbConnection } from '@src/utils';
+import config from '@src/config';
 
 const mysql = getDbConnection();
 
 // Default labels
 const defaultLabels = {
-  network: process.env.NETWORK,
-  environment: process.env.STAGE,
+  network: config.network,
+  environment: config.stage,
 };
 promClient.register.setDefaultLabels(defaultLabels);
 

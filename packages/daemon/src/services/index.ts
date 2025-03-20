@@ -5,7 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-// @ts-ignore
 import hathorLib from '@hathor/wallet-lib';
 import { Connection as MysqlConnection } from 'mysql2/promise';
 import axios from 'axios';
@@ -44,7 +43,6 @@ import {
   validateAddressBalances,
   getWalletBalancesForTx,
   getFullnodeHttpUrl,
-  sendMessageSQS,
   generateAddresses,
   sendRealtimeTx,
 } from '../utils';
@@ -219,7 +217,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     const txOutputs: TxOutputWithIndex[] = prepareOutputs(outputs, tokens);
     const txInputs: TxInput[] = prepareInputs(inputs, tokens);
 
-    let heightlock = null;
+    let heightlock: number|null = null;
     if (isBlock(version)) {
       if (typeof height !== 'number' && !height) {
         throw new Error('Block with no height set in metadata.');
