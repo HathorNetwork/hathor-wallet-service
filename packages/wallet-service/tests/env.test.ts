@@ -3,10 +3,18 @@ import config, { loadEnvConfig } from '@src/config';
 test('Configuration should load correctly during tests', () => {
   expect.hasAssertions();
 
-  const loadedConfig = loadEnvConfig();
-  expect(loadedConfig).toStrictEqual(config);
+  const oldValue = process.env.CONFIRM_FIRST_ADDRESS;
+  try {
+    process.env.CONFIRM_FIRST_ADDRESS = 'true';
+    jest.resetModules();
+    const loadedConfig = loadEnvConfig();
+    expect(loadedConfig).toStrictEqual(config);
 
-  expect(config.confirmFirstAddress).toEqual(true);
+    expect(config.confirmFirstAddress).toEqual(true);
+  } finally {
+    process.env.CONFIRM_FIRST_ADDRESS = oldValue;
+    jest.resetModules();
+  }
 });
 
 test('loadEnvConfig should get the config from the env', () => {
