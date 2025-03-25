@@ -19,9 +19,10 @@ import { walletIdProxyHandler } from '@src/commons';
 import middy from '@middy/core';
 import cors from '@middy/http-cors';
 import Joi from 'joi';
+import config from '@src/config';
 
-const MAX_COUNT = parseInt(process.env.TX_HISTORY_MAX_COUNT || '50', 10);
-const htrToken = hathorLib.constants.HATHOR_TOKEN_CONFIG.uid;
+const MAX_COUNT = config.txHistoryMaxCount;
+const htrToken = hathorLib.constants.NATIVE_TOKEN_UID;
 
 const paramsSchema = Joi.object({
   token_id: Joi.string()

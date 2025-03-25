@@ -8,10 +8,9 @@
 import { LambdaClient, InvokeCommand, InvokeCommandOutput } from '@aws-sdk/client-lambda';
 import { addAlert } from './alerting.utils';
 import { Severity } from '../types';
-// @ts-ignore
 import { Network, constants, CreateTokenTransaction, helpersUtils } from '@hathor/wallet-lib';
-// @ts-ignore
-import type { HistoryTransaction } from '@hathor/wallet-lib';
+// FIXME: import from lib path on HathorLib
+import type { HistoryTransaction } from '@hathor/wallet-lib/lib/models/types';
 import { Logger } from 'winston';
 import { FullNodeTransaction, FullNodeInput, FullNodeOutput } from '../types';
 
@@ -38,20 +37,17 @@ export class NftUtils {
 
   /**
    * Returns if the transaction in the parameter is a NFT Creation.
-   * @param {Transaction} tx
-   * @returns {boolean}
-   *
    * TODO: Remove the logger param after we unify the logger from both projects
    */
   static isTransactionNFTCreation(tx: HistoryTransaction, network: Network, logger: Logger): boolean {
-  /*
-   * To fully check if a transaction is a NFT creation, we need to instantiate a new Transaction object in the lib.
-   * So first we do some very fast checks to filter the bulk of the requests for NFTs with minimum processing.
-   */
+    /*
+     * To fully check if a transaction is a NFT creation, we need to instantiate a new Transaction object in the lib.
+     * So first we do some very fast checks to filter the bulk of the requests for NFTs with minimum processing.
+     */
     if (
       tx.version !== constants.CREATE_TOKEN_TX_VERSION // Must be a token creation tx
-    || !tx.token_name // Must have a token name
-    || !tx.token_symbol // Must have a token symbol
+      || !tx.token_name // Must have a token name
+      || !tx.token_symbol // Must have a token symbol
     ) {
       return false;
     }
@@ -95,7 +91,7 @@ export class NftUtils {
       endpoint: process.env.EXPLORER_SERVICE_LAMBDA_ENDPOINT,
       region: process.env.AWS_REGION,
     });
-   const command = new InvokeCommand({
+    const command = new InvokeCommand({
       FunctionName: `hathor-explorer-service-${process.env.EXPLORER_SERVICE_STAGE}-create_or_update_dag_metadata`,
       InvocationType: 'Event',
       Payload: JSON.stringify({
@@ -194,7 +190,7 @@ export class NftUtils {
   static async processNftEvent(
     eventData: FullNodeTransaction,
     stage: string,
-    network: unknown,
+    network: Network,
     logger: Logger
   ): Promise<boolean> {
     // Early return if NFT auto review is disabled
@@ -235,13 +231,10 @@ export class NftUtils {
    */
   static transformFullNodeTxForNftDetection(fullNodeData: FullNodeTransaction): HistoryTransaction {
     // Create a new object with the required properties
-    const transformedTx: any = {
-      hash: fullNodeData.hash,
+    let transformedTx: HistoryTransaction = {
       tx_id: fullNodeData.hash, // Add tx_id for compatibility
       version: fullNodeData.version,
       tokens: fullNodeData.tokens,
-      token_name: fullNodeData.token_name,
-      token_symbol: fullNodeData.token_symbol,
       inputs: fullNodeData.inputs.map((input: FullNodeInput) => {
         // Extract the token index from token_data using hathor's TOKEN_INDEX_MASK
         // The token_data field contains both the token index and other flags
@@ -252,7 +245,7 @@ export class NftUtils {
         return {
           tx_id: input.tx_id,
           index: input.index,
-          token: tokenIndex < 0 ? constants.HATHOR_TOKEN_CONFIG.uid : fullNodeData.tokens[tokenIndex],
+          token: tokenIndex < 0 ? constants.NATIVE_TOKEN_UID : fullNodeData.tokens[tokenIndex],
           token_data: input.spent_output.token_data,
           value: input.spent_output.value,
           script: input.spent_output.script,
@@ -269,12 +262,23 @@ export class NftUtils {
           value: output.value,
           token_data: output.token_data,
           script: output.script,
-          token: tokenIndex < 0 ? constants.HATHOR_TOKEN_CONFIG.uid : fullNodeData.tokens[tokenIndex],
+          token: tokenIndex < 0 ? constants.NATIVE_TOKEN_UID : fullNodeData.tokens[tokenIndex],
           decoded: output.decoded || {},
           spent_by: null,
         };
       }),
+      signalBits: fullNodeData.signal_bits,
+      weight: fullNodeData.weight,
+      timestamp: fullNodeData.timestamp,
+      is_voided: !!fullNodeData.voided,
+      nonce: fullNodeData.nonce,
+      parents: fullNodeData.parents ?? [],
     };
+
+    if (fullNodeData.token_name && fullNodeData.token_symbol) {
+      transformedTx.token_name = fullNodeData.token_name;
+      transformedTx.token_symbol = fullNodeData.token_symbol;
+    }
 
     return transformedTx;
   }

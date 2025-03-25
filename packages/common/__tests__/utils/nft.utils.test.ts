@@ -1,8 +1,7 @@
-// @ts-ignore: Using old wallet-lib version, no types exported
-import hathorLib, { helpersUtils, constants } from '@hathor/wallet-lib';
+import hathorLib, { constants, Network } from '@hathor/wallet-lib';
 import { mockedAddAlert } from './alerting.utils.mock';
 import { NftUtils } from '@src/utils/nft.utils';
-import { Severity } from '@src/types';
+import { FullNodeTransaction, Severity } from '@src/types';
 import { getHandlerContext, getTransaction } from '../events/nftCreationTx';
 import {
   LambdaClient as LambdaClientMock,
@@ -105,33 +104,7 @@ const REAL_NFT_EVENT_DATA = {
 
 // Create the transformed version of the event as it would be processed
 const createTransformedEvent = (fullNodeData = REAL_NFT_EVENT_DATA) => {
-  return {
-    ...fullNodeData,
-    tx_id: fullNodeData.hash,
-    inputs: fullNodeData.inputs.map((input) => {
-      const tokenIndex = (input.spent_output.token_data & hathorLib.constants.TOKEN_INDEX_MASK) - 1;
-      return {
-        token: tokenIndex < 0 ? hathorLib.constants.HATHOR_TOKEN_CONFIG.uid : fullNodeData.tokens[tokenIndex],
-        value: input.spent_output.value,
-        token_data: input.spent_output.token_data,
-        script: input.spent_output.script,
-        decoded: {
-          ...(input.spent_output.decoded || {}),
-        },
-        tx_id: input.tx_id,
-        index: input.index
-      };
-    }),
-    outputs: fullNodeData.outputs.map((output) => {
-      const tokenIndex = (output.token_data & hathorLib.constants.TOKEN_INDEX_MASK) - 1;
-      return {
-        ...output,
-        decoded: output.decoded ? output.decoded : {},
-        spent_by: null,
-        token: tokenIndex < 0 ? hathorLib.constants.HATHOR_TOKEN_CONFIG.uid : fullNodeData.tokens[tokenIndex],
-      };
-    }),
-  };
+  return NftUtils.transformFullNodeTxForNftDetection(fullNodeData);
 };
 
 describe('shouldInvokeNftHandlerForTx', () => {
@@ -156,14 +129,13 @@ describe('shouldInvokeNftHandlerForTx', () => {
     const tx = getTransaction();
     const network = {
       name: 'testnet',
-    };
+    } as unknown as Network;
 
     // Explicitly disable the feature
     process.env.NFT_AUTO_REVIEW_ENABLED = 'false';
     expect(process.env.NFT_AUTO_REVIEW_ENABLED).not.toStrictEqual('true');
 
     // Execution
-    // @ts-ignore
     const shouldInvoke = NftUtils.shouldInvokeNftHandlerForTx(tx, network, logger);
 
     // Since NFT_AUTO_REVIEW_ENABLED is false, the function should return false
@@ -201,7 +173,6 @@ describe('isTransactionNFTCreation', () => {
 
     // Preparing mocks
     const spyCreateTx = jest.spyOn(hathorLib.helpersUtils, 'createTxFromHistoryObject');
-    spyCreateTx.mockImplementation(() => ({}));
     let tx;
     let result;
 
@@ -335,14 +306,14 @@ describe('_updateMetadata', () => {
     };
     const mLambdaClient = new LambdaClientMock({});
     (mLambdaClient.send as jest.Mocked<any>).mockImplementation(async () => {
-        if (failureCount < 4) {
-          ++failureCount;
-          return {
-            StatusCode: 500,
-            Payload: 'failurePayload',
-          };
-        }
-        return expectedLambdaResponse;
+      if (failureCount < 4) {
+        ++failureCount;
+        return {
+          StatusCode: 500,
+          Payload: 'failurePayload',
+        };
+      }
+      return expectedLambdaResponse;
     });
 
     const result = await NftUtils._updateMetadata('sampleUid', { sampleData: 'fake' }, 5, logger);
@@ -370,7 +341,7 @@ describe('_updateMetadata', () => {
     });
 
     // eslint-disable-next-line jest/valid-expect
-    expect(NftUtils._updateMetadata('sampleUid', { sampleData: 'fake' }, network, logger))
+    expect(NftUtils._updateMetadata('sampleUid', { sampleData: 'fake' }, 3, logger))
       .rejects.toThrow(new Error('Metadata update failed for tx_id: sampleUid.'));
   });
 });
@@ -488,16 +459,12 @@ describe('transaction transformation compatibility', () => {
   it('should correctly transform fullNodeData to a format compatible with shouldInvokeNftHandlerForTx', () => {
     expect.hasAssertions();
 
-    // Save original value and mock for this test
-    const originalVersion = constants.CREATE_TOKEN_TX_VERSION;
-    constants.CREATE_TOKEN_TX_VERSION = 2;
-
     // Set up environment variables
     const originalEnv = process.env;
     process.env = { ...originalEnv, NFT_AUTO_REVIEW_ENABLED: 'true' };
 
     try {
-      const fullNodeData = {
+      const fullNodeData: FullNodeTransaction = {
         hash: 'test-hash',
         version: constants.CREATE_TOKEN_TX_VERSION,
         token_name: 'Test NFT',
@@ -512,7 +479,8 @@ describe('transaction transformation compatibility', () => {
             script: 'script1',
             decoded: {
               type: 'P2PKH',
-              address: 'addr1'
+              address: 'addr1',
+              timelock: null
             }
           }
         }],
@@ -522,19 +490,25 @@ describe('transaction transformation compatibility', () => {
           script: 'script2',
           decoded: {
             type: 'P2PKH',
-            address: 'addr2'
+            address: 'addr2',
+            timelock: null,
           }
-        }]
+        }],
+        nonce: 0,
+        signal_bits: 1,
+        timestamp: 0,
+        weight: 18.2,
       };
 
-      const txFromEvent = {
+      const txFromEvent = NftUtils.transformFullNodeTxForNftDetection(fullNodeData);
+      const txFromEvent2 = {
         ...fullNodeData,
         tx_id: fullNodeData.hash,
         inputs: fullNodeData.inputs.map((input) => {
           const tokenIndex = (input.spent_output.token_data & hathorLib.constants.TOKEN_INDEX_MASK) - 1;
 
           return {
-            token: tokenIndex < 0 ? hathorLib.constants.HATHOR_TOKEN_CONFIG.uid : fullNodeData.tokens[tokenIndex],
+            token: tokenIndex < 0 ? hathorLib.constants.NATIVE_TOKEN_UID : fullNodeData.tokens[tokenIndex],
             value: input.spent_output.value,
             token_data: input.spent_output.token_data,
             script: input.spent_output.script,
@@ -551,7 +525,7 @@ describe('transaction transformation compatibility', () => {
             ...output,
             decoded: output.decoded ? output.decoded : {},
             spent_by: null,
-            token: tokenIndex < 0 ? hathorLib.constants.HATHOR_TOKEN_CONFIG.uid : fullNodeData.tokens[tokenIndex],
+            token: tokenIndex < 0 ? hathorLib.constants.NATIVE_TOKEN_UID : fullNodeData.tokens[tokenIndex],
           };
         }),
       };
@@ -563,17 +537,12 @@ describe('transaction transformation compatibility', () => {
       expect(isNftTransactionSpy).toHaveBeenCalledTimes(1);
     } finally {
       // Restore original values
-      constants.CREATE_TOKEN_TX_VERSION = originalVersion;
       process.env = originalEnv;
     }
   });
 
   it('should correctly process a real event from production', () => {
     expect.hasAssertions();
-
-    // Save original value and mock
-    const originalVersion = constants.CREATE_TOKEN_TX_VERSION;
-    constants.CREATE_TOKEN_TX_VERSION = 2;
 
     // Set up environment variables
     const originalEnv = process.env;
@@ -588,11 +557,11 @@ describe('transaction transformation compatibility', () => {
 
       // Verify token handling is correct
       // First input should be HTR token
-      expect(txFromEvent.inputs[0].token).toBe(hathorLib.constants.HATHOR_TOKEN_CONFIG.uid);
+      expect(txFromEvent.inputs[0].token).toBe(hathorLib.constants.NATIVE_TOKEN_UID);
 
       // First and second outputs should be HTR tokens
-      expect(txFromEvent.outputs[0].token).toBe(hathorLib.constants.HATHOR_TOKEN_CONFIG.uid);
-      expect(txFromEvent.outputs[1].token).toBe(hathorLib.constants.HATHOR_TOKEN_CONFIG.uid);
+      expect(txFromEvent.outputs[0].token).toBe(hathorLib.constants.NATIVE_TOKEN_UID);
+      expect(txFromEvent.outputs[1].token).toBe(hathorLib.constants.NATIVE_TOKEN_UID);
 
       // Third output should be the NFT token
       expect(txFromEvent.outputs[2].token).toBe(fullNodeData.tokens[0]);
@@ -613,7 +582,6 @@ describe('transaction transformation compatibility', () => {
     } finally {
       // Restore environment and constants
       process.env = originalEnv;
-      constants.CREATE_TOKEN_TX_VERSION = originalVersion;
     }
   });
 });
@@ -622,7 +590,6 @@ describe('processNftEvent', () => {
   let originalEnv: NodeJS.ProcessEnv;
   let invokeNftLambdaSpy: jest.SpyInstance;
   let shouldInvokeSpy: jest.SpyInstance;
-  let originalVersion: number;
 
   beforeEach(() => {
     // Save original env
@@ -633,10 +600,6 @@ describe('processNftEvent', () => {
       WALLET_SERVICE_LAMBDA_ENDPOINT: 'http://localhost:3000',
       AWS_REGION: 'us-east-1'
     };
-
-    // Save original constants
-    originalVersion = constants.CREATE_TOKEN_TX_VERSION;
-    constants.CREATE_TOKEN_TX_VERSION = 2;
 
     // Set up spies
     invokeNftLambdaSpy = jest.spyOn(NftUtils, 'invokeNftHandlerLambda').mockResolvedValue();
@@ -651,7 +614,6 @@ describe('processNftEvent', () => {
     // Clean up
     process.env = originalEnv;
     jest.restoreAllMocks();
-    constants.CREATE_TOKEN_TX_VERSION = originalVersion;
   });
 
   it('should invoke the NFT handler for a valid NFT event', async () => {
@@ -746,7 +708,7 @@ describe('processNftEvent', () => {
     expect(callArg.outputs.length).toBe(eventData.outputs.length);
     expect(callArg.outputs[0].spent_by).toBeNull();
     expect(callArg.outputs[0].decoded).toEqual({});
-    expect(callArg.outputs[0].token).toBe(hathorLib.constants.HATHOR_TOKEN_CONFIG.uid);
+    expect(callArg.outputs[0].token).toBe(hathorLib.constants.NATIVE_TOKEN_UID);
 
     // Verify the lambda was invoked with the correct parameters
     expect(invokeNftLambdaSpy).toHaveBeenCalledTimes(1);
@@ -831,47 +793,36 @@ describe('processNftEvent', () => {
   it('should return false for non-token-creation transactions', async () => {
     expect.hasAssertions();
 
-    // Store original value to restore later
-    const originalVersion = constants.CREATE_TOKEN_TX_VERSION;
+    // Use the real event data constant with a non-matching version
+    const eventData = {
+      ...REAL_NFT_EVENT_DATA,
+      version: 1 // Different from CREATE_TOKEN_TX_VERSION
+    };
 
-    try {
-      // Set CREATE_TOKEN_TX_VERSION to a specific value
-      constants.CREATE_TOKEN_TX_VERSION = 1;
+    // Mock network
+    const mockNetwork = { name: 'testnet' };
 
-      // Use the real event data constant with a non-matching version
-      const eventData = {
-        ...REAL_NFT_EVENT_DATA,
-        version: 2 // Different from CREATE_TOKEN_TX_VERSION
-      };
+    // Call the method
+    const result = await NftUtils.processNftEvent(
+      eventData,
+      'test-stage',
+      mockNetwork as unknown as hathorLib.Network,
+      logger
+    );
 
-      // Mock network
-      const mockNetwork = { name: 'testnet' };
+    // Verify result is false (non-token-creation tx)
+    expect(result).toBe(false);
 
-      // Call the method
-      const result = await NftUtils.processNftEvent(
-        eventData,
-        'test-stage',
-        mockNetwork as unknown as hathorLib.Network,
-        logger
-      );
+    // Verify shouldInvokeNftHandlerForTx was NOT called
+    expect(shouldInvokeSpy).not.toHaveBeenCalled();
 
-      // Verify result is false (non-token-creation tx)
-      expect(result).toBe(false);
+    // Verify the lambda was NOT invoked
+    expect(invokeNftLambdaSpy).not.toHaveBeenCalled();
 
-      // Verify shouldInvokeNftHandlerForTx was NOT called
-      expect(shouldInvokeSpy).not.toHaveBeenCalled();
-
-      // Verify the lambda was NOT invoked
-      expect(invokeNftLambdaSpy).not.toHaveBeenCalled();
-
-      // Verify debug message was logged
-      expect(logger.debug).toHaveBeenCalledWith(
-        expect.stringContaining('not a token creation transaction')
-      );
-    } finally {
-      // Restore original value
-      constants.CREATE_TOKEN_TX_VERSION = originalVersion;
-    }
+    // Verify debug message was logged
+    expect(logger.debug).toHaveBeenCalledWith(
+      expect.stringContaining('not a token creation transaction')
+    );
   });
 });
 
@@ -890,10 +841,6 @@ it('should perform full NFT processing with real event data and no mocks', async
       WALLET_SERVICE_LAMBDA_ENDPOINT: 'http://localhost:3000',
       AWS_REGION: 'us-east-1'
     };
-
-    // Save original constants
-    const originalVersion = constants.CREATE_TOKEN_TX_VERSION;
-    constants.CREATE_TOKEN_TX_VERSION = 2;
 
     // Mock the Lambda client to prevent actual AWS calls
     const mockSend = jest.fn().mockImplementation(() => {
@@ -966,7 +913,6 @@ it('should perform full NFT processing with real event data and no mocks', async
     } finally {
       // Restore original values
       process.env = originalEnv;
-      constants.CREATE_TOKEN_TX_VERSION = originalVersion;
     }
   } finally {
     // Restore spies
