@@ -5014,7 +5014,7 @@ __metadata:
     typescript: "npm:5.4.3"
     winston: "npm:3.13.0"
   peerDependencies:
-    "@hathor/wallet-lib": 1.14.1
+    "@hathor/wallet-lib": 2.1.1
   languageName: unknown
   linkType: soft
 
@@ -15227,7 +15227,7 @@ __metadata:
     ws: "npm:8.13.0"
     xstate: "npm:4.38.2"
   peerDependencies:
-    "@hathor/wallet-lib": 1.14.1
+    "@hathor/wallet-lib": 2.1.1
     "@wallet-service/common": 1.5.0
   languageName: unknown
   linkType: soft
@@ -16303,7 +16303,7 @@ __metadata:
     webpack-node-externals: "npm:3.0.0"
     winston: "npm:3.13.0"
   peerDependencies:
-    "@hathor/wallet-lib": 1.14.1
+    "@hathor/wallet-lib": 2.1.1
     "@wallet-service/common": 1.5.0
   languageName: unknown
   linkType: soft
