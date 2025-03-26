@@ -9,7 +9,7 @@ import hathorLib from '@hathor/wallet-lib';
 import { Connection as MysqlConnection } from 'mysql2/promise';
 import axios from 'axios';
 import { get } from 'lodash';
-import { NftUtils } from '@wallet-service/common/src/utils/nft.utils';
+import { NftUtils } from '@wallet-service/common';
 import {
   StringMap,
   Wallet,
