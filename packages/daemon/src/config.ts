@@ -84,7 +84,7 @@ export const HEALTHCHECK_SERVER_API_KEY = process.env.HEALTHCHECK_SERVER_API_KEY
 export const HEALTHCHECK_PING_INTERVAL = parseInt(process.env.HEALTHCHECK_PING_INTERVAL ?? '10000', 10);  // 10 seconds
 
 // Other
-export const USE_SSL = process.env.USE_SSL;
+export const USE_SSL = process.env.USE_SSL === 'true';
 
 // Reorg size thresholds for different alert levels
 export const REORG_SIZE_INFO = parseInt(process.env.REORG_SIZE_INFO ?? '1', 10);
