@@ -306,7 +306,8 @@ export class Authorities {
   }
 
   toJSON(): Record<string, unknown> {
-    const authorities = this.toInteger();
+    // TOKEN_MINT_MASK and TOKEN_MELT_MASK are bigint (since they come from the output amount)
+    const authorities = BigInt(this.toInteger());
     return {
       mint: (authorities & hathorLib.constants.TOKEN_MINT_MASK) > 0, // eslint-disable-line no-bitwise
       melt: (authorities & hathorLib.constants.TOKEN_MELT_MASK) > 0, // eslint-disable-line no-bitwise

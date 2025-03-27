@@ -33,7 +33,7 @@
     "@aws-sdk/client-apigatewaymanagementapi": "3.540.0",
     "@aws-sdk/client-lambda": "3.540.0",
     "@aws-sdk/client-sqs": "3.540.0",
-    "@hathor/wallet-lib": "1.14.1",
+    "@hathor/wallet-lib": "2.1.1",
     "@wallet-service/common": "1.5.0",
     "bip32": "^4.0.0",
     "bitcoinjs-lib": "^6.1.5",
