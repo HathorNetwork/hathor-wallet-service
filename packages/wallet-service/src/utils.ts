@@ -86,6 +86,9 @@ export const getDbConnection = (): ServerlessMysql => (
       // TODO if not on local env, get IAM token
       // https://aws.amazon.com/blogs/database/iam-role-based-authentication-to-amazon-aurora-from-serverless-applications/
       password: config.dbPass,
+      // BIGINT columns should be returned as strings to keep precision on the JS unsafe range.
+      supportBigNumbers: true,
+      bigNumberStrings: true,
     },
   })
 );

@@ -7,6 +7,7 @@ module.exports = {
     port: 3380,
     dialect: 'mysql',
     dialectOptions: {
+      supportBigNumbers: true,
       bigNumberStrings: true,
     },
   },
