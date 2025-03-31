@@ -211,7 +211,7 @@ test('getWalletBalanceMap', () => {
 
 test('unlockUtxos', async () => {
   expect.hasAssertions();
-  const reward = 6400;
+  const reward = 6400n;
   const txId1 = 'txId1';
   const txId2 = 'txId2';
   const txId3 = 'txId3';
@@ -252,7 +252,7 @@ test('unlockUtxos', async () => {
       index: 0,
       tokenId: token,
       address: addr,
-      value: 2500,
+      value: 2500n,
       authorities: 0,
       timelock: now,
       heightlock: null,
@@ -263,7 +263,7 @@ test('unlockUtxos', async () => {
       index: 0,
       tokenId: token,
       address: addr,
-      value: 2500,
+      value: 2500n,
       authorities: 0,
       timelock: now * 2,
       heightlock: null,
@@ -274,7 +274,7 @@ test('unlockUtxos', async () => {
       index: 0,
       tokenId: token,
       address: addr,
-      value: 0,
+      value: 0n,
       authorities: 0b10,
       timelock: now * 3,
       heightlock: null,
@@ -301,14 +301,14 @@ test('unlockUtxos', async () => {
   }]);
 
   await addToAddressBalanceTable(mysql, [
-    [addr, token, 0, 2 * reward + 5000, now, 5, 0, 0b10, 4 * reward + 5000],
+    [addr, token, 0, 2n * reward + 5000n, now, 5, 0, 0b10, 4n * reward + 5000n],
   ]);
 
   await addToWalletBalanceTable(mysql, [{
     walletId,
     tokenId: token,
-    unlockedBalance: 0,
-    lockedBalance: 2 * reward + 5000,
+    unlockedBalance: 0n,
+    lockedBalance: 2n * reward + 5000n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0b10,
     timelockExpires: now,
@@ -332,8 +332,8 @@ test('unlockUtxos', async () => {
   await expect(
     checkUtxoTable(mysql, 5, txId1, 0, utxo.tokenId, utxo.address, utxo.value, 0, utxo.timelock, utxo.heightlock, false),
   ).resolves.toBe(true);
-  await expect(checkAddressBalanceTable(mysql, 1, addr, token, reward, reward + 5000, now, 5, 0, 0b10)).resolves.toBe(true);
-  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, reward, reward + 5000, now, 5, 0, 0b10)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 1, addr, token, reward, reward + 5000n, now, 5, 0, 0b10)).resolves.toBe(true);
+  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, reward, reward + 5000n, now, 5, 0, 0b10)).resolves.toBe(true);
 
   // unlock txId2
   utxo.txId = txId2;
@@ -342,8 +342,8 @@ test('unlockUtxos', async () => {
   await expect(
     checkUtxoTable(mysql, 5, txId2, 0, utxo.tokenId, utxo.address, utxo.value, 0, utxo.timelock, utxo.heightlock, false),
   ).resolves.toBe(true);
-  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 2 * reward, 5000, now, 5, 0, 0b10)).resolves.toBe(true);
-  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 2 * reward, 5000, now, 5, 0, 0b10)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 2n * reward, 5000n, now, 5, 0, 0b10)).resolves.toBe(true);
+  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 2n * reward, 5000n, now, 5, 0, 0b10)).resolves.toBe(true);
 
   // unlock txId3, txId4 is still locked
   utxo.txId = txId3;
@@ -354,8 +354,8 @@ test('unlockUtxos', async () => {
   await expect(
     checkUtxoTable(mysql, 5, txId3, 0, utxo.tokenId, utxo.address, utxo.value, 0, utxo.timelock, utxo.heightlock, false),
   ).resolves.toBe(true);
-  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 2 * reward + 2500, 2500, 2 * now, 5, 0, 0b10)).resolves.toBe(true);
-  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 2 * reward + 2500, 2500, 2 * now, 5, 0, 0b10)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 2n * reward + 2500n, 2500n, 2 * now, 5, 0, 0b10)).resolves.toBe(true);
+  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 2n * reward + 2500n, 2500n, 2 * now, 5, 0, 0b10)).resolves.toBe(true);
 
   // unlock txId4
   utxo.txId = txId4;
@@ -366,8 +366,8 @@ test('unlockUtxos', async () => {
   await expect(
     checkUtxoTable(mysql, 5, txId4, 0, utxo.tokenId, utxo.address, utxo.value, 0, utxo.timelock, utxo.heightlock, false),
   ).resolves.toBe(true);
-  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 2 * reward + 5000, 0, 3 * now, 5, 0, 0b10)).resolves.toBe(true);
-  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 2 * reward + 5000, 0, 3 * now, 5, 0, 0b10)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 2n * reward + 5000n, 0n, 3 * now, 5, 0, 0b10)).resolves.toBe(true);
+  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 2n * reward + 5000n, 0n, 3 * now, 5, 0, 0b10)).resolves.toBe(true);
 
   // unlock txId5
   utxo.txId = txId5;
@@ -379,8 +379,8 @@ test('unlockUtxos', async () => {
   await expect(
     checkUtxoTable(mysql, 5, txId5, 0, utxo.tokenId, utxo.address, utxo.value, utxo.authorities, utxo.timelock, utxo.heightlock, false),
   ).resolves.toBe(true);
-  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 2 * reward + 5000, 0, null, 5, 0b10, 0)).resolves.toBe(true);
-  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 2 * reward + 5000, 0, null, 5, 0b10, 0)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 2n * reward + 5000n, 0n, null, 5, 0b10, 0)).resolves.toBe(true);
+  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 2n * reward + 5000n, 0n, null, 5, 0b10, 0)).resolves.toBe(true);
 });
 
 test('unlockTimelockedUtxos', async () => {
@@ -482,8 +482,8 @@ test('unlockTimelockedUtxos', async () => {
   await expect(
     checkUtxoTable(mysql, 3, txId1, 0, utxo.tokenId, utxo.address, utxo.value, 0, utxo.timelock, utxo.heightlock, false),
   ).resolves.toBe(true);
-  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 2500, 2500, 2 * now, 3, 0, 0b10)).resolves.toBe(true);
-  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 2500, 2500, 2 * now, 3, 0, 0b10)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 2500n, 2500n, 2 * now, 3, 0, 0b10)).resolves.toBe(true);
+  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 2500n, 2500n, 2 * now, 3, 0, 0b10)).resolves.toBe(true);
 
   // unlock txId2
   utxo.txId = txId2;
@@ -494,8 +494,8 @@ test('unlockTimelockedUtxos', async () => {
   await expect(
     checkUtxoTable(mysql, 3, txId2, 0, utxo.tokenId, utxo.address, utxo.value, 0, utxo.timelock, utxo.heightlock, false),
   ).resolves.toBe(true);
-  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 5000, 0, 3 * now, 3, 0, 0b10)).resolves.toBe(true);
-  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 5000, 0, 3 * now, 3, 0, 0b10)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 5000n, 0n, 3 * now, 3, 0, 0b10)).resolves.toBe(true);
+  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 5000n, 0n, 3 * now, 3, 0, 0b10)).resolves.toBe(true);
 
   // unlock txId3
   utxo.txId = txId3;
@@ -507,8 +507,8 @@ test('unlockTimelockedUtxos', async () => {
   await expect(
     checkUtxoTable(mysql, 3, txId3, 0, utxo.tokenId, utxo.address, utxo.value, utxo.authorities, utxo.timelock, utxo.heightlock, false),
   ).resolves.toBe(true);
-  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 5000, 0, null, 3, 0b10, 0)).resolves.toBe(true);
-  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 5000, 0, null, 3, 0b10, 0)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 5000n, 0n, null, 3, 0b10, 0)).resolves.toBe(true);
+  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 5000n, 0n, null, 3, 0b10, 0)).resolves.toBe(true);
 });
 
 test('getFullnodeData with an uninitialized version_data database should call the version api', async () => {

@@ -92,8 +92,8 @@ export const getTokenDetails = middy(walletIdProxyHandler(async (walletId, event
   ] = await Promise.all([
     getTotalSupply(mysql, tokenId),
     getTotalTransactions(mysql, tokenId),
-    getAuthorityUtxo(mysql, tokenId, constants.TOKEN_MELT_MASK),
-    getAuthorityUtxo(mysql, tokenId, constants.TOKEN_MINT_MASK),
+    getAuthorityUtxo(mysql, tokenId, Number(constants.TOKEN_MELT_MASK)),
+    getAuthorityUtxo(mysql, tokenId, Number(constants.TOKEN_MINT_MASK)),
   ]);
 
   return {

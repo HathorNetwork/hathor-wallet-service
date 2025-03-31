@@ -183,7 +183,7 @@ export const generateAddresses = async (mysql: ServerlessMysql, xpubkey: string,
       existingAddresses[address] = index;
 
       // if address is used, check if its index is higher than the current highest used index
-      if (entry.transactions > 0 && index > lastUsedAddressIndex) {
+      if (entry.transactions as number > 0 && index > lastUsedAddressIndex) {
         lastUsedAddressIndex = index;
       }
 
@@ -683,8 +683,9 @@ export const addUtxos = async (
       let value = output.value;
 
       if (isAuthority(output.token_data)) {
-        authorities = value;
-        value = 0;
+        // value should be within [0, 255] for authorities to be valid.
+        authorities = Number(value);
+        value = 0n;
       }
 
       return [
@@ -948,11 +949,11 @@ export const getWalletSortedValueUtxos = async (
       index: result.index as number,
       tokenId: result.token_id as string,
       address: result.address as string,
-      value: result.value as number,
+      value: BigInt(result.value as string),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
-      locked: result.locked > 0,
+      locked: result.locked as number > 0,
     };
     utxos.push(utxo);
   }
@@ -1013,11 +1014,11 @@ export const getLockedUtxoFromInputs = async (mysql: ServerlessMysql, inputs: Tx
       index: utxo.index as number,
       tokenId: utxo.token_id as string,
       address: utxo.address as string,
-      value: utxo.value as number,
+      value: BigInt(utxo.value as string),
       authorities: utxo.authorities as number,
       timelock: utxo.timelock as number,
       heightlock: utxo.heightlock as number,
-      locked: (utxo.locked > 0),
+      locked: (utxo.locked as number > 0),
     }));
   }
 
@@ -1382,9 +1383,9 @@ INNER JOIN token ON w.token_id = token.id
 
   const results: DbSelectResult = await mysql.query(query, params);
   for (const result of results) {
-    const totalAmount = result.total_received as number;
-    const unlockedBalance = result.unlocked_balance as number;
-    const lockedBalance = result.locked_balance as number;
+    const totalAmount = BigInt(result.total_received as string);
+    const unlockedBalance = BigInt(result.unlocked_balance as string);
+    const lockedBalance = BigInt(result.locked_balance as string);
     const unlockedAuthorities = new Authorities(result.unlocked_authorities as number);
     const lockedAuthorities = new Authorities(result.locked_authorities as number);
     const timelockExpires = result.timelock_expires as number;
@@ -1516,11 +1517,11 @@ export const getUtxosLockedAtHeight = async (
         index: result.index as number,
         tokenId: result.token_id as string,
         address: result.address as string,
-        value: result.value as number,
+        value: BigInt(result.value as string),
         authorities: result.authorities as number,
         timelock: result.timelock as number,
         heightlock: result.heightlock as number,
-        locked: result.locked > 0,
+        locked: result.locked as number > 0,
       };
       utxos.push(utxo);
     }
@@ -1570,11 +1571,11 @@ export const getWalletUnlockedUtxos = async (
       index: result.index as number,
       tokenId: result.token_id as string,
       address: result.address as string,
-      value: result.value as number,
+      value: BigInt(result.value as string),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
-      locked: result.locked > 0,
+      locked: result.locked as number > 0,
     };
     utxos.push(utxo);
   }
@@ -1940,11 +1941,11 @@ export const getTxOutputs = async (
       index: result.index as number,
       tokenId: result.token_id as string,
       address: result.address as string,
-      value: result.value as number,
+      value: BigInt(result.value as string),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
-      locked: result.locked > 0,
+      locked: result.locked as number > 0,
       txProposalId: result.tx_proposal as string,
       txProposalIndex: result.tx_proposal_index as number,
       spentBy: result.spent_by ? result.spent_by as string : null,
@@ -2008,11 +2009,11 @@ export const getTxOutputsBySpent = async (
       index: result.index as number,
       tokenId: result.token_id as string,
       address: result.address as string,
-      value: result.value as number,
+      value: BigInt(result.value as string),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
-      locked: result.locked > 0,
+      locked: result.locked as number > 0,
       txProposalId: result.tx_proposal as string,
       txProposalIndex: result.tx_proposal_index as number,
       spentBy: result.spent_by ? result.spent_by as string : null,
@@ -2395,7 +2396,7 @@ export const filterTxOutputs = async (
     ignoreLocked: false,
     skipSpent: true,
     biggerThan: -1,
-    smallerThan: constants.MAX_OUTPUT_VALUE + 1,
+    smallerThan: constants.MAX_OUTPUT_VALUE + 1n,
     ...filters,
   };
 
@@ -2452,7 +2453,7 @@ export const mapDbResultToDbTxOutput = (result: any): DbTxOutput => ({
   index: result.index as number,
   tokenId: result.token_id as string,
   address: result.address as string,
-  value: result.value as number,
+  value: BigInt(result.value),
   authorities: result.authorities as number,
   timelock: result.timelock as number,
   heightlock: result.heightlock as number,

@@ -14,7 +14,6 @@ import {
   AUTH_XPUBKEY,
   cleanDatabase,
   checkAddressTable,
-  checkAddressBalanceTable,
   checkAddressTxHistoryTable,
   checkUtxoTable,
   checkWalletBalanceTable,

@@ -10,8 +10,8 @@
 export interface WalletBalanceEntry {
   walletId: string;
   tokenId: string;
-  unlockedBalance: number;
-  lockedBalance: number;
+  unlockedBalance: bigint;
+  lockedBalance: bigint;
   unlockedAuthorities: number;
   lockedAuthorities: number;
   timelockExpires?: number;

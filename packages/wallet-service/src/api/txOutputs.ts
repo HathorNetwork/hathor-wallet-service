@@ -22,6 +22,14 @@ import cors from '@middy/http-cors';
 
 const mysql = getDbConnection();
 
+const positiveBigInt = Joi.custom(value => {
+  const newVal = BigInt(value);
+  if (newVal > 0n) {
+    return newVal;
+  }
+  throw new Error('value must be positive');
+});
+
 const bodySchema = Joi.object({
   id: Joi.string().optional(),
   addresses: Joi.array()
@@ -31,8 +39,10 @@ const bodySchema = Joi.object({
   tokenId: Joi.string().default('00'),
   authority: Joi.number().default(0).integer().positive(),
   ignoreLocked: Joi.boolean().optional(),
-  biggerThan: Joi.number().integer().positive().default(-1),
-  smallerThan: Joi.number().integer().positive().default(constants.MAX_OUTPUT_VALUE + 1),
+  // @ts-ignore : bigint is not considered a basic type for a default value.
+  biggerThan: positiveBigInt.default(0n),
+  // @ts-ignore
+  smallerThan: positiveBigInt.default(constants.MAX_OUTPUT_VALUE + 1n),
   maxOutputs: Joi.number().integer().positive().default(constants.MAX_OUTPUTS),
   skipSpent: Joi.boolean().optional().default(true),
   txId: Joi.string().optional(),

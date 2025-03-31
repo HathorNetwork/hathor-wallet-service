@@ -88,12 +88,12 @@ export class Authorities {
 
   array: number[];
 
-  constructor(authorities?: number | number[]) {
+  constructor(authorities?: bigint | number | number[]) {
     let tmp: number[] = [];
     if (authorities instanceof Array) {
       tmp = authorities;
     } else if (authorities != null) {
-      tmp = Authorities.intToArray(authorities);
+      tmp = Authorities.intToArray(Number(authorities));
     }
 
     this.array = new Array(Authorities.LENGTH - tmp.length).fill(0).concat(tmp);
@@ -200,19 +200,26 @@ export class Authorities {
 }
 
 export class Balance {
-  totalAmountSent: number;
+  totalAmountSent: bigint;
 
-  lockedAmount: number;
+  lockedAmount: bigint;
 
-  unlockedAmount: number;
+  unlockedAmount: bigint;
 
   lockedAuthorities: Authorities;
 
   unlockedAuthorities: Authorities;
 
-  lockExpires: number | null | undefined;
+  lockExpires: number | null;
 
-  constructor(totalAmountSent = 0, unlockedAmount = 0, lockedAmount = 0, lockExpires = null, unlockedAuthorities = null, lockedAuthorities = null) {
+  constructor(
+    totalAmountSent = 0n,
+    unlockedAmount = 0n,
+    lockedAmount = 0n,
+    lockExpires: number|null = null,
+    unlockedAuthorities: Authorities|null = null,
+    lockedAuthorities: Authorities|null = null
+  ) {
     this.totalAmountSent = totalAmountSent;
     this.unlockedAmount = unlockedAmount;
     this.lockedAmount = lockedAmount;
@@ -226,7 +233,7 @@ export class Balance {
    *
    * @returns The total balance
    */
-  total(): number {
+  total(): bigint {
     return this.unlockedAmount + this.lockedAmount;
   }
 
@@ -249,7 +256,6 @@ export class Balance {
       this.totalAmountSent,
       this.unlockedAmount,
       this.lockedAmount,
-      // @ts-ignore
       this.lockExpires,
       this.unlockedAuthorities.clone(),
       this.lockedAuthorities.clone(),
@@ -273,7 +279,6 @@ export class Balance {
     } else if (b2.lockExpires === null) {
       lockExpires = b1.lockExpires;
     } else {
-      // @ts-ignore
       lockExpires = Math.min(b1.lockExpires, b2.lockExpires);
     }
     return new Balance(
@@ -297,7 +302,7 @@ export class TokenBalanceMap {
 
   get(tokenId: string): Balance {
     // if the token is not present, return 0 instead of undefined
-    return this.map[tokenId] || new Balance(0, 0, 0);
+    return this.map[tokenId] || new Balance(0n, 0n, 0n);
   }
 
   set(tokenId: string, balance: Balance): void {
@@ -336,17 +341,16 @@ export class TokenBalanceMap {
    * @param tokenBalanceMap - The js object to convert to a TokenBalanceMap
    * @returns - The new TokenBalanceMap object
    */
-  static fromStringMap(tokenBalanceMap: StringMap<StringMap<number | Authorities>>): TokenBalanceMap {
+  static fromStringMap(tokenBalanceMap: StringMap<StringMap<bigint | number | Authorities>>): TokenBalanceMap {
     const obj = new TokenBalanceMap();
     for (const [tokenId, balance] of Object.entries(tokenBalanceMap)) {
       obj.set(tokenId, new Balance(
-        balance.totalSent as number,
-        balance.unlocked as number,
-        balance.locked as number,
-        // @ts-ignore
-        balance.lockExpires || null,
-        balance.unlockedAuthorities,
-        balance.lockedAuthorities,
+        balance.totalSent as bigint,
+        balance.unlocked as bigint,
+        balance.locked as bigint,
+        balance.lockExpires as number || null,
+        balance.unlockedAuthorities as Authorities,
+        balance.lockedAuthorities as Authorities,
       ));
     }
     return obj;
@@ -396,7 +400,7 @@ export class TokenBalanceMap {
       // @ts-ignore
       obj.set(token, new Balance(0, 0, 0, null, new Authorities(output.value), 0));
     } else {
-      obj.set(token, new Balance(value, value, 0, null));
+      obj.set(token, new Balance(value, value, 0n, null));
     }
 
     return obj;
@@ -421,9 +425,9 @@ export class TokenBalanceMap {
       obj.set(
         token,
         new Balance(
-          0,
-          0,
-          0,
+          0n,
+          0n,
+          0n,
           null,
           // @ts-ignore
           authorities.toNegative(),
@@ -431,7 +435,7 @@ export class TokenBalanceMap {
         ),
       );
     } else {
-      obj.set(token, new Balance(0, -input.value, 0, null));
+      obj.set(token, new Balance(0n, -input.value, 0n, null));
     }
     return obj;
   }

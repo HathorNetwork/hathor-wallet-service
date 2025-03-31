@@ -178,7 +178,7 @@ export const unlockUtxos = async (mysql: MysqlConnection, utxos: DbTxOutput[], u
     };
 
     return {
-      value: utxo.authorities > 0 ? utxo.authorities : utxo.value,
+      value: utxo.authorities > 0 ? BigInt(utxo.authorities) : utxo.value,
       token: utxo.tokenId,
       decoded,
       locked: false,
@@ -474,7 +474,10 @@ export class FromTokenBalanceMapToBalanceValueList {
 }
 
 export const sortBalanceValueByAbsTotal = (balanceA: TokenBalanceValue, balanceB: TokenBalanceValue): number => {
-  if (Math.abs(balanceA.total) - Math.abs(balanceB.total) >= 0) return -1;
+  function abs(num: bigint) {
+    return num >= 0n ? num : -num;
+  }
+  if (abs(balanceA.total) - abs(balanceB.total) >= 0n) return -1;
   return 0;
 };
 

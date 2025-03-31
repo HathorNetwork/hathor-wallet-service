@@ -762,10 +762,10 @@ test('updateAddressTablesWithTx', async () => {
   await updateAddressTablesWithTx(mysql, txId1, timestamp1, addrMap1);
   await expect(checkAddressTable(mysql, 2, address1, null, null, 2)).resolves.toBe(true);
   await expect(checkAddressTable(mysql, 2, address2, null, null, 1)).resolves.toBe(true);
-  await expect(checkAddressBalanceTable(mysql, 4, address1, token1, 10, 0, null, 1)).resolves.toBe(true);
-  await expect(checkAddressBalanceTable(mysql, 4, address1, token2, 7, 0, null, 1)).resolves.toBe(true);
-  await expect(checkAddressBalanceTable(mysql, 4, address1, token3, 2, 0, null, 1, 0b01, 0)).resolves.toBe(true);
-  await expect(checkAddressBalanceTable(mysql, 4, address2, token1, 8, 0, null, 1, 0b01, 0)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 4, address1, token1, 10n, 0n, null, 1)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 4, address1, token2, 7n, 0n, null, 1)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 4, address1, token3, 2n, 0n, null, 1, 0b01, 0)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 4, address2, token1, 8n, 0n, null, 1, 0b01, 0)).resolves.toBe(true);
   await expect(checkAddressTxHistoryTable(mysql, 4, address1, txId1, token1, 10, timestamp1)).resolves.toBe(true);
   await expect(checkAddressTxHistoryTable(mysql, 4, address1, txId1, token2, 7, timestamp1)).resolves.toBe(true);
   await expect(checkAddressTxHistoryTable(mysql, 4, address1, txId1, token3, 2, timestamp1)).resolves.toBe(true);
@@ -785,11 +785,11 @@ test('updateAddressTablesWithTx', async () => {
   await expect(checkAddressTable(mysql, 2, address1, null, null, 3)).resolves.toBe(true);
   await expect(checkAddressTable(mysql, 2, address2, null, null, 2)).resolves.toBe(true);
   // final balance for each (address,token)
-  await expect(checkAddressBalanceTable(mysql, 5, address1, 'token1', 5, 0, null, 2)).resolves.toBe(true);
-  await expect(checkAddressBalanceTable(mysql, 5, address1, 'token2', 7, 0, null, 1)).resolves.toBe(true);
-  await expect(checkAddressBalanceTable(mysql, 5, address1, 'token3', 8, 0, null, 2, 0, 0)).resolves.toBe(true);
-  await expect(checkAddressBalanceTable(mysql, 5, address2, 'token1', 16, 0, null, 2, 0b11, 0)).resolves.toBe(true);
-  await expect(checkAddressBalanceTable(mysql, 5, address2, 'token2', 3, 0, null, 1)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 5, address1, 'token1', 5n, 0n, null, 2)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 5, address1, 'token2', 7n, 0n, null, 1)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 5, address1, 'token3', 8n, 0n, null, 2, 0, 0)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 5, address2, 'token1', 16n, 0n, null, 2, 0b11, 0)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 5, address2, 'token2', 3n, 0n, null, 1)).resolves.toBe(true);
   // tx history
   await expect(checkAddressTxHistoryTable(mysql, 8, address1, txId2, token1, -5, timestamp2)).resolves.toBe(true);
   await expect(checkAddressTxHistoryTable(mysql, 8, address1, txId2, token3, 6, timestamp2)).resolves.toBe(true);
@@ -809,7 +809,7 @@ test('updateAddressTablesWithTx', async () => {
     address1: TokenBalanceMap.fromStringMap({ token1: { unlocked: 0, locked: 3, lockExpires } }),
   };
   await updateAddressTablesWithTx(mysql, txId3, timestamp3, addrMap3);
-  await expect(checkAddressBalanceTable(mysql, 5, address1, 'token1', 5, 3, lockExpires, 3)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 5, address1, 'token1', 5n, 3n, lockExpires, 3)).resolves.toBe(true);
 
   // another tx, with higher timelock
   const txId4 = 'txId4';
@@ -818,7 +818,7 @@ test('updateAddressTablesWithTx', async () => {
     address1: TokenBalanceMap.fromStringMap({ token1: { unlocked: 0, locked: 2, lockExpires: lockExpires + 1 } }),
   };
   await updateAddressTablesWithTx(mysql, txId4, timestamp4, addrMap4);
-  await expect(checkAddressBalanceTable(mysql, 5, address1, 'token1', 5, 5, lockExpires, 4)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 5, address1, 'token1', 5n, 5n, lockExpires, 4)).resolves.toBe(true);
 
   // another tx, with lower timelock
   const txId5 = 'txId5';
@@ -827,7 +827,7 @@ test('updateAddressTablesWithTx', async () => {
     address1: TokenBalanceMap.fromStringMap({ token1: { unlocked: 0, locked: 2, lockExpires: lockExpires - 1 } }),
   };
   await updateAddressTablesWithTx(mysql, txId5, timestamp5, addrMap5);
-  await expect(checkAddressBalanceTable(mysql, 5, address1, 'token1', 5, 7, lockExpires - 1, 5)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 5, address1, 'token1', 5n, 7n, lockExpires - 1, 5)).resolves.toBe(true);
 });
 
 test('getWalletTokens', async () => {
@@ -1070,9 +1070,9 @@ test('updateAddressLockedBalance', async () => {
   const addr1Map = TokenBalanceMap.fromStringMap({ [tokenId]: { unlocked: 10, locked: 0, unlockedAuthorities: new Authorities(0b01) } });
   const addr2Map = TokenBalanceMap.fromStringMap({ [tokenId]: { unlocked: 5, locked: 0 } });
   await updateAddressLockedBalance(mysql, { [addr1]: addr1Map, [addr2]: addr2Map });
-  await expect(checkAddressBalanceTable(mysql, 3, addr1, tokenId, 60, 10, null, 3, 0b01, 0)).resolves.toBe(true);
-  await expect(checkAddressBalanceTable(mysql, 3, addr2, tokenId, 5, 0, null, 1)).resolves.toBe(true);
-  await expect(checkAddressBalanceTable(mysql, 3, addr1, otherToken, 5, 5, null, 1)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 3, addr1, tokenId, 60n, 10n, null, 3, 0b01, 0)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 3, addr2, tokenId, 5n, 0n, null, 1)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 3, addr1, otherToken, 5n, 5n, null, 1)).resolves.toBe(true);
 
   // now pretend there's another locked authority, so final balance of locked authorities should be updated accordingly
   await addToUtxoTable(mysql, [{
@@ -1089,7 +1089,7 @@ test('updateAddressLockedBalance', async () => {
   }]);
   const newMap = TokenBalanceMap.fromStringMap({ [tokenId]: { unlocked: 0, locked: 0, unlockedAuthorities: new Authorities(0b10) } });
   await updateAddressLockedBalance(mysql, { [addr1]: newMap });
-  await expect(checkAddressBalanceTable(mysql, 3, addr1, tokenId, 60, 10, null, 3, 0b11, 0b01)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 3, addr1, tokenId, 60n, 10n, null, 3, 0b11, 0b01)).resolves.toBe(true);
 });
 
 test('updateWalletLockedBalance', async () => {

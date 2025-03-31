@@ -84,7 +84,7 @@ export const cleanDatabase = async (mysql: ServerlessMysql): Promise<void> => {
 
 export const createOutput = (
   index: number,
-  value: number,
+  value: bigint,
   address: string,
   token = '00',
   timelock: number = null,
@@ -109,7 +109,7 @@ export const createOutput = (
 );
 
 export const createInput = (
-  value: number,
+  value: bigint,
   address: string,
   txId: string,
   index: number,
@@ -139,7 +139,7 @@ export const checkUtxoTable = async (
   index?: number,
   tokenId?: string,
   address?: string,
-  value?: number,
+  value?: bigint,
   authorities?: number,
   timelock?: number | null,
   heightlock?: number | null,
@@ -239,8 +239,8 @@ export const checkAddressBalanceTable = async (
   totalResults: number,
   address: string,
   tokenId: string,
-  unlocked: number,
-  locked: number,
+  unlocked: bigint,
+  locked: bigint,
   lockExpires: number | null,
   transactions: number,
   unlockedAuthorities = 0,
@@ -438,8 +438,8 @@ export const checkWalletBalanceTable = async (
   totalResults: number,
   walletId?: string,
   tokenId?: string,
-  unlocked?: number,
-  locked?: number,
+  unlocked?: bigint,
+  locked?: bigint,
   lockExpires?: number | null,
   transactions?: number,
   unlockedAuthorities = 0,
