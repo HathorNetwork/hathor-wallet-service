@@ -1,9 +1,8 @@
 import { mockedAddAlert } from '@tests/utils/alerting.utils.mock';
 import { initFirebaseAdminMock } from '@tests/utils/firebase-admin.mock';
 import eventTemplate from '@events/eventTemplate.json';
-import { loadWallet, loadWalletFailed } from '@src/api/wallet';
-import { createWallet, getMinersList } from '@src/db';
-import * as txProcessor from '@src/txProcessor';
+import { loadWalletFailed } from '@src/api/wallet';
+import { createWallet } from '@src/db';
 import { WalletStatus } from '@src/types';
 import { Transaction, TxInput, Severity } from '@wallet-service/common/src/types';
 import { closeDbConnection, getDbConnection, getUnixTimestamp, getWalletId } from '@src/utils';
@@ -13,22 +12,16 @@ import {
   XPUBKEY,
   AUTH_XPUBKEY,
   cleanDatabase,
-  checkAddressTable,
-  checkAddressTxHistoryTable,
-  checkUtxoTable,
-  checkWalletBalanceTable,
   checkWalletTable,
-  checkWalletTxHistoryTable,
   createOutput,
   createInput,
-  addToUtxoTable,
 } from '@tests/utils';
 import { SNSEvent } from 'aws-lambda';
 
 const mysql = getDbConnection();
 
 initFirebaseAdminMock();
-const blockReward = 6400;
+const blockReward = 6400n;
 const htrToken = '00';
 const walletId = getWalletId(XPUBKEY);
 const now = getUnixTimestamp();
@@ -92,8 +85,8 @@ tx.tx_id = txId3;
 tx.timestamp += 20;
 tx.inputs = [createInput(blockReward, ADDRESSES[0], txId1, 0)];
 tx.outputs = [
-  createOutput(0, blockReward - 5000, ADDRESSES[1]),
-  createOutput(1, 5000, ADDRESSES[2]),
+  createOutput(0, blockReward - 5000n, ADDRESSES[1]),
+  createOutput(1, 5000n, ADDRESSES[2]),
 ];
 
 // tx sends one of last tx's outputs to 2 addresses, one of which is not from this wallet. Also, output sent to this wallet is locked
@@ -105,11 +98,11 @@ const txId4 = 'txId4';
 tx2.tx_id = txId4;
 tx2.timestamp += 20;
 tx2.inputs = [
-  createInput(5000, ADDRESSES[2], txId2, 1),
+  createInput(5000n, ADDRESSES[2], txId2, 1),
 ];
 tx2.outputs = [
-  createOutput(0, 1000, ADDRESSES[6], '00', timelock),   // belongs to this wallet
-  createOutput(1, 4000, 'HCuWC2qgNP47BtWtsTM48PokKitVdR6pch'),   // other wallet
+  createOutput(0, 1000n, ADDRESSES[6], '00', timelock),   // belongs to this wallet
+  createOutput(1, 4000n, 'HCuWC2qgNP47BtWtsTM48PokKitVdR6pch'),   // other wallet
 ];
 
 // tx2Inputs on the format addToUtxoTable expects

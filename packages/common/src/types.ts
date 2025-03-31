@@ -285,7 +285,6 @@ export class Balance {
       b1.totalAmountSent + b2.totalAmountSent,
       b1.unlockedAmount + b2.unlockedAmount,
       b1.lockedAmount + b2.lockedAmount,
-      // @ts-ignore
       lockExpires,
       Authorities.merge(b1.unlockedAuthorities, b2.unlockedAuthorities),
       Authorities.merge(b1.lockedAuthorities, b2.lockedAuthorities),
@@ -390,15 +389,12 @@ export class TokenBalanceMap {
 
     if (output.locked) {
       if (isAuthority(output.token_data)) {
-        // @ts-ignore
-        obj.set(token, new Balance(0, 0, 0, output.decoded.timelock, 0, new Authorities(output.value)));
+        obj.set(token, new Balance(0n, 0n, 0n, output.decoded.timelock, new Authorities(0), new Authorities(output.value)));
       } else {
-        // @ts-ignore
-        obj.set(token, new Balance(value, 0, value, output.decoded.timelock, 0, 0));
+        obj.set(token, new Balance(value, 0n, value, output.decoded.timelock, new Authorities(0), new Authorities(0)));
       }
     } else if (isAuthority(output.token_data)) {
-      // @ts-ignore
-      obj.set(token, new Balance(0, 0, 0, null, new Authorities(output.value), 0));
+      obj.set(token, new Balance(0n, 0n, 0n, null, new Authorities(output.value), new Authorities(0)));
     } else {
       obj.set(token, new Balance(value, value, 0n, null));
     }
@@ -424,15 +420,7 @@ export class TokenBalanceMap {
       const authorities = new Authorities(input.value);
       obj.set(
         token,
-        new Balance(
-          0n,
-          0n,
-          0n,
-          null,
-          // @ts-ignore
-          authorities.toNegative(),
-          new Authorities(0),
-        ),
+        new Balance(0n, 0n, 0n, null, authorities.toNegative(), new Authorities(0)),
       );
     } else {
       obj.set(token, new Balance(0n, -input.value, 0n, null));

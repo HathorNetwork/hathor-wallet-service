@@ -15,13 +15,13 @@ import { prepareOutputs } from '../../src/utils';
 describe('prepareOutputs', () => {
   it('should ignore NFT outputs', () => {
     const nftOutputs: EventTxOutput[] = [{
-      value: 1,
+      value: 1n,
       token_data: 0,
       script: 'OmlwZnM6Ly9pcGZzL1FtTlJtNmhRUDN2MlVMclVOZTJQTTY4V1dRb2EyUmVwY1IxejVUVVdWZmd0bzGs',
       // @ts-expect-error: This type is wrong, we should allow null here in the type
       decoded: null
     }, {
-      value: 2116,
+      value: 2116n,
       token_data: 0,
       script: 'dqkUCU1EY3YLi8WURhDOEsspok4Y0XiIrA==',
       decoded: {
@@ -30,7 +30,7 @@ describe('prepareOutputs', () => {
           timelock: null,
       }
     }, {
-      value: 1,
+      value: 1n,
       token_data: 1,
       script: 'dqkUXO7BFkikXo2qwldGMeJlzyPSbtKIrA==',
       decoded: {

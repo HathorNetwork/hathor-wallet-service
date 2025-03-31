@@ -499,7 +499,7 @@ export class TokenBalanceMap {
    * @param tokenBalanceMap - The js object to convert to a TokenBalanceMap
    * @returns - The new TokenBalanceMap object
    */
-  static fromStringMap(tokenBalanceMap: StringMap<StringMap<bigint | Authorities>>): TokenBalanceMap {
+  static fromStringMap(tokenBalanceMap: StringMap<StringMap<number | bigint | Authorities>>): TokenBalanceMap {
     const obj = new TokenBalanceMap();
     for (const [tokenId, balance] of Object.entries(tokenBalanceMap)) {
       obj.set(tokenId, new Balance(balance.totalSent as bigint, balance.unlocked as bigint, balance.locked as bigint, balance.lockExpires || null,

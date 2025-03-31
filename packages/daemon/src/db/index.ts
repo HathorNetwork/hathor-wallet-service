@@ -348,8 +348,7 @@ export const getTxOutputsAtHeight = async (
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
-      // @ts-ignore
-      locked: result.locked > 0,
+      locked: Number(result.locked) > 0,
       spentBy: result.spent_by as string,
       txProposalId: result.tx_proposal as string,
       txProposalIndex: result.tx_proposal_index as number,
@@ -662,8 +661,7 @@ export const getUtxosLockedAtHeight = async (
         authorities: result.authorities as number,
         timelock: result.timelock as number,
         heightlock: result.heightlock as number,
-        // @ts-ignore
-        locked: result.locked > 0,
+        locked: Number(result.locked) > 0,
       };
       utxos.push(utxo);
     }

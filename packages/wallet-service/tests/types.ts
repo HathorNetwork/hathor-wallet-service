@@ -22,7 +22,7 @@ export interface AddressTxHistoryTableEntry {
   address: string;
   txId: string;
   tokenId: string;
-  balance: number;
+  balance: bigint;
   timestamp: number;
   voided?: boolean;
 }

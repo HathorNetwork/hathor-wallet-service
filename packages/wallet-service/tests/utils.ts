@@ -1034,14 +1034,14 @@ export const buildWalletBalanceValueMap = (
         tokenId: 'token1',
         tokenSymbol: 'T1',
         lockExpires: null,
-        lockedAmount: 0,
+        lockedAmount: 0n,
         lockedAuthorities: {
           melt: false,
           mint: false,
         },
-        total: 10,
-        totalAmountSent: 10,
-        unlockedAmount: 10,
+        total: 10n,
+        totalAmountSent: 10n,
+        unlockedAmount: 10n,
         unlockedAuthorities: {
           melt: false,
           mint: false,
