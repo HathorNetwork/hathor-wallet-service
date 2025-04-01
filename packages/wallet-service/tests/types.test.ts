@@ -54,7 +54,7 @@ test('Balance merge', () => {
 test('Balance total and authorities', () => {
   expect.hasAssertions();
   const b = new Balance(3n, 1n, 2n, null, new Authorities(0b01), new Authorities(0b10));
-  expect(b.total()).toBe(3);
+  expect(b.total()).toBe(3n);
   expect(b.authorities()).toStrictEqual(new Authorities(0b11));
 });
 
@@ -88,8 +88,8 @@ test('TokenBalanceMap fromStringMap', () => {
   t1.set('token1', new Balance(15n, 0n, 15n));
   t1.set('token2', new Balance(5n, 2n, -3n, 1000));
   const t2 = TokenBalanceMap.fromStringMap({
-    token1: { totalSent: 15, unlocked: 0, locked: 15 },
-    token2: { totalSent: 5, unlocked: 2, locked: -3, lockExpires: 1000 },
+    token1: { totalSent: 15n, unlocked: 0n, locked: 15n },
+    token2: { totalSent: 5n, unlocked: 2n, locked: -3n, lockExpires: 1000 },
   });
   expect(t2).toStrictEqual(t1);
 });
@@ -97,12 +97,12 @@ test('TokenBalanceMap fromStringMap', () => {
 test('TokenBalanceMap merge', () => {
   expect.hasAssertions();
   const t1 = TokenBalanceMap.fromStringMap({
-    token1: { totalSent: 10, unlocked: 0, locked: 10 },
-    token2: { totalSent: 12, unlocked: 5, locked: 7 },
+    token1: { totalSent: 10n, unlocked: 0n, locked: 10n },
+    token2: { totalSent: 12n, unlocked: 5n, locked: 7n },
   });
   const t2 = TokenBalanceMap.fromStringMap({
-    token1: { totalSent: 10, unlocked: 2, locked: -3, lockExpires: 1000 },
-    token3: { totalSent: 10, unlocked: 9, locked: 0 },
+    token1: { totalSent: 10n, unlocked: 2n, locked: -3n, lockExpires: 1000 },
+    token3: { totalSent: 10n, unlocked: 9n, locked: 0n },
   });
   const merged = new TokenBalanceMap();
   merged.set('token1', new Balance(20n, 2n, 7n, 1000));
@@ -146,10 +146,10 @@ test('TokenBalanceMap fromTxOutput fromTxInput', () => {
     decoded,
   };
 
-  expect(TokenBalanceMap.fromTxInput(txInput)).toStrictEqual(TokenBalanceMap.fromStringMap({ '00': { totalSent: 0, unlocked: -txInput.value, locked: 0 } }));
-  expect(TokenBalanceMap.fromTxOutput(txOutput)).toStrictEqual(TokenBalanceMap.fromStringMap({ '00': { totalSent: 200, unlocked: txOutput.value, locked: 0 } }));
+  expect(TokenBalanceMap.fromTxInput(txInput)).toStrictEqual(TokenBalanceMap.fromStringMap({ '00': { totalSent: 0n, unlocked: -txInput.value, locked: 0n } }));
+  expect(TokenBalanceMap.fromTxOutput(txOutput)).toStrictEqual(TokenBalanceMap.fromStringMap({ '00': { totalSent: 200n, unlocked: txOutput.value, locked: 0n } }));
 
   // locked
   txOutput.locked = true;
-  expect(TokenBalanceMap.fromTxOutput(txOutput)).toStrictEqual(TokenBalanceMap.fromStringMap({ '00': { totalSent: 200, locked: txOutput.value, unlocked: 0, lockExpires: timelock } }));
+  expect(TokenBalanceMap.fromTxOutput(txOutput)).toStrictEqual(TokenBalanceMap.fromStringMap({ '00': { totalSent: 200n, locked: txOutput.value, unlocked: 0n, lockExpires: timelock } }));
 });

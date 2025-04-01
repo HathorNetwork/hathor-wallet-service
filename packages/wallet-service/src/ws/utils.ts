@@ -17,6 +17,7 @@ import util from 'util';
 import { Severity } from '@wallet-service/common/src/types';
 import { WsConnectionInfo } from '@src/types';
 import { endWsConnection } from '@src/redis';
+import { bigIntUtils } from '@hathor/wallet-lib';
 
 const logger = createDefaultLogger();
 
@@ -64,7 +65,7 @@ export const sendMessageToClient = async (
     endpoint: connInfo.url,
   });
 
-  const message = JSON.stringify(payload);
+  const message = bigIntUtils.JSONBigInt.stringify(payload);
 
   const command = new PostToConnectionCommand({
     ConnectionId: connInfo.id,

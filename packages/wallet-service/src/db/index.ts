@@ -8,7 +8,7 @@ import { strict as assert } from 'assert';
 import { ServerlessMysql } from 'serverless-mysql';
 import { get } from 'lodash';
 import { OkPacket } from 'mysql';
-import { constants } from '@hathor/wallet-lib';
+import { constants, bigIntUtils } from '@hathor/wallet-lib';
 import {
   AddressIndexMap,
   AddressInfo,
@@ -1593,7 +1593,7 @@ export const updateVersionData = async (mysql: ServerlessMysql, timestamp: numbe
   const entry = {
     id: 1,
     timestamp,
-    data: JSON.stringify(data),
+    data: bigIntUtils.JSONBigInt.stringify(data),
   };
 
   await mysql.query(
@@ -1614,7 +1614,7 @@ export const getVersionData = async (mysql: ServerlessMysql): Promise<{ timestam
   if (results.length > 0) {
     const data = results[0];
 
-    const entry: FullNodeApiVersionResponse = JSON.parse(data.data as string);
+    const entry: FullNodeApiVersionResponse = bigIntUtils.JSONBigInt.parse(data.data as string);
     const { error } = FullnodeVersionSchema.validate(entry);
     if (error) {
       throw error;
