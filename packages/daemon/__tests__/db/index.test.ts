@@ -382,15 +382,15 @@ describe('tx output methods', () => {
     // { value: 35, address: 'address2', token: 'token1', timelock: null},
     let results = await getUtxosLockedAtHeight(mysql, 99, 10);
     expect(results).toHaveLength(1);
-    expect(results[0].value).toBe(35);
+    expect(results[0].value).toBe(35n);
 
     // fetch on timestamp=100 and heightlock=10. Should return:
     // { value: 35, address: 'address2', token: 'token1', timelock: null},
     // { value: 45, address: 'address2', token: 'token1', timelock: 100},
     results = await getUtxosLockedAtHeight(mysql, 100, 10);
     expect(results).toHaveLength(2);
-    expect([35, 45]).toContain(results[0].value);
-    expect([35, 45]).toContain(results[1].value);
+    expect([35n, 45n]).toContain(results[0].value);
+    expect([35n, 45n]).toContain(results[1].value);
 
     // fetch on timestamp=100 and heightlock=9. Should return empty
     results = await getUtxosLockedAtHeight(mysql, 1000, 9);
@@ -442,7 +442,7 @@ describe('tx output methods', () => {
     expect(unlockedUtxos2[1].value).toStrictEqual(outputs[3].value);
     expect(unlockedUtxos3).toHaveLength(3);
     // last one is an authority utxo
-    expect(unlockedUtxos3[2].authorities).toStrictEqual(outputs[4].value);
+    expect(unlockedUtxos3[2].authorities).toStrictEqual(Number(outputs[4].value));
   });
 
   test('getLockedUtxoFromInputs', async () => {
@@ -465,7 +465,7 @@ describe('tx output methods', () => {
     const inputs = utxos.map((utxo, index) => createEventTxInput(utxo.value, utxo.address, txId, index, utxo.timelock));
     const results = await getLockedUtxoFromInputs(mysql, inputs);
     expect(results).toHaveLength(1);
-    expect(results[0].value).toBe(25);
+    expect(results[0].value).toBe(25n);
   });
 });
 
