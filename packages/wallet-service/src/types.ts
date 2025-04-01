@@ -631,8 +631,8 @@ export interface Tx {
 export interface AddressBalance {
   address: string;
   tokenId: string;
-  unlockedBalance: number;
-  lockedBalance: number;
+  unlockedBalance: bigint;
+  lockedBalance: bigint;
   unlockedAuthorities: number;
   lockedAuthorities: number;
   timelockExpires: number;
@@ -642,7 +642,7 @@ export interface AddressBalance {
 export interface AddressTotalBalance {
   address: string;
   tokenId: string;
-  balance: number;
+  balance: bigint;
   transactions: number;
 }
 

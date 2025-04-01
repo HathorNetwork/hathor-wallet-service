@@ -733,7 +733,7 @@ test('getLockedUtxoFromInputs', async () => {
   const inputs = utxos.map((utxo, index) => createInput(utxo.value, utxo.address, txId, index, utxo.token, utxo.timelock));
   const results = await getLockedUtxoFromInputs(mysql, inputs);
   expect(results).toHaveLength(1);
-  expect(results[0].value).toBe(25);
+  expect(results[0].value).toBe(25n);
 });
 
 test('updateAddressTablesWithTx', async () => {
@@ -1034,15 +1034,15 @@ test('getUtxosLockedAtHeight', async () => {
   // { value: 35, address: 'address2', token: 'token1', timelock: null},
   let results = await getUtxosLockedAtHeight(mysql, 99, 10);
   expect(results).toHaveLength(1);
-  expect(results[0].value).toBe(35);
+  expect(results[0].value).toBe(35n);
 
   // fetch on timestamp=100 and heightlock=10. Should return:
-  // { value: 35, address: 'address2', token: 'token1', timelock: null},
-  // { value: 45, address: 'address2', token: 'token1', timelock: 100},
+  // { value: 35n, address: 'address2', token: 'token1', timelock: null},
+  // { value: 45n, address: 'address2', token: 'token1', timelock: 100},
   results = await getUtxosLockedAtHeight(mysql, 100, 10);
   expect(results).toHaveLength(2);
-  expect([35, 45]).toContain(results[0].value);
-  expect([35, 45]).toContain(results[1].value);
+  expect([35n, 45n]).toContain(results[0].value);
+  expect([35n, 45n]).toContain(results[1].value);
 
   // fetch on timestamp=100 and heightlock=9. Should return empty
   results = await getUtxosLockedAtHeight(mysql, 1000, 9);
@@ -1926,34 +1926,34 @@ test('rebuildAddressBalancesFromUtxos', async () => {
   const timestamp1 = 10;
 
   const utxosTx1 = [
-    { value: 5, address: addr1, token: token1, locked: false, spentBy: null },
-    { value: 15, address: addr1, token: token1, locked: false, spentBy: null },
-    { value: 75, address: addr2, token: token1, heightlock: 70, locked: true, spentBy: null },
-    { value: 150, address: addr2, token: token1, heightlock: 70, locked: true, spentBy: null },
-    { value: 35, address: addr2, token: token1, locked: false, spentBy: null },
+    { value: 5n, address: addr1, token: token1, locked: false, spentBy: null },
+    { value: 15n, address: addr1, token: token1, locked: false, spentBy: null },
+    { value: 75n, address: addr2, token: token1, heightlock: 70, locked: true, spentBy: null },
+    { value: 150n, address: addr2, token: token1, heightlock: 70, locked: true, spentBy: null },
+    { value: 35n, address: addr2, token: token1, locked: false, spentBy: null },
 
-    { value: 25, address: addr2, token: token2, timelock: 500, locked: true, spentBy: null },
+    { value: 25n, address: addr2, token: token2, timelock: 500, locked: true, spentBy: null },
 
     // authority utxo
-    { value: 0b11, address: addr1, token: token1, locked: false, tokenData: 129, spentBy: null },
+    { value: 0b11n, address: addr1, token: token1, locked: false, tokenData: 129, spentBy: null },
   ];
 
   const utxosTx2 = [
     // spent utxos
-    { value: 80, address: addr2, token: token1, heightlock: 70, locked: false, spentBy: null },
-    { value: 90, address: addr2, token: token1, heightlock: 70, locked: false, spentBy: null },
+    { value: 80n, address: addr2, token: token1, heightlock: 70, locked: false, spentBy: null },
+    { value: 90n, address: addr2, token: token1, heightlock: 70, locked: false, spentBy: null },
   ];
 
   const utxosTx3 = [
     // spent utxos
-    { value: 5, address: addr2, token: token1, heightlock: 70, locked: false, spentBy: null },
-    { value: 10, address: addr2, token: token1, heightlock: 70, locked: false, spentBy: null },
+    { value: 5n, address: addr2, token: token1, heightlock: 70, locked: false, spentBy: null },
+    { value: 10n, address: addr2, token: token1, heightlock: 70, locked: false, spentBy: null },
   ];
 
   const utxosTx4 = [
     // spent utxos
-    { value: 20, address: addr1, token: token1, heightlock: 70, locked: false, spentBy: null },
-    { value: 1, address: addr1, token: token1, heightlock: 70, locked: false, spentBy: null },
+    { value: 20n, address: addr1, token: token1, heightlock: 70, locked: false, spentBy: null },
+    { value: 1n, address: addr1, token: token1, heightlock: 70, locked: false, spentBy: null },
   ];
 
   const mapUtxoListToOutput = (utxoList: any[]) => utxoList.map((utxo, index) => createOutput(
@@ -2016,7 +2016,7 @@ test('rebuildAddressBalancesFromUtxos', async () => {
 
   const addressBalances = await fetchAddressBalance(mysql, [addr1, addr2]);
 
-  expect(addressBalances[0].unlockedBalance).toStrictEqual(41);
+  expect(addressBalances[0].unlockedBalance).toStrictEqual(41n);
   expect(addressBalances[0].unlockedAuthorities).toStrictEqual(0b11);
   expect(addressBalances[0].address).toStrictEqual(addr1);
   expect(addressBalances[0].transactions).toStrictEqual(1);

@@ -563,7 +563,7 @@ export const countTxOutputTable = async (
   );
 
   if (results.length > 0) {
-    return results[0].count as number;
+    return Number(results[0].count);
   }
 
   return 0;
