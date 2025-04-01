@@ -519,7 +519,7 @@ test('updateWalletTablesWithTx', async () => {
 
   // add tx1
   const walletBalanceMap1 = {
-    walletId: TokenBalanceMap.fromStringMap({ token1: { unlocked: 5, locked: 0, unlockedAuthorities: new Authorities(0b01) } }),
+    walletId: TokenBalanceMap.fromStringMap({ token1: { unlocked: 5n, locked: 0n, unlockedAuthorities: new Authorities(0b01) } }),
   };
   await updateWalletTablesWithTx(mysql, tx1, ts1, walletBalanceMap1);
   await expect(checkWalletBalanceTable(mysql, 1, walletId, token1, 5n, 0n, null, 1, 0b01, 0)).resolves.toBe(true);
