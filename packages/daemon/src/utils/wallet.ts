@@ -5,8 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-// @ts-ignore
-import hathorLib, { constants, Output } from '@hathor/wallet-lib';
+import hathorLib, { constants, Output, walletUtils, addressUtils } from '@hathor/wallet-lib';
 import { Connection as MysqlConnection } from 'mysql2/promise';
 import { strict as assert } from 'assert';
 import {
@@ -28,6 +27,7 @@ import {
   TxInput,
   TxOutput,
   TokenBalanceMap,
+  isDecodedValid,
 } from '@wallet-service/common';
 import {
   fetchAddressBalance,
@@ -40,8 +40,6 @@ import {
   updateWalletLockedBalance,
 } from '../db';
 import logger from '../logger';
-// @ts-ignore
-import { walletUtils } from '@hathor/wallet-lib';
 import { stringMapIterator } from './helpers';
 
 /**
@@ -66,20 +64,21 @@ export const prepareOutputs = (outputs: EventTxOutput[], tokens: string[]): TxOu
 
   const preparedOutputs: [number, TxOutputWithIndex[]] = outputs.reduce(
     ([currIndex, newOutputs]: [number, TxOutputWithIndex[]], _output: EventTxOutput): [number, TxOutputWithIndex[]] => {
+      // XXX: Output typing makes no sense here, maybe we should convert from Output to the wallet-service's own TxOutput
       const output = new Output(_output.value, Buffer.from(_output.script, 'base64'), {
         tokenData: _output.token_data,
       });
 
-      let token = '00';
+      let token = constants.NATIVE_TOKEN_UID;
       if (!output.isTokenHTR()) {
         token = tokens[output.getTokenIndex()];
       }
       // @ts-ignore
       output.token = token;
 
-      if (!_output.decoded
-          || _output.decoded.type === null
-          || _output.decoded.type === undefined) {
+      if (!isDecodedValid(_output.decoded)
+        || _output.decoded.type === null
+        || _output.decoded.type === undefined) {
         console.log('Decode failed, skipping..');
         return [currIndex + 1, newOutputs];
       }
@@ -95,7 +94,7 @@ export const prepareOutputs = (outputs: EventTxOutput[], tokens: string[]): TxOu
       };
 
       // @ts-ignore
-      return [ currIndex + 1, [ ...newOutputs, finalOutput, ], ];
+      return [currIndex + 1, [...newOutputs, finalOutput,],];
     },
     [0, []],
   );
@@ -126,7 +125,7 @@ export const getAddressBalanceMap = (
   const addressBalanceMap = {};
 
   for (const input of inputs) {
-    if (!input.decoded) {
+    if (!isDecodedValid(input.decoded)) {
       // If we're unable to decode the script, we will also be unable to
       // calculate the balance, so just skip this input.
       continue;
@@ -142,7 +141,7 @@ export const getAddressBalanceMap = (
   }
 
   for (const output of outputs) {
-    if (!output.decoded) {
+    if (!isDecodedValid(output.decoded)) {
       throw new Error('Output has no decoded script');
     }
 
@@ -185,7 +184,7 @@ export const unlockUtxos = async (mysql: MysqlConnection, utxos: DbTxOutput[], u
       decoded,
       locked: false,
       // set authority bit if necessary
-      token_data: utxo.authorities > 0 ? hathorLib.constants.TOKEN_AUTHORITY_MASK : 0,
+      token_data: utxo.authorities > 0 ? constants.TOKEN_AUTHORITY_MASK : 0,
       // we don't care about spent_by and script
       spent_by: null,
       script: '',
@@ -285,7 +284,7 @@ export const prepareInputs = (inputs: EventTxInput[], tokens: string[]): TxInput
     const utxo: Output = new Output(output.value, Buffer.from(output.script, 'base64'), {
       tokenData: output.token_data,
     });
-    let token = '00';
+    let token = hathorLib.constants.NATIVE_TOKEN_UID;
     if (!utxo.isTokenHTR()) {
       token = tokens[utxo.getTokenIndex()];
     }
@@ -298,9 +297,10 @@ export const prepareInputs = (inputs: EventTxInput[], tokens: string[]): TxInput
       // @ts-ignore
       script: utxo.script,
       token,
-      decoded: output.decoded ? {
+      decoded: isDecodedValid(output.decoded, ['type', 'address']) ? {
         type: output.decoded.type,
         address: output.decoded.address,
+        // timelock might actually be null, so don't pass it to requiredKeys
         timelock: output.decoded.timelock,
       } : null,
     };
@@ -531,7 +531,11 @@ export const generateAddresses = async (
   // (more details in https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki#Change)
   // so we derive our xpub to this path and use it to get the addresses
   const derivedXpub = walletUtils.xpubDeriveChild(xpubkey, 0);
-  const addrMap = walletUtils.getAddresses(derivedXpub, startIndex, count, network);
+  const addrMap: StringMap<number> = {};
+  for (let index = startIndex; index < startIndex + count; index++) {
+    const address = addressUtils.deriveAddressFromXPubP2PKH(derivedXpub, index, network);
+    addrMap[address.base58] = index;
+  }
 
   return addrMap;
 };

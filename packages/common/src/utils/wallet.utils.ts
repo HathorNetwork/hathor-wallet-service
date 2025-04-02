@@ -5,7 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-// @ts-ignore
 import { constants } from '@hathor/wallet-lib';
 
 /**
@@ -18,3 +17,19 @@ import { constants } from '@hathor/wallet-lib';
 export const isAuthority = (tokenData: number): boolean => (
   (tokenData & constants.TOKEN_AUTHORITY_MASK) > 0
 );
+
+/**
+ * Checks if a decoded output object is valid (not null, undefined or empty object).
+ *
+ * @param decoded - The decoded output object to check
+ * @param requiredKeys - A list of keys to check
+ * @returns true if the decoded object is valid, false otherwise
+ */
+export const isDecodedValid = (decoded: any, requiredKeys: string[] = []): boolean => {
+  return (decoded != null
+    && typeof decoded === 'object'
+    && Object.keys(decoded).length > 0)
+    && requiredKeys.reduce((state, key: string) => (
+      state && decoded[key] != null
+    ), true);
+};

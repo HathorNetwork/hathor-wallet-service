@@ -19,8 +19,6 @@ import {
   unlockUtxos as dbUnlockUtxos,
   updateAddressLockedBalance,
   updateWalletLockedBalance,
-  getVersionData,
-  updateVersionData,
   getBlockByHeight,
   getTxsAfterHeight,
   markTxsAsVoided,
@@ -47,7 +45,6 @@ import {
   Wallet,
   Block,
   WalletTokenBalance,
-  FullNodeVersionData,
   AddressBalance,
   AddressTotalBalance,
   WalletProxyHandler,
@@ -64,16 +61,13 @@ import {
 } from '@wallet-service/common/src/types';
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 
-import {
-  getUnixTimestamp,
-  isTxVoided,
-} from '@src/utils';
+import { isTxVoided } from '@src/utils';
 
 import hathorLib from '@hathor/wallet-lib';
 import { stringMapIterator, WalletBalanceMapConverter } from '@src/db/utils';
+import config from '@src/config';
 
-const VERSION_CHECK_MAX_DIFF = 60 * 60 * 1000; // 1 hour
-const WARN_MAX_REORG_SIZE = parseInt(process.env.WARN_MAX_REORG_SIZE || '100', 10);
+const WARN_MAX_REORG_SIZE = config.warnMaxReorgSize;
 
 /**
  * Update the unlocked/locked balances for addresses and wallets connected to the given UTXOs.
@@ -292,46 +286,6 @@ export const getWalletBalances = async (
     balances = await dbGetWalletBalances(mysql, walletId, tokenIds);
   }
   return balances;
-};
-
-/**
- * Updates the wallet-lib constants if needed.
- *
- * @returns {Promise<void>} A promise that resolves when the wallet-lib constants have been set.
- */
-export const maybeRefreshWalletConstants = async (mysql: ServerlessMysql): Promise<void> => {
-  const lastVersionData: FullNodeVersionData = await getVersionData(mysql);
-  const now = getUnixTimestamp();
-
-  if (!lastVersionData || now - lastVersionData.timestamp > VERSION_CHECK_MAX_DIFF) {
-    // Query and update versions
-    const apiResponse = await hathorLib.version.checkApiVersion();
-    const versionData: FullNodeVersionData = {
-      timestamp: now,
-      version: apiResponse.version,
-      network: apiResponse.network,
-      minWeight: apiResponse.min_weight,
-      minTxWeight: apiResponse.min_tx_weight,
-      minTxWeightCoefficient: apiResponse.min_tx_weight_coefficient,
-      minTxWeightK: apiResponse.min_tx_weight_k,
-      tokenDepositPercentage: apiResponse.token_deposit_percentage,
-      rewardSpendMinBlocks: apiResponse.reward_spend_min_blocks,
-      maxNumberInputs: apiResponse.max_number_inputs,
-      maxNumberOutputs: apiResponse.max_number_outputs,
-    };
-
-    await updateVersionData(mysql, versionData);
-  } else {
-    hathorLib.transaction.updateTransactionWeightConstants(
-      lastVersionData.minTxWeight,
-      lastVersionData.minTxWeightCoefficient,
-      lastVersionData.minTxWeightK,
-    );
-    hathorLib.tokens.updateDepositPercentage(lastVersionData.tokenDepositPercentage);
-    hathorLib.transaction.updateMaxInputsConstant(lastVersionData.maxNumberInputs);
-    hathorLib.transaction.updateMaxOutputsConstant(lastVersionData.maxNumberOutputs);
-    hathorLib.wallet.updateRewardLockConstant(lastVersionData.rewardSpendMinBlocks);
-  }
 };
 
 /**

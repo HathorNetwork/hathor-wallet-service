@@ -98,12 +98,12 @@ import {
   TokenInfo,
   TxProposalStatus,
   WalletStatus,
-  FullNodeVersionData,
   Tx,
   DbTxOutput,
   PushDevice,
   PushProvider,
   Block,
+  FullNodeApiVersionResponse,
 } from '@src/types';
 import { Severity } from '@wallet-service/common/src/types';
 import { isAuthority } from '@wallet-service/common/src/utils/wallet.utils';
@@ -1586,33 +1586,38 @@ test('createTxProposal, updateTxProposal, getTxProposal, countUnsentTxProposals,
 test('updateVersionData', async () => {
   expect.hasAssertions();
 
-  const mockData: FullNodeVersionData = {
-    timestamp: 1614875031449,
+  const mockData: FullNodeApiVersionResponse = {
     version: '0.38.0',
     network: 'mainnet',
-    minWeight: 14,
-    minTxWeight: 14,
-    minTxWeightCoefficient: 1.6,
-    minTxWeightK: 100,
-    tokenDepositPercentage: 0.01,
-    rewardSpendMinBlocks: 300,
-    maxNumberInputs: 255,
-    maxNumberOutputs: 255,
+    min_weight: 14,
+    min_tx_weight: 14,
+    min_tx_weight_coefficient: 1.6,
+    min_tx_weight_k: 100,
+    token_deposit_percentage: 0.01,
+    reward_spend_min_blocks: 300,
+    max_number_inputs: 255,
+    max_number_outputs: 255,
+    decimal_places: 2,
+    genesis_block_hash: '0000000000000000000000000000000000000000000000000000000000000000',
+    genesis_tx1_hash: '1111111111111111111111111111111111111111111111111111111111111111',
+    genesis_tx2_hash: '2222222222222222222222222222222222222222222222222222222222222222',
+    native_token: { name: 'Hathor', symbol: 'HTR'},
   };
 
-  const mockData2: FullNodeVersionData = {
+  const mockData2: FullNodeApiVersionResponse = {
     ...mockData,
     version: '0.39.1',
   };
 
-  const mockData3: FullNodeVersionData = {
+  const mockData3: FullNodeApiVersionResponse = {
     ...mockData,
     version: '0.39.2',
   };
 
-  await updateVersionData(mysql, mockData);
-  await updateVersionData(mysql, mockData2);
-  await updateVersionData(mysql, mockData3);
+  const ts = getUnixTimestamp();
+  await updateVersionData(mysql, ts, mockData);
+  await updateVersionData(mysql, ts, mockData2);
+  await updateVersionData(mysql, ts, mockData3);
 
   await expect(
     checkVersionDataTable(mysql, mockData3),
@@ -1622,25 +1627,30 @@ test('updateVersionData', async () => {
 test('getVersionData', async () => {
   expect.hasAssertions();
 
-  const mockData: FullNodeVersionData = {
-    timestamp: 1614875031449,
+  const mockData: FullNodeApiVersionResponse = {
     version: '0.38.0',
     network: 'mainnet',
-    minWeight: 14,
-    minTxWeight: 14,
-    minTxWeightCoefficient: 1.6,
-    minTxWeightK: 100,
-    tokenDepositPercentage: 0.01,
-    rewardSpendMinBlocks: 300,
-    maxNumberInputs: 255,
-    maxNumberOutputs: 255,
+    min_weight: 14,
+    min_tx_weight: 14,
+    min_tx_weight_coefficient: 1.6,
+    min_tx_weight_k: 100,
+    token_deposit_percentage: 0.01,
+    reward_spend_min_blocks: 300,
+    max_number_inputs: 255,
+    max_number_outputs: 255,
+    decimal_places: 2,
+    genesis_block_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
+    genesis_tx1_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
+    genesis_tx2_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
+    native_token: { name: 'Hathor', symbol: 'HTR'},
   };
 
-  await updateVersionData(mysql, mockData);
+  const ts = getUnixTimestamp();
+  await updateVersionData(mysql, ts, mockData);
 
-  const versionData: FullNodeVersionData = await getVersionData(mysql);
+  const { data } = await getVersionData(mysql);
 
-  expect(Object.entries(versionData).toString()).toStrictEqual(Object.entries(mockData).toString());
+  expect(Object.entries(data).toString()).toStrictEqual(Object.entries(mockData).toString());
 });
 
 test('fetchAddressTxHistorySum', async () => {
@@ -3246,7 +3256,7 @@ describe('getPushDeviceSettingsList', () => {
 
     // register wallets that will not be queried
     const loadWallet = (eachDevice) => createWallet(mysql, eachDevice.walletId, XPUBKEY, AUTH_XPUBKEY, 5);
-    await devicesToLoad.forEach(loadWallet);
+    await Promise.all(devicesToLoad.map(loadWallet));
 
     // register devices related to the loaded wallets
     const loadDevice = (eachDevice) => registerPushDevice(mysql, {
@@ -3256,7 +3266,7 @@ describe('getPushDeviceSettingsList', () => {
       enablePush: eachDevice.enablePush,
       enableShowAmounts: eachDevice.enableShowAmounts,
     });
-    await devicesToLoad.forEach(loadDevice);
+    await Promise.all(devicesToLoad.map(loadDevice));
 
     // get settings querying only devices not loaded on database, resulting on empty list
     const notRegisteredWalletIdList = devicesToNotLoad.map((each) => each.walletId);
@@ -3308,7 +3318,7 @@ describe('getPushDeviceSettingsList', () => {
 
     // register wallets to be used by registered devices
     const loadWallet = (eachDevice) => createWallet(mysql, eachDevice.walletId, XPUBKEY, AUTH_XPUBKEY, 5);
-    await devicesToLoad.forEach(loadWallet);
+    await Promise.all(devicesToLoad.map(loadWallet));
 
     // register devices related to the loaded wallets
     const loadDevice = (eachDevice) => registerPushDevice(mysql, {
@@ -3318,7 +3328,7 @@ describe('getPushDeviceSettingsList', () => {
       enablePush: eachDevice.enablePush,
       enableShowAmounts: eachDevice.enableShowAmounts,
     });
-    await devicesToLoad.forEach(loadDevice);
+    await Promise.all(devicesToLoad.map(loadDevice));
 
     // get settings, query be all wallets of deviceCandidates, some are loaded on database, some are not
     const walletIdList = deviceCandidates.map((each) => each.walletId);
@@ -3381,7 +3391,7 @@ describe('getPushDeviceSettingsList', () => {
 
     // register wallets, load all the wallets related to devicesToLoad
     const loadWallet = (eachDevice) => createWallet(mysql, eachDevice.walletId, XPUBKEY, AUTH_XPUBKEY, 5);
-    await devicesToLoad.forEach(loadWallet);
+    await Promise.all(devicesToLoad.map(loadWallet));
 
     // register devices, register all the devices
     const loadDevice = (eachDevice) => registerPushDevice(mysql, {
@@ -3391,7 +3401,7 @@ describe('getPushDeviceSettingsList', () => {
       enablePush: eachDevice.enablePush,
       enableShowAmounts: eachDevice.enableShowAmounts,
     });
-    await devicesToLoad.forEach(loadDevice);
+    await Promise.all(devicesToLoad.map(loadDevice));
 
     // get settings, get every device registered
     const walletIdList = devicesToLoad.map((each) => each.walletId);
