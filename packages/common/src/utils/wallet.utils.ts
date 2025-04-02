@@ -22,6 +22,7 @@ export const isAuthority = (tokenData: number): boolean => (
  * Checks if a decoded output object is valid (not null, undefined or empty object).
  *
  * @param decoded - The decoded output object to check
+ * @param requiredKeys - A list of keys to check
  * @returns true if the decoded object is valid, false otherwise
  */
 export const isDecodedValid = (decoded: any, requiredKeys: string[] = []): boolean => {
