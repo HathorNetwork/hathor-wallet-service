@@ -2556,7 +2556,7 @@ export const getMinersList = async (
       address: result.address as string,
       firstBlock: result.first_block as string,
       lastBlock: result.last_block as string,
-      count: result.count as number,
+      count: Number(result.count),
     });
   }
 
@@ -2573,7 +2573,7 @@ export const getMinersList = async (
 export const getTotalSupply = async (
   mysql: ServerlessMysql,
   tokenId: string,
-): Promise<number> => {
+): Promise<bigint> => {
   const results: DbSelectResult = await mysql.query(`
     SELECT SUM(value) as value
       FROM tx_output
@@ -2595,7 +2595,7 @@ export const getTotalSupply = async (
     throw new Error('Total supply query returned no results');
   }
 
-  return results[0].value as number;
+  return BigInt(results[0].value as string);
 };
 
 /**
@@ -2654,7 +2654,7 @@ export const getTotalTransactions = async (
     throw new Error('Total transactions query returned no results');
   }
 
-  return results[0].count as number;
+  return Number(results[0].count as string);
 };
 
 /**
@@ -2714,7 +2714,7 @@ export const getAffectedAddressTxCountFromTxList = async (
 
   const addressTransactions = results.reduce((acc, result) => {
     const address = result.address as string;
-    const txCount = result.txCount as number;
+    const txCount = Number(result.txCount);
     const tokenId = result.tokenId as string;
 
     acc[`${address}_${tokenId}`] = txCount;
@@ -2976,7 +2976,7 @@ export const getTransactionById = async (
 
   const txTokens = [];
   result.forEach((eachTxToken) => {
-    const txToken = {
+    const txToken: TxByIdToken = {
       txId: eachTxToken.tx_id,
       timestamp: eachTxToken.timestamp,
       version: eachTxToken.version,
@@ -2986,7 +2986,7 @@ export const getTransactionById = async (
       tokenId: eachTxToken.token_id,
       tokenName: eachTxToken.name,
       tokenSymbol: eachTxToken.symbol,
-    } as TxByIdToken;
+    };
     txTokens.push(txToken);
   });
 

@@ -746,7 +746,7 @@ export interface TxByIdToken {
   version: number;
   voided: boolean;
   weight: number;
-  balance: Balance;
+  balance: bigint;
   tokenId: string;
   tokenName: string;
   tokenSymbol: string;

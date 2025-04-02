@@ -50,13 +50,13 @@ export const onTotalSupplyRequest: APIGatewayProxyHandler = middy(async (event) 
   }
 
   const tokenId = value.tokenId;
-  const totalSupply: number = await getTotalSupply(mysql, tokenId);
+  const totalSupply: bigint = await getTotalSupply(mysql, tokenId);
 
   await closeDbConnection(mysql);
 
   return {
     statusCode: 200,
-    body: JSON.stringify({
+    body: hathorLib.bigIntUtils.JSONBigInt.stringify({
       success: true,
       totalSupply,
     }),

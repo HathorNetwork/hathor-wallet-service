@@ -2028,7 +2028,7 @@ test('rebuildAddressBalancesFromUtxos', async () => {
   expect(addressBalances[1].transactions).toStrictEqual(2);
   expect(addressBalances[1].tokenId).toStrictEqual('token1');
 
-  expect(addressBalances[2].lockedBalance).toStrictEqual(25);
+  expect(addressBalances[2].lockedBalance).toStrictEqual(25n);
   expect(addressBalances[2].address).toStrictEqual(addr2);
   expect(addressBalances[2].transactions).toStrictEqual(1);
   expect(addressBalances[2].tokenId).toStrictEqual('token2');
@@ -2455,9 +2455,9 @@ test('getTotalSupply', async () => {
 
   await addUtxos(mysql, txId, outputs);
 
-  expect(await getTotalSupply(mysql, '00')).toStrictEqual(20);
-  expect(await getTotalSupply(mysql, 'token2')).toStrictEqual(25);
-  expect(await getTotalSupply(mysql, 'token1')).toStrictEqual(35);
+  expect(await getTotalSupply(mysql, '00')).toStrictEqual(20n);
+  expect(await getTotalSupply(mysql, 'token2')).toStrictEqual(25n);
+  expect(await getTotalSupply(mysql, 'token1')).toStrictEqual(35n);
 
   const mysqlQuerySpy = jest.spyOn(mysql, 'query');
   mysqlQuerySpy.mockImplementationOnce(() => Promise.resolve({ length: null }));
@@ -2513,7 +2513,7 @@ test('getExpiredTimelocksUtxos', async () => {
   expect(unlockedUtxos2[1].value).toStrictEqual(outputs[3].value);
   expect(unlockedUtxos3).toHaveLength(3);
   // last one is an authority utxo
-  expect(unlockedUtxos3[2].authorities).toStrictEqual(outputs[4].value);
+  expect(unlockedUtxos3[2].authorities).toStrictEqual(Number(outputs[4].value));
 });
 
 test('getTotalTransactions', async () => {
@@ -2638,8 +2638,8 @@ test('getUtxo, getAuthorityUtxo', async () => {
     index: 0,
     tokenId,
     address: addr1,
-    value: 0,
-    authorities: constants.TOKEN_MINT_MASK,
+    value: 0n,
+    authorities: Number(constants.TOKEN_MINT_MASK),
     timelock: 10000,
     heightlock: null,
     locked: true,
