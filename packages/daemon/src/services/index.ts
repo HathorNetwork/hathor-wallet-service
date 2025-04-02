@@ -239,7 +239,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       const blockRewardOutput = outputs[0];
 
       // add miner to the miners table
-      if (isDecodedValid(blockRewardOutput.decoded)) {
+      if (isDecodedValid(blockRewardOutput.decoded, ['address'])) {
         await addMiner(mysql, blockRewardOutput.decoded.address, hash);
       }
 
