@@ -15,7 +15,7 @@ jest.mock('winston', () => {
     error = jest.fn();
     info = jest.fn();
     debug = jest.fn();
-  };
+  }
 
   return {
     Logger: FakeLogger,

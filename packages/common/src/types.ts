@@ -11,7 +11,7 @@
  */
 
 import { constants } from '@hathor/wallet-lib';
-import { isAuthority } from './utils/wallet.utils';
+import { isAuthority, isDecodedValid } from './utils/wallet.utils';
 
 export interface StringMap<T> {
   [x: string]: T;
@@ -380,7 +380,7 @@ export class TokenBalanceMap {
    * @returns The TokenBalanceMap object
    */
   static fromTxOutput(output: TxOutput): TokenBalanceMap {
-    if (!output.decoded) {
+    if (!isDecodedValid(output.decoded)) {
       throw new Error('Output has no decoded script');
     }
     const token = output.token;

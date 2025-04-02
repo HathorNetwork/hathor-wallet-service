@@ -120,6 +120,7 @@ jest.mock('@wallet-service/common', () => {
     NftUtils: {
       shouldInvokeNftHandlerForTx: jest.fn().mockReturnValue(false),
       invokeNftHandlerLambda: jest.fn(),
+      processNftEvent: jest.fn().mockReturnValue(Promise.resolve()),
     },
   };
 });
