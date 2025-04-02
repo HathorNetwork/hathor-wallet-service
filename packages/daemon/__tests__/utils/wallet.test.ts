@@ -25,9 +25,9 @@ describe('prepareOutputs', () => {
       token_data: 0,
       script: 'dqkUCU1EY3YLi8WURhDOEsspok4Y0XiIrA==',
       decoded: {
-          type: 'P2PKH',
-          address: 'H7NK2gjt5oaHzBEPoiH7y3d1NcPQi3Tr2F',
-          timelock: null,
+        type: 'P2PKH',
+        address: 'H7NK2gjt5oaHzBEPoiH7y3d1NcPQi3Tr2F',
+        timelock: null,
       }
     }, {
       value: 1,
