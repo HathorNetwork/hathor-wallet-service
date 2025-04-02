@@ -25,8 +25,7 @@ import { APIGatewayProxyResult } from 'aws-lambda';
 
 import { ApiError } from '@src/api/errors';
 
-import hathorLib from '@hathor/wallet-lib';
-import CreateTokenTransaction from '@hathor/wallet-lib/lib/models/create_token_transaction';
+import hathorLib, { CreateTokenTransaction } from '@hathor/wallet-lib';
 
 const defaultDerivationPath = `m/44'/${hathorLib.constants.HATHOR_BIP44_CODE}'/0'/0/`;
 
@@ -37,20 +36,24 @@ beforeEach(async () => {
   const now = getUnixTimestamp();
 
   const versionData = {
-    timestamp: now,
     version: '0.38.4',
     network: process.env.NETWORK,
-    minWeight: 8,
-    minTxWeight: 8,
-    minTxWeightCoefficient: 0,
-    minTxWeightK: 0,
-    tokenDepositPercentage: 0.01,
-    rewardSpendMinBlocks: 300,
-    maxNumberInputs: 255,
-    maxNumberOutputs: 255,
+    min_weight: 8,
+    min_tx_weight: 8,
+    min_tx_weight_coefficient: 1.6,
+    min_tx_weight_k: 100,
+    token_deposit_percentage: 0.01,
+    reward_spend_min_blocks: 300,
+    max_number_inputs: 255,
+    max_number_outputs: 255,
+    decimal_places: 2,
+    genesis_block_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
+    genesis_tx1_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
+    genesis_tx2_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
+    native_token: { name: 'Hathor', symbol: 'HTR'},
   };
 
-  await addToVersionDataTable(mysql, versionData);
+  await addToVersionDataTable(mysql, now, versionData);
 });
 
 afterAll(async () => {
@@ -203,19 +206,24 @@ test('POST /txproposals with too many outputs should fail with ApiError.TOO_MANY
 
   const now = getUnixTimestamp();
 
-  await updateVersionData(mysql, {
-    timestamp: now,
+  await updateVersionData(mysql, now, {
     version: '0.38.4',
     network: process.env.NETWORK,
-    minWeight: 8,
-    minTxWeight: 8,
-    minTxWeightCoefficient: 0,
-    minTxWeightK: 0,
-    tokenDepositPercentage: 0.01,
-    rewardSpendMinBlocks: 300,
-    maxNumberInputs: 255,
-    maxNumberOutputs: 2, // mocking to force a failure
+    min_weight: 8,
+    min_tx_weight: 8,
+    min_tx_weight_coefficient: 1.8,
+    min_tx_weight_k: 90,
+    token_deposit_percentage: 0.01,
+    reward_spend_min_blocks: 300,
+    max_number_inputs: 255,
+    max_number_outputs: 2, // mocking to force a failure
+    decimal_places: 2,
+    genesis_block_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
+    genesis_tx1_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
+    genesis_tx2_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
+    native_token: { name: 'Hathor', symbol: 'HTR'},
   });
+  jest.resetModules();
 
   await addToWalletTable(mysql, [{
     id: 'my-wallet',
@@ -236,7 +244,7 @@ test('POST /txproposals with too many outputs should fail with ApiError.TOO_MANY
   const token1 = '004d75c1edd4294379e7e5b7ab6c118c53c8b07a506728feb5688c8d26a97e50';
   const token2 = '002f2bcc3261b4fb8510a458ed9df9f6ba2a413ee35901b3c5f81b0c085287e2';
 
-  const utxos = [
+  const utxos: [string, number, string, string, number, number, null, null, boolean][] = [
     ['004d75c1edd4294379e7e5b7ab6c118c53c8b07a506728feb5688c8d26a97e50', 0, token1, ADDRESSES[0], 300, 0, null, null, false],
     ['0000001e39bc37fe8710c01cc1e8c0a937bf6f9337551fbbfddc222bfc28c197', 0, token1, ADDRESSES[0], 100, 0, null, null, false],
     ['00000060a25077e48926bcd9473d77259296e123ec6af1c1a16c1c381093ab90', 0, token2, ADDRESSES[0], 300, 0, null, null, false],
@@ -748,12 +756,14 @@ test('PUT /txproposals/{proposalId} with an invalid txHex should fail and update
   // Create the spy to mock wallet-lib
   const spy = jest.spyOn(hathorLib.axios, 'createRequestInstance');
   spy.mockReturnValue({
+    // @ts-ignore
     post: () => Promise.resolve({
       data: {
         success: false,
         message: 'invalid txhex',
       },
     }),
+    // @ts-ignore
     get: () => Promise.resolve({
       data: {
         success: true,
@@ -897,6 +907,7 @@ test('PUT /txproposals/{proposalId} should update tx_proposal to SEND_ERROR on f
     post: () => {
       throw new Error('Wallet lib error');
     },
+    // @ts-ignore
     get: () => Promise.resolve({
       data: {
         success: true,
@@ -1510,9 +1521,7 @@ test('POST /txproposals a tx create action on txHex', async () => {
 
   const name = 'Test token';
   const symbol = 'TSTKN';
-  const transaction = new CreateTokenTransaction(name, symbol, inputs, outputs, {
-    version: hathorLib.constants.CREATE_TOKEN_TX_VERSION,
-  });
+  const transaction = new CreateTokenTransaction(name, symbol, inputs, outputs);
 
   const txHex = transaction.toHex();
   const event = makeGatewayEventWithAuthorizer('my-wallet', null, JSON.stringify({ txHex }));
@@ -1532,9 +1541,11 @@ test('PUT /txproposals/{proposalId} with txhex', async () => {
   // Create the spy to mock wallet-lib
   const spy = jest.spyOn(hathorLib.axios, 'createRequestInstance');
   spy.mockReturnValue({
+    // @ts-ignore
     post: () => Promise.resolve({
       data: { success: true },
     }),
+    // @ts-ignore
     get: () => Promise.resolve({
       data: {
         success: true,
@@ -1672,9 +1683,11 @@ test('PUT /txproposals/{proposalId} with a different txhex than the one sent in 
   // Create the spy to mock wallet-lib
   const spy = jest.spyOn(hathorLib.axios, 'createRequestInstance');
   spy.mockReturnValue({
+    // @ts-ignore
     post: () => Promise.resolve({
       data: { success: true },
     }),
+    // @ts-ignore
     get: () => Promise.resolve({
       data: {
         success: true,

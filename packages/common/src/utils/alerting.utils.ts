@@ -61,7 +61,7 @@ export const addAlert = async (
 
   try {
     await client.send(command);
-  } catch(err) {
+  } catch (err) {
     logger.error('[ALERT] Erroed while sending message to the alert sqs queue', err);
   }
 };

@@ -5,7 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-// @ts-ignore
 import hathorLib from '@hathor/wallet-lib';
 import { Connection as MysqlConnection } from 'mysql2/promise';
 import axios from 'axios';
@@ -30,6 +29,7 @@ import {
   Transaction,
   TokenBalanceMap,
   TxOutputWithIndex,
+  isDecodedValid,
 } from '@wallet-service/common';
 import {
   prepareOutputs,
@@ -44,7 +44,6 @@ import {
   validateAddressBalances,
   getWalletBalancesForTx,
   getFullnodeHttpUrl,
-  sendMessageSQS,
   generateAddresses,
   sendRealtimeTx,
 } from '../utils';
@@ -135,8 +134,8 @@ export const metadataDiff = async (_context: Context, event: Event) => {
     }
 
     if (first_block
-       && first_block.length
-       && first_block.length > 0) {
+      && first_block.length
+      && first_block.length > 0) {
       if (!dbTx.height) {
         return {
           type: METADATA_DIFF_EVENT_TYPES.TX_FIRST_BLOCK,
@@ -163,7 +162,7 @@ export const metadataDiff = async (_context: Context, event: Event) => {
 };
 
 export const isBlock = (version: number): boolean => version === hathorLib.constants.BLOCK_VERSION
-      || version === hathorLib.constants.MERGED_MINED_BLOCK_VERSION;
+  || version === hathorLib.constants.MERGED_MINED_BLOCK_VERSION;
 
 export const handleVertexAccepted = async (context: Context, _event: Event) => {
   const mysql = await getDbConnection();
@@ -183,6 +182,8 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       throw new Error('No block reward lock set');
     }
 
+    const fullNodeData = fullNodeEvent.event.data;
+
     const {
       hash,
       metadata,
@@ -196,7 +197,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       token_name,
       token_symbol,
       parents,
-    } = fullNodeEvent.event.data;
+    } = fullNodeData;
 
     const dbTx: DbTransaction | null = await getTransactionById(mysql, hash);
 
@@ -217,7 +218,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     const txOutputs: TxOutputWithIndex[] = prepareOutputs(outputs, tokens);
     const txInputs: TxInput[] = prepareInputs(inputs, tokens);
 
-    let heightlock = null;
+    let heightlock: number | null = null;
     if (isBlock(version)) {
       if (typeof height !== 'number' && !height) {
         throw new Error('Block with no height set in metadata.');
@@ -238,7 +239,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       const blockRewardOutput = outputs[0];
 
       // add miner to the miners table
-      if (blockRewardOutput.decoded) {
+      if (isDecodedValid(blockRewardOutput.decoded, ['address'])) {
         await addMiner(mysql, blockRewardOutput.decoded.address, hash);
       }
 
@@ -303,21 +304,21 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
       const addressesPerWallet = Object.entries(addressWalletMap).reduce(
         (result: StringMap<{ addresses: string[], walletDetails: Wallet }>, [address, wallet]: [string, Wallet]) => {
-        const { walletId } = wallet;
+          const { walletId } = wallet;
 
-        // Initialize the array if the walletId is not yet a key in result
-        if (!result[walletId]) {
-          result[walletId] = {
-            addresses: [],
-            walletDetails: wallet,
+          // Initialize the array if the walletId is not yet a key in result
+          if (!result[walletId]) {
+            result[walletId] = {
+              addresses: [],
+              walletDetails: wallet,
+            }
           }
-        }
 
-        // Add the current key to the array
-        result[walletId].addresses.push(address);
+          // Add the current key to the array
+          result[walletId].addresses.push(address);
 
-        return result;
-      }, {});
+          return result;
+        }, {});
 
       const seenWallets = Object.keys(addressesPerWallet);
 
@@ -409,13 +410,10 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
       const network = new hathorLib.Network(NETWORK);
 
-      // Validating for NFTs only after the tx is successfully added
-      if (NftUtils.shouldInvokeNftHandlerForTx(txData, network, logger)) {
-        // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
-        // In case of errors, just log the asynchronous exception and take no action on it.
-        NftUtils.invokeNftHandlerLambda(txData.tx_id, STAGE, logger)
-          .catch((err: unknown) => logger.error('[ALERT] Error on nftHandlerLambda invocation', err));
-      }
+      // Call to process the data for NFT handling (if applicable)
+      // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
+      NftUtils.processNftEvent(fullNodeData, STAGE, network, logger)
+        .catch((err: unknown) => logger.error('[ALERT] Error processing NFT event', err));
     }
 
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
@@ -423,7 +421,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     await mysql.commit();
   } catch (e) {
     await mysql.rollback();
-    logger.error('Error handling vertex accepted', {
+    console.error('Error handling vertex accepted', {
       error: (e as Error).message,
       stack: (e as Error).stack,
     });
@@ -618,13 +616,13 @@ export const updateLastSyncedEvent = async (context: Context) => {
   const lastEventId = context.event.event.id;
 
   if (lastDbSyncedEvent
-     && lastDbSyncedEvent.last_event_id > lastEventId) {
-     logger.error('Tried to store an event lower than the one on the database', {
-       lastEventId,
-       lastDbSyncedEvent: JSON.stringify(lastDbSyncedEvent),
-     });
-      mysql.destroy();
-     throw new Error('Event lower than stored one.');
+    && lastDbSyncedEvent.last_event_id > lastEventId) {
+    logger.error('Tried to store an event lower than the one on the database', {
+      lastEventId,
+      lastDbSyncedEvent: JSON.stringify(lastDbSyncedEvent),
+    });
+    mysql.destroy();
+    throw new Error('Event lower than stored one.');
   }
   await dbUpdateLastSyncedEvent(mysql, lastEventId);
 
