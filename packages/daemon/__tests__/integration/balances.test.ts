@@ -71,7 +71,7 @@ let mysql: Connection;
 beforeAll(async () => {
   try {
     mysql = await getDbConnection();
-  } catch(e) {
+  } catch (e) {
     console.error('Failed to establish db connection', e);
     throw e;
   }
@@ -290,6 +290,7 @@ describe('empty script scenario', () => {
     // @ts-ignore
     await transitionUntilEvent(mysql, machine, EMPTY_SCRIPT_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
+
     // @ts-ignore
     expect(validateBalances(addressBalances, emptyScriptBalances));
   });

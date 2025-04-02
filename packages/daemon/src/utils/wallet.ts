@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { constants, Output, walletUtils, addressUtils } from '@hathor/wallet-lib';
+import hathorLib, { constants, Output, walletUtils, addressUtils } from '@hathor/wallet-lib';
 import { Connection as MysqlConnection } from 'mysql2/promise';
 import { strict as assert } from 'assert';
 import {
@@ -27,6 +27,7 @@ import {
   TxInput,
   TxOutput,
   TokenBalanceMap,
+  isDecodedValid,
 } from '@wallet-service/common';
 import {
   fetchAddressBalance,
@@ -75,9 +76,9 @@ export const prepareOutputs = (outputs: EventTxOutput[], tokens: string[]): TxOu
       // @ts-ignore
       output.token = token;
 
-      if (!_output.decoded
-          || _output.decoded.type === null
-          || _output.decoded.type === undefined) {
+      if (!isDecodedValid(_output.decoded)
+        || _output.decoded.type === null
+        || _output.decoded.type === undefined) {
         console.log('Decode failed, skipping..');
         return [currIndex + 1, newOutputs];
       }
@@ -93,7 +94,7 @@ export const prepareOutputs = (outputs: EventTxOutput[], tokens: string[]): TxOu
       };
 
       // @ts-ignore
-      return [ currIndex + 1, [ ...newOutputs, finalOutput, ], ];
+      return [currIndex + 1, [...newOutputs, finalOutput,],];
     },
     [0, []],
   );
@@ -124,7 +125,7 @@ export const getAddressBalanceMap = (
   const addressBalanceMap = {};
 
   for (const input of inputs) {
-    if (!input.decoded) {
+    if (!isDecodedValid(input.decoded)) {
       // If we're unable to decode the script, we will also be unable to
       // calculate the balance, so just skip this input.
       continue;
@@ -140,7 +141,7 @@ export const getAddressBalanceMap = (
   }
 
   for (const output of outputs) {
-    if (!output.decoded) {
+    if (!isDecodedValid(output.decoded)) {
       throw new Error('Output has no decoded script');
     }
 
@@ -283,7 +284,7 @@ export const prepareInputs = (inputs: EventTxInput[], tokens: string[]): TxInput
     const utxo: Output = new Output(output.value, Buffer.from(output.script, 'base64'), {
       tokenData: output.token_data,
     });
-    let token = '00';
+    let token = hathorLib.constants.NATIVE_TOKEN_UID;
     if (!utxo.isTokenHTR()) {
       token = tokens[utxo.getTokenIndex()];
     }
@@ -296,9 +297,10 @@ export const prepareInputs = (inputs: EventTxInput[], tokens: string[]): TxInput
       // @ts-ignore
       script: utxo.script,
       token,
-      decoded: output.decoded ? {
+      decoded: isDecodedValid(output.decoded, ['type', 'address']) ? {
         type: output.decoded.type,
         address: output.decoded.address,
+        // timelock might actually be null, so don't pass it to requiredKeys
         timelock: output.decoded.timelock,
       } : null,
     };
