@@ -681,8 +681,8 @@ export interface IFilterTxOutput {
   tokenId?: string;
   authority?: number;
   ignoreLocked?: boolean;
-  biggerThan?: number;
-  smallerThan?: number;
+  biggerThan?: bigint;
+  smallerThan?: bigint;
   maxOutputs?: number;
   skipSpent?: boolean;
   txId?: string;
@@ -695,8 +695,8 @@ export enum InputSelectionAlgo {
 
 export interface IWalletInsufficientFunds {
   tokenId: string;
-  requested: number;
-  available: number;
+  requested: bigint;
+  available: bigint;
 }
 
 export interface DbTxOutputWithPath extends DbTxOutput {

@@ -48,6 +48,7 @@ export const sha256d = (data: string, encoding: BinaryToTextEncoding): string =>
   const hash1 = createHash('sha256');
   hash1.update(data);
   const hash2 = createHash('sha256');
+  // @ts-ignore: `digest` returns a Buffer which is not a BinaryLike required by `update`
   hash2.update(hash1.digest());
   return hash2.digest(encoding);
 };

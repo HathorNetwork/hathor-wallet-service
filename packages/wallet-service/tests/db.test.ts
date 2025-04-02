@@ -973,14 +973,14 @@ test('getWalletBalances', async () => {
   for (const balance of returnedBalances) {
     if (balance.token.id === token1.id) {
       expect(balance.token).toStrictEqual(token1);
-      expect(balance.balance.unlockedAmount).toBe(10);
-      expect(balance.balance.lockedAmount).toBe(4);
+      expect(balance.balance.unlockedAmount).toBe(10n);
+      expect(balance.balance.lockedAmount).toBe(4n);
       expect(balance.balance.lockExpires).toBe(now);
       expect(balance.transactions).toBe(1);
     } else {
       expect(balance.token).toStrictEqual(token2);
-      expect(balance.balance.unlockedAmount).toBe(20);
-      expect(balance.balance.lockedAmount).toBe(5);
+      expect(balance.balance.unlockedAmount).toBe(20n);
+      expect(balance.balance.lockedAmount).toBe(5n);
       expect(balance.transactions).toBe(2);
       expect(balance.balance.lockExpires).toBe(now);
     }
@@ -994,8 +994,8 @@ test('getWalletBalances', async () => {
   returnedBalances = await getWalletBalances(mysql, walletId, [token2.id]);
   expect(returnedBalances).toHaveLength(1);
   expect(returnedBalances[0].token).toStrictEqual(token2);
-  expect(returnedBalances[0].balance.unlockedAmount).toBe(20);
-  expect(returnedBalances[0].balance.lockedAmount).toBe(5);
+  expect(returnedBalances[0].balance.unlockedAmount).toBe(20n);
+  expect(returnedBalances[0].balance.lockedAmount).toBe(5n);
   expect(returnedBalances[0].balance.lockExpires).toBe(now);
   expect(returnedBalances[0].transactions).toBe(2);
 
@@ -1390,13 +1390,13 @@ test('getWalletSortedValueUtxos', async () => {
   const utxos = await getWalletSortedValueUtxos(mysql, walletId, tokenId);
   expect(utxos).toHaveLength(3);
   expect(utxos[0]).toStrictEqual({
-    txId, index: 6, tokenId, address: addr1, value: 7, authorities: 0, timelock: null, heightlock: null, locked: false,
+    txId, index: 6, tokenId, address: addr1, value: 7n, authorities: 0, timelock: null, heightlock: null, locked: false,
   });
   expect(utxos[1]).toStrictEqual({
-    txId, index: 4, tokenId, address: addr1, value: 4, authorities: 0, timelock: null, heightlock: null, locked: false,
+    txId, index: 4, tokenId, address: addr1, value: 4n, authorities: 0, timelock: null, heightlock: null, locked: false,
   });
   expect(utxos[2]).toStrictEqual({
-    txId, index: 5, tokenId, address: addr2, value: 1, authorities: 0, timelock: null, heightlock: null, locked: false,
+    txId, index: 5, tokenId, address: addr2, value: 1n, authorities: 0, timelock: null, heightlock: null, locked: false,
   });
 });
 
@@ -1680,8 +1680,8 @@ test('fetchAddressTxHistorySum', async () => {
 
   const history = await fetchAddressTxHistorySum(mysql, [addr1, addr2]);
 
-  expect(history[0].balance).toStrictEqual(60);
-  expect(history[1].balance).toStrictEqual(50);
+  expect(history[0].balance).toStrictEqual(60n);
+  expect(history[1].balance).toStrictEqual(50n);
 });
 
 test('fetchAddressBalance', async () => {
@@ -1710,30 +1710,30 @@ test('fetchAddressBalance', async () => {
 
   expect(addressBalances[0].address).toStrictEqual('addr1');
   expect(addressBalances[0].tokenId).toStrictEqual('token1');
-  expect(addressBalances[0].unlockedBalance).toStrictEqual(2);
-  expect(addressBalances[0].lockedBalance).toStrictEqual(0);
+  expect(addressBalances[0].unlockedBalance).toStrictEqual(2n);
+  expect(addressBalances[0].lockedBalance).toStrictEqual(0n);
   expect(addressBalances[1].address).toStrictEqual('addr1');
   expect(addressBalances[1].tokenId).toStrictEqual('token2');
-  expect(addressBalances[1].unlockedBalance).toStrictEqual(1);
-  expect(addressBalances[1].lockedBalance).toStrictEqual(4);
+  expect(addressBalances[1].unlockedBalance).toStrictEqual(1n);
+  expect(addressBalances[1].lockedBalance).toStrictEqual(4n);
 
   expect(addressBalances[2].address).toStrictEqual('addr2');
   expect(addressBalances[2].tokenId).toStrictEqual('token1');
-  expect(addressBalances[2].unlockedBalance).toStrictEqual(5);
-  expect(addressBalances[2].lockedBalance).toStrictEqual(2);
+  expect(addressBalances[2].unlockedBalance).toStrictEqual(5n);
+  expect(addressBalances[2].lockedBalance).toStrictEqual(2n);
   expect(addressBalances[3].address).toStrictEqual('addr2');
   expect(addressBalances[3].tokenId).toStrictEqual('token2');
-  expect(addressBalances[3].unlockedBalance).toStrictEqual(0);
-  expect(addressBalances[3].lockedBalance).toStrictEqual(2);
+  expect(addressBalances[3].unlockedBalance).toStrictEqual(0n);
+  expect(addressBalances[3].lockedBalance).toStrictEqual(2n);
 
   expect(addressBalances[4].address).toStrictEqual('addr3');
   expect(addressBalances[4].tokenId).toStrictEqual('token1');
-  expect(addressBalances[4].unlockedBalance).toStrictEqual(0);
-  expect(addressBalances[4].lockedBalance).toStrictEqual(1);
+  expect(addressBalances[4].unlockedBalance).toStrictEqual(0n);
+  expect(addressBalances[4].lockedBalance).toStrictEqual(1n);
   expect(addressBalances[5].address).toStrictEqual('addr3');
   expect(addressBalances[5].tokenId).toStrictEqual('token2');
-  expect(addressBalances[5].unlockedBalance).toStrictEqual(10);
-  expect(addressBalances[5].lockedBalance).toStrictEqual(1);
+  expect(addressBalances[5].unlockedBalance).toStrictEqual(10n);
+  expect(addressBalances[5].lockedBalance).toStrictEqual(1n);
 });
 
 test('addTx, fetchTx, getTransactionsById and markTxsAsVoided', async () => {
@@ -2022,8 +2022,8 @@ test('rebuildAddressBalancesFromUtxos', async () => {
   expect(addressBalances[0].transactions).toStrictEqual(1);
   expect(addressBalances[0].tokenId).toStrictEqual('token1');
 
-  expect(addressBalances[1].unlockedBalance).toStrictEqual(220);
-  expect(addressBalances[1].lockedBalance).toStrictEqual(225);
+  expect(addressBalances[1].unlockedBalance).toStrictEqual(220n);
+  expect(addressBalances[1].lockedBalance).toStrictEqual(225n);
   expect(addressBalances[1].address).toStrictEqual(addr2);
   expect(addressBalances[1].transactions).toStrictEqual(2);
   expect(addressBalances[1].tokenId).toStrictEqual('token1');
@@ -2218,14 +2218,14 @@ test('filterTxOutputs', async () => {
   expect(utxos).toHaveLength(2);
 
   // filter all utxos between 100 and 1500
-  utxos = await filterTxOutputs(mysql, { addresses: [addr1, addr2], tokenId, biggerThan: 100, smallerThan: 1500 });
+  utxos = await filterTxOutputs(mysql, { addresses: [addr1, addr2], tokenId, biggerThan: 100n, smallerThan: 1500n });
   expect(utxos).toHaveLength(2);
   expect(utxos[0]).toStrictEqual({
     txId: txId2,
     index: 1,
     tokenId,
     address: addr1,
-    value: 1000,
+    value: 1000n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -2239,7 +2239,7 @@ test('filterTxOutputs', async () => {
     index: 0,
     tokenId,
     address: addr1,
-    value: 500,
+    value: 500n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -2257,7 +2257,7 @@ test('filterTxOutputs', async () => {
     index: 2,
     tokenId,
     address: addr2,
-    value: 1500,
+    value: 1500n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -2271,7 +2271,7 @@ test('filterTxOutputs', async () => {
     index: 1,
     tokenId,
     address: addr1,
-    value: 1000,
+    value: 1000n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -2282,7 +2282,7 @@ test('filterTxOutputs', async () => {
   });
 
   // authorities != 0 and maxOutputs == 1 should return only one authority utxo
-  utxos = await filterTxOutputs(mysql, { addresses: [addr1, addr2], biggerThan: 0, smallerThan: 3, authority: 1, tokenId, maxOutputs: 1 });
+  utxos = await filterTxOutputs(mysql, { addresses: [addr1, addr2], biggerThan: 0n, smallerThan: 3n, authority: 1, tokenId, maxOutputs: 1 });
 
   expect(utxos).toHaveLength(1);
 });
