@@ -152,7 +152,10 @@ export class FromTokenBalanceMapToBalanceValueList {
 }
 
 export const sortBalanceValueByAbsTotal = (balanceA: TokenBalanceValue, balanceB: TokenBalanceValue): number => {
-  if (Math.abs(balanceA.total) - Math.abs(balanceB.total) >= 0) return -1;
+  function abs(num: bigint) {
+    return num >= 0n ? num : -num;
+  }
+  if (abs(balanceA.total) - abs(balanceB.total) >= 0n) return -1;
   return 0;
 };
 

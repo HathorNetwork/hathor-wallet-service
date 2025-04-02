@@ -35,6 +35,7 @@ export const storeInitialState = assign({
  * to the original event (that initiated the metadata diff check)
  */
 export const unwrapEvent = assign({
+  // @ts-ignore: The return event.event.originalEvent.event is not the correct type for an event.
   event: (_context: Context, event: Event) => {
     if (event.type !== 'METADATA_DECIDED') {
       throw new Error(`Received unhandled ${event.type} on unwrapEvent action`);

@@ -9,6 +9,7 @@ module.exports = {
     port: process.env.DB_PORT || 3306,
     dialect: 'mysql',
     dialectOptions: {
+      supportBigNumbers: true,
       bigNumberStrings: true,
     },
   },
@@ -20,6 +21,7 @@ module.exports = {
     port: process.env.CI_DB_PORT || 3306,
     dialect: 'mysql',
     dialectOptions: {
+      supportBigNumbers: true,
       bigNumberStrings: true,
     },
   },
@@ -31,6 +33,7 @@ module.exports = {
     port: process.env.DB_PORT,
     dialect: 'mysql',
     dialectOptions: {
+      supportBigNumbers: true,
       bigNumberStrings: true,
     },
   },

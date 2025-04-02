@@ -3,14 +3,13 @@
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
- */
-import mysql, { Connection as MysqlConnection, OkPacket, Pool, ResultSetHeader } from 'mysql2/promise';
+*/
+import mysql, { Connection as MysqlConnection, Pool, ResultSetHeader } from 'mysql2/promise';
 import {
   DbTxOutput,
   StringMap,
   Wallet,
   EventTxInput,
-  GenerateAddresses,
   AddressIndexMap,
   LastSyncedEvent,
   AddressBalance,
@@ -126,8 +125,8 @@ export const addUtxos = async (
       let value = output.value;
 
       if (isAuthority(output.token_data)) {
-        authorities = value;
-        value = 0;
+        authorities = Number(value);
+        value = 0n;
       }
 
       return [
@@ -220,7 +219,7 @@ export const getTxOutputsFromTx = async (
       index: result.index as number,
       tokenId: result.token_id as string,
       address: result.address as string,
-      value: result.value as number,
+      value: BigInt(result.value),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
@@ -262,7 +261,7 @@ export const getTxOutputs = async (
       index: result.index as number,
       tokenId: result.token_id as string,
       address: result.address as string,
-      value: result.value as number,
+      value: BigInt(result.value),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
@@ -345,12 +344,11 @@ export const getTxOutputsAtHeight = async (
       index: result.index as number,
       tokenId: result.token_id as string,
       address: result.address as string,
-      value: result.value as number,
+      value: BigInt(result.value),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
-      // @ts-ignore
-      locked: result.locked > 0,
+      locked: Number(result.locked) > 0,
       spentBy: result.spent_by as string,
       txProposalId: result.tx_proposal as string,
       txProposalIndex: result.tx_proposal_index as number,
@@ -659,12 +657,11 @@ export const getUtxosLockedAtHeight = async (
         index: result.index as number,
         tokenId: result.token_id as string,
         address: result.address as string,
-        value: result.value as number,
+        value: BigInt(result.value),
         authorities: result.authorities as number,
         timelock: result.timelock as number,
         heightlock: result.heightlock as number,
-        // @ts-ignore
-        locked: result.locked > 0,
+        locked: Number(result.locked) > 0,
       };
       utxos.push(utxo);
     }
@@ -957,7 +954,7 @@ export const mapDbResultToDbTxOutput = (result: TxOutputRow): DbTxOutput => ({
   index: result.index as number,
   tokenId: result.token_id as string,
   address: result.address as string,
-  value: result.value as number,
+  value: BigInt(result.value),
   authorities: result.authorities as number,
   timelock: result.timelock as number,
   heightlock: result.heightlock as number,
@@ -1024,7 +1021,7 @@ export const getLockedUtxoFromInputs = async (mysql: MysqlConnection, inputs: Ev
       index: utxo.index as number,
       tokenId: utxo.token_id as string,
       address: utxo.address as string,
-      value: utxo.value as number,
+      value: BigInt(utxo.value),
       authorities: utxo.authorities as number,
       timelock: utxo.timelock as number,
       heightlock: utxo.heightlock as number,
@@ -1234,7 +1231,7 @@ export const getTxOutputsBySpent = async (
       index: result.index as number,
       tokenId: result.token_id as string,
       address: result.address as string,
-      value: result.value as number,
+      value: BigInt(result.value),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
@@ -1429,7 +1426,7 @@ export const getTxOutputsHeightUnlockedAtHeight = async (
       index: result.index as number,
       tokenId: result.token_id as string,
       address: result.address as string,
-      value: result.value as number,
+      value: BigInt(result.value),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
