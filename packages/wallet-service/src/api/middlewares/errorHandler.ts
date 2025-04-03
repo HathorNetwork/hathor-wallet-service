@@ -15,7 +15,7 @@ const defaultResponse: APIGatewayProxyResult = { statusCode: 500, body: "Interna
 
 const errorHandler = (): middy.MiddlewareObj<APIGatewayProxyEvent, APIGatewayProxyResult> => {
    const onError: middy.MiddlewareFn<APIGatewayProxyEvent, APIGatewayProxyResult> = async (request)  => {
-    logger.error(`[${request.context.functionName}] Unhandled error on ${request.event.path}: ${request.error}`);
+    logger.error(`[${request.context?.functionName}] Unhandled error on ${request.event?.path}: ${request.error}`);
 
     // Initialize response with default values if it hasn't been done yet.
     request.response = request.response ?? {...defaultResponse};
