@@ -18,6 +18,7 @@ import Joi from 'joi';
 import { constants } from '@hathor/wallet-lib';
 import middy from '@middy/core';
 import cors from '@middy/http-cors';
+import errorHandler from '@src/api/middlewares/errorHandler';
 
 const mysql = getDbConnection();
 
@@ -37,7 +38,8 @@ export const get = middy(walletIdProxyHandler(async (walletId) => {
     }),
   };
 })).use(cors())
-  .use(warmupMiddleware());
+  .use(warmupMiddleware())
+  .use(errorHandler());
 
 const getTokenDetailsParamsSchema = Joi.object({
   token_id: txIdJoiValidator.required(),
@@ -112,4 +114,5 @@ export const getTokenDetails = middy(walletIdProxyHandler(async (walletId, event
     }),
   };
 })).use(cors())
-  .use(warmupMiddleware());
+  .use(warmupMiddleware())
+  .use(errorHandler());

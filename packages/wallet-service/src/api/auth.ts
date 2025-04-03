@@ -31,6 +31,7 @@ import cors from '@middy/http-cors';
 import createDefaultLogger from '@src/logger';
 import { Logger } from 'winston';
 import config from '@src/config';
+import errorHandler from '@src/api/middlewares/errorHandler';
 
 const EXPIRATION_TIME_IN_SECONDS = 1800;
 
@@ -153,7 +154,8 @@ export const tokenHandler: APIGatewayProxyHandler = middy(async (event) => {
     statusCode: 200,
     body: JSON.stringify({ success: true, token }),
   };
-}).use(cors());
+}).use(cors())
+  .use(errorHandler());
 
 /**
  * Generates a aws policy document to allow/deny access to the resource
@@ -233,4 +235,5 @@ export const bearerAuthorizer: APIGatewayTokenAuthorizerHandler = middy(async (e
   }
 
   return _generatePolicy(walletId, 'Deny', event.methodArn, logger);
-}).use(cors());
+}).use(cors())
+  .use(errorHandler());

@@ -22,6 +22,7 @@ import {
 import middy from '@middy/core';
 import cors from '@middy/http-cors';
 import Joi from 'joi';
+import errorHandler from '@src/api/middlewares/errorHandler';
 
 const mysql = getDbConnection();
 
@@ -81,4 +82,5 @@ export const get: APIGatewayProxyHandler = middy(walletIdProxyHandler(async (wal
     body: JSON.stringify({ success: true, balances }),
   };
 })).use(cors())
-  .use(warmupMiddleware());
+  .use(warmupMiddleware())
+  .use(errorHandler());
