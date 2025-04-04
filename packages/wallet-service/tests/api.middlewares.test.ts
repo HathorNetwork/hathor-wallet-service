@@ -2,7 +2,7 @@ import middy from '@middy/core'
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda'
 import errorHandler from '@src/api/middlewares/errorHandler';
 
-test('errorHandler should return an error response', () => {
+test('errorHandler should return an error response', async () => {
   expect.hasAssertions();
   const middleware = errorHandler();
   const request: middy.Request<APIGatewayProxyEvent, APIGatewayProxyResult> = {
@@ -17,7 +17,7 @@ test('errorHandler should return an error response', () => {
     internal: {},
   };
 
-  const response = middleware.onError(request);
+  const response = await middleware.onError(request);
   expect(response.statusCode).toBe(500);
   expect(response.body).toBe('Boom');
 });
