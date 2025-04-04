@@ -15,6 +15,7 @@ import { closeDbConnection, getDbConnection } from '@src/utils';
 import { Miner } from '@src/types';
 import middy from '@middy/core';
 import cors from '@middy/http-cors';
+import errorHandler from '@src/api/middlewares/errorHandler';
 
 const mysql = getDbConnection();
 
@@ -37,4 +38,5 @@ export const onMinersListRequest: APIGatewayProxyHandler = middy(async () => {
       miners: minersList,
     }),
   };
-}).use(cors());
+}).use(cors())
+  .use(errorHandler());

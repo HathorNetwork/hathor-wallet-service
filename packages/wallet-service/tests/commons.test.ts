@@ -7,6 +7,7 @@ import {
   unlockTimelockedUtxos,
   searchForLatestValidBlock,
   getWalletBalancesForTx,
+  getTokenListFromInputsAndOutputs,
 } from '@src/commons';
 import {
   Authorities,
@@ -15,6 +16,7 @@ import {
   DbTxOutput,
   Block,
   FullNodeApiVersionResponse,
+  TxOutputWithIndex,
 } from '@src/types';
 import fullnode from '@src/fullnode';
 import {
@@ -1168,4 +1170,21 @@ describe('getWalletBalancesForTx', () => {
       });
     });
   });
+});
+
+test('getTokenListFromInputsAndOutputs', () => {
+  expect.hasAssertions();
+
+  expect(getTokenListFromInputsAndOutputs([], [])).toStrictEqual([]);
+
+  expect(getTokenListFromInputsAndOutputs(
+    [
+      { token: 'A' } as TxInput,
+      { token: 'B' } as TxInput,
+    ],
+    [
+      { token: 'A' } as TxOutputWithIndex,
+      { token: 'C' } as TxOutputWithIndex,
+    ],
+  )).toEqual(expect.arrayContaining(['A', 'B', 'C']));
 });

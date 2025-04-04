@@ -13,6 +13,7 @@ import { closeDbConnection, getDbConnection } from '@src/utils';
 import { APIGatewayProxyHandler } from 'aws-lambda';
 import { getRedisClient, ping } from '@src/redis';
 import config from '@src/config';
+import errorHandler from '@src/api/middlewares/errorHandler';
 
 const mysql = getDbConnection();
 
@@ -141,4 +142,4 @@ export const getHealthcheck: APIGatewayProxyHandler = middy(async (event) => {
     statusCode: response.getHttpStatusCode(),
     body: response.toJson(),
   };
-});
+}).use(errorHandler());

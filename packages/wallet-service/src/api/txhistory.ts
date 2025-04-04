@@ -20,6 +20,7 @@ import middy from '@middy/core';
 import cors from '@middy/http-cors';
 import Joi from 'joi';
 import config from '@src/config';
+import errorHandler from '@src/api/middlewares/errorHandler';
 
 const MAX_COUNT = config.txHistoryMaxCount;
 const htrToken = hathorLib.constants.NATIVE_TOKEN_UID;
@@ -87,4 +88,5 @@ export const get = middy(walletIdProxyHandler(async (walletId, event) => {
     body: JSON.stringify({ success: true, history, skip, count }),
   };
 })).use(cors())
-  .use(warmupMiddleware());
+  .use(warmupMiddleware())
+  .use(errorHandler());

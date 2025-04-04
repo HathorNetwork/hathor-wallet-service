@@ -41,6 +41,7 @@ import createDefaultLogger from '@src/logger';
 import { Severity } from '@wallet-service/common/src/types';
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 import config from '@src/config';
+import errorHandler from '@src/api/middlewares/errorHandler';
 
 const mysql = getDbConnection();
 
@@ -64,7 +65,8 @@ export const get: APIGatewayProxyHandler = middy(walletIdProxyHandler(async (wal
     body: JSON.stringify({ success: true, status }),
   };
 })).use(cors())
-  .use(warmupMiddleware());
+  .use(warmupMiddleware())
+  .use(errorHandler());
 
 // If the env requires to validate the first address
 // then we must set the firstAddress field as required
@@ -243,7 +245,8 @@ export const changeAuthXpub: APIGatewayProxyHandler = middy(async (event) => {
       status: updatedWallet,
     }),
   };
-}).use(cors());
+}).use(cors())
+  .use(errorHandler());
 
 /*
  * Load a wallet. First checks if the wallet doesn't exist already and then call another
@@ -368,7 +371,8 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
     body: JSON.stringify({ success: true, status: wallet }),
   };
 }).use(cors())
-  .use(warmupMiddleware());
+  .use(warmupMiddleware())
+  .use(errorHandler());
 
 interface LoadEvent {
   source?: string;

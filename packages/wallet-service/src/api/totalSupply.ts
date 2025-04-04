@@ -18,6 +18,7 @@ import middy from '@middy/core';
 import cors from '@middy/http-cors';
 import hathorLib from '@hathor/wallet-lib';
 import Joi from 'joi';
+import errorHandler from '@src/api/middlewares/errorHandler';
 
 const htrToken = hathorLib.constants.NATIVE_TOKEN_UID;
 const mysql = getDbConnection();
@@ -61,4 +62,5 @@ export const onTotalSupplyRequest: APIGatewayProxyHandler = middy(async (event) 
       totalSupply,
     }),
   };
-}).use(cors());
+}).use(cors())
+  .use(errorHandler());

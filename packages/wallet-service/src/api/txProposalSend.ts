@@ -29,6 +29,7 @@ import { closeDbAndGetError } from '@src/api/utils';
 import middy from '@middy/core';
 import cors from '@middy/http-cors';
 import config from '@src/config';
+import errorHandler from '@src/api/middlewares/errorHandler';
 
 const mysql = getDbConnection();
 
@@ -145,4 +146,5 @@ export const send: APIGatewayProxyHandler = middy(walletIdProxyHandler(async (wa
       txHex,
     });
   }
-})).use(cors());
+})).use(cors())
+  .use(errorHandler());

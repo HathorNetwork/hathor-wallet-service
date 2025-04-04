@@ -31,6 +31,7 @@ import cors from '@middy/http-cors';
 import { constants, Network, Transaction, helpersUtils } from '@hathor/wallet-lib';
 import { getFullnodeData } from '@src/nodeConfig';
 import config from '@src/config';
+import errorHandler from '@src/api/middlewares/errorHandler';
 
 const mysql = getDbConnection();
 
@@ -143,7 +144,8 @@ export const create = middy(walletIdProxyHandler(async (walletId, event) => {
       inputs: retInputs,
     }),
   };
-})).use(cors());
+})).use(cors())
+  .use(errorHandler());
 
 /**
  * Confirm that all inputs requested by the user have been fetched.

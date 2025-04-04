@@ -21,6 +21,7 @@ import { closeDbConnection, getDbConnection } from '@src/utils';
 import { walletIdProxyHandler } from '@src/commons';
 import middy from '@middy/core';
 import cors from '@middy/http-cors';
+import errorHandler from '@src/api/middlewares/errorHandler';
 
 const mysql = getDbConnection();
 
@@ -104,7 +105,8 @@ export const checkMine: APIGatewayProxyHandler = middy(walletIdProxyHandler(asyn
       addresses: addressBelongMap,
     }),
   };
-})).use(cors());
+})).use(cors())
+  .use(errorHandler());
 
 /*
  * Get the addresses of a wallet, allowing an index filter
@@ -169,4 +171,5 @@ export const get: APIGatewayProxyHandler = middy(
     return response;
   }),
 ).use(cors())
-  .use(warmupMiddleware());
+  .use(warmupMiddleware())
+  .use(errorHandler());

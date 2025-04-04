@@ -26,6 +26,7 @@ import {
   GetTxByIdParams,
   ParamValidationResult,
 } from '@src/types';
+import errorHandler from '@src/api/middlewares/errorHandler';
 
 const mysql = getDbConnection();
 
@@ -70,7 +71,8 @@ export const getTransactionById: APIGatewayProxyHandler = middy(walletIdProxyHan
     statusCode: 200,
     body: JSON.stringify(transaction),
   };
-})).use(cors());
+})).use(cors())
+  .use(errorHandler());
 
 /*
  * Get confirmation data for a tx from the fullnode
@@ -96,7 +98,8 @@ export const getConfirmationData: APIGatewayProxyHandler = middy(walletIdProxyHa
     statusCode: 200,
     body: JSON.stringify(confirmationData),
   };
-})).use(cors());
+})).use(cors())
+  .use(errorHandler());
 
 /*
  * Makes graphviz queries on the fullnode
@@ -134,4 +137,5 @@ export const queryGraphvizNeighbours: APIGatewayProxyHandler = middy(
       body: JSON.stringify(graphVizData),
     };
   }),
-).use(cors());
+).use(cors())
+  .use(errorHandler());

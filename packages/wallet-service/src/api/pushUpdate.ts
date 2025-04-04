@@ -15,6 +15,7 @@ import middy from '@middy/core';
 import cors from '@middy/http-cors';
 import Joi, { ValidationError } from 'joi';
 import { PushUpdate } from '@src/types';
+import errorHandler from '@src/api/middlewares/errorHandler';
 
 const mysql = getDbConnection();
 
@@ -75,4 +76,5 @@ export const update: APIGatewayProxyHandler = middy(walletIdProxyHandler(async (
     body: JSON.stringify({ success: true }),
   };
 }))
-  .use(cors());
+  .use(cors())
+  .use(errorHandler());
