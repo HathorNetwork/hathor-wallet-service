@@ -8,10 +8,12 @@
 import middy from '@middy/core'
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda'
 import createDefaultLogger from "@src/logger"
+import { STATUS_CODE_TABLE } from '../utils';
+import { ApiError } from '../errors';
 
 const logger = createDefaultLogger();
 
-const defaultResponse: APIGatewayProxyResult = { statusCode: 500, body: "Internal Server Error" };
+const defaultResponse: APIGatewayProxyResult = { statusCode: STATUS_CODE_TABLE[ApiError.UNKNOWN_ERROR], body: "Internal Server Error" };
 
 const errorHandler = (): middy.MiddlewareObj<APIGatewayProxyEvent, APIGatewayProxyResult> => {
    const onError: middy.MiddlewareFn<APIGatewayProxyEvent, APIGatewayProxyResult> = async (request)  => {
@@ -20,7 +22,7 @@ const errorHandler = (): middy.MiddlewareObj<APIGatewayProxyEvent, APIGatewayPro
     // Initialize response with default values if it hasn't been done yet.
     request.response = request.response ?? {...defaultResponse};
     // Force the status code to 500 since this is an unhandled error
-    request.response.statusCode = 500;
+    request.response.statusCode = STATUS_CODE_TABLE[ApiError.UNKNOWN_ERROR];
 
     // In production, we do not want to expose the error message to the user.
     if (process.env.NODE_ENV === 'production') {

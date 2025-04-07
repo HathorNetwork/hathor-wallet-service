@@ -103,7 +103,6 @@ export const sendMessageToClient = async (
   }
 };
 
-/* istanbul ignore next */
 export const disconnectClient = async (
   client: RedisClient,
   connInfo: WsConnectionInfo,
