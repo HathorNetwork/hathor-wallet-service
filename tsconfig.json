@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "es2018",
+    "module": "commonjs",
+    "declaration": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "baseUrl": ".",
+    "paths": {
+      "@wallet-service/common": ["packages/common"],
+      "@wallet-service/daemon": ["packages/daemon"],
+      "@wallet-service/wallet-service": ["packages/wallet-service"]
+    }
+  },
+  "references": [
+    { "path": "./packages/common" },
+    { "path": "./packages/daemon" },
+    { "path": "./packages/wallet-service" }
+  ],
+  "files": [],
+  "include": ["packages/*/index.ts", "packages/*/src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+} 
