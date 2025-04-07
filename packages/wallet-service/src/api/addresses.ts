@@ -108,7 +108,7 @@ export const checkMine: APIGatewayProxyHandler = middy(walletIdProxyHandler(asyn
 })).use(cors())
   .use(errorHandler());
 
-/*
+/**
  * Get the addresses of a wallet, allowing an index filter
  * Notice: If the index filter is passed, it will only find addresses
  * that are already in our database, this will not derive new addresses
@@ -127,7 +127,7 @@ export const get: APIGatewayProxyHandler = middy(
       return closeDbAndGetError(mysql, ApiError.WALLET_NOT_READY);
     }
 
-    const { value: body, error } = AddressAtIndexValidator.validate(event.pathParameters || {});
+    const { value: body, error } = AddressAtIndexValidator.validate(event.queryStringParameters || {});
 
     if (error) {
       const details = error.details.map((err) => ({
