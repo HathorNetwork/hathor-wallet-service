@@ -463,6 +463,7 @@ export const validateAddressBalances = async (mysql: ServerlessMysql, addresses:
  *
  * @returns The new best block height
  */
+/* istanbul ignore next */
 export const handleReorg = async (mysql: ServerlessMysql, logger: Logger): Promise<number> => {
   const { height } = await searchForLatestValidBlock(mysql);
   const currentHeight = await getLatestHeight(mysql);

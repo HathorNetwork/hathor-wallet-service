@@ -19,6 +19,7 @@ import { getDbConnection } from '@src/utils';
 import { constants } from '@hathor/wallet-lib';
 import middy from '@middy/core';
 import cors from '@middy/http-cors';
+import errorHandler from '@src/api/middlewares/errorHandler';
 
 const mysql = getDbConnection();
 
@@ -102,7 +103,8 @@ export const getFilteredUtxos = middy(walletIdProxyHandler(async (walletId, even
   }
 
   return response;
-})).use(cors());
+})).use(cors())
+  .use(errorHandler());
 
 /*
  * Filter tx_outputs
@@ -141,7 +143,8 @@ export const getFilteredTxOutputs = middy(walletIdProxyHandler(async (walletId, 
   }
 
   return _getFilteredTxOutputs(walletId, value);
-})).use(cors());
+})).use(cors())
+  .use(errorHandler());
 
 const _getFilteredTxOutputs = async (walletId: string, filters: IFilterTxOutput) => {
   const walletAddresses = await getWalletAddresses(mysql, walletId);
