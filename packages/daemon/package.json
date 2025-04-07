@@ -54,7 +54,7 @@
     "@aws-sdk/client-sqs": "3.540.0",
     "assert": "2.1.0",
     "aws-sdk": "2.1454.0",
-    "axios": "1.6.2",
+    "axios": "0.30.0",
     "dotenv": "8.2.0",
     "lodash": "4.17.21",
     "mysql2": "3.5.2",
