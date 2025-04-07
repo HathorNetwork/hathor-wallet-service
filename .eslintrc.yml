@@ -18,6 +18,18 @@ rules:
   '@typescript-eslint/no-unused-vars': off
 overrides:
   - files:
+      - 'packages/common/**/*.ts'
+    parserOptions:
+      project: './packages/common/tsconfig.json'
+  - files:
+      - 'packages/daemon/**/*.ts'
+    parserOptions:
+      project: './packages/daemon/tsconfig.json'
+  - files:
+      - 'packages/wallet-service/**/*.ts'
+    parserOptions:
+      project: './packages/wallet-service/tsconfig.json'
+  - files:
       - 'src/**/*.ts'
     excludedFiles:
       - 'dist/*'
