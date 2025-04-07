@@ -11,6 +11,7 @@ export enum ApiError {
   INVALID_TX_WEIGHT = 'invalid-tx-weight',
   INVALID_SELECTION_ALGORITHM = 'invalid-selection-algorithm',
   UNKNOWN_ERROR = 'unknown-error',
+  INTERNAL_SERVER_ERROR = 'internal-server-error',
   INPUTS_NOT_FOUND = 'inputs-not-found',
   INPUTS_ALREADY_USED = 'inputs-already-used',
   INPUTS_NOT_IN_WALLET = 'inputs-not-in-wallet',

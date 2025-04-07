@@ -14,6 +14,7 @@ import {
 } from '@src/utils';
 import { warmupMiddleware } from '@src/api/utils';
 import { getRawFullnodeData } from '@src/nodeConfig'
+import errorHandler from '@src/api/middlewares/errorHandler';
 import middy from '@middy/core';
 import cors from '@middy/http-cors';
 
@@ -37,4 +38,5 @@ export const get: APIGatewayProxyHandler = middy(async () => {
     }),
   };
 }).use(cors())
-  .use(warmupMiddleware());
+  .use(warmupMiddleware())
+  .use(errorHandler());
