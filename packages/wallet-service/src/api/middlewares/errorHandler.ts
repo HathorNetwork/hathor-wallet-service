@@ -8,8 +8,8 @@
 import middy from '@middy/core'
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda'
 import createDefaultLogger from "@src/logger"
-import { STATUS_CODE_TABLE } from '../utils';
-import { ApiError } from '../errors';
+import { STATUS_CODE_TABLE } from '@src/api/utils';
+import { ApiError } from '@src/api/errors';
 
 const logger = createDefaultLogger();
 
