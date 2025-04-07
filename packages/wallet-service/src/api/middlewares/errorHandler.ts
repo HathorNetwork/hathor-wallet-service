@@ -13,7 +13,7 @@ import { ApiError } from '@src/api/errors';
 
 const logger = createDefaultLogger();
 
-const defaultResponse: APIGatewayProxyResult = { statusCode: STATUS_CODE_TABLE[ApiError.UNKNOWN_ERROR], body: "Internal Server Error" };
+const defaultResponse: APIGatewayProxyResult = { statusCode: STATUS_CODE_TABLE[ApiError.INTERNAL_SERVER_ERROR], body: ApiError.INTERNAL_SERVER_ERROR };
 
 const errorHandler = (): middy.MiddlewareObj<APIGatewayProxyEvent, APIGatewayProxyResult> => {
    const onError: middy.MiddlewareFn<APIGatewayProxyEvent, APIGatewayProxyResult> = async (request)  => {
@@ -22,11 +22,11 @@ const errorHandler = (): middy.MiddlewareObj<APIGatewayProxyEvent, APIGatewayPro
     // Initialize response with default values if it hasn't been done yet.
     request.response = request.response ?? {...defaultResponse};
     // Force the status code to 500 since this is an unhandled error
-    request.response.statusCode = STATUS_CODE_TABLE[ApiError.UNKNOWN_ERROR];
+    request.response.statusCode = STATUS_CODE_TABLE[ApiError.INTERNAL_SERVER_ERROR];
 
     // In production, we do not want to expose the error message to the user.
     if (process.env.NODE_ENV === 'production') {
-      request.response.body = "Internal Server Error";
+      request.response.body = ApiError.INTERNAL_SERVER_ERROR;
       return request.response;
     }
 
