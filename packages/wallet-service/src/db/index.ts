@@ -2982,7 +2982,7 @@ export const getTransactionById = async (
       version: eachTxToken.version,
       voided: !!eachTxToken.voided,
       weight: eachTxToken.weight,
-      balance: eachTxToken.balance,
+      balance: BigInt(eachTxToken.balance),
       tokenId: eachTxToken.token_id,
       tokenName: eachTxToken.name,
       tokenSymbol: eachTxToken.symbol,

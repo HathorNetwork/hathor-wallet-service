@@ -16,7 +16,7 @@ import {
 } from '@src/types';
 import { closeDbAndGetError } from '@src/api/utils';
 import { getDbConnection } from '@src/utils';
-import { constants } from '@hathor/wallet-lib';
+import { constants, bigIntUtils } from '@hathor/wallet-lib';
 import middy from '@middy/core';
 import cors from '@middy/http-cors';
 import errorHandler from '@src/api/middlewares/errorHandler';
@@ -95,11 +95,11 @@ export const getFilteredUtxos = middy(walletIdProxyHandler(async (walletId, even
   // The /wallet/utxos API expects `utxos` on the response body, we should transform the
   // response accordingly
   if (response.statusCode === 200) {
-    const body = JSON.parse(response.body);
+    const body = bigIntUtils.JSONBigInt.parse(response.body);
     body.utxos = body.txOutputs;
     delete body.txOutputs;
 
-    response.body = JSON.stringify(body);
+    response.body = bigIntUtils.JSONBigInt.stringify(body);
   }
 
   return response;
@@ -168,7 +168,7 @@ const _getFilteredTxOutputs = async (walletId: string, filters: IFilterTxOutput)
 
     return {
       statusCode: 200,
-      body: JSON.stringify({
+      body: bigIntUtils.JSONBigInt.stringify({
         success: true,
         txOutputs: txOutputList,
       }),
@@ -194,7 +194,7 @@ const _getFilteredTxOutputs = async (walletId: string, filters: IFilterTxOutput)
 
   return {
     statusCode: 200,
-    body: JSON.stringify({
+    body: bigIntUtils.JSONBigInt.stringify({
       success: true,
       txOutputs: txOutputsWithPath,
     }),
