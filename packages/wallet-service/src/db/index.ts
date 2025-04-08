@@ -536,7 +536,7 @@ export const initWalletBalance = async (mysql: ServerlessMysql, walletId: string
     const row1 = results1[i];
     const row2 = results2[i];
     assert.strictEqual(row1.token_id, row2.token_id);
-    assert.strictEqual(<number>row1.unlocked_balance + <number>row1.locked_balance, row2.balance);
+    assert.strictEqual(BigInt(row1.unlocked_balance as string) + BigInt(row1.locked_balance as string), BigInt(row2.balance as string));
     balanceEntries.push([
       walletId,
       row1.token_id,

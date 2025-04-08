@@ -1580,7 +1580,7 @@ test('createTxProposal, updateTxProposal, getTxProposal, countUnsentTxProposals,
   // Release txProposalUtxos should properly release the utxos. This method will throw an error if the
   // updated count is different from the sent tx proposals count.
   await releaseTxProposalUtxos(mysql, [txProposalId1, txProposalId2, txProposalId3]);
-  await expect(releaseTxProposalUtxos(mysql, ['invalid-tx-proposal'])).rejects.toThrow('AssertionError: Not all utxos were correctly updated');
+  await expect(releaseTxProposalUtxos(mysql, ['invalid-tx-proposal'])).rejects.toThrow('Not all utxos were correctly updated');
 });
 
 test('updateVersionData', async () => {
