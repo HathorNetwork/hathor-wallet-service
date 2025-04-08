@@ -447,7 +447,7 @@ export interface TxTokenBalance {
   txId: string;
   timestamp: number;
   voided: boolean;
-  balance: Balance;
+  balance: bigint;
   version: number;
 }
 

@@ -1472,7 +1472,7 @@ LEFT OUTER JOIN transaction ON transaction.tx_id = wallet_tx_history.tx_id
       txId: <string>result.tx_id,
       timestamp: <number>result.timestamp,
       voided: <boolean>result.voided,
-      balance: <Balance>result.balance,
+      balance: BigInt(result.balance as string),
       version: <number>result.version,
     };
     history.push(tx);
