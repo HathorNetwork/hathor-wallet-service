@@ -1580,7 +1580,7 @@ test('createTxProposal, updateTxProposal, getTxProposal, countUnsentTxProposals,
   // Release txProposalUtxos should properly release the utxos. This method will throw an error if the
   // updated count is different from the sent tx proposals count.
   await releaseTxProposalUtxos(mysql, [txProposalId1, txProposalId2, txProposalId3]);
-  await expect(releaseTxProposalUtxos(mysql, ['invalid-tx-proposal'])).rejects.toMatchInlineSnapshot('[AssertionError: Not all utxos were correctly updated]');
+  await expect(releaseTxProposalUtxos(mysql, ['invalid-tx-proposal'])).rejects.toThrow('AssertionError: Not all utxos were correctly updated');
 });
 
 test('updateVersionData', async () => {
@@ -2656,8 +2656,8 @@ test('getUtxo, getAuthorityUtxo', async () => {
     index: 0,
     tokenId,
     address: addr1,
-    value: 0,
-    authorities: constants.TOKEN_MINT_MASK,
+    value: 0n,
+    authorities: Number(constants.TOKEN_MINT_MASK),
     timelock: 10000,
     heightlock: null,
     locked: true,
@@ -2670,8 +2670,8 @@ test('getUtxo, getAuthorityUtxo', async () => {
     index: 1,
     tokenId,
     address: addr1,
-    value: 0,
-    authorities: constants.TOKEN_MELT_MASK,
+    value: 0n,
+    authorities: Number(constants.TOKEN_MELT_MASK),
     timelock: 10000,
     heightlock: null,
     locked: true,
@@ -3122,7 +3122,7 @@ describe('getTransactionById', () => {
     const [secondToken] = txTokens.filter((eachToken) => eachToken.tokenId === 'token2');
 
     expect(firstToken).toStrictEqual({
-      balance: 10,
+      balance: 10n,
       timestamp: timestamp1,
       tokenId: token1.id,
       tokenName: token1.name,
@@ -3133,7 +3133,7 @@ describe('getTransactionById', () => {
       weight: weight1,
     });
     expect(secondToken).toStrictEqual({
-      balance: 7,
+      balance: 7n,
       timestamp: timestamp1,
       tokenId: token2.id,
       tokenName: token2.name,

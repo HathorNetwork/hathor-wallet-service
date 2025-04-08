@@ -3092,7 +3092,7 @@ export const countStalePushDevices = async (mysql: ServerlessMysql): Promise<num
       FROM \`push_devices\`
      WHERE UNIX_TIMESTAMP(updated_at) < UNIX_TIMESTAMP(date_sub(now(), interval 1 month))`,
   ) as Array<{ count }>;
-  return count;
+  return Number(count);
 };
 
 /**
