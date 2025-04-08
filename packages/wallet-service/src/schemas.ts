@@ -20,7 +20,7 @@ export const FullnodeVersionSchema = Joi.object<FullNodeApiVersionResponse>({
   max_number_inputs: Joi.number().integer().positive().required(),
   max_number_outputs: Joi.number().integer().positive().required(),
   decimal_places: Joi.number().integer().positive(),
-  genesis_block_hash: Joi.string().min(1),
+  genesis_block_hash: Joi.string().hex().length(64),
   genesis_tx1_hash: Joi.string().hex().length(64),
   genesis_tx2_hash: Joi.string().hex().length(64),
   native_token: Joi.object({
