@@ -122,7 +122,7 @@ export const getAddressBalanceMap = (
   inputs: TxInput[],
   outputs: TxOutput[],
 ): StringMap<TokenBalanceMap> => {
-  const addressBalanceMap = {};
+  const addressBalanceMap: StringMap<TokenBalanceMap> = {};
 
   for (const input of inputs) {
     if (!isDecodedValid(input.decoded)) {
@@ -132,11 +132,15 @@ export const getAddressBalanceMap = (
     }
 
     const address = input.decoded?.address;
+    /* istanbul ignore if */
+    if (!address) {
+      // This should never happen
+      throw new Error('Decoded input data has no address');
+    }
 
     // get the TokenBalanceMap from this input
     const tokenBalanceMap = TokenBalanceMap.fromTxInput(input);
     // merge it with existing TokenBalanceMap for the address
-    // @ts-ignore
     addressBalanceMap[address] = TokenBalanceMap.merge(addressBalanceMap[address], tokenBalanceMap);
   }
 
