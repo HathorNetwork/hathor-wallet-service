@@ -384,7 +384,7 @@ export class TokenBalanceMap {
       throw new Error('Output has no decoded script');
     }
     const token = output.token;
-    const value = output.value;
+    const value = BigInt(output.value);
     const obj = new TokenBalanceMap();
 
     if (output.locked) {
@@ -423,7 +423,7 @@ export class TokenBalanceMap {
         new Balance(0n, 0n, 0n, null, authorities.toNegative(), new Authorities(0)),
       );
     } else {
-      obj.set(token, new Balance(0n, -input.value, 0n, null));
+      obj.set(token, new Balance(0n, -BigInt(input.value), 0n, null));
     }
     return obj;
   }

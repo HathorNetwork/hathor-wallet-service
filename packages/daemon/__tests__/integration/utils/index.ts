@@ -79,7 +79,6 @@ export async function transitionUntilEvent(mysql: Connection, machine: Interpret
   return await new Promise<void>((resolve) => {
     machine.onTransition(async (state) => {
       if (state.matches('CONNECTED.idle')) {
-        // @ts-ignore
         const lastSyncedEvent = await getLastSyncedEvent(mysql);
         if (lastSyncedEvent?.last_event_id === eventId) {
           machine.stop();

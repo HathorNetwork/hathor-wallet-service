@@ -527,7 +527,7 @@ export const updateAddressTablesWithTx = async (
         // which means it is the "total_received" for this address
         total_received: tokenBalance.totalAmountSent,
         // if it's < 0, there must be an entry already, so it will execute "ON DUPLICATE KEY UPDATE" instead of setting it to 0
-        unlocked_balance: (tokenBalance.unlockedAmount < 0 ? 0 : tokenBalance.unlockedAmount),
+        unlocked_balance: (tokenBalance.unlockedAmount < 0n ? 0n : tokenBalance.unlockedAmount),
         // this is never less than 0, as locked balance only changes when a tx is unlocked
         locked_balance: tokenBalance.lockedAmount,
         unlocked_authorities: tokenBalance.unlockedAuthorities.toUnsignedInteger(),

@@ -158,7 +158,6 @@ export const getAddressBalanceMap = (
     const tokenBalanceMap = TokenBalanceMap.fromTxOutput(output);
 
     // merge it with existing TokenBalanceMap for the address
-    // @ts-ignore
     addressBalanceMap[address] = TokenBalanceMap.merge(addressBalanceMap[address], tokenBalanceMap);
   }
 
