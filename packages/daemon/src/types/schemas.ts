@@ -29,7 +29,7 @@ export const EventTxInputSchema = z.object({
   tx_id: Sha256HexSchema,
   index: z.number().positive(),
   spent_output: EventTxOutputSchema,
-})
+});
 
 export const FullNodeEventSchema = z.object({
   id: z.number(),
@@ -63,4 +63,13 @@ export const FullNodeEventSchema = z.object({
       height: z.number(),
     }),
   })
+});
+
+export const WsFullNodeEventSchema = z.object({
+  type: z.literal('EVENT'),
+  peer_id: z.string(),
+  network: z.string(),
+  latest_event_id: z.number(),
+  stream_id: z.string(),
+  event: FullNodeEventSchema,
 });
