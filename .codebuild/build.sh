@@ -145,6 +145,35 @@ deploy_nano_testnet() {
     fi;
 }
 
+deploy_nano_testnet_hackaton() {
+    # Deploys the releases and release-candidates to our nano-testnet-hackaton environment
+
+    # We deploy only the Lambdas here, because the daemon used in nano-testnet-hackaton is the same as
+    # the one built in the hathor-network account, since it runs there as well
+
+    echo "Building git ref ${GIT_REF_TO_DEPLOY}..."
+
+    # This will match both releases and release-candidates
+    if expr "${GIT_REF_TO_DEPLOY}" : "v.*" >/dev/null; then
+        make migrate;
+        make deploy-lambdas-nano-testnet-hackaton;
+
+        send_slack_message "New version deployed to nano-testnet-hackaton: ${GIT_REF_TO_DEPLOY}"
+    elif expr "${MANUAL_DEPLOY}" : "true" >/dev/null; then
+        make migrate;
+        make deploy-lambdas-nano-testnet-hackaton;
+
+        send_slack_message "Branch manually deployed to nano-testnet-hackaton: ${GIT_REF_TO_DEPLOY}"
+    elif expr "${ROLLBACK}" : "true" >/dev/null; then
+        make migrate;
+        make deploy-lambdas-nano-testnet-hackaton;
+
+        send_slack_message "Rollback performed on nano-tesnet-hackaton to: ${GIT_REF_TO_DEPLOY}";
+    else
+        echo "We don't deploy ${GIT_REF_TO_DEPLOY} to nano-testnet-hackaton. Nothing to do.";
+    fi;
+}
+
 deploy_ekvilibro_mainnet() {
     # Deploys the releases to our ekvilibro-mainnet environment
 
@@ -218,6 +247,9 @@ case $option in
         ;;
     nano-testnet)
         deploy_nano_testnet
+        ;;
+    nano-testnet-hackaton)
+        deploy_nano_testnet_hackaton
         ;;
     ekvilibro-testnet)
         deploy_ekvilibro_testnet
