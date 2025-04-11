@@ -70,6 +70,7 @@ describe('PushNotificationUtils', () => {
       expect.hasAssertions();
 
       // load local env
+      process.env.PUSH_NOTIFICATION_ENABLED = 'true';
       process.env.WALLET_SERVICE_LAMBDA_ENDPOINT = '';
 
       // reload module
@@ -78,7 +79,7 @@ describe('PushNotificationUtils', () => {
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
         'Lambda missing env variables',
-        'Env missing the following variables WALLET_SERVICE_LAMBDA_ENDPOINT',
+        'Invalid Firebase configuration: "walletServiceLambdaEndpoint" is not allowed to be empty',
         Severity.MINOR,
         null,
         logger,
@@ -89,6 +90,7 @@ describe('PushNotificationUtils', () => {
       expect.hasAssertions();
 
       // load local env
+      process.env.PUSH_NOTIFICATION_ENABLED = 'true';
       process.env.STAGE = '';
 
       // reload module
@@ -97,7 +99,7 @@ describe('PushNotificationUtils', () => {
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
         'Lambda missing env variables',
-        'Env missing the following variables STAGE',
+        'Invalid Firebase configuration: "stage" is not allowed to be empty',
         Severity.MINOR,
         null,
         logger,
@@ -108,6 +110,7 @@ describe('PushNotificationUtils', () => {
       expect.hasAssertions();
 
       // load local env
+      process.env.PUSH_NOTIFICATION_ENABLED = 'true';
       process.env.FIREBASE_PROJECT_ID = '';
 
       // reload module
@@ -116,7 +119,7 @@ describe('PushNotificationUtils', () => {
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
         'Lambda missing env variables',
-        'Env missing the following variables FIREBASE_PROJECT_ID',
+        'Invalid Firebase configuration: "firebaseProjectId" is not allowed to be empty',
         Severity.MINOR,
         null,
         logger,
@@ -127,6 +130,7 @@ describe('PushNotificationUtils', () => {
       expect.hasAssertions();
 
       // load local env
+      process.env.PUSH_NOTIFICATION_ENABLED = 'true';
       process.env.FIREBASE_PRIVATE_KEY_ID = '';
 
       // reload module
@@ -135,7 +139,7 @@ describe('PushNotificationUtils', () => {
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
         'Lambda missing env variables',
-        'Env missing the following variables FIREBASE_PRIVATE_KEY_ID',
+        'Invalid Firebase configuration: "firebasePrivateKeyId" is not allowed to be empty',
         Severity.MINOR,
         null,
         logger,
@@ -146,6 +150,7 @@ describe('PushNotificationUtils', () => {
       expect.hasAssertions();
 
       // load local env
+      process.env.PUSH_NOTIFICATION_ENABLED = 'true';
       process.env.FIREBASE_PRIVATE_KEY = '';
 
       // reload module
@@ -154,18 +159,18 @@ describe('PushNotificationUtils', () => {
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
         'Lambda missing env variables',
-        'Env missing the following variables FIREBASE_PRIVATE_KEY',
+        'Invalid Firebase configuration: "firebasePrivateKey" is not allowed to be empty',
         Severity.MINOR,
         null,
         logger,
       );
     });
 
-    // generate test for every comment below
     it('FIREBASE_CLIENT_EMAIL', async () => {
       expect.hasAssertions();
 
       // load local env
+      process.env.PUSH_NOTIFICATION_ENABLED = 'true';
       process.env.FIREBASE_CLIENT_EMAIL = '';
 
       // reload module
@@ -174,18 +179,18 @@ describe('PushNotificationUtils', () => {
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
         'Lambda missing env variables',
-        'Env missing the following variables FIREBASE_CLIENT_EMAIL',
+        'Invalid Firebase configuration: "firebaseClientEmail" is not allowed to be empty',
         Severity.MINOR,
         null,
         logger,
       );
     });
 
-    // FIREBASE_CLIENT_ID: 'client-id',
     it('FIREBASE_CLIENT_ID', async () => {
       expect.hasAssertions();
 
       // load local env
+      process.env.PUSH_NOTIFICATION_ENABLED = 'true';
       process.env.FIREBASE_CLIENT_ID = '';
 
       // reload module
@@ -194,18 +199,18 @@ describe('PushNotificationUtils', () => {
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
         'Lambda missing env variables',
-        'Env missing the following variables FIREBASE_CLIENT_ID',
+        'Invalid Firebase configuration: "firebaseClientId" is not allowed to be empty',
         Severity.MINOR,
         null,
         logger,
       );
     });
 
-    // FIREBASE_AUTH_URI: 'https://accounts.google.com/o/oauth2/auth',
     it('FIREBASE_AUTH_URI', async () => {
       expect.hasAssertions();
 
       // load local env
+      process.env.PUSH_NOTIFICATION_ENABLED = 'true';
       process.env.FIREBASE_AUTH_URI = '';
 
       // reload module
@@ -214,18 +219,18 @@ describe('PushNotificationUtils', () => {
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
         'Lambda missing env variables',
-        'Env missing the following variables FIREBASE_AUTH_URI',
+        'Invalid Firebase configuration: "firebaseAuthUri" is not allowed to be empty',
         Severity.MINOR,
         null,
         logger,
       );
     });
 
-    // FIREBASE_TOKEN_URI: 'https://oauth2.googleapis.com/token',
     it('FIREBASE_TOKEN_URI', async () => {
       expect.hasAssertions();
 
       // load local env
+      process.env.PUSH_NOTIFICATION_ENABLED = 'true';
       process.env.FIREBASE_TOKEN_URI = '';
 
       // reload module
@@ -234,18 +239,18 @@ describe('PushNotificationUtils', () => {
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
         'Lambda missing env variables',
-        'Env missing the following variables FIREBASE_TOKEN_URI',
+        'Invalid Firebase configuration: "firebaseTokenUri" is not allowed to be empty',
         Severity.MINOR,
         null,
         logger,
       );
     });
 
-    // FIREBASE_AUTH_PROVIDER_X509_CERT_URL: 'https://www.googleapis.com/oauth2/v1/certs',
     it('FIREBASE_AUTH_PROVIDER_X509_CERT_URL', async () => {
       expect.hasAssertions();
 
       // load local env
+      process.env.PUSH_NOTIFICATION_ENABLED = 'true';
       process.env.FIREBASE_AUTH_PROVIDER_X509_CERT_URL = '';
 
       // reload module
@@ -254,18 +259,18 @@ describe('PushNotificationUtils', () => {
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
         'Lambda missing env variables',
-        'Env missing the following variables FIREBASE_AUTH_PROVIDER_X509_CERT_URL',
+        'Invalid Firebase configuration: "firebaseAuthProviderX509CertUrl" is not allowed to be empty',
         Severity.MINOR,
         null,
         logger,
       );
     });
 
-    // FIREBASE_CLIENT_X509_CERT_URL: 'https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk.iam.gserviceaccount.com',
     it('FIREBASE_CLIENT_X509_CERT_URL', async () => {
       expect.hasAssertions();
 
       // load local env
+      process.env.PUSH_NOTIFICATION_ENABLED = 'true';
       process.env.FIREBASE_CLIENT_X509_CERT_URL = '';
 
       // reload module
@@ -274,11 +279,29 @@ describe('PushNotificationUtils', () => {
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
         'Lambda missing env variables',
-        'Env missing the following variables FIREBASE_CLIENT_X509_CERT_URL',
+        'Invalid Firebase configuration: "firebaseClientX509CertUrl" is not allowed to be empty',
         Severity.MINOR,
         null,
         logger,
       );
+    });
+
+    it('should not validate Firebase config when push notifications are disabled', async () => {
+      expect.hasAssertions();
+
+      // load local env
+      process.env.PUSH_NOTIFICATION_ENABLED = 'false';
+      process.env.FIREBASE_AUTH_URI = '';
+      process.env.FIREBASE_TOKEN_URI = '';
+      process.env.FIREBASE_AUTH_PROVIDER_X509_CERT_URL = '';
+      process.env.FIREBASE_CLIENT_X509_CERT_URL = '';
+
+      // reload module
+      jest.resetModules();
+      await import('@src/utils/pushnotification.utils');
+
+      // No alert should be raised since push notifications are disabled
+      expect(mockedAddAlert).not.toHaveBeenCalled();
     });
 
     it('FIREBASE_PRIVATE_KEY-IIFE', async () => {
