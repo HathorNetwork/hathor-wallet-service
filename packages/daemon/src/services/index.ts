@@ -619,7 +619,7 @@ export const updateLastSyncedEvent = async (context: Context) => {
     && lastDbSyncedEvent.last_event_id > lastEventId) {
     logger.error('Tried to store an event lower than the one on the database', {
       lastEventId,
-      lastDbSyncedEvent: lastDbSyncedEvent,
+      lastDbSyncedEvent: JSON.stringify(lastDbSyncedEvent),
     });
     mysql.destroy();
     throw new Error('Event lower than stored one.');
