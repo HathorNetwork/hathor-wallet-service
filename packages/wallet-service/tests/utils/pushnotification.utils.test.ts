@@ -206,18 +206,16 @@ describe('PushNotificationUtils', () => {
       expect.hasAssertions();
 
       // load local env
+      process.env.PUSH_NOTIFICATION_ENABLED = 'true';
       process.env.FIREBASE_AUTH_URI = '';
 
       // reload module
       jest.resetModules();
       await import('@src/utils/pushnotification.utils');
 
-      expect(mockedAddAlert).toHaveBeenLastCalledWith(
-        'Lambda missing env variables',
-        'Env missing the following variables FIREBASE_AUTH_URI',
-        Severity.MINOR,
-        null,
-        logger,
+      expect(logger.error).toHaveBeenLastCalledWith(
+        'Error initializing Firebase Admin SDK. ErrorMessage: Invalid Firebase configuration: "firebaseAuthUri" is required',
+        expect.any(Error)
       );
     });
 
@@ -226,18 +224,16 @@ describe('PushNotificationUtils', () => {
       expect.hasAssertions();
 
       // load local env
+      process.env.PUSH_NOTIFICATION_ENABLED = 'true';
       process.env.FIREBASE_TOKEN_URI = '';
 
       // reload module
       jest.resetModules();
       await import('@src/utils/pushnotification.utils');
 
-      expect(mockedAddAlert).toHaveBeenLastCalledWith(
-        'Lambda missing env variables',
-        'Env missing the following variables FIREBASE_TOKEN_URI',
-        Severity.MINOR,
-        null,
-        logger,
+      expect(logger.error).toHaveBeenLastCalledWith(
+        'Error initializing Firebase Admin SDK. ErrorMessage: Invalid Firebase configuration: "firebaseTokenUri" is required',
+        expect.any(Error)
       );
     });
 
@@ -246,18 +242,16 @@ describe('PushNotificationUtils', () => {
       expect.hasAssertions();
 
       // load local env
+      process.env.PUSH_NOTIFICATION_ENABLED = 'true';
       process.env.FIREBASE_AUTH_PROVIDER_X509_CERT_URL = '';
 
       // reload module
       jest.resetModules();
       await import('@src/utils/pushnotification.utils');
 
-      expect(mockedAddAlert).toHaveBeenLastCalledWith(
-        'Lambda missing env variables',
-        'Env missing the following variables FIREBASE_AUTH_PROVIDER_X509_CERT_URL',
-        Severity.MINOR,
-        null,
-        logger,
+      expect(logger.error).toHaveBeenLastCalledWith(
+        'Error initializing Firebase Admin SDK. ErrorMessage: Invalid Firebase configuration: "firebaseAuthProviderX509CertUrl" is required',
+        expect.any(Error)
       );
     });
 
@@ -266,19 +260,35 @@ describe('PushNotificationUtils', () => {
       expect.hasAssertions();
 
       // load local env
+      process.env.PUSH_NOTIFICATION_ENABLED = 'true';
       process.env.FIREBASE_CLIENT_X509_CERT_URL = '';
 
       // reload module
       jest.resetModules();
       await import('@src/utils/pushnotification.utils');
 
-      expect(mockedAddAlert).toHaveBeenLastCalledWith(
-        'Lambda missing env variables',
-        'Env missing the following variables FIREBASE_CLIENT_X509_CERT_URL',
-        Severity.MINOR,
-        null,
-        logger,
+      expect(logger.error).toHaveBeenLastCalledWith(
+        'Error initializing Firebase Admin SDK. ErrorMessage: Invalid Firebase configuration: "firebaseClientX509CertUrl" is required',
+        expect.any(Error)
       );
+    });
+
+    it('should not validate Firebase config when push notifications are disabled', async () => {
+      expect.hasAssertions();
+
+      // load local env
+      process.env.PUSH_NOTIFICATION_ENABLED = 'false';
+      process.env.FIREBASE_AUTH_URI = '';
+      process.env.FIREBASE_TOKEN_URI = '';
+      process.env.FIREBASE_AUTH_PROVIDER_X509_CERT_URL = '';
+      process.env.FIREBASE_CLIENT_X509_CERT_URL = '';
+
+      // reload module
+      jest.resetModules();
+      await import('@src/utils/pushnotification.utils');
+
+      // No error should be logged since push notifications are disabled
+      expect(logger.error).not.toHaveBeenCalled();
     });
 
     it('FIREBASE_PRIVATE_KEY-IIFE', async () => {
