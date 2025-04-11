@@ -11,7 +11,7 @@ import { get } from 'lodash';
 import logger from '../logger';
 import { getFullnodeWsUrl } from '../utils';
 import { bigIntUtils } from '@hathor/wallet-lib';
-import { WsFullNodeEventSchema } from '../types/schemas';
+import { FullNodeEventSchema } from '../types/schemas';
 
 const PING_TIMEOUT = 30000; // 30s timeout
 const PING_INTERVAL = 5000; // Will ping every 5s
@@ -74,17 +74,16 @@ export default (callback: any, receive: any) => {
     const type = get(event, 'event.type');
 
     logger.debug(`Received ${type}: ${get(event, 'event.id')} from socket.`, event);
-    console.debug(`Event: ${socketEvent.data.toString()}`);
 
     if (!type) {
       logger.error(bigIntUtils.JSONBigInt.stringify(event));
       throw new Error('Received an event with no defined type');
     }
 
-    const parseResult = WsFullNodeEventSchema.safeParse(event)
-    console.debug(`Parse result: ${parseResult}`);
+    const parseResult = FullNodeEventSchema.safeParse(event?.event);
     if (parseResult.success) {
-      event = parseResult.data;
+      // Found a valid transaction, we need to use the parsed data to convert values if needed.
+      event.event = parseResult.data;
     }
 
     callback({

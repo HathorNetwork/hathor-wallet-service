@@ -965,30 +965,30 @@ describe('address and wallet related tests', () => {
 
     expect(addressBalances[0].address).toStrictEqual('addr1');
     expect(addressBalances[0].tokenId).toStrictEqual('token1');
-    expect(addressBalances[0].unlockedBalance).toStrictEqual(2);
-    expect(addressBalances[0].lockedBalance).toStrictEqual(0);
+    expect(addressBalances[0].unlockedBalance).toStrictEqual(2n);
+    expect(addressBalances[0].lockedBalance).toStrictEqual(0n);
     expect(addressBalances[1].address).toStrictEqual('addr1');
     expect(addressBalances[1].tokenId).toStrictEqual('token2');
-    expect(addressBalances[1].unlockedBalance).toStrictEqual(1);
-    expect(addressBalances[1].lockedBalance).toStrictEqual(4);
+    expect(addressBalances[1].unlockedBalance).toStrictEqual(1n);
+    expect(addressBalances[1].lockedBalance).toStrictEqual(4n);
 
     expect(addressBalances[2].address).toStrictEqual('addr2');
     expect(addressBalances[2].tokenId).toStrictEqual('token1');
-    expect(addressBalances[2].unlockedBalance).toStrictEqual(5);
-    expect(addressBalances[2].lockedBalance).toStrictEqual(2);
+    expect(addressBalances[2].unlockedBalance).toStrictEqual(5n);
+    expect(addressBalances[2].lockedBalance).toStrictEqual(2n);
     expect(addressBalances[3].address).toStrictEqual('addr2');
     expect(addressBalances[3].tokenId).toStrictEqual('token2');
-    expect(addressBalances[3].unlockedBalance).toStrictEqual(0);
-    expect(addressBalances[3].lockedBalance).toStrictEqual(2);
+    expect(addressBalances[3].unlockedBalance).toStrictEqual(0n);
+    expect(addressBalances[3].lockedBalance).toStrictEqual(2n);
 
     expect(addressBalances[4].address).toStrictEqual('addr3');
     expect(addressBalances[4].tokenId).toStrictEqual('token1');
-    expect(addressBalances[4].unlockedBalance).toStrictEqual(0);
-    expect(addressBalances[4].lockedBalance).toStrictEqual(1);
+    expect(addressBalances[4].unlockedBalance).toStrictEqual(0n);
+    expect(addressBalances[4].lockedBalance).toStrictEqual(1n);
     expect(addressBalances[5].address).toStrictEqual('addr3');
     expect(addressBalances[5].tokenId).toStrictEqual('token2');
-    expect(addressBalances[5].unlockedBalance).toStrictEqual(10);
-    expect(addressBalances[5].lockedBalance).toStrictEqual(1);
+    expect(addressBalances[5].unlockedBalance).toStrictEqual(10n);
+    expect(addressBalances[5].lockedBalance).toStrictEqual(1n);
   });
 
   test('fetchAddressTxHistorySum', async () => {
@@ -1018,8 +1018,8 @@ describe('address and wallet related tests', () => {
 
     const history = await fetchAddressTxHistorySum(mysql, [addr1, addr2]);
 
-    expect(history[0].balance).toStrictEqual(60);
-    expect(history[1].balance).toStrictEqual(50);
+    expect(history[0].balance).toStrictEqual(60n);
+    expect(history[1].balance).toStrictEqual(50n);
   });
 });
 

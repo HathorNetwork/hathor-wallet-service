@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import hathorLib, { constants, Output, walletUtils, addressUtils } from '@hathor/wallet-lib';
+import hathorLib, { constants, Output, walletUtils, addressUtils, bigIntUtils } from '@hathor/wallet-lib';
 import { Connection as MysqlConnection } from 'mysql2/promise';
 import { strict as assert } from 'assert';
 import {
@@ -376,7 +376,7 @@ export const validateAddressBalances = async (mysql: MysqlConnection, addresses:
   const addressBalances: AddressBalance[] = await fetchAddressBalance(mysql, addresses);
   const addressTxHistorySums: AddressTotalBalance[] = await fetchAddressTxHistorySum(mysql, addresses);
 
-  logger.debug(`Validating address balances for ${JSON.stringify(addresses)}`);
+  logger.debug(`Validating address balances for ${bigIntUtils.JSONBigInt.stringify(addresses)}`);
 
   /* We need to filter out zero transactions address balances as we won't have
    * any records in the address_tx_history table and the assertion ahead will

@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import hathorLib from '@hathor/wallet-lib';
+import hathorLib, { bigIntUtils } from '@hathor/wallet-lib';
 import { Connection as MysqlConnection } from 'mysql2/promise';
 import axios from 'axios';
 import { get } from 'lodash';
@@ -619,7 +619,7 @@ export const updateLastSyncedEvent = async (context: Context) => {
     && lastDbSyncedEvent.last_event_id > lastEventId) {
     logger.error('Tried to store an event lower than the one on the database', {
       lastEventId,
-      lastDbSyncedEvent: JSON.stringify(lastDbSyncedEvent),
+      lastDbSyncedEvent: bigIntUtils.JSONBigInt.stringify(lastDbSyncedEvent),
     });
     mysql.destroy();
     throw new Error('Event lower than stored one.');
