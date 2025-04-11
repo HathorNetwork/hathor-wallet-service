@@ -6,7 +6,7 @@
  */
 
 import 'source-map-support/register';
-import hathorLib from '@hathor/wallet-lib';
+import hathorLib, { bigIntUtils } from '@hathor/wallet-lib';
 
 import { ApiError } from '@src/api/errors';
 import { closeDbAndGetError, warmupMiddleware } from '@src/api/utils';
@@ -85,7 +85,7 @@ export const get = middy(walletIdProxyHandler(async (walletId, event) => {
 
   return {
     statusCode: 200,
-    body: JSON.stringify({ success: true, history, skip, count }),
+    body: bigIntUtils.JSONBigInt.stringify({ success: true, history, skip, count }),
   };
 })).use(cors())
   .use(warmupMiddleware())

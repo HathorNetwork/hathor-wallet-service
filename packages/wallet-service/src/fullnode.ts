@@ -6,7 +6,6 @@
  */
 
 import axios from 'axios';
-import Joi from 'joi';
 import config from '@src/config';
 import { FullNodeApiVersionResponse } from '@src/types';
 import { FullnodeVersionSchema } from '@src/schemas';

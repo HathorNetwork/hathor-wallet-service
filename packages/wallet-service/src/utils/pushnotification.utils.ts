@@ -14,6 +14,7 @@ import createDefaultLogger from '@src/logger';
 import config from '@src/config';
 import { assertEnvVariablesExistence } from '@wallet-service/common/src/utils/index.utils';
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
+import { bigIntUtils } from '@hathor/wallet-lib';
 
 const logger = createDefaultLogger();
 
@@ -243,7 +244,7 @@ export class PushNotificationUtils {
     const command = new InvokeCommand({
       FunctionName: SEND_NOTIFICATION_FUNCTION_NAME,
       InvocationType: 'Event',
-      Payload: JSON.stringify(notification),
+      Payload: bigIntUtils.JSONBigInt.stringify(notification),
     });
 
     const response: InvokeCommandOutput = await client.send(command);
@@ -279,7 +280,7 @@ export class PushNotificationUtils {
     const command = new InvokeCommand({
       FunctionName: ON_TX_PUSH_NOTIFICATION_REQUESTED_FUNCTION_NAME,
       InvocationType: 'Event',
-      Payload: JSON.stringify(walletBalanceValueMap),
+      Payload: bigIntUtils.JSONBigInt.stringify(walletBalanceValueMap),
     });
 
     const response: InvokeCommandOutput = await client.send(command);

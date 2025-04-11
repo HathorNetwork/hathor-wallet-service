@@ -50,7 +50,7 @@ export interface TxInput {
   // eslint-disable-next-line camelcase
   tx_id: string;
   index: number;
-  value: number;
+  value: bigint;
   // eslint-disable-next-line camelcase
   token_data: number;
   script: string;
@@ -59,7 +59,7 @@ export interface TxInput {
 }
 
 export interface TxOutput {
-  value: number;
+  value: bigint;
   script: string;
   token: string;
   decoded: DecodedOutput;
@@ -88,12 +88,12 @@ export class Authorities {
 
   array: number[];
 
-  constructor(authorities?: number | number[]) {
+  constructor(authorities?: bigint | number | number[]) {
     let tmp: number[] = [];
     if (authorities instanceof Array) {
       tmp = authorities;
     } else if (authorities != null) {
-      tmp = Authorities.intToArray(authorities);
+      tmp = Authorities.intToArray(Number(authorities));
     }
 
     this.array = new Array(Authorities.LENGTH - tmp.length).fill(0).concat(tmp);
@@ -190,7 +190,8 @@ export class Authorities {
   }
 
   toJSON(): Record<string, unknown> {
-    const authorities = this.toInteger();
+    // TOKEN_MINT_MASK and TOKEN_MELT_MASK are bigint (since they come from the output amount)
+    const authorities = BigInt(this.toInteger());
     return {
       mint: (authorities & constants.TOKEN_MINT_MASK) > 0, // eslint-disable-line no-bitwise
       melt: (authorities & constants.TOKEN_MELT_MASK) > 0, // eslint-disable-line no-bitwise
@@ -199,19 +200,26 @@ export class Authorities {
 }
 
 export class Balance {
-  totalAmountSent: number;
+  totalAmountSent: bigint;
 
-  lockedAmount: number;
+  lockedAmount: bigint;
 
-  unlockedAmount: number;
+  unlockedAmount: bigint;
 
   lockedAuthorities: Authorities;
 
   unlockedAuthorities: Authorities;
 
-  lockExpires: number | null | undefined;
+  lockExpires: number | null;
 
-  constructor(totalAmountSent = 0, unlockedAmount = 0, lockedAmount = 0, lockExpires = null, unlockedAuthorities = null, lockedAuthorities = null) {
+  constructor(
+    totalAmountSent = 0n,
+    unlockedAmount = 0n,
+    lockedAmount = 0n,
+    lockExpires: number|null = null,
+    unlockedAuthorities: Authorities|null = null,
+    lockedAuthorities: Authorities|null = null
+  ) {
     this.totalAmountSent = totalAmountSent;
     this.unlockedAmount = unlockedAmount;
     this.lockedAmount = lockedAmount;
@@ -225,7 +233,7 @@ export class Balance {
    *
    * @returns The total balance
    */
-  total(): number {
+  total(): bigint {
     return this.unlockedAmount + this.lockedAmount;
   }
 
@@ -248,7 +256,6 @@ export class Balance {
       this.totalAmountSent,
       this.unlockedAmount,
       this.lockedAmount,
-      // @ts-ignore
       this.lockExpires,
       this.unlockedAuthorities.clone(),
       this.lockedAuthorities.clone(),
@@ -272,14 +279,12 @@ export class Balance {
     } else if (b2.lockExpires === null) {
       lockExpires = b1.lockExpires;
     } else {
-      // @ts-ignore
       lockExpires = Math.min(b1.lockExpires, b2.lockExpires);
     }
     return new Balance(
       b1.totalAmountSent + b2.totalAmountSent,
       b1.unlockedAmount + b2.unlockedAmount,
       b1.lockedAmount + b2.lockedAmount,
-      // @ts-ignore
       lockExpires,
       Authorities.merge(b1.unlockedAuthorities, b2.unlockedAuthorities),
       Authorities.merge(b1.lockedAuthorities, b2.lockedAuthorities),
@@ -296,7 +301,7 @@ export class TokenBalanceMap {
 
   get(tokenId: string): Balance {
     // if the token is not present, return 0 instead of undefined
-    return this.map[tokenId] || new Balance(0, 0, 0);
+    return this.map[tokenId] || new Balance(0n, 0n, 0n);
   }
 
   set(tokenId: string, balance: Balance): void {
@@ -335,17 +340,16 @@ export class TokenBalanceMap {
    * @param tokenBalanceMap - The js object to convert to a TokenBalanceMap
    * @returns - The new TokenBalanceMap object
    */
-  static fromStringMap(tokenBalanceMap: StringMap<StringMap<number | Authorities>>): TokenBalanceMap {
+  static fromStringMap(tokenBalanceMap: StringMap<StringMap<bigint | number | Authorities>>): TokenBalanceMap {
     const obj = new TokenBalanceMap();
     for (const [tokenId, balance] of Object.entries(tokenBalanceMap)) {
       obj.set(tokenId, new Balance(
-        balance.totalSent as number,
-        balance.unlocked as number,
-        balance.locked as number,
-        // @ts-ignore
-        balance.lockExpires || null,
-        balance.unlockedAuthorities,
-        balance.lockedAuthorities,
+        balance.totalSent as bigint,
+        balance.unlocked as bigint,
+        balance.locked as bigint,
+        balance.lockExpires as number || null,
+        balance.unlockedAuthorities as Authorities,
+        balance.lockedAuthorities as Authorities,
       ));
     }
     return obj;
@@ -380,22 +384,19 @@ export class TokenBalanceMap {
       throw new Error('Output has no decoded script');
     }
     const token = output.token;
-    const value = output.value;
+    const value = BigInt(output.value);
     const obj = new TokenBalanceMap();
 
     if (output.locked) {
       if (isAuthority(output.token_data)) {
-        // @ts-ignore
-        obj.set(token, new Balance(0, 0, 0, output.decoded.timelock, 0, new Authorities(output.value)));
+        obj.set(token, new Balance(0n, 0n, 0n, output.decoded.timelock, new Authorities(0), new Authorities(output.value)));
       } else {
-        // @ts-ignore
-        obj.set(token, new Balance(value, 0, value, output.decoded.timelock, 0, 0));
+        obj.set(token, new Balance(value, 0n, value, output.decoded.timelock, new Authorities(0), new Authorities(0)));
       }
     } else if (isAuthority(output.token_data)) {
-      // @ts-ignore
-      obj.set(token, new Balance(0, 0, 0, null, new Authorities(output.value), 0));
+      obj.set(token, new Balance(0n, 0n, 0n, null, new Authorities(output.value), new Authorities(0)));
     } else {
-      obj.set(token, new Balance(value, value, 0, null));
+      obj.set(token, new Balance(value, value, 0n, null));
     }
 
     return obj;
@@ -419,18 +420,10 @@ export class TokenBalanceMap {
       const authorities = new Authorities(input.value);
       obj.set(
         token,
-        new Balance(
-          0,
-          0,
-          0,
-          null,
-          // @ts-ignore
-          authorities.toNegative(),
-          new Authorities(0),
-        ),
+        new Balance(0n, 0n, 0n, null, authorities.toNegative(), new Authorities(0)),
       );
     } else {
-      obj.set(token, new Balance(0, -input.value, 0, null));
+      obj.set(token, new Balance(0n, -BigInt(input.value), 0n, null));
     }
     return obj;
   }

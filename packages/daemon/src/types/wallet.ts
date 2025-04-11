@@ -27,13 +27,13 @@ export interface Wallet {
 export type TokenBalanceValue = {
   tokenId: string,
   tokenSymbol: string,
-  totalAmountSent: number;
-  lockedAmount: number;
-  unlockedAmount: number;
+  totalAmountSent: bigint;
+  lockedAmount: bigint;
+  unlockedAmount: bigint;
   lockedAuthorities: Record<string, unknown>;
   unlockedAuthorities: Record<string, unknown>;
   lockExpires: number | null;
-  total: number;
+  total: bigint;
 }
 
 export interface WalletBalanceValue {

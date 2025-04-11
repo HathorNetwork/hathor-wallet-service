@@ -15,7 +15,7 @@
           inherit (packages) nodePackages;
         in
         {
-          nodejs = final.nodejs_20;
+          nodejs = final.nodejs_22;
           nodePackages = prev.nodePackages;
           yarn = (import unstableNixPkgs { system = final.system; }).yarn-berry;
         };
@@ -34,7 +34,7 @@
         devShell = pkgs.devshell.mkShell {
           packages = with pkgs; [
             nixpkgs-fmt
-            nodejs_20
+            nodejs_22
             yarn
             docker-compose
           ];

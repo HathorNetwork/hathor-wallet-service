@@ -1,4 +1,4 @@
-import { Context, Event, FullNodeEventTypes, FullNodeEvent, StandardFullNodeEvent } from '../../src/types';
+import { Context, Event, FullNodeEventTypes, StandardFullNodeEvent } from '../../src/types';
 import {
   metadataIgnore,
   metadataVoided,
