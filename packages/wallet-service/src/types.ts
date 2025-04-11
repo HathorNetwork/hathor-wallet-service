@@ -114,11 +114,11 @@ export interface FullNodeApiVersionResponse {
   reward_spend_min_blocks: number;
   max_number_inputs: number;
   max_number_outputs: number;
-  decimal_places: number;
+  decimal_places?: number;
   genesis_block_hash: string,
-  genesis_tx1_hash: string,
-  genesis_tx2_hash: string,
-  native_token: { name: string, symbol: string};
+  genesis_tx1_hash?: string,
+  genesis_tx2_hash?: string,
+  native_token?: { name: string, symbol: string};
 }
 
 export interface TxProposal {

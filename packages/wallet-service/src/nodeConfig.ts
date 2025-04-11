@@ -10,6 +10,7 @@ import { ServerlessMysql } from 'serverless-mysql';
 import { getVersionData, updateVersionData } from '@src/db';
 import { FullNodeVersionData, FullNodeApiVersionResponse } from '@src/types';
 import fullnode from '@src/fullnode';
+import { constants } from '@hathor/wallet-lib';
 
 const VERSION_CHECK_MAX_DIFF = 60 * 60; // 1 hour
 
@@ -48,9 +49,9 @@ export function convertApiVersionData(data: FullNodeApiVersionResponse): FullNod
     rewardSpendMinBlocks: data.reward_spend_min_blocks,
     maxNumberInputs: data.max_number_inputs,
     maxNumberOutputs: data.max_number_outputs,
-    decimalPlaces: data.decimal_places,
-    nativeTokenName: data.native_token.name,
-    nativeTokenSymbol: data.native_token.symbol,
+    decimalPlaces: data.decimal_places ?? constants.DECIMAL_PLACES,
+    nativeTokenName: data.native_token?.name ?? constants.DEFAULT_NATIVE_TOKEN_CONFIG.name,
+    nativeTokenSymbol: data.native_token?.symbol ?? constants.DEFAULT_NATIVE_TOKEN_CONFIG.symbol,
   };
 }
 
