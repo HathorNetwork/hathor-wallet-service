@@ -108,7 +108,14 @@ if (isPushNotificationEnabled()) {
     // Validate Firebase config when push notifications are enabled
     const { error } = FirebaseConfigSchema.validate(config);
     if (error) {
-      throw new Error(`Invalid Firebase configuration: ${error.message}`);
+      addAlert(
+        'Lambda missing env variables',
+        `Invalid Firebase configuration: ${error.message}`,
+        Severity.MINOR,
+        null,
+        logger,
+      );
+      throw error;
     }
     
     const serviceAccount = {
