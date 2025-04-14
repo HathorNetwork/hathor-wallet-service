@@ -10,8 +10,8 @@ import { convertApiVersionData, getRawFullnodeData } from '@src/nodeConfig';
 const mysql = getDbConnection();
 
 const VERSION_DATA: FullNodeApiVersionResponse = {
-  version: "0.63.1",
-  network: "mainnet",
+  version: '0.63.1',
+  network: 'mainnet',
   min_weight: 14,
   min_tx_weight: 14,
   min_tx_weight_coefficient: 1.6,
@@ -21,18 +21,18 @@ const VERSION_DATA: FullNodeApiVersionResponse = {
   max_number_inputs: 255,
   max_number_outputs: 255,
   decimal_places: 2,
-  genesis_block_hash: "000006cb93385b8b87a545a1cbb6197e6caff600c12cc12fc54250d39c8088fc",
-  genesis_tx1_hash: "0002d4d2a15def7604688e1878ab681142a7b155cbe52a6b4e031250ae96db0a",
-  genesis_tx2_hash: "0002ad8d1519daaddc8e1a37b14aac0b045129c01832281fb1c02d873c7abbf9",
+  genesis_block_hash: '000006cb93385b8b87a545a1cbb6197e6caff600c12cc12fc54250d39c8088fc',
+  genesis_tx1_hash: '0002d4d2a15def7604688e1878ab681142a7b155cbe52a6b4e031250ae96db0a',
+  genesis_tx2_hash: '0002ad8d1519daaddc8e1a37b14aac0b045129c01832281fb1c02d873c7abbf9',
   native_token: {
-    name: "Hathor-new",
-    symbol: "nHTR"
+    name: 'Hathor-new',
+    symbol: 'nHTR'
   }
 };
 
 const OLD_VERSION_DATA: FullNodeApiVersionResponse = {
-  version: "0.63.1",
-  network: "mainnet",
+  version: '0.63.1',
+  network: 'mainnet',
   min_weight: 14,
   min_tx_weight: 14,
   min_tx_weight_coefficient: 1.6,
@@ -72,8 +72,8 @@ test('convertApiVersionData', async () => {
     maxNumberInputs: OLD_VERSION_DATA.max_number_inputs,
     maxNumberOutputs: OLD_VERSION_DATA.max_number_outputs,
     decimalPlaces: 2,
-    nativeTokenName: "Hathor",
-    nativeTokenSymbol: "HTR",
+    nativeTokenName: 'Hathor',
+    nativeTokenSymbol: 'HTR',
   });
 
   expect(convertApiVersionData(VERSION_DATA)).toStrictEqual({
