@@ -56,7 +56,7 @@ test('getRawFullnodeData', async () => {
   const now = getUnixTimestamp();
   await addToVersionDataTable(mysql, now, VERSION_DATA);
 
-  await expect(() => getRawFullnodeData(mysql)).resolves.toStrictEqual(VERSION_DATA);
+  await expect(getRawFullnodeData(mysql)).resolves.toStrictEqual(VERSION_DATA);
 });
 
 test('convertApiVersionData', async () => {
