@@ -12,37 +12,23 @@ import fcmAdmin, { credential, messaging, ServiceAccount } from 'firebase-admin'
 import { MulticastMessage } from 'firebase-admin/messaging';
 import createDefaultLogger from '@src/logger';
 import config from '@src/config';
-import { assertEnvVariablesExistence } from '@wallet-service/common/src/utils/index.utils';
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
+import { EnvironmentConfigSchema } from '@src/schemas';
 
 const logger = createDefaultLogger();
 
-try {
-  assertEnvVariablesExistence([
-    'WALLET_SERVICE_LAMBDA_ENDPOINT',
-    'STAGE',
-    'FIREBASE_PROJECT_ID',
-    'FIREBASE_PRIVATE_KEY_ID',
-    'FIREBASE_PRIVATE_KEY',
-    'FIREBASE_CLIENT_EMAIL',
-    'FIREBASE_CLIENT_ID',
-    'FIREBASE_AUTH_URI',
-    'FIREBASE_TOKEN_URI',
-    'FIREBASE_AUTH_PROVIDER_X509_CERT_URL',
-    'FIREBASE_CLIENT_X509_CERT_URL',
-    'AWS_REGION',
-  ]);
-} catch (e) {
-  logger.error(e);
-
-  addAlert(
-    'Lambda missing env variables',
-    e.message, // This should contain the list of env variables that are missing
-    Severity.MINOR,
-    null,
-    logger,
-  );
-}
+// Extend the base schema to make Firebase fields required
+const FirebaseConfigSchema = EnvironmentConfigSchema.fork([
+  'firebaseProjectId',
+  'firebasePrivateKeyId',
+  'firebaseClientEmail',
+  'firebaseClientId',
+  'firebaseAuthUri',
+  'firebaseTokenUri',
+  'firebaseAuthProviderX509CertUrl',
+  'firebaseClientX509CertUrl',
+  'firebasePrivateKey',
+], (schema) => schema.required());
 
 export function buildFunctionName(functionName: string): string {
   return `hathor-wallet-service-${config.stage}-${functionName}`;
@@ -116,22 +102,35 @@ export const isPushProviderAllowed = (provider: string): boolean => PUSH_ALLOWED
 // XXX: PUSH_NOTIFICATION_ENABLED already is a boolean, this became an identity function
 export const isPushNotificationEnabled = (): boolean => PUSH_NOTIFICATION_ENABLED;
 
-const serviceAccount = {
-  type: 'service_account',
-  project_id: FIREBASE_PROJECT_ID,
-  private_key_id: FIREBASE_PRIVATE_KEY_ID,
-  private_key: FIREBASE_PRIVATE_KEY,
-  client_email: FIREBASE_CLIENT_EMAIL,
-  client_id: FIREBASE_CLIENT_ID,
-  auth_uri: FIREBASE_AUTH_URI,
-  token_uri: FIREBASE_TOKEN_URI,
-  auth_provider_x509_cert_url: FIREBASE_AUTH_PROVIDER_X509_CERT_URL,
-  client_x509_cert_url: FIREBASE_CLIENT_X509_CERT_URL,
-};
-
 let firebaseInitialized = false;
 if (isPushNotificationEnabled()) {
   try {
+    // Validate Firebase config when push notifications are enabled
+    const { error } = FirebaseConfigSchema.validate(config);
+    if (error) {
+      addAlert(
+        'Lambda missing env variables',
+        `Invalid Firebase configuration: ${error.message}`,
+        Severity.MINOR,
+        null,
+        logger,
+      );
+      throw error;
+    }
+    
+    const serviceAccount = {
+      type: 'service_account',
+      project_id: FIREBASE_PROJECT_ID,
+      private_key_id: FIREBASE_PRIVATE_KEY_ID,
+      private_key: FIREBASE_PRIVATE_KEY,
+      client_email: FIREBASE_CLIENT_EMAIL,
+      client_id: FIREBASE_CLIENT_ID,
+      auth_uri: FIREBASE_AUTH_URI,
+      token_uri: FIREBASE_TOKEN_URI,
+      auth_provider_x509_cert_url: FIREBASE_AUTH_PROVIDER_X509_CERT_URL,
+      client_x509_cert_url: FIREBASE_CLIENT_X509_CERT_URL,
+    };
+
     fcmAdmin.initializeApp({
       credential: credential.cert(serviceAccount as ServiceAccount),
       projectId: FIREBASE_PROJECT_ID,
