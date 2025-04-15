@@ -14,6 +14,7 @@ import { closeDbConnection, getDbConnection, getUnixTimestamp } from '@src/utils
 import { closeDbAndGetError } from '@src/api/utils';
 import middy from '@middy/core';
 import cors from '@middy/http-cors';
+import errorHandler from '@src/api/middlewares/errorHandler';
 
 const mysql = getDbConnection();
 
@@ -67,4 +68,5 @@ export const destroy: APIGatewayProxyHandler = middy(walletIdProxyHandler(async 
       txProposalId,
     }),
   };
-})).use(cors());
+})).use(cors())
+  .use(errorHandler());
