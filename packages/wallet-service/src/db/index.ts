@@ -1875,18 +1875,12 @@ export const releaseTxProposalUtxos = async (
   mysql: ServerlessMysql,
   txProposalIds: string[],
 ): Promise<void> => {
-  const result: OkPacket = await mysql.query(
+  await mysql.query(
     `UPDATE \`tx_output\`
         SET \`tx_proposal\` = NULL,
             \`tx_proposal_index\` = NULL
       WHERE \`tx_proposal\` IN (?)`,
     [txProposalIds],
-  );
-
-  assert.strictEqual(
-    result.affectedRows,
-    txProposalIds.length,
-    'Not all utxos were correctly updated',
   );
 };
 
