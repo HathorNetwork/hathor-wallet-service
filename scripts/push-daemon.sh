@@ -1,6 +1,11 @@
 set -e
 set -o pipefail
 
+if [ -z "$ACCOUNT_ID" ]; then
+    echo "Please export a ACCOUNT_ID env var before running this";
+    exit 1;
+fi
+
 DOCKER_IMAGE_TAG=$(cat /tmp/docker_image_tag)
 
 if [ -z "$DOCKER_IMAGE_TAG" ]; then
