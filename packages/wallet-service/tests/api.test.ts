@@ -60,6 +60,7 @@ import {
 import fullnode from '@src/fullnode';
 import { getHealthcheck } from '@src/api/healthcheck';
 import { Severity } from '@wallet-service/common';
+import { convertApiVersionData } from '@src/nodeConfig';
 
 // Monkey patch bitcore-lib
 
@@ -1682,9 +1683,11 @@ test('GET /version', async () => {
     genesis_tx2_hash: 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
     native_token: { name: 'Hathor', symbol: 'HTR'},
   };
+  const returnData = convertApiVersionData(mockData);
 
   const ts = getUnixTimestamp()
   await updateVersionData(mysql, ts, mockData);
+
 
   const event = makeGatewayEvent({});
   const result = await getVersionDataGet(event, null, null) as APIGatewayProxyResult;
@@ -1692,7 +1695,10 @@ test('GET /version', async () => {
 
   expect(result.statusCode).toBe(200);
   expect(returnBody.success).toBe(true);
-  expect(returnBody.data).toStrictEqual(mockData);
+  expect(returnBody.data).toEqual(expect.objectContaining({
+    timestamp: expect.anything(),
+    ...returnData,
+  }));
 });
 
 test('GET /wallet/proxy/transactions/{txId}', async () => {
