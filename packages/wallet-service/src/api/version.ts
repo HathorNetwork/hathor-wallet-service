@@ -11,9 +11,10 @@ import 'source-map-support/register';
 import {
   closeDbConnection,
   getDbConnection,
+  getUnixTimestamp,
 } from '@src/utils';
 import { warmupMiddleware } from '@src/api/utils';
-import { getRawFullnodeData } from '@src/nodeConfig'
+import { getFullnodeData } from '@src/nodeConfig'
 import errorHandler from '@src/api/middlewares/errorHandler';
 import middy from '@middy/core';
 import cors from '@middy/http-cors';
@@ -26,7 +27,7 @@ const mysql = getDbConnection();
  * This lambda is called by API Gateway on GET /version
  */
 export const get: APIGatewayProxyHandler = middy(async () => {
-  const versionData = await getRawFullnodeData(mysql);
+  const versionData = await getFullnodeData(mysql);
 
   await closeDbConnection(mysql);
 
@@ -34,7 +35,10 @@ export const get: APIGatewayProxyHandler = middy(async () => {
     statusCode: 200,
     body: JSON.stringify({
       success: true,
-      data: versionData,
+      data: {
+        ...versionData,
+        timestamp: getUnixTimestamp(),
+      },
     }),
   };
 }).use(cors())
