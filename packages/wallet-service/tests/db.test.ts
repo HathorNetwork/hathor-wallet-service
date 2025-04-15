@@ -1602,8 +1602,6 @@ test('createTxProposal, updateTxProposal, getTxProposal, countUnsentTxProposals,
     weight: 0,
   }]);
 
-  expect(txOutputs.map((txOutput) => txOutput.txProposalId)).toStrictEqual([txProposalId1, txProposalId2, txProposalId3]);
-
   // Check that txProposalId is null after releasing
   txOutputs.forEach((txOutput) => {
     expect(txOutput.txProposalId).toBeNull();
