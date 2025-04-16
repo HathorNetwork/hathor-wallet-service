@@ -235,5 +235,4 @@ export const bearerAuthorizer: APIGatewayTokenAuthorizerHandler = middy(async (e
   }
 
   return _generatePolicy(walletId, 'Deny', event.methodArn, logger);
-}).use(cors())
-  .use(errorHandler());
+}).use(cors());

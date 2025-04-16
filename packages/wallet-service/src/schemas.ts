@@ -8,6 +8,8 @@
 import Joi from 'joi';
 import { FullNodeApiVersionResponse, EnvironmentConfig } from '@src/types';
 
+export const Sha256Schema = Joi.string().hex().length(64);
+
 export const FullnodeVersionSchema = Joi.object<FullNodeApiVersionResponse>({
   version: Joi.string().min(1).required(),
   network: Joi.string().min(1).required(),
@@ -20,9 +22,9 @@ export const FullnodeVersionSchema = Joi.object<FullNodeApiVersionResponse>({
   max_number_inputs: Joi.number().integer().positive().required(),
   max_number_outputs: Joi.number().integer().positive().required(),
   decimal_places: Joi.number().integer().positive(),
-  genesis_block_hash: Joi.string().min(1).required(),
-  genesis_tx1_hash: Joi.string().hex().length(64).required(),
-  genesis_tx2_hash: Joi.string().hex().length(64).required(),
+  genesis_block_hash: Sha256Schema,
+  genesis_tx1_hash: Sha256Schema,
+  genesis_tx2_hash: Sha256Schema,
   native_token: Joi.object({
     name: Joi.string().min(1).max(30).required(),
     symbol: Joi.string().min(1).max(5).required(),
@@ -54,15 +56,15 @@ export const EnvironmentConfigSchema = Joi.object<EnvironmentConfig>({
   healthCheckMaximumHeightDifference: Joi.number().required(),
   awsRegion: Joi.string().required(),
 
-  firebaseProjectId: Joi.string().required(),
-  firebasePrivateKeyId: Joi.string().required(),
-  firebaseClientEmail: Joi.string().required(),
-  firebaseClientId: Joi.string().required(),
-  firebaseAuthUri: Joi.string().required(),
-  firebaseTokenUri: Joi.string().required(),
-  firebaseAuthProviderX509CertUrl: Joi.string().required(),
-  firebaseClientX509CertUrl: Joi.string().required(),
-  firebasePrivateKey: Joi.string().allow(null).required(),
+  firebaseProjectId: Joi.string().optional(),
+  firebasePrivateKeyId: Joi.string().optional(),
+  firebaseClientEmail: Joi.string().optional(),
+  firebaseClientId: Joi.string().optional(),
+  firebaseAuthUri: Joi.string().optional(),
+  firebaseTokenUri: Joi.string().optional(),
+  firebaseAuthProviderX509CertUrl: Joi.string().optional(),
+  firebaseClientX509CertUrl: Joi.string().optional(),
+  firebasePrivateKey: Joi.string().allow(null).optional(),
 
   maxLoadWalletRetries: Joi.number().required(),
   logLevel: Joi.string().required(),

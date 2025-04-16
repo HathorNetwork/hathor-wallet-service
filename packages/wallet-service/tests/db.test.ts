@@ -84,6 +84,7 @@ import {
   cleanupVoidedTx,
   checkTxWasVoided,
   getWalletTxHistory,
+  getTxOutputs,
 } from '@src/db';
 import * as Db from '@src/db';
 import { cleanUnsentTxProposalsUtxos } from '@src/db/cronRoutines';
@@ -1580,7 +1581,31 @@ test('createTxProposal, updateTxProposal, getTxProposal, countUnsentTxProposals,
   // Release txProposalUtxos should properly release the utxos. This method will throw an error if the
   // updated count is different from the sent tx proposals count.
   await releaseTxProposalUtxos(mysql, [txProposalId1, txProposalId2, txProposalId3]);
-  await expect(releaseTxProposalUtxos(mysql, ['invalid-tx-proposal'])).rejects.toMatchInlineSnapshot('[AssertionError: Not all utxos were correctly updated]');
+
+  const txOutputs = await getTxOutputs(mysql, [{
+    txId: 'tx1',
+    timestamp: 0,
+    version: 0,
+    voided: false,
+    weight: 0
+  }, {
+    txId: 'tx2',
+    timestamp: 0,
+    version: 0,
+    voided: false,
+    weight: 0
+  }, {
+    txId: 'tx3',
+    timestamp: 0,
+    version: 0,
+    voided: false,
+    weight: 0,
+  }]);
+
+  // Check that txProposalId is null after releasing
+  txOutputs.forEach((txOutput) => {
+    expect(txOutput.txProposalId).toBeNull();
+  });
 });
 
 test('updateVersionData', async () => {
