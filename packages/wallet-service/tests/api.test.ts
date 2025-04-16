@@ -2292,6 +2292,16 @@ test('GET /addresses (query string index parameter)', async () => {
   expect(result.statusCode).toBe(200);
   expect(returnBody.success).toBe(true);
   expect(returnBody.addresses).toHaveLength(2);
+  expect(returnBody.addresses).toContainEqual({
+    address: addresses[0].address,
+    index: addresses[0].index,
+    transactions: addresses[0].transactions,
+  });
+  expect(returnBody.addresses).toContainEqual({
+    address: addresses[1].address,
+    index: addresses[1].index,
+    transactions: addresses[1].transactions,
+  });
 
   // 2. index as a string (should return the address at that index)
   event = makeGatewayEventWithAuthorizer('my-wallet', { index: '1' });
