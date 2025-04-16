@@ -53,3 +53,15 @@ AWS_SECRET_ACCESS_KEY="..."
 ```
 
 These are used for communicating with the alert SQS
+
+## Reseeding the HTR Token After Database Reset
+
+If you need to reset the database (for example, to re-sync it from scratch), you must re-insert the HTR token into the `token` table. This is handled by a seed script that will automatically calculate the correct transaction count for HTR based on the current state of the database.
+
+To run the seed and add the HTR token again, use the following command:
+
+```
+yarn dlx sequelize-cli db:seed:all
+```
+
+This will ensure the HTR token is present and its transaction count is accurate, even if the database already contains transactions for HTR.
