@@ -65,3 +65,38 @@ yarn dlx sequelize-cli db:seed:all
 ```
 
 This will ensure the HTR token is present and its transaction count is accurate, even if the database already contains transactions for HTR.
+
+## Database Cleanup
+
+If you need to re-sync the database from scratch, you must stop the daemon and clean all database tables before starting the sync process again. This ensures there is no leftover data that could cause inconsistencies.
+
+Below is a SQL script you can use to clean up (truncate) all tables in the database. This script disables foreign key checks, truncates all tables, and then re-enables foreign key checks. **Be careful: this will delete all data in the database.**
+
+```
+SET FOREIGN_KEY_CHECKS = 0;
+
+TRUNCATE TABLE address_balance;
+TRUNCATE TABLE address_tx_history;
+TRUNCATE TABLE address;
+TRUNCATE TABLE miner;
+TRUNCATE TABLE push_devices;
+TRUNCATE TABLE sync_metadata;
+TRUNCATE TABLE token;
+TRUNCATE TABLE transaction;
+TRUNCATE TABLE tx_output;
+TRUNCATE TABLE tx_proposal;
+TRUNCATE TABLE wallet;
+TRUNCATE TABLE wallet_balance;
+TRUNCATE TABLE wallet_tx_history;
+TRUNCATE TABLE version_data;
+
+SET FOREIGN_KEY_CHECKS = 1;
+```
+
+To use this script, save it as `cleanup.sql` and run:
+
+```
+mysql -u <user> -p <database> < cleanup.sql
+```
+
+After cleaning the database, you can reseed the HTR token as described in the previous section.
