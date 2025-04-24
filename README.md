@@ -58,6 +58,19 @@ These are used for communicating with the alert SQS
 
 If you need to reset the database (for example, to re-sync it from scratch), you must re-insert the HTR token into the `token` table. This is handled by a seed script that will automatically calculate the correct transaction count for HTR based on the current state of the database.
 
+To run the seed and add the HTR token again, you must have a `.env` file in your project root with all required environment variables set. At a minimum, you should include:
+
+```
+NODE_ENV=production
+DB_ENDPOINT=
+DB_NAME=
+DB_USER=
+DB_PORT=
+DB_PASS=
+```
+
+Adjust the values as needed for your environment. For production, ensure `NODE_ENV=production` is set.
+
 To run the seed and add the HTR token again, use the following command:
 
 ```
