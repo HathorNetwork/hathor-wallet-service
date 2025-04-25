@@ -140,6 +140,6 @@ export const getHealthcheck: APIGatewayProxyHandler = middy(async (event) => {
 
   return {
     statusCode: response.getHttpStatusCode(),
-    body: response.toJson(),
+    body: JSON.stringify(JSON.parse(response.toJson())),
   };
 }).use(errorHandler());
