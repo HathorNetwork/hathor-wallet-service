@@ -189,7 +189,7 @@ test('GET /addresses', async () => {
   expect(result.statusCode).toBe(STATUS_CODE_TABLE[ApiError.INVALID_PAYLOAD]);
   expect(returnBody.details).toHaveLength(1);
   expect(returnBody.details[0].message.trim())
-    .toMatchInlineSnapshot(`"index" must be greater than or equal to 0`);
+    .toMatchInlineSnapshot(`""index" must be greater than or equal to 0"`);
 
   // we should be able to filter for a specific index
   event = makeGatewayEventWithAuthorizer('my-wallet', {
