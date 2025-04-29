@@ -426,7 +426,7 @@ export const getWalletAddressDetail = async (mysql: ServerlessMysql, walletId: s
       FROM \`address\`
      WHERE \`wallet_id\` = ?
          AND \`address\` = ?`,
-  [walletId, address]);
+    [walletId, address]);
 
   if (results.length > 0) {
     const data = results[0];
@@ -1160,12 +1160,12 @@ export const updateAddressLockedBalance = async (
                 \`unlocked_authorities\` = (unlocked_authorities | ?)
           WHERE \`address\` = ?
             AND \`token_id\` = ?`, [
-          tokenBalance.unlockedAmount,
-          tokenBalance.unlockedAmount,
-          tokenBalance.unlockedAuthorities.toInteger(),
-          address,
-          token,
-        ],
+        tokenBalance.unlockedAmount,
+        tokenBalance.unlockedAmount,
+        tokenBalance.unlockedAuthorities.toInteger(),
+        address,
+        token,
+      ],
       );
 
       // if any authority has been unlocked, we have to refresh the locked authorities
@@ -1201,7 +1201,7 @@ export const updateAddressLockedBalance = async (
              )
            WHERE \`address\` = ?
              AND \`token_id\` = ?`,
-        [address, token, address, token]);
+          [address, token, address, token]);
       }
     }
   }
@@ -1233,7 +1233,7 @@ export const updateWalletLockedBalance = async (
           WHERE \`wallet_id\` = ?
             AND \`token_id\` = ?`,
         [tokenBalance.unlockedAmount, tokenBalance.unlockedAmount,
-          tokenBalance.unlockedAuthorities.toInteger(), walletId, token],
+        tokenBalance.unlockedAuthorities.toInteger(), walletId, token],
       );
 
       // if any authority has been unlocked, we have to refresh the locked authorities
@@ -1418,7 +1418,7 @@ export const getWalletTokens = async (
   );
 
   for (const result of results) {
-    tokenList.push(<string> result.token_id);
+    tokenList.push(<string>result.token_id);
   }
 
   return tokenList;
@@ -1464,7 +1464,7 @@ LEFT OUTER JOIN transaction ON transaction.tx_id = wallet_tx_history.tx_id
   ORDER BY wallet_tx_history.timestamp
       DESC
      LIMIT ?, ?`,
-  [walletId, tokenId, skip, count]);
+    [walletId, tokenId, skip, count]);
 
   for (const result of results) {
     const tx: TxTokenBalance = {
@@ -2074,7 +2074,7 @@ export const markUtxosAsVoided = async (
     UPDATE \`tx_output\`
        SET \`voided\` = TRUE
      WHERE \`tx_id\` IN (?)`,
-  [txIds]);
+    [txIds]);
 };
 
 /**
@@ -2812,7 +2812,7 @@ export const existsPushDevice = async (
   mysql: ServerlessMysql,
   deviceId: string,
   walletId: string,
-) : Promise<boolean> => {
+): Promise<boolean> => {
   const [{ count }] = await mysql.query(
     `
     SELECT COUNT(1) as \`count\`
@@ -2820,7 +2820,7 @@ export const existsPushDevice = async (
      WHERE device_id = ?
        AND wallet_id = ?`,
     [deviceId, walletId],
-  ) as unknown as Array<{count}>;
+  ) as unknown as Array<{ count }>;
 
   return count > 0;
 };
@@ -2840,7 +2840,7 @@ export const registerPushDevice = async (
     enablePush: boolean,
     enableShowAmounts: boolean,
   },
-) : Promise<void> => {
+): Promise<void> => {
   await mysql.query(
     `
     INSERT
@@ -2889,7 +2889,7 @@ export const updatePushDevice = async (
     enablePush: boolean,
     enableShowAmounts: boolean,
   },
-) : Promise<void> => {
+): Promise<void> => {
   await mysql.query(
     `
     UPDATE \`push_devices\`
@@ -2912,7 +2912,7 @@ export const unregisterPushDevice = async (
   mysql: ServerlessMysql,
   deviceId: string,
   walletId?: string,
-) : Promise<void> => {
+): Promise<void> => {
   if (walletId) {
     await mysql.query(
       `
@@ -2964,8 +2964,8 @@ export const getTransactionById = async (
         WHERE transaction.tx_id = ?
           AND transaction.voided = FALSE
           AND wallet_tx_history.wallet_id = ?`,
-  // eslint-disable-next-line camelcase
-  [txId, walletId]) as Array<{tx_id, timestamp, version, voided, weight, balance, token_id, name, symbol }>;
+    // eslint-disable-next-line camelcase
+    [txId, walletId]) as Array<{ tx_id, timestamp, version, voided, weight, balance, token_id, name, symbol }>;
 
   const txTokens = [];
   result.forEach((eachTxToken) => {
@@ -2995,7 +2995,7 @@ export const getTransactionById = async (
 export const existsWallet = async (
   mysql: ServerlessMysql,
   walletId: string,
-) : Promise<boolean> => {
+): Promise<boolean> => {
   const [{ count }] = (await mysql.query(
     `
     SELECT COUNT(1) as \`count\`
@@ -3016,15 +3016,15 @@ export const existsWallet = async (
 export const getPushDevice = async (
   mysql: ServerlessMysql,
   deviceId: string,
-) : Promise<PushDevice|null> => {
+): Promise<PushDevice | null> => {
   const [pushDevice] = await mysql.query(
     `
     SELECT *
       FROM \`push_devices\`
      WHERE device_id = ?`,
     [deviceId],
-  // eslint-disable-next-line camelcase
-  ) as Array<{wallet_id, device_id, push_provider, enable_push, enable_show_amounts}>;
+    // eslint-disable-next-line camelcase
+  ) as Array<{ wallet_id, device_id, push_provider, enable_push, enable_show_amounts }>;
 
   if (!pushDevice) {
     return null;
@@ -3049,7 +3049,7 @@ export const getPushDevice = async (
 export const getPushDeviceSettingsList = async (
   mysql: ServerlessMysql,
   walletIdList: string[],
-) : Promise<PushDeviceSettings[]> => {
+): Promise<PushDeviceSettings[]> => {
   const pushDeviceSettingsResult = await mysql.query(
     `
     SELECT wallet_id
@@ -3059,8 +3059,8 @@ export const getPushDeviceSettingsList = async (
       FROM \`push_devices\`
      WHERE wallet_id in (?)`,
     [walletIdList],
-  // eslint-disable-next-line camelcase
-  ) as Array<{wallet_id, device_id, enable_push, enable_show_amounts}>;
+    // eslint-disable-next-line camelcase
+  ) as Array<{ wallet_id, device_id, enable_push, enable_show_amounts }>;
 
   const pushDeviceSettignsList = pushDeviceSettingsResult.map((each) => ({
     walletId: each.wallet_id,
@@ -3121,7 +3121,7 @@ export const getTokenSymbols = async (
   );
 
   if (results.length === 0) return null;
-  return results.reduce((prev: Record<string, string>, token: { id: string, symbol: string}) => {
+  return results.reduce((prev: Record<string, string>, token: { id: string, symbol: string }) => {
     // eslint-disable-next-line no-param-reassign
     prev[token.id] = token.symbol;
     return prev;
@@ -3176,7 +3176,7 @@ export const getAddressAtIndex = async (
      WHERE \`index\` = ?
        AND \`wallet_id\` = ?
      LIMIT 1`,
-    [walletId, index],
+    [index, walletId],
   );
 
   if (addresses.length <= 0) {
