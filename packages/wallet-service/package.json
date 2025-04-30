@@ -6,7 +6,7 @@
     "lint": "eslint src/ tests/ --ext .js,.jsx,.ts,.tsx src tests",
     "lint-fix": "eslint src/ tests/ --fix --ext .js,.jsx,.ts,.tsx src tests",
     "check-types": "tsc --noemit --skipLibCheck",
-    "test": "jest -u"
+    "test": "jest"
   },
   "author": "Hathor Labs",
   "license": "MIT",
