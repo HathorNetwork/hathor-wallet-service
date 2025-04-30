@@ -188,8 +188,8 @@ test('GET /addresses', async () => {
 
   expect(result.statusCode).toBe(STATUS_CODE_TABLE[ApiError.INVALID_PAYLOAD]);
   expect(returnBody.details).toHaveLength(1);
-  expect(returnBody.details[0].message)
-    .toMatchInlineSnapshot('"\"index\" must be greater than or equal to 0"');
+  expect(returnBody.details[0].message.trim())
+    .toMatchInlineSnapshot(`""index" must be greater than or equal to 0"`);
 
   // we should be able to filter for a specific index
   event = makeGatewayEventWithAuthorizer('my-wallet', {
@@ -1681,7 +1681,7 @@ test('GET /version', async () => {
     genesis_block_hash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     genesis_tx1_hash: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
     genesis_tx2_hash: 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
-    native_token: { name: 'Hathor', symbol: 'HTR'},
+    native_token: { name: 'Hathor', symbol: 'HTR' },
   };
   const returnData = convertApiVersionData(mockData);
 
@@ -2263,4 +2263,87 @@ describe('GET /health', () => {
       }
     });
   });
+});
+
+test('GET /addresses (query string index parameter)', async () => {
+  expect.hasAssertions();
+
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+
+  const addresses = [
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0 },
+  ];
+
+  await addToAddressTable(mysql, addresses);
+
+  // 1. No index parameter (should return all addresses)
+  let event = makeGatewayEventWithAuthorizer('my-wallet', null);
+  let result = await addressesGet(event, null, null) as APIGatewayProxyResult;
+  let returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+  expect(returnBody.addresses).toHaveLength(2);
+  expect(returnBody.addresses).toContainEqual({
+    address: addresses[0].address,
+    index: addresses[0].index,
+    transactions: addresses[0].transactions,
+  });
+  expect(returnBody.addresses).toContainEqual({
+    address: addresses[1].address,
+    index: addresses[1].index,
+    transactions: addresses[1].transactions,
+  });
+
+  // 2. index as a string (should return the address at that index)
+  event = makeGatewayEventWithAuthorizer('my-wallet', { index: '1' });
+  result = await addressesGet(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+  expect(returnBody.addresses).toHaveLength(1);
+  expect(returnBody.addresses[0].index).toBe(1);
+
+  // 3. index as a number (should return the address at that index)
+  event = makeGatewayEventWithAuthorizer('my-wallet', { index: '0' });
+  result = await addressesGet(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+  expect(returnBody.addresses).toHaveLength(1);
+  expect(returnBody.addresses[0].index).toBe(0);
+
+  // 4. index is invalid (non-numeric)
+  event = makeGatewayEventWithAuthorizer('my-wallet', { index: 'not-a-number' });
+  result = await addressesGet(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(400);
+  expect(returnBody.success).toBe(false);
+  expect(returnBody.error).toBe(ApiError.INVALID_PAYLOAD);
+  expect(returnBody.details[0].message).toMatch(/must be a number/);
+
+  // 5. index is negative (should error)
+  event = makeGatewayEventWithAuthorizer('my-wallet', { index: '-1' });
+  result = await addressesGet(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(400);
+  expect(returnBody.success).toBe(false);
+  expect(returnBody.error).toBe(ApiError.INVALID_PAYLOAD);
+  expect(returnBody.details[0].message).toMatch(/greater than or equal to 0/);
+
+  // 6. index not found (should return ADDRESS_NOT_FOUND)
+  event = makeGatewayEventWithAuthorizer('my-wallet', { index: '999' });
+  result = await addressesGet(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(404);
+  expect(returnBody.success).toBe(false);
+  expect(returnBody.error).toBe(ApiError.ADDRESS_NOT_FOUND);
 });
