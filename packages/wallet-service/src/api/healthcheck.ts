@@ -1,11 +1,11 @@
 import middy from '@middy/core';
 import {
-    Healthcheck,
-    HealthcheckInternalComponent,
-    HealthcheckDatastoreComponent,
-    HealthcheckHTTPComponent,
-    HealthcheckCallbackResponse,
-    HealthcheckStatus,
+  Healthcheck,
+  HealthcheckInternalComponent,
+  HealthcheckDatastoreComponent,
+  HealthcheckHTTPComponent,
+  HealthcheckCallbackResponse,
+  HealthcheckStatus,
 } from '@hathor/healthcheck-lib';
 import { getLatestHeight } from '@src/db';
 import fullnode from '@src/fullnode';
@@ -140,6 +140,6 @@ export const getHealthcheck: APIGatewayProxyHandler = middy(async (event) => {
 
   return {
     statusCode: response.getHttpStatusCode(),
-    body: JSON.stringify(JSON.parse(response.toJson())),
+    body: response.toJson(),
   };
 }).use(errorHandler());
