@@ -493,6 +493,7 @@ type Token = {
   tokenSymbol: string;
   tokenName: string;
   transactions: number;
+  tokenVersion: number | null;
 }
 
 export const checkTokenTable = async (
@@ -518,7 +519,8 @@ export const checkTokenTable = async (
     SELECT id AS tokenId,
            symbol AS tokenSymbol,
            name AS tokenName,
-           transactions
+           transactions,
+           version as tokenVersion
       FROM \`token\`
      WHERE \`id\` IN (?)
   `;
@@ -743,10 +745,11 @@ export const addToTokenTable = async (
     entry.name,
     entry.symbol,
     entry.transactions,
+    entry.version
   ]));
 
   await mysql.query(
-    'INSERT INTO `token`(`id`, `name`, `symbol`, `transactions`) VALUES ?',
+    'INSERT INTO `token`(`id`, `name`, `symbol`, `transactions`, `version`) VALUES ?',
     [payload],
   );
 };

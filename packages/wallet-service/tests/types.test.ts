@@ -1,4 +1,5 @@
-import { Authorities, Balance, TokenBalanceMap } from '@src/types';
+import { NATIVE_TOKEN_UID } from '@hathor/wallet-lib/lib/constants';
+import { Authorities, Balance, TokenBalanceMap, TokenInfo, TokenInfoVersion } from '@src/types';
 import { DecodedOutput, TxInput, TxOutput } from '@wallet-service/common/src/types';
 
 test('Authorities', () => {
@@ -153,3 +154,16 @@ test('TokenBalanceMap fromTxOutput fromTxInput', () => {
   txOutput.locked = true;
   expect(TokenBalanceMap.fromTxOutput(txOutput)).toStrictEqual(TokenBalanceMap.fromStringMap({ '00': { totalSent: 200, locked: txOutput.value, unlocked: 0, lockExpires: timelock } }));
 });
+
+test('TokenInfo', () => {
+   expect.hasAssertions();
+
+   const htr = new TokenInfo({ id: NATIVE_TOKEN_UID, name: "Hathor" ,symbol: 'HTR' })
+   expect(htr.version).toBeNull();
+
+   const token1 = new TokenInfo({ id: 'Token1', name: "MyToken1" ,symbol: 'TK1' })
+   expect(token1.version).toBe(TokenInfoVersion.DEPOSIT);
+   
+   const token2 = new TokenInfo({ id: 'Token2', name: "MyToken2" ,symbol: 'TK2', version: TokenInfoVersion.FEE })
+   expect(token2.version).toBe(TokenInfoVersion.FEE);
+})

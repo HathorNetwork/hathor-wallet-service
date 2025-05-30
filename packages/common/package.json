@@ -5,6 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc --declaration",
+    "check-types": "tsc --noemit --skipLibCheck",
     "test": "jest --runInBand --collectCoverage --detectOpenHandles --forceExit"
   },
   "peerDependencies": {

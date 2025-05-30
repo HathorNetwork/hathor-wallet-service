@@ -85,6 +85,7 @@ export type StandardFullNodeEvent = FullNodeEventBase & {
       tokens: string[];
       token_name: null | string;
       token_symbol: null | string;
+      token_info_version: null | number;
       signal_bits: number;
       metadata: {
         hash: string;

@@ -7,7 +7,7 @@ import {
   buildWallet,
 } from '@tests/utils';
 import { handleRequest, pushNotificationMessage } from '@src/api/txPushNotificationRequested';
-import { StringMap, WalletBalanceValue, PushProvider, SendNotificationToDevice } from '@src/types';
+import { StringMap, WalletBalanceValue, PushProvider, SendNotificationToDevice, TokenInfoVersion } from '@src/types';
 import { PushNotificationUtils } from '@src/utils/pushnotification.utils';
 import { registerPushDevice, storeTokenInformation } from '@src/db';
 import { Context } from 'aws-lambda';
@@ -28,6 +28,7 @@ const buildEvent = (walletId, txId, walletBalanceForTx?): StringMap<WalletBalanc
       {
         tokenId: 'token2',
         tokenSymbol: 'T2',
+        tokenVersion: TokenInfoVersion.DEPOSIT,
         lockExpires: null,
         lockedAmount: 0,
         lockedAuthorities: {
@@ -45,6 +46,7 @@ const buildEvent = (walletId, txId, walletBalanceForTx?): StringMap<WalletBalanc
       {
         tokenId: 'token1',
         tokenSymbol: 'T1',
+        tokenVersion: TokenInfoVersion.DEPOSIT,
         lockExpires: null,
         lockedAmount: 0,
         lockedAuthorities: {
@@ -89,7 +91,7 @@ describe('success', () => {
       enableShowAmounts: false,
     };
 
-    await storeTokenInformation(mysql, 'token1', 'token1', 'T1');
+    await storeTokenInformation(mysql, 'token1', 'token1', 'T1', TokenInfoVersion.DEPOSIT);
 
     await registerPushDevice(mysql, pushDevice);
 
@@ -141,8 +143,8 @@ describe('success', () => {
       enableShowAmounts: false,
     };
 
-    await storeTokenInformation(mysql, 'token1', 'token1', 'T1');
-    await storeTokenInformation(mysql, 'token2', 'token2', 'T2');
+    await storeTokenInformation(mysql, 'token1', 'token1', 'T1', TokenInfoVersion.DEPOSIT);
+    await storeTokenInformation(mysql, 'token2', 'token2', 'T2', TokenInfoVersion.DEPOSIT);
 
     await registerPushDevice(mysql, pushDevice);
 
@@ -228,7 +230,7 @@ describe('success', () => {
     };
     await registerPushDevice(mysql, pushDevice);
 
-    await storeTokenInformation(mysql, 'token2', 'token2', 'T2');
+    await storeTokenInformation(mysql, 'token2', 'token2', 'T2', TokenInfoVersion.DEPOSIT);
 
     const sendEvent = buildEvent(walletId, txId, [
       {
@@ -274,10 +276,10 @@ describe('success', () => {
         enableShowAmounts: true,
       };
       await registerPushDevice(mysql, pushDevice);
-      await storeTokenInformation(mysql, 'token1', 'token1', 'T1');
-      await storeTokenInformation(mysql, 'token2', 'token2', 'T2');
-      await storeTokenInformation(mysql, 'token3', 'token3', 'T3');
-      await storeTokenInformation(mysql, 'token4', 'token4', 'T4');
+      await storeTokenInformation(mysql, 'token1', 'token1', 'T1', TokenInfoVersion.DEPOSIT);
+      await storeTokenInformation(mysql, 'token2', 'token2', 'T2', TokenInfoVersion.DEPOSIT);
+      await storeTokenInformation(mysql, 'token3', 'token3', 'T3', TokenInfoVersion.DEPOSIT);
+      await storeTokenInformation(mysql, 'token4', 'token4', 'T4', TokenInfoVersion.DEPOSIT);
     });
 
     it('token balance with 1 token', async () => {

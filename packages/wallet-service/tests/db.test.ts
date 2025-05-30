@@ -105,6 +105,7 @@ import {
   PushProvider,
   Block,
   FullNodeApiVersionResponse,
+  TokenInfoVersion,
 } from '@src/types';
 import { Severity } from '@wallet-service/common/src/types';
 import { isAuthority } from '@wallet-service/common/src/utils/wallet.utils';
@@ -929,8 +930,16 @@ test('getWalletAddressDetail', async () => {
 test('getWalletBalances', async () => {
   expect.hasAssertions();
   const walletId = 'walletId';
-  const token1 = new TokenInfo('token1', 'MyToken1', 'MT1');
-  const token2 = new TokenInfo('token2', 'MyToken2', 'MT2');
+  const token1 = new TokenInfo({
+    id: 'token1', 
+    name: 'MyToken1', 
+    symbol: 'MT1'
+  });
+  const token2 = new TokenInfo({
+    id: 'token2', 
+    name: 'MyToken2', 
+    symbol: 'MT2'
+  });
   const now = 1000;
   // add some balances into db
 
@@ -1254,8 +1263,10 @@ test('storeTokenInformation and getTokenInformation', async () => {
 
   expect(await getTokenInformation(mysql, 'invalid')).toBeNull();
 
-  const info = new TokenInfo('tokenId', 'tokenName', 'TKNS');
-  storeTokenInformation(mysql, info.id, info.name, info.symbol);
+  const info = new TokenInfo({
+    id: 'tokenId', name: 'tokenName', symbol: 'TKNS'
+  });
+  storeTokenInformation(mysql, info.id, info.name, info.symbol, info.version);
 
   expect(info).toStrictEqual(await getTokenInformation(mysql, info.id));
 });
@@ -1263,8 +1274,10 @@ test('storeTokenInformation and getTokenInformation', async () => {
 test('validateTokenTimestamps', async () => {
   expect.hasAssertions();
 
-  const info = new TokenInfo('tokenId', 'tokenName', 'TKNS');
-  storeTokenInformation(mysql, info.id, info.name, info.symbol);
+  const info = new TokenInfo({
+    id: 'tokenId', name: 'tokenName', symbol: 'TKNS'
+  });
+  storeTokenInformation(mysql, info.id, info.name, info.symbol, info.version);
   let result = await mysql.query('SELECT * FROM `token` WHERE `id` = ?', [info.id]);
 
   expect(result[0].created_at).toStrictEqual(result[0].updated_at);
@@ -2025,7 +2038,7 @@ test('rebuildAddressBalancesFromUtxos', async () => {
 
   // add to the token table
   await addToTokenTable(mysql, [
-    { id: token1, name: 'token1', symbol: 'TKN1', transactions: 2 },
+    { id: token1, name: 'token1', symbol: 'TKN1', version: TokenInfoVersion.DEPOSIT, transactions: 2 },
   ]);
 
   await expect(checkTokenTable(mysql, 1, [{
@@ -2033,6 +2046,7 @@ test('rebuildAddressBalancesFromUtxos', async () => {
     tokenSymbol: 'TKN1',
     tokenName: 'token1',
     transactions: 2,
+    tokenVersion: TokenInfoVersion.DEPOSIT,
   }])).resolves.toBe(true);
 
   // We are only using the txList parameter on `transactions` recalculation, so our balance
@@ -2063,6 +2077,7 @@ test('rebuildAddressBalancesFromUtxos', async () => {
     tokenSymbol: 'TKN1',
     tokenName: 'token1',
     transactions: 0,
+    tokenVersion: TokenInfoVersion.DEPOSIT
   }])).resolves.toBe(true);
 });
 
@@ -2756,14 +2771,26 @@ test('getAffectedAddressTxCountFromTxList', async () => {
 test('incrementTokensTxCount', async () => {
   expect.hasAssertions();
 
-  const htr = new TokenInfo('00', 'Hathor', 'HTR', 5);
-  const token1 = new TokenInfo('token1', 'MyToken1', 'MT1', 10);
-  const token2 = new TokenInfo('token2', 'MyToken2', 'MT2', 15);
+  const htr = new TokenInfo({
+    id: '00', name: 'Hathor', symbol: 'HTR', transactions: 5
+  })
+  const token1 = new TokenInfo({
+    id: 'token1', name: 'MyToken1', symbol: 'MT1', transactions: 10
+  });
+  const token2 = new TokenInfo({
+    id: 'token2', name: 'MyToken2', symbol: 'MT2', transactions: 15, version: TokenInfoVersion.FEE
+  });
 
   await addToTokenTable(mysql, [
-    { id: htr.id, name: htr.name, symbol: htr.symbol, transactions: htr.transactions },
-    { id: token1.id, name: token1.name, symbol: token1.symbol, transactions: token1.transactions },
-    { id: token2.id, name: token2.name, symbol: token2.symbol, transactions: token2.transactions },
+    { id: htr.id, name: htr.name, symbol: htr.symbol, transactions: htr.transactions, version: htr.version },
+    { id: token1.id, name: token1.name, symbol: token1.symbol, transactions: token1.transactions, version: token1.version },
+    { 
+      id: token2.id,
+      name: token2.name, 
+      symbol: token2.symbol, 
+      transactions: token2.transactions, 
+      version: token2.version,
+    },
   ]);
 
   await incrementTokensTxCount(mysql, ['token1', '00', 'token2']);
@@ -2773,16 +2800,19 @@ test('incrementTokensTxCount', async () => {
     tokenSymbol: token1.symbol,
     tokenName: token1.name,
     transactions: token1.transactions + 1,
+    tokenVersion: token1.version,
   }, {
     tokenId: token2.id,
     tokenSymbol: token2.symbol,
     tokenName: token2.name,
     transactions: token2.transactions + 1,
+    tokenVersion: token2.version
   }, {
     tokenId: htr.id,
     tokenSymbol: htr.symbol,
     tokenName: htr.name,
     transactions: htr.transactions + 1,
+    tokenVersion: htr.version
   }])).resolves.toBe(true);
 });
 
@@ -3445,21 +3475,20 @@ describe('getPushDeviceSettingsList', () => {
   });
 });
 
+const generateMockTokens = (qty: number = 5) => new Array(qty).fill(0).map((_, i) => new TokenInfo({
+  id: `token${i + 1}`,
+  name: `tokenName${i + 1}`,
+  symbol: `TKN${i + 1}`,
+}))
 describe('getTokenSymbols', () => {
   it('should return a map of token symbol by token id', async () => {
     expect.hasAssertions();
 
-    const tokensToPersist = [
-      new TokenInfo('token1', 'tokenName1', 'TKN1'),
-      new TokenInfo('token2', 'tokenName2', 'TKN2'),
-      new TokenInfo('token3', 'tokenName3', 'TKN3'),
-      new TokenInfo('token4', 'tokenName4', 'TKN4'),
-      new TokenInfo('token5', 'tokenName5', 'TKN5'),
-    ];
+    const tokensToPersist = generateMockTokens();
 
     // persist tokens
     for (const eachToken of tokensToPersist) {
-      await storeTokenInformation(mysql, eachToken.id, eachToken.name, eachToken.symbol);
+      await storeTokenInformation(mysql, eachToken.id, eachToken.name, eachToken.symbol, eachToken.version);
     }
 
     const tokenIdList = tokensToPersist.map((each: TokenInfo) => each.id);
@@ -3477,13 +3506,7 @@ describe('getTokenSymbols', () => {
   it('should return null when no token is found', async () => {
     expect.hasAssertions();
 
-    const tokensToPersist = [
-      new TokenInfo('token1', 'tokenName1', 'TKN1'),
-      new TokenInfo('token2', 'tokenName2', 'TKN2'),
-      new TokenInfo('token3', 'tokenName3', 'TKN3'),
-      new TokenInfo('token4', 'tokenName4', 'TKN4'),
-      new TokenInfo('token5', 'tokenName5', 'TKN5'),
-    ];
+    const tokensToPersist = generateMockTokens();
 
     // no token persistence
 

@@ -196,6 +196,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       tokens,
       token_name,
       token_symbol,
+      token_info_version,
       parents,
     } = fullNodeData;
 
@@ -258,7 +259,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       if (!token_name || !token_symbol) {
         throw new Error('Processed a token creation event but it did not come with token name and symbol');
       }
-      await storeTokenInformation(mysql, hash, token_name, token_symbol);
+      await storeTokenInformation(mysql, hash, token_name, token_symbol, token_info_version);
     }
 
     // check if any of the inputs are still marked as locked and update tables accordingly.

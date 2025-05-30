@@ -39,6 +39,7 @@ import {
   TxByIdToken,
   PushDeviceSettings,
   FullNodeApiVersionResponse,
+  TokenInfoVersion,
 } from '@src/types';
 import {
   getUnixTimestamp,
@@ -1375,7 +1376,8 @@ export const getWalletBalances = async (mysql: ServerlessMysql, walletId: string
            w.transactions AS transactions,
            w.token_id AS token_id,
            token.name AS name,
-           token.symbol AS symbol
+           token.symbol AS symbol,
+           token.version AS version
       FROM (${subquery}) w
 INNER JOIN token ON w.token_id = token.id
   `;
@@ -1389,12 +1391,25 @@ INNER JOIN token ON w.token_id = token.id
     const lockedAuthorities = new Authorities(result.locked_authorities as number);
     const timelockExpires = result.timelock_expires as number;
 
-    const balance = new WalletTokenBalance(
-      new TokenInfo(result.token_id as string, result.name as string, result.symbol as string),
-      new Balance(totalAmount, unlockedBalance, lockedBalance, timelockExpires, unlockedAuthorities, lockedAuthorities),
+    const tokenInfo = new TokenInfo({
+      id: result.token_id as string, 
+      name: result.name as string, 
+      symbol: result.symbol as string, 
+      version: result.version as TokenInfoVersion
+    });
+    const balance = new Balance(
+      totalAmount, 
+      unlockedBalance, 
+      lockedBalance, 
+      timelockExpires, 
+      unlockedAuthorities, 
+    lockedAuthorities);
+    const walletBalance = new WalletTokenBalance(
+      tokenInfo,
+      balance,
       result.transactions as number,
     );
-    balances.push(balance);
+    balances.push(walletBalance);
   }
 
   return balances;
@@ -1724,8 +1739,9 @@ export const storeTokenInformation = async (
   tokenId: string,
   tokenName: string,
   tokenSymbol: string,
+  tokenVersion: number | null
 ): Promise<void> => {
-  const entry = { id: tokenId, name: tokenName, symbol: tokenSymbol };
+  const entry = { id: tokenId, name: tokenName, symbol: tokenSymbol, version: tokenVersion };
   await mysql.query(
     'INSERT INTO `token` SET ?',
     [entry],
@@ -1748,7 +1764,12 @@ export const getTokenInformation = async (
     [tokenId],
   );
   if (results.length === 0) return null;
-  return new TokenInfo(tokenId, results[0].name as string, results[0].symbol as string);
+  return new TokenInfo({
+    id: tokenId,
+    name: results[0].name as string,
+    symbol: results[0].symbol as string,
+    version: results[0].version as (TokenInfoVersion | null)
+  })
 };
 
 /**

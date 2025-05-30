@@ -39,6 +39,7 @@ export interface TokenTableEntry {
   name: string;
   symbol: string;
   transactions: number;
+  version?: number | null;
 }
 
 export interface WalletTableEntry {
