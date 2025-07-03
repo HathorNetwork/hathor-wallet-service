@@ -47,7 +47,7 @@ jest.mock('../../src/config', () => {
 
 import getConfig from '../../src/config';
 
-// @ts-ignore
+// @ts-expect-error
 getConfig.mockReturnValue({
   NETWORK: 'testnet',
   SERVICE_NAME: 'daemon-test',
@@ -91,7 +91,7 @@ describe('unvoided transaction scenario', () => {
   });
 
   it('should do a full sync and the balances should match', async () => {
-    // @ts-ignore
+    // @ts-expect-error
     getConfig.mockReturnValue({
       NETWORK: 'testnet',
       SERVICE_NAME: 'daemon-test',
@@ -112,10 +112,9 @@ describe('unvoided transaction scenario', () => {
 
     const machine = interpret(SyncMachine);
 
-    // @ts-ignore
+    // @ts-expect-error
     await transitionUntilEvent(mysql, machine, UNVOIDED_SCENARIO_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
-    // @ts-ignore
     expect(validateBalances(addressBalances, unvoidedScenarioBalances));
   });
 });
@@ -126,7 +125,7 @@ describe('reorg scenario', () => {
   });
 
   it('should do a full sync and the balances should match', async () => {
-    // @ts-ignore
+    // @ts-expect-error
     getConfig.mockReturnValue({
       NETWORK: 'testnet',
       SERVICE_NAME: 'daemon-test',
@@ -147,10 +146,9 @@ describe('reorg scenario', () => {
 
     const machine = interpret(SyncMachine);
 
-    // @ts-ignore
+    // @ts-expect-error
     await transitionUntilEvent(mysql, machine, REORG_SCENARIO_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
-    // @ts-ignore
     expect(validateBalances(addressBalances, reorgScenarioBalances));
   });
 });
@@ -161,7 +159,7 @@ describe('single chain blocks and transactions scenario', () => {
   });
 
   it('should do a full sync and the balances should match', async () => {
-    // @ts-ignore
+    // @ts-expect-error
     getConfig.mockReturnValue({
       NETWORK: 'testnet',
       SERVICE_NAME: 'daemon-test',
@@ -182,10 +180,9 @@ describe('single chain blocks and transactions scenario', () => {
 
     const machine = interpret(SyncMachine);
 
-    // @ts-ignore
+    // @ts-expect-error
     await transitionUntilEvent(mysql, machine, SINGLE_CHAIN_BLOCKS_AND_TRANSACTIONS_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
-    // @ts-ignore
     expect(validateBalances(addressBalances, singleChainBlocksAndTransactionsBalances));
   });
 });
@@ -196,7 +193,7 @@ describe('invalid mempool transactions scenario', () => {
   });
 
   it('should do a full sync and the balances should match', async () => {
-    // @ts-ignore
+    // @ts-expect-error
     getConfig.mockReturnValue({
       NETWORK: 'testnet',
       SERVICE_NAME: 'daemon-test',
@@ -217,10 +214,9 @@ describe('invalid mempool transactions scenario', () => {
 
     const machine = interpret(SyncMachine);
 
-    // @ts-ignore
+    // @ts-expect-error
     await transitionUntilEvent(mysql, machine, INVALID_MEMPOOL_TRANSACTION_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
-    // @ts-ignore
     expect(validateBalances(addressBalances, invalidMempoolBalances));
   });
 });
@@ -231,7 +227,7 @@ describe('custom script scenario', () => {
   });
 
   it('should do a full sync and the balances should match', async () => {
-    // @ts-ignore
+    // @ts-expect-error
     getConfig.mockReturnValue({
       NETWORK: 'testnet',
       SERVICE_NAME: 'daemon-test',
@@ -252,10 +248,9 @@ describe('custom script scenario', () => {
 
     const machine = interpret(SyncMachine);
 
-    // @ts-ignore
+    // @ts-expect-error
     await transitionUntilEvent(mysql, machine, CUSTOM_SCRIPT_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
-    // @ts-ignore
     expect(validateBalances(addressBalances, customScriptBalances));
   });
 });
@@ -266,7 +261,7 @@ describe('empty script scenario', () => {
   });
 
   it('should do a full sync and the balances should match', async () => {
-    // @ts-ignore
+    // @ts-expect-error
     getConfig.mockReturnValue({
       NETWORK: 'testnet',
       SERVICE_NAME: 'daemon-test',
@@ -287,11 +282,10 @@ describe('empty script scenario', () => {
 
     const machine = interpret(SyncMachine);
 
-    // @ts-ignore
+    // @ts-expect-error
     await transitionUntilEvent(mysql, machine, EMPTY_SCRIPT_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
 
-    // @ts-ignore
     expect(validateBalances(addressBalances, emptyScriptBalances));
   });
 });

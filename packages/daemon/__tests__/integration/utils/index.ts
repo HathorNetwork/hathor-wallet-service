@@ -58,14 +58,13 @@ export const fetchAddressBalances = async (
 
 export const validateBalances = async (
   balancesA: AddressBalance[],
-  balancesB: { string: number },
+  balancesB: Record<string, bigint>,
 ): Promise<void> => {
   const length = Math.max(balancesA.length, Object.keys(balancesB).length);
 
   for (let i = 0; i < length; i++) {
     const balanceA = balancesA[i];
     const address = balanceA.address;
-    // @ts-ignore
     const balanceB = balancesB[address];
     const totalBalanceA = balanceA.lockedBalance + balanceA.unlockedBalance;
 
