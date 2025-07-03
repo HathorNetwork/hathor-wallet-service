@@ -66,7 +66,6 @@ deploy_hathor_network_account() {
         send_slack_message "New version deployed to mainnet-staging: ${GIT_REF_TO_DEPLOY}"
     elif expr "${GIT_REF_TO_DEPLOY}" : "v.*" >/dev/null; then
         echo $GIT_REF_TO_DEPLOY > /tmp/docker_image_tag
-        make build-daemon;
 
         # --- Testnet ---
         # Gets all env vars with `testnet_` prefix and re-exports them without the prefix
@@ -75,12 +74,17 @@ deploy_hathor_network_account() {
         done
 
         make migrate;
+        make build-daemon;
         make deploy-lambdas-testnet;
+        # The idea here is that if the lambdas deploy fail, the built image won't be pushed:
+        make push-daemon;
 
         # Unsets all the testnet env vars so we make sure they don't leak to other deploys
         for var in "${!testnet_@}"; do
             unset ${var#testnet_}
         done
+
+        send_slack_message "New version deployed to testnet-production: ${GIT_REF_TO_DEPLOY}"
 
         # --- Mainnet ---
         # Gets all env vars with `mainnet_` prefix and re-exports them without the prefix
@@ -88,16 +92,17 @@ deploy_hathor_network_account() {
             export ${var#mainnet_}="${!var}"
         done
         make migrate;
+        make build-daemon;
         make deploy-lambdas-mainnet;
+        # The idea here is that if the lambdas deploy fail, the built image won't be pushed:
+        make push-daemon;
 
         # Unsets all the mainnet env vars so we make sure they don't leak to other deploys
         for var in "${!mainnet_@}"; do
             unset ${var#mainnet_}
         done
 
-        # The idea here is that if the lambdas deploy fail, the built image won't be pushed:
-        make push-daemon;
-        send_slack_message "New version deployed to testnet-production and mainnet-production: ${GIT_REF_TO_DEPLOY}"
+        send_slack_message "New version deployed to mainnet-production: ${GIT_REF_TO_DEPLOY}"
     else
         # Gets all env vars with `dev_` prefix and re-exports them without the prefix
         for var in "${!dev_@}"; do
@@ -137,6 +142,35 @@ deploy_nano_testnet() {
         send_slack_message "Rollback performed on nano-tesnet to: ${GIT_REF_TO_DEPLOY}";
     else
         echo "We don't deploy ${GIT_REF_TO_DEPLOY} to nano-testnet. Nothing to do.";
+    fi;
+}
+
+deploy_nano_testnet_hackaton() {
+    # Deploys the releases and release-candidates to our nano-testnet-hackaton environment
+
+    # We deploy only the Lambdas here, because the daemon used in nano-testnet-hackaton is the same as
+    # the one built in the hathor-network account, since it runs there as well
+
+    echo "Building git ref ${GIT_REF_TO_DEPLOY}..."
+
+    # This will match both releases and release-candidates
+    if expr "${GIT_REF_TO_DEPLOY}" : "v.*" >/dev/null; then
+        make migrate;
+        make deploy-lambdas-nano-testnet-hackaton;
+
+        send_slack_message "New version deployed to nano-testnet-hackaton: ${GIT_REF_TO_DEPLOY}"
+    elif expr "${MANUAL_DEPLOY}" : "true" >/dev/null; then
+        make migrate;
+        make deploy-lambdas-nano-testnet-hackaton;
+
+        send_slack_message "Branch manually deployed to nano-testnet-hackaton: ${GIT_REF_TO_DEPLOY}"
+    elif expr "${ROLLBACK}" : "true" >/dev/null; then
+        make migrate;
+        make deploy-lambdas-nano-testnet-hackaton;
+
+        send_slack_message "Rollback performed on nano-tesnet-hackaton to: ${GIT_REF_TO_DEPLOY}";
+    else
+        echo "We don't deploy ${GIT_REF_TO_DEPLOY} to nano-testnet-hackaton. Nothing to do.";
     fi;
 }
 
@@ -213,6 +247,9 @@ case $option in
         ;;
     nano-testnet)
         deploy_nano_testnet
+        ;;
+    nano-testnet-hackaton)
+        deploy_nano_testnet_hackaton
         ;;
     ekvilibro-testnet)
         deploy_ekvilibro_testnet

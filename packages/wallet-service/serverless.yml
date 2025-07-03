@@ -324,10 +324,6 @@ functions:
           method: get
           cors: true
           authorizer: ${self:custom.authorizer.walletBearer}
-          request:
-            parameters:
-              paths:
-                index: false
     warmup:
       walletWarmer:
         enabled: true
@@ -691,8 +687,8 @@ functions:
           path: health
           method: get
           throttling:
-            maxRequestsPerSecond: 1
-            maxConcurrentRequests: 1
+            maxRequestsPerSecond: 2
+            maxConcurrentRequests: 2
   deleteStalePushDevices:
     handler: src/db/cronRoutines.cleanStalePushDevices
     events:
