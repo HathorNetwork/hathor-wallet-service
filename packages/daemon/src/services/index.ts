@@ -23,6 +23,7 @@ import {
   WalletStatus,
   FullNodeEventTypes,
   StandardFullNodeEvent,
+  EventTxHeader,
 } from '../types';
 import {
   TxInput,
@@ -164,6 +165,16 @@ export const metadataDiff = async (_context: Context, event: Event) => {
 export const isBlock = (version: number): boolean => version === hathorLib.constants.BLOCK_VERSION
   || version === hathorLib.constants.MERGED_MINED_BLOCK_VERSION;
 
+export function isNanoContract(headers: EventTxHeader[]) {
+  for (const header of headers) {
+    // NanoHeader id should always be 0x10
+    if (header.id === '10') {
+      return true;
+    }
+  }
+  return false;
+}
+
 export const handleVertexAccepted = async (context: Context, _event: Event) => {
   const mysql = await getDbConnection();
   await mysql.beginTransaction();
@@ -197,7 +208,10 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       token_name,
       token_symbol,
       parents,
+      headers,
     } = fullNodeData;
+
+    const isNano = isNanoContract(headers);
 
     const dbTx: DbTransaction | null = await getTransactionById(mysql, hash);
 
@@ -272,6 +286,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
     // Add the transaction
     logger.debug('Will add the tx with height', height);
+    // TODO: add is_nanocontract to transaction table?
     await addOrUpdateTx(
       mysql,
       hash,
@@ -288,13 +303,14 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     await updateTxOutputSpentBy(mysql, txInputs, hash);
 
     // Genesis tx has no inputs and outputs, so nothing to be updated, avoid it
-    if (inputs.length > 0 || outputs.length > 0) {
+    // Nano contracts are a special case since they can have an address to update even without inputs/outputs
+    if (inputs.length > 0 || outputs.length > 0 || isNano) {
       const tokenList: string[] = getTokenListFromInputsAndOutputs(txInputs, txOutputs);
 
       // Update transaction count with the new tx
       await incrementTokensTxCount(mysql, tokenList);
 
-      const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputs);
+      const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputs, headers);
 
       // update address tables (address, address_balance, address_tx_history)
       await updateAddressTablesWithTx(mysql, hash, timestamp, addressBalanceMap);
@@ -376,6 +392,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         parents,
         inputs: txInputs,
         outputs: txOutputs,
+        headers,
         height: metadata.height,
         token_name,
         token_symbol,
@@ -444,6 +461,7 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
       outputs,
       inputs,
       tokens,
+      headers,
     } = fullNodeEvent.event.data;
 
     const dbTx: DbTransaction | null = await getTransactionById(mysql, hash);
@@ -459,6 +477,7 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
       inputs,
       outputs,
       tokens,
+      headers,
     );
 
     logger.info(`[VertexRemoved] Removing tx from database: ${hash}`);
@@ -481,6 +500,7 @@ export const voidTx = async (
   inputs: EventTxInput[],
   outputs: EventTxOutput[],
   tokens: string[],
+  headers: EventTxHeader[],
 ) => {
   const dbTxOutputs: DbTxOutput[] = await getTxOutputsFromTx(mysql, hash);
   const txOutputs: TxOutputWithIndex[] = prepareOutputs(outputs, tokens);
@@ -499,7 +519,7 @@ export const voidTx = async (
     };
   });
 
-  const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputsWithLocked);
+  const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputsWithLocked, headers);
   await voidTransaction(mysql, hash, addressBalanceMap);
   await markUtxosAsVoided(mysql, dbTxOutputs);
 
@@ -519,6 +539,7 @@ export const handleVoidedTx = async (context: Context) => {
       outputs,
       inputs,
       tokens,
+      headers,
     } = fullNodeEvent.event.data;
 
     logger.debug(`Will handle voided tx for ${hash}`);
@@ -527,7 +548,8 @@ export const handleVoidedTx = async (context: Context) => {
       hash,
       inputs,
       outputs,
-      tokens
+      tokens,
+      headers,
     );
     logger.debug(`Voided tx ${hash}`);
 

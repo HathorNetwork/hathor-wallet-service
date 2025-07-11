@@ -38,6 +38,7 @@ export interface Transaction {
   parents: string[];
   inputs: TxInput[];
   outputs: TxOutput[];
+  headers: TxHeader[];
   height?: number;
   voided?: boolean | null;
   // eslint-disable-next-line camelcase
@@ -79,6 +80,16 @@ export interface DecodedOutput {
   address: string;
   timelock: number | null;
 }
+
+export interface TxNanoHeader {
+    id: string;
+    nc_seqnum: number;
+    nc_id: string;
+    nc_method: string;
+    nc_address: string;
+}
+
+export type TxHeader = TxNanoHeader;
 
 export class Authorities {
   /**

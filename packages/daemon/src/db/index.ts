@@ -779,7 +779,7 @@ export const getAddressWalletInfo = async (mysql: MysqlConnection, addresses: st
   }
 
   const addressWalletMap: StringMap<Wallet> = {};
-  const [results] = await mysql.query(
+  const [results, _]: [mysql.RowDataPacket[], mysql.FieldPacket[]] = await mysql.query(
     `SELECT DISTINCT a.\`address\`,
                      a.\`wallet_id\`,
                      w.\`auth_xpubkey\`,
@@ -793,7 +793,6 @@ export const getAddressWalletInfo = async (mysql: MysqlConnection, addresses: st
     [addresses],
   );
 
-  // @ts-ignore
   for (const entry of results) {
     const walletInfo: Wallet = {
       walletId: entry.wallet_id as string,
@@ -1510,7 +1509,7 @@ export const cleanupVoidedTx = async (mysql: MysqlConnection, txId: string): Pro
  *
  * @param mysql - Database connection
  * @param tokenIdList - A list of token ids
- * @returns The token information (or null if id is not found)
+ * @returns The token information (or empty object if id is not found)
  *
  * @todo This method is duplicated from the wallet-service lambdas,
  * we should have common methods for both packages
@@ -1518,17 +1517,16 @@ export const cleanupVoidedTx = async (mysql: MysqlConnection, txId: string): Pro
 export const getTokenSymbols = async (
   mysql: MysqlConnection,
   tokenIdList: string[],
-): Promise<StringMap<string> | null> => {
-  if (tokenIdList.length === 0) return null;
+): Promise<StringMap<string>> => {
+  if (tokenIdList.length === 0) return {};
 
   const [results] = await mysql.query<TokenSymbolsRow[]>(
     'SELECT `id`, `symbol` FROM `token` WHERE `id` IN (?)',
     [tokenIdList],
   );
 
-  if (results.length === 0) return null;
+  if (results.length === 0) return {};
   return results.reduce((prev: Record<string, string>, token: { id: string, symbol: string }) => {
-    // eslint-disable-next-line no-param-reassign
     prev[token.id] = token.symbol;
     return prev;
   }, {}) as unknown as StringMap<string>;

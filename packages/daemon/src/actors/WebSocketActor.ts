@@ -23,7 +23,6 @@ export default (callback: any, receive: any) => {
     socket.ping();
   }, PING_INTERVAL);
 
-  // @ts-ignore: We already check for missing envs in startup
   const socket: WebSocket = new WebSocket(getFullnodeWsUrl());
   let pingTimeout: NodeJS.Timeout = createPingTimeout();
   let pingTimer: NodeJS.Timer;
