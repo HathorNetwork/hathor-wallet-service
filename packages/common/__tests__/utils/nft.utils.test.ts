@@ -95,6 +95,7 @@ const REAL_NFT_EVENT_DATA = {
       }
     }
   ],
+  'headers': [],
   'tokens': [
     '000041f860a327969fa03685ed05cf316fc941708c53801cf81f426ac4a55866'
   ],
@@ -494,6 +495,7 @@ describe('transaction transformation compatibility', () => {
             timelock: null,
           }
         }],
+        headers: [],
         nonce: 0,
         signal_bits: 1,
         timestamp: 0,
@@ -671,6 +673,7 @@ describe('processNftEvent', () => {
           }
         }
       ],
+      headers: [],
       tokens: [
         '000041f860a327969fa03685ed05cf316fc941708c53801cf81f426ac4a55866'
       ],
