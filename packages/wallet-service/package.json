@@ -30,7 +30,7 @@
     "jsonwebtoken": "8.5.1",
     "lodash": "4.17.21",
     "mysql": "2.18.1",
-    "mysql2": "2.2.5",
+    "mysql2": "3.9.8",
     "prom-client": "13.2.0",
     "redis": "3.1.2",
     "serverless-mysql": "1.5.4",
