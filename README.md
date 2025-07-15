@@ -14,7 +14,7 @@ yarn: v4 (yarn-berry)
 
 #### Install nix (preferred)
 
-For a better developer experience we suggest nix usage for mananing the enviroment. Visit this [link](https://nixos.org/download/#download-nix) to download it.
+For a better developer experience we suggest nix usage for managing the enviroment. Visit this [link](https://nixos.org/download/#download-nix) to download it.
 
 To enable the commands `nix develop` and `nix build` using flakes, add the following to your `/etc/nix/nix.conf` file:
 
