@@ -38,7 +38,7 @@ export interface Transaction {
   parents: string[];
   inputs: TxInput[];
   outputs: TxOutput[];
-  headers: TxHeader[];
+  headers?: TxHeader[];
   height?: number;
   voided?: boolean | null;
   // eslint-disable-next-line camelcase

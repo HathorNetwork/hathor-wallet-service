@@ -81,7 +81,7 @@ export type StandardFullNodeEvent = FullNodeEventBase & {
       nonce: number;
       inputs: EventTxInput[];
       outputs: EventTxOutput[];
-      headers: EventTxHeader[];
+      headers?: EventTxHeader[];
       parents: string[];
       tokens: string[];
       token_name: null | string;

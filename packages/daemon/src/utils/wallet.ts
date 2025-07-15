@@ -425,7 +425,7 @@ export const validateAddressBalances = async (mysql: MysqlConnection, addresses:
  * @returns
  */
 export const getWalletBalancesForTx = async (mysql: MysqlConnection, tx: Transaction): Promise<StringMap<WalletBalanceValue>> => {
-  const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(tx.inputs, tx.outputs, tx.headers);
+  const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(tx.inputs, tx.outputs, tx.headers ?? []);
   // return only wallets that were started
   const addressWalletMap: StringMap<Wallet> = await getAddressWalletInfo(mysql, Object.keys(addressBalanceMap));
 

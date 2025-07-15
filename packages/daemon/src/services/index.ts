@@ -208,7 +208,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       token_name,
       token_symbol,
       parents,
-      headers,
+      headers = [],
     } = fullNodeData;
 
     const isNano = isNanoContract(headers);
@@ -461,7 +461,7 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
       outputs,
       inputs,
       tokens,
-      headers,
+      headers = [],
     } = fullNodeEvent.event.data;
 
     const dbTx: DbTransaction | null = await getTransactionById(mysql, hash);
@@ -539,7 +539,7 @@ export const handleVoidedTx = async (context: Context) => {
       outputs,
       inputs,
       tokens,
-      headers,
+      headers = [],
     } = fullNodeEvent.event.data;
 
     logger.debug(`Will handle voided tx for ${hash}`);
