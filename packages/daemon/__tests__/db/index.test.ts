@@ -1163,7 +1163,7 @@ describe('getTokenSymbols', () => {
     tokenIdList = [];
     tokenSymbolMap = await getTokenSymbols(mysql, tokenIdList);
 
-    expect(tokenSymbolMap).toBeNull();
+    expect(tokenSymbolMap).toStrictEqual({});
   });
 });
 
