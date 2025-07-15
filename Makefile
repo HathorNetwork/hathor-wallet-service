@@ -38,6 +38,10 @@ deploy-lambdas-dev-testnet:
 deploy-lambdas-testnet:
 	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage testnet --region eu-central-1
 
+.PHONY: deploy-lambdas-testnet-hotel
+deploy-lambdas-testnet-hotel:
+	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage hotel --region eu-central-1
+
 .PHONY: deploy-lambdas-mainnet-staging
 deploy-lambdas-mainnet-staging:
 	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage mainnet-stg --region eu-central-1
