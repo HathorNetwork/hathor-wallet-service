@@ -14,6 +14,10 @@ push-daemon:
 deploy-lambdas-nano-testnet:
 	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage nano --region eu-central-1 --aws-profile nano-testnet
 
+.PHONY: deploy-lambdas-nano-testnet-bravo
+deploy-lambdas-nano-testnet-bravo:
+	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage nano-bravo --region eu-central-1 --aws-profile nano-testnet
+
 .PHONY: deploy-lambdas-nano-testnet-hackaton
 deploy-lambdas-nano-testnet-hackaton:
 	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage hackaton --region eu-central-1 --aws-profile nano-testnet-hackaton

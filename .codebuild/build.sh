@@ -129,19 +129,48 @@ deploy_nano_testnet() {
         make migrate;
         make deploy-lambdas-nano-testnet;
 
-        send_slack_message "New version deployed to nano-testnet: ${GIT_REF_TO_DEPLOY}"
+        send_slack_message "New version deployed to nano-testnet-alpha: ${GIT_REF_TO_DEPLOY}"
     elif expr "${MANUAL_DEPLOY}" : "true" >/dev/null; then
         make migrate;
         make deploy-lambdas-nano-testnet;
 
-        send_slack_message "Branch manually deployed to nano-testnet: ${GIT_REF_TO_DEPLOY}"
+        send_slack_message "Branch manually deployed to nano-testnet-alpha: ${GIT_REF_TO_DEPLOY}"
     elif expr "${ROLLBACK}" : "true" >/dev/null; then
         make migrate;
         make deploy-lambdas-nano-testnet;
 
-        send_slack_message "Rollback performed on nano-tesnet to: ${GIT_REF_TO_DEPLOY}";
+        send_slack_message "Rollback performed on nano-tesnet-alpha to: ${GIT_REF_TO_DEPLOY}";
     else
-        echo "We don't deploy ${GIT_REF_TO_DEPLOY} to nano-testnet. Nothing to do.";
+        echo "We don't deploy ${GIT_REF_TO_DEPLOY} to nano-testnet-alpha. Nothing to do.";
+    fi;
+}
+
+deploy_nano_testnet_bravo() {
+    # Deploys the releases and release-candidates to our nano-testnet-bravo environment
+
+    # We deploy only the Lambdas here, because the image for the daemon used in nano-testnet is
+    # the same as the one built in the hathor-network account, since it runs there as well
+
+    echo "Building git ref ${GIT_REF_TO_DEPLOY}..."
+
+    # This will match both releases and release-candidates
+    if expr "${GIT_REF_TO_DEPLOY}" : "v.*" >/dev/null; then
+        make migrate;
+        make deploy-lambdas-nano-testnet-bravo;
+
+        send_slack_message "New version deployed to nano-testnet-bravo: ${GIT_REF_TO_DEPLOY}"
+    elif expr "${MANUAL_DEPLOY}" : "true" >/dev/null; then
+        make migrate;
+        make deploy-lambdas-nano-testnet-bravo;
+
+        send_slack_message "Branch manually deployed to nano-testnet-bravo: ${GIT_REF_TO_DEPLOY}"
+    elif expr "${ROLLBACK}" : "true" >/dev/null; then
+        make migrate;
+        make deploy-lambdas-nano-testnet-bravo;
+
+        send_slack_message "Rollback performed on nano-tesnet-bravo to: ${GIT_REF_TO_DEPLOY}";
+    else
+        echo "We don't deploy ${GIT_REF_TO_DEPLOY} to nano-testnet-bravo. Nothing to do.";
     fi;
 }
 
@@ -247,6 +276,9 @@ case $option in
         ;;
     nano-testnet)
         deploy_nano_testnet
+        ;;
+    nano-testnet-bravo)
+        deploy_nano_testnet_bravo
         ;;
     nano-testnet-hackaton)
         deploy_nano_testnet_hackaton
