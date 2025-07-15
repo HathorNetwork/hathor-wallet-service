@@ -1158,7 +1158,7 @@ describe('getTokenSymbols', () => {
     let tokenIdList = tokensToPersist.map((each: TokenInfo) => each.id);
     let tokenSymbolMap = await getTokenSymbols(mysql, tokenIdList);
 
-    expect(tokenSymbolMap).toBeNull();
+    expect(tokenSymbolMap).toStrictEqual({});
 
     tokenIdList = [];
     tokenSymbolMap = await getTokenSymbols(mysql, tokenIdList);
