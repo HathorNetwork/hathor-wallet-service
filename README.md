@@ -24,7 +24,7 @@ experimental-features = nix-command flakes
 
 #### Clone the project and install dependencies
 ```sh
-$ git clone https://github.com/HathorNetwork/hathor-wallet-service-sync_daemon.git
+$ git clone https://github.com/HathorNetwork/hathor-wallet-service.git
 ```
 To initialize nix dev environment:
 ```sh
