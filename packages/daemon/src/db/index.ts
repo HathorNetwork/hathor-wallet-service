@@ -20,6 +20,7 @@ import {
   Miner,
   TokenSymbolsRow,
   MaxAddressIndexRow,
+  TokenInfoVersion,
 } from '../types';
 import {
   TxInput,
@@ -974,14 +975,16 @@ export const mapDbResultToDbTxOutput = (result: TxOutputRow): DbTxOutput => ({
  * @param tokenId - The token's id
  * @param tokenName - The token's name
  * @param tokenSymbol - The token's symbol
+ * @param tokenVersion - The token's version
  */
 export const storeTokenInformation = async (
   mysql: MysqlConnection,
   tokenId: string,
   tokenName: string,
   tokenSymbol: string,
+  tokenVersion?: TokenInfoVersion | null
 ): Promise<void> => {
-  const entry = { id: tokenId, name: tokenName, symbol: tokenSymbol };
+  const entry = { id: tokenId, name: tokenName, symbol: tokenSymbol, version: tokenVersion };
   await mysql.query(
     'INSERT INTO `token` SET ?',
     [entry],
@@ -1462,7 +1465,12 @@ export const getTokenInformation = async (
 
   if (results.length === 0) return null;
 
-  return new TokenInfo(tokenId, results[0].name as string, results[0].symbol as string);
+  return new TokenInfo({
+    id: tokenId,
+    name: results[0].name as string,
+    symbol: results[0].symbol as string,
+    version: results[0].version as (TokenInfoVersion | null),
+  });
 };
 
 /**

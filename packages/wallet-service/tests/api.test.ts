@@ -32,7 +32,7 @@ import * as Db from '@src/db';
 import { ApiError } from '@src/api/errors';
 import { closeDbConnection, getDbConnection, getUnixTimestamp, getWalletId } from '@src/utils';
 import { STATUS_CODE_TABLE } from '@src/api/utils';
-import { WalletStatus, FullNodeApiVersionResponse } from '@src/types';
+import { WalletStatus, FullNodeApiVersionResponse, TokenInfoVersion } from '@src/types';
 import { walletUtils, addressUtils, constants, network, HathorWalletServiceWallet } from '@hathor/wallet-lib';
 import bitcore from 'bitcore-lib';
 import {
@@ -1464,12 +1464,12 @@ test('GET /wallet/tokens/token_id/details', async () => {
   expect(returnBody.details[0]).toStrictEqual({ message: '"token_id" is required', path: ['token_id'] });
 
   // add tokens
-  const token1 = { id: TX_IDS[1], name: 'MyToken1', symbol: 'MT1' };
-  const token2 = { id: TX_IDS[2], name: 'MyToken2', symbol: 'MT2' };
+  const token1 = { id: TX_IDS[1], name: 'MyToken1', symbol: 'MT1', version: TokenInfoVersion.DEPOSIT };
+  const token2 = { id: TX_IDS[2], name: 'MyToken2', symbol: 'MT2', version: TokenInfoVersion.DEPOSIT };
 
   await addToTokenTable(mysql, [
-    { id: token1.id, name: token1.name, symbol: token1.symbol, transactions: 0 },
-    { id: token2.id, name: token2.name, symbol: token2.symbol, transactions: 0 },
+    { id: token1.id, name: token1.name, symbol: token1.symbol, transactions: 0, version: token1.version },
+    { id: token2.id, name: token2.name, symbol: token2.symbol, transactions: 0, version: token2.version },
   ]);
 
   await addToUtxoTable(mysql, [{

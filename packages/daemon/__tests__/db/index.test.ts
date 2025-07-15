@@ -69,7 +69,7 @@ import {
   XPUBKEY,
 } from '../utils';
 import { isAuthority } from '@wallet-service/common';
-import { DbTxOutput, StringMap, TokenInfo, WalletStatus } from '../../src/types';
+import { DbTxOutput, StringMap, TokenInfo, TokenInfoVersion, WalletStatus } from '../../src/types';
 import { Authorities, TokenBalanceMap } from '@wallet-service/common';
 import { constants } from '@hathor/wallet-lib';
 import { generateAddresses } from '../../src/utils';
@@ -1061,8 +1061,13 @@ describe('token methods', () => {
 
     expect(await getTokenInformation(mysql, 'invalid')).toBeNull();
 
-    const info = new TokenInfo('tokenId', 'tokenName', 'TKNS');
-    storeTokenInformation(mysql, info.id, info.name, info.symbol);
+    const info = new TokenInfo({
+      id: 'tokenId',
+      name: 'tokenName', 
+      symbol: 'TKNS',
+      version: TokenInfoVersion.DEPOSIT
+    });
+    storeTokenInformation(mysql, info.id, info.name, info.symbol, info.version);
 
     expect(info).toStrictEqual(await getTokenInformation(mysql, info.id));
   });
@@ -1070,9 +1075,27 @@ describe('token methods', () => {
   test('incrementTokensTxCount', async () => {
     expect.hasAssertions();
 
-    const htr = new TokenInfo('00', 'Hathor', 'HTR', 5);
-    const token1 = new TokenInfo('token1', 'MyToken1', 'MT1', 10);
-    const token2 = new TokenInfo('token2', 'MyToken2', 'MT2', 15);
+    const htr = new TokenInfo({
+      id: '00',
+      name: 'Hathor', 
+      symbol: 'HTR', 
+      transactions: 5,
+      version: TokenInfoVersion.DEPOSIT
+    });
+    const token1 = new TokenInfo({
+      id: 'token1',
+      name: 'MyToken1', 
+      symbol: 'MT1', 
+      transactions: 10,
+      version: TokenInfoVersion.DEPOSIT
+    });
+    const token2 = new TokenInfo({
+      id: 'token2',
+      name: 'MyToken2', 
+      symbol: 'MT2', 
+      transactions: 15,
+      version: TokenInfoVersion.DEPOSIT
+    });
 
     await addToTokenTable(mysql, [
       { id: htr.id, name: htr.name, symbol: htr.symbol, transactions: htr.transactions },
@@ -1111,23 +1134,23 @@ describe('sync metadata', () => {
   });
 });
 
+const generateMockTokens = (qty: number = 5) => new Array(qty).map((_, i) => new TokenInfo({
+  id: `token${i + 1}`,
+  name: `tokenName${i + 1}`,
+  symbol: `TKN${i + 1}`,
+}))
+
 // TODO: This test is duplicated from the wallet-service package, we should
 // have methods shared between the two projects
 describe('getTokenSymbols', () => {
   it('should return a map of token symbol by token id', async () => {
     expect.hasAssertions();
 
-    const tokensToPersist = [
-      new TokenInfo('token1', 'tokenName1', 'TKN1'),
-      new TokenInfo('token2', 'tokenName2', 'TKN2'),
-      new TokenInfo('token3', 'tokenName3', 'TKN3'),
-      new TokenInfo('token4', 'tokenName4', 'TKN4'),
-      new TokenInfo('token5', 'tokenName5', 'TKN5'),
-    ];
+    const tokensToPersist = generateMockTokens();
 
     // persist tokens
     for (const eachToken of tokensToPersist) {
-      await storeTokenInformation(mysql, eachToken.id, eachToken.name, eachToken.symbol);
+      await storeTokenInformation(mysql, eachToken.id, eachToken.name, eachToken.symbol, eachToken.version);
     }
 
     const tokenIdList = tokensToPersist.map((each: TokenInfo) => each.id);
@@ -1145,13 +1168,7 @@ describe('getTokenSymbols', () => {
   it('should return null when no token is found', async () => {
     expect.hasAssertions();
 
-    const tokensToPersist = [
-      new TokenInfo('token1', 'tokenName1', 'TKN1'),
-      new TokenInfo('token2', 'tokenName2', 'TKN2'),
-      new TokenInfo('token3', 'tokenName3', 'TKN3'),
-      new TokenInfo('token4', 'tokenName4', 'TKN4'),
-      new TokenInfo('token5', 'tokenName5', 'TKN5'),
-    ];
+    const tokensToPersist = generateMockTokens();
 
     // no token persistence
 

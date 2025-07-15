@@ -8,13 +8,38 @@ Refer to https://github.com/HathorNetwork/rfcs/blob/master/projects/wallet-servi
 
 #### System dependencies
 
-You need nodejs installed on your enviroment, we suggest the latest Active LTS version (v18.x.x).
+```
+Node: 20x
+yarn: v4 (yarn-berry)
+```
+
+#### Install nix (preferred)
+
+For a better developer experience we suggest nix usage for mananing the enviroment. Visit this [link](https://nixos.org/download/#download-nix) to download it.
+
+To enable the commands `nix develop` and `nix build` using flakes, add the following to your `/etc/nix/nix.conf` file:
+
+```
+experimental-features = nix-command flakes
+```
 
 #### Clone the project and install dependencies
 
-`git clone https://github.com/HathorNetwork/hathor-wallet-service-sync_daemon.git`
+```sh
+$ git clone https://github.com/HathorNetwork/hathor-wallet-service-sync_daemon.git
+```
 
-`npm install`
+To initialize nix dev environment:
+
+```sh
+$ nix develop
+```
+
+then, install the depencies:
+
+```sh
+yarn
+```
 
 #### Add env variables or an .env file to the repository:
 
@@ -53,6 +78,16 @@ AWS_SECRET_ACCESS_KEY="..."
 ```
 
 These are used for communicating with the alert SQS
+
+#### Docker images
+
+Some packages depends on some docker images. To build them you'll need to have Hathor VPN access configured, check this [link](https://github.com/HathorNetwork/ops-tools/blob/master/terraform/wireguard-vpn/SOP.md#adding-a-new-client-to-the-vpn) for it.
+
+#### Db initialize
+
+Before running the tests, make sure your database is already initialize by running the migrations.
+
+`nix develop . -c yarn sequelize db:migrate`
 
 ## Reseeding the HTR Token After Database Reset
 
