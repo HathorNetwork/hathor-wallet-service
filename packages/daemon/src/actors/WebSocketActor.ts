@@ -69,7 +69,7 @@ export default (callback: any, receive: any) => {
   };
 
   socket.onmessage = (socketEvent) => {
-    let event = bigIntUtils.JSONBigInt.parse(socketEvent.data.toString());
+    const event = bigIntUtils.JSONBigInt.parse(socketEvent.data.toString());
     const type = get(event, 'event.type');
 
     logger.debug(`Received ${type}: ${get(event, 'event.id')} from socket.`, event);

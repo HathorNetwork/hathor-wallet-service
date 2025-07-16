@@ -11,7 +11,6 @@ import { Severity } from '@wallet-service/common/src/types';
 import { sendMock, lambdaInvokeCommandMock } from '@tests/utils/aws-sdk.mock';
 import { LambdaClient } from '@aws-sdk/client-lambda';
 import { buildWalletBalanceValueMap } from '@tests/utils';
-
 import { bigIntUtils } from '@hathor/wallet-lib';
 
 const isFirebaseInitializedMock = jest.spyOn(pushnotificationUtils, 'isFirebaseInitialized');

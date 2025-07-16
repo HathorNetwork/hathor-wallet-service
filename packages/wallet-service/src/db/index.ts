@@ -2389,7 +2389,7 @@ export const filterTxOutputs = async (
     authority: 0,
     ignoreLocked: false,
     skipSpent: true,
-    biggerThan: -1,
+    biggerThan: 0,
     smallerThan: constants.MAX_OUTPUT_VALUE + 1n,
     ...filters,
   };
