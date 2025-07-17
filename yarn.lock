@@ -3051,21 +3051,21 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@hathor/wallet-lib@npm:1.15.0":
-  version: 1.15.0
-  resolution: "@hathor/wallet-lib@npm:1.15.0"
+"@hathor/wallet-lib@npm:2.5.1":
+  version: 2.5.1
+  resolution: "@hathor/wallet-lib@npm:2.5.1"
   dependencies:
-    axios: "npm:1.7.2"
+    axios: "npm:1.7.7"
     bitcore-lib: "npm:8.25.10"
     bitcore-mnemonic: "npm:8.25.10"
     buffer: "npm:6.0.3"
     crypto-js: "npm:4.2.0"
     isomorphic-ws: "npm:5.0.0"
     lodash: "npm:4.17.21"
-    long: "npm:5.2.3"
     queue-microtask: "npm:1.2.3"
     ws: "npm:8.17.1"
-  checksum: 10/92babf6327fe589c60f71083fe00cf860e55209c148736bace0a685e504faa3192cf134f098a258d32fb7221398ab3d3f0b5bf9ed8db55d0819cfe28720d0cae
+    zod: "npm:3.23.8"
+  checksum: 10/6afb2123a29de80d09cfcbe14c69709a41cd36e1f4fdcbe5dcb74690057dbff482d434a904e734a0154ded4fb8e168eb443acba4d9b5815795d92f677f274b09
   languageName: node
   linkType: hard
 
@@ -6478,7 +6478,7 @@ __metadata:
     typescript: "npm:5.4.3"
     winston: "npm:3.13.0"
   peerDependencies:
-    "@hathor/wallet-lib": 1.15.0
+    "@hathor/wallet-lib": 2.5.1
   languageName: unknown
   linkType: soft
 
@@ -7231,14 +7231,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"axios@npm:1.7.2":
-  version: 1.7.2
-  resolution: "axios@npm:1.7.2"
+"axios@npm:1.7.7":
+  version: 1.7.7
+  resolution: "axios@npm:1.7.7"
   dependencies:
     follow-redirects: "npm:^1.15.6"
     form-data: "npm:^4.0.0"
     proxy-from-env: "npm:^1.1.0"
-  checksum: 10/6ae80dda9736bb4762ce717f1a26ff997d94672d3a5799ad9941c24d4fb019c1dff45be8272f08d1975d7950bac281f3ba24aff5ecd49ef5a04d872ec428782f
+  checksum: 10/7f875ea13b9298cd7b40fd09985209f7a38d38321f1118c701520939de2f113c4ba137832fe8e3f811f99a38e12c8225481011023209a77b0c0641270e20cde1
   languageName: node
   linkType: hard
 
@@ -11156,7 +11156,7 @@ __metadata:
     "@aws-sdk/client-apigatewaymanagementapi": "npm:3.540.0"
     "@aws-sdk/client-lambda": "npm:3.540.0"
     "@aws-sdk/client-sqs": "npm:3.540.0"
-    "@hathor/wallet-lib": "npm:1.15.0"
+    "@hathor/wallet-lib": "npm:2.5.1"
     "@types/jest": "npm:29.5.13"
     "@typescript-eslint/eslint-plugin": "npm:^7.4.0"
     "@typescript-eslint/parser": "npm:^7.4.0"
@@ -13206,17 +13206,17 @@ __metadata:
   languageName: node
   linkType: hard
 
-"long@npm:5.2.3, long@npm:^5.0.0, long@npm:^5.2.1":
-  version: 5.2.3
-  resolution: "long@npm:5.2.3"
-  checksum: 10/9167ec6947a825b827c30da169a7384eec6c0c9ec2f0b9c74da2e93d81159bbe39fb09c3f13dae9721d4b807ccfa09797a7dd1012f5d478e3e33ca3c78b608e6
-  languageName: node
-  linkType: hard
-
 "long@npm:^4.0.0":
   version: 4.0.0
   resolution: "long@npm:4.0.0"
   checksum: 10/8296e2ba7bab30f9cfabb81ebccff89c819af6a7a78b4bb5a70ea411aa764ee0532f7441381549dfa6a1a98d72abe9138bfcf99f4fa41238629849bc035b845b
+  languageName: node
+  linkType: hard
+
+"long@npm:^5.0.0, long@npm:^5.2.1":
+  version: 5.2.3
+  resolution: "long@npm:5.2.3"
+  checksum: 10/9167ec6947a825b827c30da169a7384eec6c0c9ec2f0b9c74da2e93d81159bbe39fb09c3f13dae9721d4b807ccfa09797a7dd1012f5d478e3e33ca3c78b608e6
   languageName: node
   linkType: hard
 
@@ -16614,7 +16614,7 @@ __metadata:
     ws: "npm:8.13.0"
     xstate: "npm:4.38.2"
   peerDependencies:
-    "@hathor/wallet-lib": 1.15.0
+    "@hathor/wallet-lib": 2.5.1
     "@wallet-service/common": 1.5.0
   languageName: unknown
   linkType: soft
@@ -17328,21 +17328,21 @@ __metadata:
 
 "typescript@patch:typescript@npm%3A5.4.3#optional!builtin<compat/typescript>":
   version: 5.4.3
-  resolution: "typescript@patch:typescript@npm%3A5.4.3#optional!builtin<compat/typescript>::version=5.4.3&hash=d69c25"
+  resolution: "typescript@patch:typescript@npm%3A5.4.3#optional!builtin<compat/typescript>::version=5.4.3&hash=5adc0c"
   bin:
     tsc: bin/tsc
     tsserver: bin/tsserver
-  checksum: 10/3abea475798fdf7ee46e75dafc50c85f30fd1e7061559ec2af61646f23d16c91742703f04f0ac55be52f58ca05c02f77404b7b94bbad16278c9a54c9eeb4f4ea
+  checksum: 10/5aedd97595582b08aadb8a70e8e3ddebaf5a9c1e5ad4d6503c2fcfc15329b5cf8d01145b09913e9555683ac16c5123a96be32b6d72614098ebd42df520eed9b1
   languageName: node
   linkType: hard
 
 "typescript@patch:typescript@npm%3A^5.8.2#optional!builtin<compat/typescript>":
   version: 5.8.2
-  resolution: "typescript@patch:typescript@npm%3A5.8.2#optional!builtin<compat/typescript>::version=5.8.2&hash=d69c25"
+  resolution: "typescript@patch:typescript@npm%3A5.8.2#optional!builtin<compat/typescript>::version=5.8.2&hash=5786d5"
   bin:
     tsc: bin/tsc
     tsserver: bin/tsserver
-  checksum: 10/6ae9b2c4d3254ec2eaee6f26ed997e19c02177a212422993209f81e87092b2bb0a4738085549c5b0164982a5609364c047c72aeb281f6c8d802cd0d1c6f0d353
+  checksum: 10/97920a082ffc57583b1cb6bc4faa502acc156358e03f54c7fc7fdf0b61c439a717f4c9070c449ee9ee683d4cfc3bb203127c2b9794b2950f66d9d307a4ff262c
   languageName: node
   linkType: hard
 
@@ -17710,7 +17710,7 @@ __metadata:
     webpack-node-externals: "npm:3.0.0"
     winston: "npm:3.13.0"
   peerDependencies:
-    "@hathor/wallet-lib": 1.15.0
+    "@hathor/wallet-lib": 2.5.1
     "@wallet-service/common": 1.5.0
   languageName: unknown
   linkType: soft
@@ -18233,5 +18233,12 @@ __metadata:
     compress-commons: "npm:^4.1.2"
     readable-stream: "npm:^3.6.0"
   checksum: 10/33bd5ee7017656c2ad728b5d4ba510e15bd65ce1ec180c5bbdc7a5f063256353ec482e6a2bc74de7515219d8494147924b9aae16e63fdaaf37cdf7d1ee8df125
+  languageName: node
+  linkType: hard
+
+"zod@npm:3.23.8":
+  version: 3.23.8
+  resolution: "zod@npm:3.23.8"
+  checksum: 10/846fd73e1af0def79c19d510ea9e4a795544a67d5b34b7e1c4d0425bf6bfd1c719446d94cdfa1721c1987d891321d61f779e8236fde517dc0e524aa851a6eff1
   languageName: node
   linkType: hard

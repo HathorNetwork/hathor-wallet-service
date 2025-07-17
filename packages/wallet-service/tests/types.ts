@@ -10,8 +10,8 @@
 export interface WalletBalanceEntry {
   walletId: string;
   tokenId: string;
-  unlockedBalance: number;
-  lockedBalance: number;
+  unlockedBalance: bigint;
+  lockedBalance: bigint;
   unlockedAuthorities: number;
   lockedAuthorities: number;
   timelockExpires?: number;
@@ -22,7 +22,7 @@ export interface AddressTxHistoryTableEntry {
   address: string;
   txId: string;
   tokenId: string;
-  balance: number;
+  balance: bigint;
   timestamp: number;
   voided?: boolean;
 }

@@ -107,7 +107,7 @@ test('POST /txproposals with utxos that are already used on another txproposal s
     index: 0,
     tokenId: token1,
     address: ADDRESSES[0],
-    value: 300,
+    value: 300n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -118,7 +118,7 @@ test('POST /txproposals with utxos that are already used on another txproposal s
     index: 0,
     tokenId: token1,
     address: ADDRESSES[0],
-    value: 100,
+    value: 100n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -129,7 +129,7 @@ test('POST /txproposals with utxos that are already used on another txproposal s
     index: 0,
     tokenId: token2,
     address: ADDRESSES[0],
-    value: 300,
+    value: 300n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -141,8 +141,8 @@ test('POST /txproposals with utxos that are already used on another txproposal s
   await addToWalletBalanceTable(mysql, [{
     walletId: 'my-wallet',
     tokenId: 'token1',
-    unlockedBalance: 400,
-    lockedBalance: 0,
+    unlockedBalance: 400n,
+    lockedBalance: 0n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0,
     timelockExpires: null,
@@ -150,8 +150,8 @@ test('POST /txproposals with utxos that are already used on another txproposal s
   }, {
     walletId: 'my-wallet',
     tokenId: 'token2',
-    unlockedBalance: 300,
-    lockedBalance: 0,
+    unlockedBalance: 300n,
+    lockedBalance: 0n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0,
     timelockExpires: null,
@@ -172,7 +172,7 @@ test('POST /txproposals with utxos that are already used on another txproposal s
 
   const outputs = [
     new hathorLib.Output(
-      300,
+      300n,
       p2pkhAddress, {
         tokenData: 1,
       },
@@ -251,7 +251,7 @@ test('POST /txproposals with too many outputs should fail with ApiError.TOO_MANY
   ];
 
   const outputs = [...Array(10).keys()].map(() => (
-    new hathorLib.Output(300, new hathorLib.P2PKH(new hathorLib.Address(ADDRESSES[0], {
+    new hathorLib.Output(300n, new hathorLib.P2PKH(new hathorLib.Address(ADDRESSES[0], {
       network: new hathorLib.Network(process.env.NETWORK),
     })).createScript(), {
       tokenData: 1,
@@ -295,7 +295,7 @@ test('POST /txproposals with a wallet that is not ready should fail with ApiErro
     index: 0,
     tokenId: 'token1',
     address: ADDRESSES[0],
-    value: 300,
+    value: 300n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -306,7 +306,7 @@ test('POST /txproposals with a wallet that is not ready should fail with ApiErro
     index: 0,
     tokenId: 'token1',
     address: ADDRESSES[0],
-    value: 100,
+    value: 100n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -317,7 +317,7 @@ test('POST /txproposals with a wallet that is not ready should fail with ApiErro
     index: 0,
     tokenId: 'token2',
     address: ADDRESSES[0],
-    value: 300,
+    value: 300n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -329,8 +329,8 @@ test('POST /txproposals with a wallet that is not ready should fail with ApiErro
   await addToWalletBalanceTable(mysql, [{
     walletId: 'my-wallet',
     tokenId: 'token1',
-    unlockedBalance: 400,
-    lockedBalance: 0,
+    unlockedBalance: 400n,
+    lockedBalance: 0n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0,
     timelockExpires: null,
@@ -338,8 +338,8 @@ test('POST /txproposals with a wallet that is not ready should fail with ApiErro
   }, {
     walletId: 'my-wallet',
     tokenId: 'token2',
-    unlockedBalance: 300,
-    lockedBalance: 0,
+    unlockedBalance: 300n,
+    lockedBalance: 0n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0,
     timelockExpires: null,
@@ -388,7 +388,7 @@ test('PUT /txproposals/{proposalId} with an empty body should fail with ApiError
     index: 0,
     tokenId: token1,
     address: ADDRESSES[0],
-    value: 300,
+    value: 300n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -399,7 +399,7 @@ test('PUT /txproposals/{proposalId} with an empty body should fail with ApiError
     index: 0,
     tokenId: token1,
     address: ADDRESSES[0],
-    value: 100,
+    value: 100n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -410,7 +410,7 @@ test('PUT /txproposals/{proposalId} with an empty body should fail with ApiError
     index: 0,
     tokenId: token2,
     address: ADDRESSES[0],
-    value: 300,
+    value: 300n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -422,8 +422,8 @@ test('PUT /txproposals/{proposalId} with an empty body should fail with ApiError
   await addToWalletBalanceTable(mysql, [{
     walletId: 'my-wallet',
     tokenId: 'token1',
-    unlockedBalance: 400,
-    lockedBalance: 0,
+    unlockedBalance: 400n,
+    lockedBalance: 0n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0,
     timelockExpires: null,
@@ -431,8 +431,8 @@ test('PUT /txproposals/{proposalId} with an empty body should fail with ApiError
   }, {
     walletId: 'my-wallet',
     tokenId: 'token2',
-    unlockedBalance: 300,
-    lockedBalance: 0,
+    unlockedBalance: 300n,
+    lockedBalance: 0n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0,
     timelockExpires: null,
@@ -449,7 +449,7 @@ test('PUT /txproposals/{proposalId} with an empty body should fail with ApiError
   // only one output, spending the whole 300 utxo of token1
   const outputs = [
     new hathorLib.Output(
-      300,
+      300n,
       new hathorLib.P2PKH(new hathorLib.Address(ADDRESSES[0], {
         network: new hathorLib.Network(process.env.NETWORK),
       })).createScript(), {
@@ -529,7 +529,7 @@ test('PUT /txproposals/{proposalId} on a proposal which status is not OPEN or SE
     index: 0,
     tokenId: token1,
     address: ADDRESSES[0],
-    value: 300,
+    value: 300n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -540,7 +540,7 @@ test('PUT /txproposals/{proposalId} on a proposal which status is not OPEN or SE
     index: 0,
     tokenId: token1,
     address: ADDRESSES[0],
-    value: 100,
+    value: 100n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -551,7 +551,7 @@ test('PUT /txproposals/{proposalId} on a proposal which status is not OPEN or SE
     index: 0,
     tokenId: token2,
     address: ADDRESSES[0],
-    value: 300,
+    value: 300n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -563,8 +563,8 @@ test('PUT /txproposals/{proposalId} on a proposal which status is not OPEN or SE
   await addToWalletBalanceTable(mysql, [{
     walletId: 'my-wallet',
     tokenId: 'token1',
-    unlockedBalance: 400,
-    lockedBalance: 0,
+    unlockedBalance: 400n,
+    lockedBalance: 0n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0,
     timelockExpires: null,
@@ -572,8 +572,8 @@ test('PUT /txproposals/{proposalId} on a proposal which status is not OPEN or SE
   }, {
     walletId: 'my-wallet',
     tokenId: 'token2',
-    unlockedBalance: 300,
-    lockedBalance: 0,
+    unlockedBalance: 300n,
+    lockedBalance: 0n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0,
     timelockExpires: null,
@@ -590,7 +590,7 @@ test('PUT /txproposals/{proposalId} on a proposal which status is not OPEN or SE
   // only one output, spending the whole 300 utxo of token1
   const outputs = [
     new hathorLib.Output(
-      300,
+      300n,
       new hathorLib.P2PKH(
         new hathorLib.Address(
           ADDRESSES[0], {
@@ -654,7 +654,7 @@ test('PUT /txproposals/{proposalId} on a proposal which is not owned by the user
     index: 0,
     tokenId: token1,
     address: ADDRESSES[0],
-    value: 300,
+    value: 300n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -665,7 +665,7 @@ test('PUT /txproposals/{proposalId} on a proposal which is not owned by the user
     index: 0,
     tokenId: token1,
     address: ADDRESSES[0],
-    value: 100,
+    value: 100n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -676,7 +676,7 @@ test('PUT /txproposals/{proposalId} on a proposal which is not owned by the user
     index: 0,
     tokenId: token2,
     address: ADDRESSES[0],
-    value: 300,
+    value: 300n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -688,8 +688,8 @@ test('PUT /txproposals/{proposalId} on a proposal which is not owned by the user
   await addToWalletBalanceTable(mysql, [{
     walletId: 'my-wallet',
     tokenId: 'token1',
-    unlockedBalance: 400,
-    lockedBalance: 0,
+    unlockedBalance: 400n,
+    lockedBalance: 0n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0,
     timelockExpires: null,
@@ -697,8 +697,8 @@ test('PUT /txproposals/{proposalId} on a proposal which is not owned by the user
   }, {
     walletId: 'my-wallet',
     tokenId: 'token2',
-    unlockedBalance: 300,
-    lockedBalance: 0,
+    unlockedBalance: 300n,
+    lockedBalance: 0n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0,
     timelockExpires: null,
@@ -715,7 +715,7 @@ test('PUT /txproposals/{proposalId} on a proposal which is not owned by the user
   // only one output, spending the whole 300 utxo of token1
   const outputs = [
     new hathorLib.Output(
-      300,
+      300n,
       new hathorLib.P2PKH(new hathorLib.Address(
         ADDRESSES[0], {
           network: new hathorLib.Network(process.env.NETWORK),
@@ -805,7 +805,7 @@ test('PUT /txproposals/{proposalId} with an invalid txHex should fail and update
     index: 0,
     tokenId: token1,
     address: ADDRESSES[0],
-    value: 300,
+    value: 300n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -816,7 +816,7 @@ test('PUT /txproposals/{proposalId} with an invalid txHex should fail and update
     index: 0,
     tokenId: token1,
     address: ADDRESSES[0],
-    value: 100,
+    value: 100n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -827,7 +827,7 @@ test('PUT /txproposals/{proposalId} with an invalid txHex should fail and update
     index: 0,
     tokenId: token2,
     address: ADDRESSES[0],
-    value: 300,
+    value: 300n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -839,8 +839,8 @@ test('PUT /txproposals/{proposalId} with an invalid txHex should fail and update
   await addToWalletBalanceTable(mysql, [{
     walletId: 'my-wallet',
     tokenId: 'token1',
-    unlockedBalance: 400,
-    lockedBalance: 0,
+    unlockedBalance: 400n,
+    lockedBalance: 0n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0,
     timelockExpires: null,
@@ -848,8 +848,8 @@ test('PUT /txproposals/{proposalId} with an invalid txHex should fail and update
   }, {
     walletId: 'my-wallet',
     tokenId: 'token2',
-    unlockedBalance: 300,
-    lockedBalance: 0,
+    unlockedBalance: 300n,
+    lockedBalance: 0n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0,
     timelockExpires: null,
@@ -866,7 +866,7 @@ test('PUT /txproposals/{proposalId} with an invalid txHex should fail and update
   // only one output, spending the whole 300 utxo of token1
   const outputs = [
     new hathorLib.Output(
-      300,
+      300n,
       new hathorLib.P2PKH(new hathorLib.Address(
         ADDRESSES[0], {
           network: new hathorLib.Network(process.env.NETWORK),
@@ -949,7 +949,7 @@ test('PUT /txproposals/{proposalId} should update tx_proposal to SEND_ERROR on f
     index: 0,
     tokenId: token1,
     address: ADDRESSES[0],
-    value: 300,
+    value: 300n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -960,7 +960,7 @@ test('PUT /txproposals/{proposalId} should update tx_proposal to SEND_ERROR on f
     index: 0,
     tokenId: token1,
     address: ADDRESSES[0],
-    value: 100,
+    value: 100n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -971,7 +971,7 @@ test('PUT /txproposals/{proposalId} should update tx_proposal to SEND_ERROR on f
     index: 0,
     tokenId: token2,
     address: ADDRESSES[0],
-    value: 300,
+    value: 300n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -983,8 +983,8 @@ test('PUT /txproposals/{proposalId} should update tx_proposal to SEND_ERROR on f
   await addToWalletBalanceTable(mysql, [{
     walletId: 'my-wallet',
     tokenId: 'token1',
-    unlockedBalance: 400,
-    lockedBalance: 0,
+    unlockedBalance: 400n,
+    lockedBalance: 0n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0,
     timelockExpires: null,
@@ -992,8 +992,8 @@ test('PUT /txproposals/{proposalId} should update tx_proposal to SEND_ERROR on f
   }, {
     walletId: 'my-wallet',
     tokenId: 'token2',
-    unlockedBalance: 300,
-    lockedBalance: 0,
+    unlockedBalance: 300n,
+    lockedBalance: 0n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0,
     timelockExpires: null,
@@ -1010,7 +1010,7 @@ test('PUT /txproposals/{proposalId} should update tx_proposal to SEND_ERROR on f
   // only one output, spending the whole 300 utxo of token1
   const outputs = [
     new hathorLib.Output(
-      300,
+      300n,
       new hathorLib.P2PKH(new hathorLib.Address(
         ADDRESSES[0], {
           network: new hathorLib.Network(process.env.NETWORK),
@@ -1069,7 +1069,7 @@ test('DELETE /txproposals/{proposalId} should delete a tx_proposal and remove th
     index: 0,
     tokenId: token1,
     address: ADDRESSES[0],
-    value: 300,
+    value: 300n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -1080,7 +1080,7 @@ test('DELETE /txproposals/{proposalId} should delete a tx_proposal and remove th
     index: 0,
     tokenId: token1,
     address: ADDRESSES[0],
-    value: 100,
+    value: 100n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -1091,7 +1091,7 @@ test('DELETE /txproposals/{proposalId} should delete a tx_proposal and remove th
     index: 0,
     tokenId: token2,
     address: ADDRESSES[0],
-    value: 300,
+    value: 300n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -1103,8 +1103,8 @@ test('DELETE /txproposals/{proposalId} should delete a tx_proposal and remove th
   await addToWalletBalanceTable(mysql, [{
     walletId: 'my-wallet',
     tokenId: 'token1',
-    unlockedBalance: 400,
-    lockedBalance: 0,
+    unlockedBalance: 400n,
+    lockedBalance: 0n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0,
     timelockExpires: null,
@@ -1112,8 +1112,8 @@ test('DELETE /txproposals/{proposalId} should delete a tx_proposal and remove th
   }, {
     walletId: 'my-wallet',
     tokenId: 'token2',
-    unlockedBalance: 300,
-    lockedBalance: 0,
+    unlockedBalance: 300n,
+    lockedBalance: 0n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0,
     timelockExpires: null,
@@ -1130,7 +1130,7 @@ test('DELETE /txproposals/{proposalId} should delete a tx_proposal and remove th
   // only one output, spending the whole 300 utxo of token1
   const outputs = [
     new hathorLib.Output(
-      300,
+      300n,
       new hathorLib.P2PKH(new hathorLib.Address(
         ADDRESSES[0], {
           network: new hathorLib.Network(process.env.NETWORK),
@@ -1239,7 +1239,7 @@ test('POST /txproposals one output and input on txHex', async () => {
     index: 0,
     tokenId: token1,
     address: ADDRESSES[0],
-    value: 300,
+    value: 300n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -1250,7 +1250,7 @@ test('POST /txproposals one output and input on txHex', async () => {
     index: 0,
     tokenId: token1,
     address: ADDRESSES[0],
-    value: 100,
+    value: 100n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -1261,7 +1261,7 @@ test('POST /txproposals one output and input on txHex', async () => {
     index: 0,
     tokenId: token2,
     address: ADDRESSES[0],
-    value: 300,
+    value: 300n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -1273,8 +1273,8 @@ test('POST /txproposals one output and input on txHex', async () => {
   await addToWalletBalanceTable(mysql, [{
     walletId: 'my-wallet',
     tokenId: 'token1',
-    unlockedBalance: 400,
-    lockedBalance: 0,
+    unlockedBalance: 400n,
+    lockedBalance: 0n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0,
     timelockExpires: null,
@@ -1282,8 +1282,8 @@ test('POST /txproposals one output and input on txHex', async () => {
   }, {
     walletId: 'my-wallet',
     tokenId: 'token2',
-    unlockedBalance: 300,
-    lockedBalance: 0,
+    unlockedBalance: 300n,
+    lockedBalance: 0n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0,
     timelockExpires: null,
@@ -1300,7 +1300,7 @@ test('POST /txproposals one output and input on txHex', async () => {
   // only one output, spending the whole 300 utxo of token1
   const outputs = [
     new hathorLib.Output(
-      300,
+      300n,
       new hathorLib.P2PKH(new hathorLib.Address(
         ADDRESSES[0], {
           network: new hathorLib.Network(process.env.NETWORK),
@@ -1369,7 +1369,7 @@ test('POST /txproposals with denied utxos', async () => {
     index: 0,
     tokenId: token1,
     address: ADDRESSES[1],
-    value: 300,
+    value: 300n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -1380,7 +1380,7 @@ test('POST /txproposals with denied utxos', async () => {
     index: 0,
     tokenId: token1,
     address: ADDRESSES[1],
-    value: 100,
+    value: 100n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -1391,7 +1391,7 @@ test('POST /txproposals with denied utxos', async () => {
     index: 0,
     tokenId: token2,
     address: ADDRESSES[1],
-    value: 300,
+    value: 300n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -1403,7 +1403,7 @@ test('POST /txproposals with denied utxos', async () => {
 
   const outputs = [
     new hathorLib.Output(
-      300,
+      300n,
       new hathorLib.P2PKH(new hathorLib.Address(
         ADDRESSES[0], {
           network: new hathorLib.Network(process.env.NETWORK),
@@ -1450,7 +1450,7 @@ test('POST /txproposals a tx create action on txHex', async () => {
     index: 0,
     tokenId: '00',
     address: ADDRESSES[0],
-    value: 300,
+    value: 300n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -1471,7 +1471,7 @@ test('POST /txproposals a tx create action on txHex', async () => {
   const outputs = [
     // change output 100 htr deposited:
     new hathorLib.Output(
-      200,
+      200n,
       new hathorLib.P2PKH(
         new hathorLib.Address(
           ADDRESSES[0], {
@@ -1507,7 +1507,7 @@ test('POST /txproposals a tx create action on txHex', async () => {
     ),
     // New created tokens
     new hathorLib.Output(
-      100 * 100,
+      100n * 100n,
       new hathorLib.P2PKH(
         new hathorLib.Address(
           ADDRESSES[0], {
@@ -1587,7 +1587,7 @@ test('PUT /txproposals/{proposalId} with txhex', async () => {
     index: 0,
     tokenId: token1,
     address: ADDRESSES[0],
-    value: 300,
+    value: 300n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -1598,7 +1598,7 @@ test('PUT /txproposals/{proposalId} with txhex', async () => {
     index: 0,
     tokenId: token1,
     address: ADDRESSES[0],
-    value: 100,
+    value: 100n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -1609,7 +1609,7 @@ test('PUT /txproposals/{proposalId} with txhex', async () => {
     index: 0,
     tokenId: token2,
     address: ADDRESSES[0],
-    value: 300,
+    value: 300n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -1621,8 +1621,8 @@ test('PUT /txproposals/{proposalId} with txhex', async () => {
   await addToWalletBalanceTable(mysql, [{
     walletId: 'my-wallet',
     tokenId: 'token1',
-    unlockedBalance: 400,
-    lockedBalance: 0,
+    unlockedBalance: 400n,
+    lockedBalance: 0n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0,
     timelockExpires: null,
@@ -1630,8 +1630,8 @@ test('PUT /txproposals/{proposalId} with txhex', async () => {
   }, {
     walletId: 'my-wallet',
     tokenId: 'token2',
-    unlockedBalance: 300,
-    lockedBalance: 0,
+    unlockedBalance: 300n,
+    lockedBalance: 0n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0,
     timelockExpires: null,
@@ -1648,7 +1648,7 @@ test('PUT /txproposals/{proposalId} with txhex', async () => {
   // only one output, spending the whole 300 utxo of token1
   const outputs = [
     new hathorLib.Output(
-      300,
+      300n,
       new hathorLib.P2PKH(
         new hathorLib.Address(ADDRESSES[0], { network: new hathorLib.Network(process.env.NETWORK) }),
       ).createScript(),
@@ -1729,7 +1729,7 @@ test('PUT /txproposals/{proposalId} with a different txhex than the one sent in 
     index: 0,
     tokenId: token1,
     address: ADDRESSES[0],
-    value: 300,
+    value: 300n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -1740,7 +1740,7 @@ test('PUT /txproposals/{proposalId} with a different txhex than the one sent in 
     index: 0,
     tokenId: token1,
     address: ADDRESSES[0],
-    value: 100,
+    value: 100n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -1751,7 +1751,7 @@ test('PUT /txproposals/{proposalId} with a different txhex than the one sent in 
     index: 0,
     tokenId: token2,
     address: ADDRESSES[0],
-    value: 300,
+    value: 300n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -1763,8 +1763,8 @@ test('PUT /txproposals/{proposalId} with a different txhex than the one sent in 
   await addToWalletBalanceTable(mysql, [{
     walletId: 'my-wallet',
     tokenId: 'token1',
-    unlockedBalance: 400,
-    lockedBalance: 0,
+    unlockedBalance: 400n,
+    lockedBalance: 0n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0,
     timelockExpires: null,
@@ -1772,8 +1772,8 @@ test('PUT /txproposals/{proposalId} with a different txhex than the one sent in 
   }, {
     walletId: 'my-wallet',
     tokenId: 'token2',
-    unlockedBalance: 300,
-    lockedBalance: 0,
+    unlockedBalance: 300n,
+    lockedBalance: 0n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0,
     timelockExpires: null,
@@ -1790,7 +1790,7 @@ test('PUT /txproposals/{proposalId} with a different txhex than the one sent in 
   // only one output, spending the whole 300 utxo of token1
   const outputs = [
     new hathorLib.Output(
-      300,
+      300n,
       new hathorLib.P2PKH(
         new hathorLib.Address(ADDRESSES[0], { network: new hathorLib.Network(process.env.NETWORK) }),
       ).createScript(),
@@ -1837,7 +1837,7 @@ test('checkMissingUtxos', async () => {
     index: 0,
     tokenId: '00',
     address: ADDRESSES[0],
-    value: 0,
+    value: 0n,
     authorities: 0,
     timelock: 0,
     heightlock: 0,

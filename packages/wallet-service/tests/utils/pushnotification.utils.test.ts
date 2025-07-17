@@ -11,6 +11,7 @@ import { Severity } from '@wallet-service/common/src/types';
 import { sendMock, lambdaInvokeCommandMock } from '@tests/utils/aws-sdk.mock';
 import { LambdaClient } from '@aws-sdk/client-lambda';
 import { buildWalletBalanceValueMap } from '@tests/utils';
+import { bigIntUtils } from '@hathor/wallet-lib';
 
 const isFirebaseInitializedMock = jest.spyOn(pushnotificationUtils, 'isFirebaseInitialized');
 
@@ -589,7 +590,7 @@ describe('PushNotificationUtils', () => {
       expect(lambdaInvokeCommandMock).toHaveBeenCalledWith({
         FunctionName: buildFunctionName(FunctionName.ON_TX_PUSH_NOTIFICATION_REQUESTED),
         InvocationType: 'Event',
-        Payload: JSON.stringify(walletMap),
+        Payload: bigIntUtils.JSONBigInt.stringify(walletMap),
       });
     });
 

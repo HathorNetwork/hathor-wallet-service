@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import hathorLib, { constants, Output, walletUtils, addressUtils } from '@hathor/wallet-lib';
+import hathorLib, { constants, Output, walletUtils, addressUtils, bigIntUtils } from '@hathor/wallet-lib';
 import { Connection as MysqlConnection } from 'mysql2/promise';
 import { strict as assert } from 'assert';
 import {
@@ -122,7 +122,7 @@ export const getAddressBalanceMap = (
   inputs: TxInput[],
   outputs: TxOutput[],
 ): StringMap<TokenBalanceMap> => {
-  const addressBalanceMap = {};
+  const addressBalanceMap: StringMap<TokenBalanceMap> = {};
 
   for (const input of inputs) {
     if (!isDecodedValid(input.decoded)) {
@@ -132,11 +132,15 @@ export const getAddressBalanceMap = (
     }
 
     const address = input.decoded?.address;
+    /* istanbul ignore if */
+    if (!address) {
+      // This should never happen
+      throw new Error('Decoded input data has no address');
+    }
 
     // get the TokenBalanceMap from this input
     const tokenBalanceMap = TokenBalanceMap.fromTxInput(input);
     // merge it with existing TokenBalanceMap for the address
-    // @ts-ignore
     addressBalanceMap[address] = TokenBalanceMap.merge(addressBalanceMap[address], tokenBalanceMap);
   }
 
@@ -154,7 +158,6 @@ export const getAddressBalanceMap = (
     const tokenBalanceMap = TokenBalanceMap.fromTxOutput(output);
 
     // merge it with existing TokenBalanceMap for the address
-    // @ts-ignore
     addressBalanceMap[address] = TokenBalanceMap.merge(addressBalanceMap[address], tokenBalanceMap);
   }
 
@@ -179,7 +182,7 @@ export const unlockUtxos = async (mysql: MysqlConnection, utxos: DbTxOutput[], u
     };
 
     return {
-      value: utxo.authorities > 0 ? utxo.authorities : utxo.value,
+      value: utxo.authorities > 0 ? BigInt(utxo.authorities) : utxo.value,
       token: utxo.tokenId,
       decoded,
       locked: false,
@@ -373,7 +376,7 @@ export const validateAddressBalances = async (mysql: MysqlConnection, addresses:
   const addressBalances: AddressBalance[] = await fetchAddressBalance(mysql, addresses);
   const addressTxHistorySums: AddressTotalBalance[] = await fetchAddressTxHistorySum(mysql, addresses);
 
-  logger.debug(`Validating address balances for ${JSON.stringify(addresses)}`);
+  logger.debug(`Validating address balances for ${bigIntUtils.JSONBigInt.stringify(addresses)}`);
 
   /* We need to filter out zero transactions address balances as we won't have
    * any records in the address_tx_history table and the assertion ahead will
@@ -476,7 +479,10 @@ export class FromTokenBalanceMapToBalanceValueList {
 }
 
 export const sortBalanceValueByAbsTotal = (balanceA: TokenBalanceValue, balanceB: TokenBalanceValue): number => {
-  if (Math.abs(balanceA.total) - Math.abs(balanceB.total) >= 0) return -1;
+  function abs(num: bigint) {
+    return num >= 0n ? num : -num;
+  }
+  if (abs(balanceA.total) - abs(balanceB.total) >= 0n) return -1;
   return 0;
 };
 

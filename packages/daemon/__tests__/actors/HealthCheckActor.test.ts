@@ -3,7 +3,6 @@ import axios from 'axios';
 import logger from '../../src/logger';
 import { EventTypes } from '../../src/types/event';
 import getConfig from '../../src/config';
-import { get } from 'lodash';
 
 jest.useFakeTimers();
 jest.spyOn(global, 'setInterval');
