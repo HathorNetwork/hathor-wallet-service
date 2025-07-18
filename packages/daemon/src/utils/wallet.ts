@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import hathorLib, { constants, Output, walletUtils, addressUtils } from '@hathor/wallet-lib';
+import hathorLib, { constants, Output, walletUtils, addressUtils, bigIntUtils } from '@hathor/wallet-lib';
 import { Connection as MysqlConnection } from 'mysql2/promise';
 import { strict as assert } from 'assert';
 import {
@@ -198,7 +198,7 @@ export const unlockUtxos = async (mysql: MysqlConnection, utxos: DbTxOutput[], u
     };
 
     return {
-      value: utxo.authorities > 0 ? utxo.authorities : utxo.value,
+      value: utxo.authorities > 0 ? BigInt(utxo.authorities) : utxo.value,
       token: utxo.tokenId,
       decoded,
       locked: false,
@@ -391,7 +391,7 @@ export const validateAddressBalances = async (mysql: MysqlConnection, addresses:
   const addressBalances: AddressBalance[] = await fetchAddressBalance(mysql, addresses);
   const addressTxHistorySums: AddressTotalBalance[] = await fetchAddressTxHistorySum(mysql, addresses);
 
-  logger.debug(`Validating address balances for ${JSON.stringify(addresses)}`);
+  logger.debug(`Validating address balances for ${bigIntUtils.JSONBigInt.stringify(addresses)}`);
 
   /* We need to filter out zero transactions address balances as we won't have
    * any records in the address_tx_history table and the assertion ahead will
@@ -493,7 +493,10 @@ export class FromTokenBalanceMapToBalanceValueList {
 }
 
 export const sortBalanceValueByAbsTotal = (balanceA: TokenBalanceValue, balanceB: TokenBalanceValue): number => {
-  if (Math.abs(balanceA.total) - Math.abs(balanceB.total) >= 0) return -1;
+  function abs(num: bigint) {
+    return num >= 0n ? num : -num;
+  }
+  if (abs(balanceA.total) - abs(balanceB.total) >= 0n) return -1;
   return 0;
 };
 

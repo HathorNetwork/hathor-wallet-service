@@ -47,8 +47,8 @@ export const fetchAddressBalances = async (
   return results.map((result): AddressBalance => ({
     address: result.address as string,
     tokenId: result.token_id as string,
-    unlockedBalance: result.unlocked_balance as number,
-    lockedBalance: result.locked_balance as number,
+    unlockedBalance: BigInt(result.unlocked_balance),
+    lockedBalance: BigInt(result.locked_balance),
     lockedAuthorities: result.locked_authorities as number,
     unlockedAuthorities: result.unlocked_authorities as number,
     timelockExpires: result.timelock_expires as number,
@@ -58,14 +58,13 @@ export const fetchAddressBalances = async (
 
 export const validateBalances = async (
   balancesA: AddressBalance[],
-  balancesB: { string: number },
+  balancesB: Record<string, bigint>,
 ): Promise<void> => {
   const length = Math.max(balancesA.length, Object.keys(balancesB).length);
 
   for (let i = 0; i < length; i++) {
     const balanceA = balancesA[i];
     const address = balanceA.address;
-    // @ts-ignore
     const balanceB = balancesB[address];
     const totalBalanceA = balanceA.lockedBalance + balanceA.unlockedBalance;
 
@@ -79,7 +78,6 @@ export async function transitionUntilEvent(mysql: Connection, machine: Interpret
   return await new Promise<void>((resolve) => {
     machine.onTransition(async (state) => {
       if (state.matches('CONNECTED.idle')) {
-        // @ts-ignore
         const lastSyncedEvent = await getLastSyncedEvent(mysql);
         if (lastSyncedEvent?.last_event_id === eventId) {
           machine.stop();

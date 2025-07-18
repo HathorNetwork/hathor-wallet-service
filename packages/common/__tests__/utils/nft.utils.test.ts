@@ -56,7 +56,7 @@ const REAL_NFT_EVENT_DATA = {
       'tx_id': '00000000ba6f3fc01a3e8561f2905c50c98422e7112604a8971bdaba1535e797',
       'index': 1,
       'spent_output': {
-        'value': 4,
+        'value': 4n,
         'token_data': 0,
         'script': 'dqkUWDMJLPqtb9X+jPcBSP6WLg6NIC6IrA==',
         'decoded': {
@@ -69,13 +69,13 @@ const REAL_NFT_EVENT_DATA = {
   ],
   'outputs': [
     {
-      'value': 1,
+      'value': 1n,
       'token_data': 0,
       'script': 'C2lwZnM6Ly8xMTExrA==',
       'decoded': null
     },
     {
-      'value': 2,
+      'value': 2n,
       'token_data': 0,
       'script': 'dqkUFUs/hBsLnxy5Jd94WWV24BCmIhmIrA==',
       'decoded': {
@@ -85,7 +85,7 @@ const REAL_NFT_EVENT_DATA = {
       }
     },
     {
-      'value': 1,
+      'value': 1n,
       'token_data': 1,
       'script': 'dqkUhM3YhAjNc5p/oqX+yqEYcX+miNmIrA==',
       'decoded': {
@@ -476,7 +476,7 @@ describe('transaction transformation compatibility', () => {
           index: 0,
           spent_output: {
             token_data: (1 & hathorLib.constants.TOKEN_INDEX_MASK) + 1, // First token
-            value: 100,
+            value: 100n,
             script: 'script1',
             decoded: {
               type: 'P2PKH',
@@ -487,7 +487,7 @@ describe('transaction transformation compatibility', () => {
         }],
         outputs: [{
           token_data: (0 & hathorLib.constants.TOKEN_INDEX_MASK) + 1, // HTR token
-          value: 100,
+          value: 100n,
           script: 'script2',
           decoded: {
             type: 'P2PKH',
@@ -634,7 +634,7 @@ describe('processNftEvent', () => {
           tx_id: '00000000ba6f3fc01a3e8561f2905c50c98422e7112604a8971bdaba1535e797',
           index: 1,
           spent_output: {
-            value: 4,
+            value: 4n,
             token_data: 0,
             script: 'dqkUWDMJLPqtb9X+jPcBSP6WLg6NIC6IrA==',
             decoded: {
@@ -647,13 +647,13 @@ describe('processNftEvent', () => {
       ],
       outputs: [
         {
-          value: 1,
+          value: 1n,
           token_data: 0,
           script: 'C2lwZnM6Ly8xMTExrA==',
           decoded: null
         },
         {
-          value: 2,
+          value: 2n,
           token_data: 0,
           script: 'dqkUFUs/hBsLnxy5Jd94WWV24BCmIhmIrA==',
           decoded: {
@@ -663,7 +663,7 @@ describe('processNftEvent', () => {
           }
         },
         {
-          value: 1,
+          value: 1n,
           token_data: 1,
           script: 'dqkUhM3YhAjNc5p/oqX+yqEYcX+miNmIrA==',
           decoded: {

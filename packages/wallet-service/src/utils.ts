@@ -48,6 +48,7 @@ export const sha256d = (data: string, encoding: BinaryToTextEncoding): string =>
   const hash1 = createHash('sha256');
   hash1.update(data);
   const hash2 = createHash('sha256');
+  // @ts-ignore: `digest` returns a Buffer which is not a BinaryLike required by `update`
   hash2.update(hash1.digest());
   return hash2.digest(encoding);
 };
@@ -86,6 +87,9 @@ export const getDbConnection = (): ServerlessMysql => (
       // TODO if not on local env, get IAM token
       // https://aws.amazon.com/blogs/database/iam-role-based-authentication-to-amazon-aurora-from-serverless-applications/
       password: config.dbPass,
+      // BIGINT columns should be returned as strings to keep precision on the JS unsafe range.
+      supportBigNumbers: true,
+      bigNumberStrings: true,
     },
   })
 );

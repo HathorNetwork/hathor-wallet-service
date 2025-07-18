@@ -16,12 +16,20 @@ import {
 } from '@src/types';
 import { closeDbAndGetError } from '@src/api/utils';
 import { getDbConnection } from '@src/utils';
-import { constants } from '@hathor/wallet-lib';
+import { constants, bigIntUtils } from '@hathor/wallet-lib';
 import middy from '@middy/core';
 import cors from '@middy/http-cors';
 import errorHandler from '@src/api/middlewares/errorHandler';
 
 const mysql = getDbConnection();
+
+const positiveBigInt = Joi.custom(value => {
+  const newVal = BigInt(value);
+  if (newVal > 0n) {
+    return newVal;
+  }
+  throw new Error('value must be positive');
+});
 
 const bodySchema = Joi.object({
   id: Joi.string().optional(),
@@ -32,8 +40,10 @@ const bodySchema = Joi.object({
   tokenId: Joi.string().default('00'),
   authority: Joi.number().default(0).integer().positive(),
   ignoreLocked: Joi.boolean().optional(),
-  biggerThan: Joi.number().integer().positive().default(-1),
-  smallerThan: Joi.number().integer().positive().default(constants.MAX_OUTPUT_VALUE + 1),
+  // @ts-ignore : bigint is not considered a basic type for a default value.
+  biggerThan: positiveBigInt.default(0n),
+  // @ts-ignore
+  smallerThan: positiveBigInt.default(constants.MAX_OUTPUT_VALUE + 1n),
   maxOutputs: Joi.number().integer().positive().default(constants.MAX_OUTPUTS),
   skipSpent: Joi.boolean().optional().default(true),
   txId: Joi.string().optional(),
@@ -85,11 +95,11 @@ export const getFilteredUtxos = middy(walletIdProxyHandler(async (walletId, even
   // The /wallet/utxos API expects `utxos` on the response body, we should transform the
   // response accordingly
   if (response.statusCode === 200) {
-    const body = JSON.parse(response.body);
+    const body = bigIntUtils.JSONBigInt.parse(response.body);
     body.utxos = body.txOutputs;
     delete body.txOutputs;
 
-    response.body = JSON.stringify(body);
+    response.body = bigIntUtils.JSONBigInt.stringify(body);
   }
 
   return response;
@@ -158,7 +168,7 @@ const _getFilteredTxOutputs = async (walletId: string, filters: IFilterTxOutput)
 
     return {
       statusCode: 200,
-      body: JSON.stringify({
+      body: bigIntUtils.JSONBigInt.stringify({
         success: true,
         txOutputs: txOutputList,
       }),
@@ -184,7 +194,7 @@ const _getFilteredTxOutputs = async (walletId: string, filters: IFilterTxOutput)
 
   return {
     statusCode: 200,
-    body: JSON.stringify({
+    body: bigIntUtils.JSONBigInt.stringify({
       success: true,
       txOutputs: txOutputsWithPath,
     }),

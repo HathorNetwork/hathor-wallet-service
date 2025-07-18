@@ -41,7 +41,7 @@ test('onHandleOldVoidedTxs', async () => {
     index: 0,
     tokenId: '00',
     address: ADDRESSES[0],
-    value: 50,
+    value: 50n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -52,7 +52,7 @@ test('onHandleOldVoidedTxs', async () => {
     index: 0,
     tokenId: '00',
     address: ADDRESSES[1],
-    value: 100,
+    value: 100n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -63,7 +63,7 @@ test('onHandleOldVoidedTxs', async () => {
     index: 0,
     tokenId: '00',
     address: ADDRESSES[2],
-    value: 150,
+    value: 150n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -74,7 +74,7 @@ test('onHandleOldVoidedTxs', async () => {
     index: 1,
     tokenId: '00',
     address: ADDRESSES[3],
-    value: 200,
+    value: 200n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -83,10 +83,10 @@ test('onHandleOldVoidedTxs', async () => {
   }];
 
   const txHistory = [
-    { address: ADDRESSES[0], txId: TX_IDS[0], tokenId: '00', balance: 50, timestamp: 10 },
-    { address: ADDRESSES[1], txId: TX_IDS[1], tokenId: '00', balance: 100, timestamp: 10 },
-    { address: ADDRESSES[2], txId: TX_IDS[2], tokenId: '00', balance: 150, timestamp: 10 },
-    { address: ADDRESSES[3], txId: TX_IDS[2], tokenId: '00', balance: 200, timestamp: 10 },
+    { address: ADDRESSES[0], txId: TX_IDS[0], tokenId: '00', balance: 50n, timestamp: 10 },
+    { address: ADDRESSES[1], txId: TX_IDS[1], tokenId: '00', balance: 100n, timestamp: 10 },
+    { address: ADDRESSES[2], txId: TX_IDS[2], tokenId: '00', balance: 150n, timestamp: 10 },
+    { address: ADDRESSES[3], txId: TX_IDS[2], tokenId: '00', balance: 200n, timestamp: 10 },
   ];
 
   const addressEntries = [
@@ -111,7 +111,7 @@ test('onHandleOldVoidedTxs', async () => {
 
   await onHandleOldVoidedTxs();
 
-  await expect(checkUtxoTable(mysql, 4, TX_IDS[0], 0, '00', ADDRESSES[0], 50, 0, null, null, false, null, true)).resolves.toBe(true);
+  await expect(checkUtxoTable(mysql, 4, TX_IDS[0], 0, '00', ADDRESSES[0], 50n, 0, null, null, false, null, true)).resolves.toBe(true);
 });
 
 test('onHandleOldVoidedTxs should try to confirm the block by fetching the first_block', async () => {
@@ -128,7 +128,7 @@ test('onHandleOldVoidedTxs should try to confirm the block by fetching the first
     index: 0,
     tokenId: '00',
     address: ADDRESSES[0],
-    value: 50,
+    value: 50n,
     authorities: 0,
     timelock: null,
     heightlock: null,

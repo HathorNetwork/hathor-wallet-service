@@ -13,6 +13,7 @@ import { MulticastMessage } from 'firebase-admin/messaging';
 import createDefaultLogger from '@src/logger';
 import config from '@src/config';
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
+import { bigIntUtils } from '@hathor/wallet-lib';
 import { EnvironmentConfigSchema } from '@src/schemas';
 
 const logger = createDefaultLogger();
@@ -117,7 +118,7 @@ if (isPushNotificationEnabled()) {
       );
       throw error;
     }
-    
+
     const serviceAccount = {
       type: 'service_account',
       project_id: FIREBASE_PROJECT_ID,
@@ -242,7 +243,7 @@ export class PushNotificationUtils {
     const command = new InvokeCommand({
       FunctionName: SEND_NOTIFICATION_FUNCTION_NAME,
       InvocationType: 'Event',
-      Payload: JSON.stringify(notification),
+      Payload: bigIntUtils.JSONBigInt.stringify(notification),
     });
 
     const response: InvokeCommandOutput = await client.send(command);
@@ -278,7 +279,7 @@ export class PushNotificationUtils {
     const command = new InvokeCommand({
       FunctionName: ON_TX_PUSH_NOTIFICATION_REQUESTED_FUNCTION_NAME,
       InvocationType: 'Event',
-      Payload: JSON.stringify(walletBalanceValueMap),
+      Payload: bigIntUtils.JSONBigInt.stringify(walletBalanceValueMap),
     });
 
     const response: InvokeCommandOutput = await client.send(command);

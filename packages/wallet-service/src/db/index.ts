@@ -8,7 +8,7 @@ import { strict as assert } from 'assert';
 import { ServerlessMysql } from 'serverless-mysql';
 import { get } from 'lodash';
 import { OkPacket } from 'mysql';
-import { constants } from '@hathor/wallet-lib';
+import { constants, bigIntUtils } from '@hathor/wallet-lib';
 import {
   AddressIndexMap,
   AddressInfo,
@@ -183,7 +183,7 @@ export const generateAddresses = async (mysql: ServerlessMysql, xpubkey: string,
       existingAddresses[address] = index;
 
       // if address is used, check if its index is higher than the current highest used index
-      if (entry.transactions > 0 && index > lastUsedAddressIndex) {
+      if (entry.transactions as number > 0 && index > lastUsedAddressIndex) {
         lastUsedAddressIndex = index;
       }
 
@@ -536,7 +536,7 @@ export const initWalletBalance = async (mysql: ServerlessMysql, walletId: string
     const row1 = results1[i];
     const row2 = results2[i];
     assert.strictEqual(row1.token_id, row2.token_id);
-    assert.strictEqual(<number>row1.unlocked_balance + <number>row1.locked_balance, row2.balance);
+    assert.strictEqual(BigInt(row1.unlocked_balance as string) + BigInt(row1.locked_balance as string), BigInt(row2.balance as string));
     balanceEntries.push([
       walletId,
       row1.token_id,
@@ -683,8 +683,9 @@ export const addUtxos = async (
       let value = output.value;
 
       if (isAuthority(output.token_data)) {
-        authorities = value;
-        value = 0;
+        // value should be within [0, 255] for authorities to be valid.
+        authorities = Number(value);
+        value = 0n;
       }
 
       return [
@@ -948,11 +949,11 @@ export const getWalletSortedValueUtxos = async (
       index: result.index as number,
       tokenId: result.token_id as string,
       address: result.address as string,
-      value: result.value as number,
+      value: BigInt(result.value as string),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
-      locked: result.locked > 0,
+      locked: result.locked as number > 0,
     };
     utxos.push(utxo);
   }
@@ -1013,11 +1014,11 @@ export const getLockedUtxoFromInputs = async (mysql: ServerlessMysql, inputs: Tx
       index: utxo.index as number,
       tokenId: utxo.token_id as string,
       address: utxo.address as string,
-      value: utxo.value as number,
+      value: BigInt(utxo.value as string),
       authorities: utxo.authorities as number,
       timelock: utxo.timelock as number,
       heightlock: utxo.heightlock as number,
-      locked: (utxo.locked > 0),
+      locked: (utxo.locked as number > 0),
     }));
   }
 
@@ -1382,9 +1383,9 @@ INNER JOIN token ON w.token_id = token.id
 
   const results: DbSelectResult = await mysql.query(query, params);
   for (const result of results) {
-    const totalAmount = result.total_received as number;
-    const unlockedBalance = result.unlocked_balance as number;
-    const lockedBalance = result.locked_balance as number;
+    const totalAmount = BigInt(result.total_received as string);
+    const unlockedBalance = BigInt(result.unlocked_balance as string);
+    const lockedBalance = BigInt(result.locked_balance as string);
     const unlockedAuthorities = new Authorities(result.unlocked_authorities as number);
     const lockedAuthorities = new Authorities(result.locked_authorities as number);
     const timelockExpires = result.timelock_expires as number;
@@ -1471,7 +1472,7 @@ LEFT OUTER JOIN transaction ON transaction.tx_id = wallet_tx_history.tx_id
       txId: <string>result.tx_id,
       timestamp: <number>result.timestamp,
       voided: <boolean>result.voided,
-      balance: <Balance>result.balance,
+      balance: BigInt(result.balance as string),
       version: <number>result.version,
     };
     history.push(tx);
@@ -1516,11 +1517,11 @@ export const getUtxosLockedAtHeight = async (
         index: result.index as number,
         tokenId: result.token_id as string,
         address: result.address as string,
-        value: result.value as number,
+        value: BigInt(result.value as string),
         authorities: result.authorities as number,
         timelock: result.timelock as number,
         heightlock: result.heightlock as number,
-        locked: result.locked > 0,
+        locked: result.locked as number > 0,
       };
       utxos.push(utxo);
     }
@@ -1570,11 +1571,11 @@ export const getWalletUnlockedUtxos = async (
       index: result.index as number,
       tokenId: result.token_id as string,
       address: result.address as string,
-      value: result.value as number,
+      value: BigInt(result.value as string),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
-      locked: result.locked > 0,
+      locked: result.locked as number > 0,
     };
     utxos.push(utxo);
   }
@@ -1592,7 +1593,7 @@ export const updateVersionData = async (mysql: ServerlessMysql, timestamp: numbe
   const entry = {
     id: 1,
     timestamp,
-    data: JSON.stringify(data),
+    data: bigIntUtils.JSONBigInt.stringify(data),
   };
 
   await mysql.query(
@@ -1613,7 +1614,7 @@ export const getVersionData = async (mysql: ServerlessMysql): Promise<{ timestam
   if (results.length > 0) {
     const data = results[0];
 
-    const entry: FullNodeApiVersionResponse = JSON.parse(data.data as string);
+    const entry: FullNodeApiVersionResponse = bigIntUtils.JSONBigInt.parse(data.data as string);
     const { error } = FullnodeVersionSchema.validate(entry);
     if (error) {
       throw error;
@@ -1934,11 +1935,11 @@ export const getTxOutputs = async (
       index: result.index as number,
       tokenId: result.token_id as string,
       address: result.address as string,
-      value: result.value as number,
+      value: BigInt(result.value as string),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
-      locked: result.locked > 0,
+      locked: result.locked as number > 0,
       txProposalId: result.tx_proposal as string,
       txProposalIndex: result.tx_proposal_index as number,
       spentBy: result.spent_by ? result.spent_by as string : null,
@@ -2002,11 +2003,11 @@ export const getTxOutputsBySpent = async (
       index: result.index as number,
       tokenId: result.token_id as string,
       address: result.address as string,
-      value: result.value as number,
+      value: BigInt(result.value as string),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
-      locked: result.locked > 0,
+      locked: result.locked as number > 0,
       txProposalId: result.tx_proposal as string,
       txProposalIndex: result.tx_proposal_index as number,
       spentBy: result.spent_by ? result.spent_by as string : null,
@@ -2332,8 +2333,8 @@ export const fetchAddressBalance = async (
   return results.map((result): AddressBalance => ({
     address: result.address as string,
     tokenId: result.token_id as string,
-    unlockedBalance: result.unlocked_balance as number,
-    lockedBalance: result.locked_balance as number,
+    unlockedBalance: BigInt(result.unlocked_balance as string),
+    lockedBalance: BigInt(result.locked_balance as string),
     lockedAuthorities: result.locked_authorities as number,
     unlockedAuthorities: result.unlocked_authorities as number,
     timelockExpires: result.timelock_expires as number,
@@ -2367,7 +2368,7 @@ export const fetchAddressTxHistorySum = async (
   return results.map((result): AddressTotalBalance => ({
     address: result.address as string,
     tokenId: result.token_id as string,
-    balance: result.balance as number,
+    balance: BigInt(result.balance as string),
     transactions: result.transactions as number,
   }));
 };
@@ -2388,8 +2389,8 @@ export const filterTxOutputs = async (
     authority: 0,
     ignoreLocked: false,
     skipSpent: true,
-    biggerThan: -1,
-    smallerThan: constants.MAX_OUTPUT_VALUE + 1,
+    biggerThan: 0,
+    smallerThan: constants.MAX_OUTPUT_VALUE + 1n,
     ...filters,
   };
 
@@ -2446,7 +2447,7 @@ export const mapDbResultToDbTxOutput = (result: any): DbTxOutput => ({
   index: result.index as number,
   tokenId: result.token_id as string,
   address: result.address as string,
-  value: result.value as number,
+  value: BigInt(result.value),
   authorities: result.authorities as number,
   timelock: result.timelock as number,
   heightlock: result.heightlock as number,
@@ -2549,7 +2550,7 @@ export const getMinersList = async (
       address: result.address as string,
       firstBlock: result.first_block as string,
       lastBlock: result.last_block as string,
-      count: result.count as number,
+      count: Number(result.count),
     });
   }
 
@@ -2566,7 +2567,7 @@ export const getMinersList = async (
 export const getTotalSupply = async (
   mysql: ServerlessMysql,
   tokenId: string,
-): Promise<number> => {
+): Promise<bigint> => {
   const results: DbSelectResult = await mysql.query(`
     SELECT SUM(value) as value
       FROM tx_output
@@ -2588,7 +2589,7 @@ export const getTotalSupply = async (
     throw new Error('Total supply query returned no results');
   }
 
-  return results[0].value as number;
+  return BigInt(results[0].value as string);
 };
 
 /**
@@ -2647,7 +2648,7 @@ export const getTotalTransactions = async (
     throw new Error('Total transactions query returned no results');
   }
 
-  return results[0].count as number;
+  return Number(results[0].count as string);
 };
 
 /**
@@ -2707,7 +2708,7 @@ export const getAffectedAddressTxCountFromTxList = async (
 
   const addressTransactions = results.reduce((acc, result) => {
     const address = result.address as string;
-    const txCount = result.txCount as number;
+    const txCount = Number(result.txCount);
     const tokenId = result.tokenId as string;
 
     acc[`${address}_${tokenId}`] = txCount;
@@ -2969,17 +2970,17 @@ export const getTransactionById = async (
 
   const txTokens = [];
   result.forEach((eachTxToken) => {
-    const txToken = {
+    const txToken: TxByIdToken = {
       txId: eachTxToken.tx_id,
       timestamp: eachTxToken.timestamp,
       version: eachTxToken.version,
       voided: !!eachTxToken.voided,
       weight: eachTxToken.weight,
-      balance: eachTxToken.balance,
+      balance: BigInt(eachTxToken.balance),
       tokenId: eachTxToken.token_id,
       tokenName: eachTxToken.name,
       tokenSymbol: eachTxToken.symbol,
-    } as TxByIdToken;
+    };
     txTokens.push(txToken);
   });
 
@@ -3085,7 +3086,7 @@ export const countStalePushDevices = async (mysql: ServerlessMysql): Promise<num
       FROM \`push_devices\`
      WHERE UNIX_TIMESTAMP(updated_at) < UNIX_TIMESTAMP(date_sub(now(), interval 1 month))`,
   ) as Array<{ count }>;
-  return count;
+  return Number(count);
 };
 
 /**

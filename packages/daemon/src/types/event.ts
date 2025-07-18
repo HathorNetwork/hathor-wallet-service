@@ -121,7 +121,7 @@ export interface EventTxInput {
 }
 
 export interface EventTxOutput {
-  value: number;
+  value: bigint;
   token_data: number;
   script: string;
   locked?: boolean;

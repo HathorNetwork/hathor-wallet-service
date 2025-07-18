@@ -43,7 +43,7 @@ export class LRU {
   }
 
   first(): string {
-    return this.cache.keys().next().value;
+    return this.cache.keys().next()?.value ?? '';
   }
 
   clear(): void {

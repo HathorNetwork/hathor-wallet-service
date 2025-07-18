@@ -10,7 +10,7 @@ export interface DbTxOutput {
   index: number;
   tokenId: string;
   address: string;
-  value: number;
+  value: bigint;
   authorities: number;
   timelock: number | null;
   heightlock: number | null;
