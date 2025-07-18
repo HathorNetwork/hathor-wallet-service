@@ -65,5 +65,15 @@ services:
     ports:
       - "8087:8080"
 
+  nc_events:
+    image: hathornetwork/hathor-core:v0.64.0-alpha.2
+    command: [
+      "events_simulator",
+      "--scenario", "NC_EVENTS",
+      "--seed", "1"
+    ]
+    ports:
+      - "8088:8080"
+
 networks:
   database:

@@ -17,6 +17,7 @@ import singleChainBlocksAndTransactionsBalances from './scenario_configs/single_
 import invalidMempoolBalances from './scenario_configs/invalid_mempool_transaction.balances';
 import emptyScriptBalances from './scenario_configs/empty_script.balances';
 import customScriptBalances from './scenario_configs/custom_script.balances';
+import ncEventsBalances from './scenario_configs/custom_script.balances';
 
 import {
   DB_NAME,
@@ -36,6 +37,8 @@ import {
   CUSTOM_SCRIPT_LAST_EVENT,
   EMPTY_SCRIPT_PORT,
   EMPTY_SCRIPT_LAST_EVENT,
+  NC_EVENTS_PORT,
+  NC_EVENTS_LAST_EVENT,
 } from './config';
 
 jest.mock('../../src/config', () => {
@@ -288,4 +291,41 @@ describe('empty script scenario', () => {
 
     expect(validateBalances(addressBalances, emptyScriptBalances));
   });
+});
+
+describe.only('nc events scenario', () => {
+  beforeAll(() => {
+    jest.spyOn(Services, 'fetchMinRewardBlocks').mockImplementation(async () => 300);
+  });
+
+  it('should do a full sync and the balances should match', async () => {
+    // @ts-ignore
+    getConfig.mockReturnValue({
+      NETWORK: 'testnet',
+      SERVICE_NAME: 'daemon-test',
+      CONSOLE_LEVEL: 'debug',
+      TX_CACHE_SIZE: 100,
+      BLOCK_REWARD_LOCK: 300,
+      FULLNODE_PEER_ID: 'simulator_peer_id',
+      STREAM_ID: 'simulator_stream_id',
+      FULLNODE_NETWORK: 'unittests',
+      FULLNODE_HOST: `127.0.0.1:${NC_EVENTS_PORT}`,
+      USE_SSL: false,
+      DB_ENDPOINT,
+      DB_NAME,
+      DB_USER,
+      DB_PASS,
+      DB_PORT,
+    });
+
+    const machine = interpret(SyncMachine);
+
+    // @ts-ignore
+    await transitionUntilEvent(mysql, machine, NC_EVENTS_LAST_EVENT);
+    const addressBalances = await fetchAddressBalances(mysql);
+    console.log(JSON.stringify(addressBalances, null, 2));
+
+    // @ts-ignore
+    expect(validateBalances(addressBalances, ncEventsBalances));
+  }, 40000);
 });

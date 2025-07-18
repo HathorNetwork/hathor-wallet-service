@@ -34,6 +34,9 @@ export const CUSTOM_SCRIPT_LAST_EVENT = 37;
 export const EMPTY_SCRIPT_PORT = 8087;
 export const EMPTY_SCRIPT_LAST_EVENT = 37;
 
+export const NC_EVENTS_PORT = 8088;
+export const NC_EVENTS_LAST_EVENT = 37;
+
 export const SCENARIOS = [
   'UNVOIDED_SCENARIO',
   'REORG_SCENARIO',
@@ -41,4 +44,5 @@ export const SCENARIOS = [
   'INVALID_MEMPOOL_TRANSACTION',
   'EMPTY_SCRIPT',
   'CUSTOM_SCRIPT',
+  'NC_EVENTS',
 ];
