@@ -55,7 +55,7 @@ const StandardFullNodeEvents = z.union([
   z.literal('NEW_VERTEX_ACCEPTED'),
   z.literal('LOAD_STARTED'),
   z.literal('LOAD_FINISHED'),
-  z.literal('REORG_FINISHE'),
+  z.literal('REORG_FINISHED'),
 ]);
 
 export const FullNodeEventTypesSchema = z.nativeEnum(FullNodeEventTypes);
