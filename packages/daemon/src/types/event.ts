@@ -5,6 +5,9 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+import z from 'zod';
+import { bigIntUtils } from '@hathor/wallet-lib';
+
 export type WebSocketEvent =
   | { type: 'CONNECTED' }
   | { type: 'DISCONNECTED' };
@@ -43,6 +46,20 @@ export enum FullNodeEventTypes {
   REORG_FINISHED= 'REORG_FINISHED',
 }
 
+/**
+ * All events except 'REORG_STARTED'
+ */
+const StandardFullNodeEvents = z.union([
+  z.literal('VERTEX_METADATA_CHANGED'),
+  z.literal('VERTEX_REMOVED'),
+  z.literal('NEW_VERTEX_ACCEPTED'),
+  z.literal('LOAD_STARTED'),
+  z.literal('LOAD_FINISHED'),
+  z.literal('REORG_FINISHE'),
+]);
+
+export const FullNodeEventTypesSchema = z.nativeEnum(FullNodeEventTypes);
+
 export type MetadataDecidedEvent = {
   type: 'TX_VOIDED' | 'TX_UNVOIDED' | 'TX_NEW' | 'TX_FIRST_BLOCK' | 'IGNORE';
   originalEvent: FullNodeEvent;
@@ -60,80 +77,104 @@ export interface VertexRemovedEventData {
   vertex_id: string;
 }
 
-export type FullNodeEventBase = {
-  stream_id: string;
-  peer_id: string;
-  network: string;
-  type: string;
-  latest_event_id: number;
-};
+export const FullNodeEventBaseSchema = z.object({
+  stream_id: z.string(),
+  peer_id: z.string(),
+  network: z.string(),
+  type: z.string(),
+  latest_event_id: z.number(),
+});
 
-export type StandardFullNodeEvent = FullNodeEventBase & {
-  event: {
-    id: number;
-    timestamp: number;
-    type: Exclude<FullNodeEventTypes, "REORG_STARTED">; // All types except "REORG_STARTED"
-    data: {
-      hash: string;
-      timestamp: number;
-      version: number;
-      weight: number;
-      nonce: number;
-      inputs: EventTxInput[];
-      outputs: EventTxOutput[];
-      parents: string[];
-      tokens: string[];
-      token_name: null | string;
-      token_symbol: null | string;
-      signal_bits: number;
-      metadata: {
-        hash: string;
-        voided_by: string[];
-        first_block: null | string;
-        height: number;
-      };
-    };
-  };
-};
+export type FullNodeEventBase = z.infer<typeof FullNodeEventBaseSchema>;
 
-export type ReorgFullNodeEvent = FullNodeEventBase & {
-  event: {
-    id: number;
-    timestamp: number;
-    type: "REORG_STARTED";
-    data: {
-      reorg_size: number;
-      previous_best_block: string;
-      new_best_block: string;
-      common_block: string;
-    };
-    group_id: number;
-  };
-};
+export const EventTxOutputSchema = z.object({
+  value: bigIntUtils.bigIntCoercibleSchema,
+  token_data: z.number(),
+  script: z.string(),
+  locked: z.boolean().optional(),
+  decoded: z.object({
+    type: z.string(),
+    address: z.string(),
+    timelock: z.number().nullable(),
+  }),
+});
+export type EventTxOutput = z.infer<typeof EventTxOutputSchema>;
 
-export type FullNodeEvent = StandardFullNodeEvent | ReorgFullNodeEvent;
+export const EventTxInputSchema = z.object({
+  tx_id: z.string(),
+  index: z.number(),
+  spent_output: EventTxOutputSchema,
+});
+export type EventTxInput = z.infer<typeof EventTxInputSchema>;
 
-export interface EventTxInput {
-  tx_id: string;
-  index: number;
-  spent_output: EventTxOutput;
-}
+export const EventTxNanoHeaderSchema = z.object({
+    id: z.string(),
+    nc_seqnum: z.number(),
+    nc_id: z.string(),
+    nc_method: z.string(),
+    nc_address: z.string(),
+});
+export type EventTxNanoHeader = z.infer<typeof EventTxNanoHeaderSchema>;
 
-export interface EventTxOutput {
-  value: bigint;
-  token_data: number;
-  script: string;
-  locked?: boolean;
-  decoded: {
-    type: string;
-    address: string;
-    timelock: number | null;
-  };
-}
+// EventTxHeaderSchema should be a union of all possible header schemas.
+// But currently only the nano header exists.
+export const EventTxHeaderSchema = EventTxNanoHeaderSchema;
+export type EventTxHeader = z.infer<typeof EventTxHeaderSchema>;
+
+export const TxEventDataSchema = z.object({
+  hash: z.string(),
+  timestamp: z.number(),
+  version: z.number(),
+  weight: z.number(),
+  nonce: z.number(),
+  inputs: EventTxInputSchema.array(),
+  outputs: EventTxOutputSchema.array(),
+  headers: EventTxNanoHeaderSchema.optional(),
+  parents: z.string().array(),
+  tokens: z.string().array(),
+  token_name: z.string().nullable(),
+  token_symbol: z.string().nullable(),
+  signal_bits: z.number(),
+  metadata: z.object({
+    hash: z.string(),
+    voided_by: z.string().array(),
+    first_block: z.string().nullable(),
+    height: z.number(),
+  }),
+});
+
+export const StandardFullNodeEventSchema = FullNodeEventBaseSchema.extend({
+  event: z.object({
+    id: z.number(),
+    timestamp: z.number(),
+    type: StandardFullNodeEvents,
+    data: TxEventDataSchema,
+  }),
+});
+
+export type StandardFullNodeEvent = z.infer<typeof StandardFullNodeEventSchema>;
+
+export const ReorgFullNodeEventSchema = FullNodeEventBaseSchema.extend({
+  event: z.object({
+    id: z.number(),
+    timestamp: z.number(),
+    type: z.literal('REORG_STARTED'),
+    data: z.object({
+      reorg_size: z.number(),
+      previous_best_block: z.string(),
+      new_best_block: z.string(),
+      common_block: z.string(),
+    }),
+    group_id: z.number(),
+  }),
+});
+export type ReorgFullNodeEvent = z.infer<typeof ReorgFullNodeEventSchema>;
+
+export const FullNodeEventSchema = z.union([StandardFullNodeEventSchema, ReorgFullNodeEventSchema])
+export type FullNodeEvent = z.infer<typeof FullNodeEventSchema>;
 
 export interface LastSyncedEvent {
   id: number;
   last_event_id: number;
   updated_at: number;
 }
-

@@ -6,7 +6,7 @@
  */
 
 import { WebSocket } from 'ws';
-import { Event } from '../types';
+import { Event, FullNodeEventSchema } from '../types';
 import { get } from 'lodash';
 import logger from '../logger';
 import { getFullnodeWsUrl } from '../utils';
@@ -69,7 +69,13 @@ export default (callback: any, receive: any) => {
   };
 
   socket.onmessage = (socketEvent) => {
-    const event = bigIntUtils.JSONBigInt.parse(socketEvent.data.toString());
+    const parseResult = FullNodeEventSchema.safeParse(
+      bigIntUtils.JSONBigInt.parse(socketEvent.data.toString())
+    );
+    if (!parseResult.success) {
+      throw new Error();
+    }
+    const event = parseResult.data;
     const type = get(event, 'event.type');
 
     logger.debug(`Received ${type}: ${get(event, 'event.id')} from socket.`, event);
