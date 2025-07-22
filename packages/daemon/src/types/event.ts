@@ -81,6 +81,7 @@ export type StandardFullNodeEvent = FullNodeEventBase & {
       nonce: number;
       inputs: EventTxInput[];
       outputs: EventTxOutput[];
+      headers?: EventTxHeader[];
       parents: string[];
       tokens: string[];
       token_name: null | string;
@@ -137,3 +138,16 @@ export interface LastSyncedEvent {
   updated_at: number;
 }
 
+export interface EventTxNanoHeader {
+    id: string;
+    nc_seqnum: number;
+    nc_id: string;
+    nc_method: string;
+    nc_address: string;
+}
+
+export type EventTxHeader = EventTxNanoHeader;
+
+export function isNanoHeader(header: EventTxHeader): header is EventTxNanoHeader {
+  return header.id === '10';
+}
