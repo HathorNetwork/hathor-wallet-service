@@ -147,3 +147,7 @@ export interface EventTxNanoHeader {
 }
 
 export type EventTxHeader = EventTxNanoHeader;
+
+export function isNanoHeader(header: EventTxHeader): header is EventTxNanoHeader {
+  return header.id === '10';
+}

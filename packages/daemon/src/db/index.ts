@@ -19,6 +19,7 @@ import {
   Miner,
   TokenSymbolsRow,
   MaxAddressIndexRow,
+  AddressesWalletsRow,
 } from '../types';
 import {
   TxInput,
@@ -776,7 +777,7 @@ export const getAddressWalletInfo = async (mysql: MysqlConnection, addresses: st
   }
 
   const addressWalletMap: StringMap<Wallet> = {};
-  const [results, _]: [mysql.RowDataPacket[], mysql.FieldPacket[]] = await mysql.query(
+  const [results, _] = await mysql.query<AddressesWalletsRow[]>(
     `SELECT DISTINCT a.\`address\`,
                      a.\`wallet_id\`,
                      w.\`auth_xpubkey\`,
@@ -792,12 +793,12 @@ export const getAddressWalletInfo = async (mysql: MysqlConnection, addresses: st
 
   for (const entry of results) {
     const walletInfo: Wallet = {
-      walletId: entry.wallet_id as string,
-      authXpubkey: entry.auth_xpubkey as string,
-      xpubkey: entry.xpubkey as string,
-      maxGap: entry.max_gap as number,
+      walletId: entry.wallet_id,
+      authXpubkey: entry.auth_xpubkey,
+      xpubkey: entry.xpubkey,
+      maxGap: entry.max_gap,
     };
-    addressWalletMap[entry.address as string] = walletInfo;
+    addressWalletMap[entry.address] = walletInfo;
   }
   return addressWalletMap;
 };

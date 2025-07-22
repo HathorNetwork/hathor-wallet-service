@@ -15,6 +15,7 @@ import {
   EventTxHeader,
   EventTxInput,
   EventTxOutput,
+  isNanoHeader,
   StringMap,
   TokenBalanceValue,
   Wallet,
@@ -159,7 +160,7 @@ export const getAddressBalanceMap = (
   }
 
   for (const header of headers) {
-    if (header.id !== '10') {
+    if (!isNanoHeader(header)) {
       // We currently only handle nano contract headers
       continue;
     }
