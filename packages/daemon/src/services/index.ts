@@ -24,6 +24,7 @@ import {
   FullNodeEventTypes,
   StandardFullNodeEvent,
   EventTxHeader,
+  isNanoHeader,
 } from '../types';
 import {
   TxInput,
@@ -167,8 +168,7 @@ export const isBlock = (version: number): boolean => version === hathorLib.const
 
 export function isNanoContract(headers: EventTxHeader[]) {
   for (const header of headers) {
-    // NanoHeader id should always be 0x10
-    if (header.id === '10') {
+    if (isNanoHeader(header)) {
       return true;
     }
   }
