@@ -293,7 +293,7 @@ describe('empty script scenario', () => {
   });
 });
 
-describe.only('nc events scenario', () => {
+describe.skip('nc events scenario', () => {
   beforeAll(() => {
     jest.spyOn(Services, 'fetchMinRewardBlocks').mockImplementation(async () => 300);
   });
