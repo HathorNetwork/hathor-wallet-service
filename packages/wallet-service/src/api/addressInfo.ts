@@ -46,7 +46,6 @@ export const get: APIGatewayProxyHandler = middy(
     const { value: { address }, error } = Joi.object({
       address: Joi.string().regex(/^[A-HJ-NP-Za-km-z1-9]*$/).min(34).max(35),
     }).validate(event.queryStringParameters || {}) as { value: AddressQueryRequest, error: ValidationError };
-    // const { value: body, error } = AddressAtIndexValidator.validate(event.queryStringParameters || {});
 
     if (error) {
       const details = error.details.map((err) => ({
