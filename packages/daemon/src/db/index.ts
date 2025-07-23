@@ -20,6 +20,7 @@ import {
   TokenSymbolsRow,
   MaxAddressIndexRow,
   AddressesWalletsRow,
+  AddressRow,
 } from '../types';
 import {
   TxInput,
@@ -1584,3 +1585,36 @@ export const getMaxIndicesForWallets = async (
     }
   ]));
 };
+
+export async function getAddressInfo(mysql: MysqlConnection, address: string) {
+  const [results] = await mysql.query<AddressRow[]>(
+    'SELECT * FROM address WHERE address = ?', [address],
+  );
+
+  if (results.length === 0) {
+    return null;
+  }
+
+  return results[0];
+}
+
+export async function getAddressSeqnum(mysql: MysqlConnection, address: string) {
+  const addressInfo = await getAddressInfo(mysql, address);
+  if (!addressInfo) {
+    // If the address does not exist on the database, then its seqnum must be 0.
+    return 0;
+  }
+
+  return addressInfo.seqnum;
+}
+
+export async function setAddressSeqnum(mysql: MysqlConnection, address: string, seqnum: number) {
+  const entries = [[address, 1, seqnum]];
+
+  await mysql.query(
+    `INSERT INTO \`address\` (address, transactions, seqnum)
+     VALUES ?
+         ON DUPLICATE KEY UPDATE seqnum = ?`,
+    [entries, seqnum],
+  );
+}

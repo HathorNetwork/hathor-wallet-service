@@ -71,6 +71,8 @@ import {
   markUtxosAsVoided,
   cleanupVoidedTx,
   getMaxIndicesForWallets,
+  setAddressSeqnum,
+  getAddressSeqnum,
 } from '../db';
 import getConfig from '../config';
 import logger from '../logger';
@@ -273,6 +275,19 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         throw new Error('Processed a token creation event but it did not come with token name and symbol');
       }
       await storeTokenInformation(mysql, hash, token_name, token_symbol);
+    } else {
+      // This is not a block
+      // Need to check if there is a nano header and update the nc_address if needed
+      for (const header of headers) {
+        if (isNanoHeader(header)) {
+          const txseqnum = header.nc_seqnum;
+          const cachedSeqnum = await getAddressSeqnum(mysql, header.nc_address);
+          if (txseqnum > cachedSeqnum) {
+            // The tx seqnum is higher than the cached one so we need to save the tx deqnum
+            await setAddressSeqnum(mysql, header.nc_address, header.nc_seqnum);
+          }
+        }
+      }
     }
 
     // check if any of the inputs are still marked as locked and update tables accordingly.
