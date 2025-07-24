@@ -474,9 +474,10 @@ functions:
     handler: src/api/nanoProxy.getState
     events:
       - http:
-          path: nano_contract/state
+          path: wallet/proxy/nano_contract/state
           method: get
           cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
     warmup:
       walletWarmer:
         enabled: false
@@ -484,9 +485,10 @@ functions:
     handler: src/api/nanoProxy.getHistory
     events:
       - http:
-          path: nano_contract/history
+          path: wallet/proxy/nano_contract/history
           method: get
           cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
     warmup:
       walletWarmer:
         enabled: false
@@ -494,9 +496,10 @@ functions:
     handler: src/api/nanoProxy.getBlueprintInfo
     events:
       - http:
-          path: nano_contract/blueprint/info
+          path: wallet/proxy/nano_contract/blueprint/info
           method: get
           cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
     warmup:
       walletWarmer:
         enabled: false

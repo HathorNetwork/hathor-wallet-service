@@ -39,9 +39,9 @@ const GetNCBpInfoAPIParams = Joi.object({
 });
 
 /*
- * Check if a list of addresses belong to the caller wallet
+ * Proxy to fullnode /v1a/nano_contract/state
  *
- * This lambda is called by API Gateway on POST /addresses/check_mine
+ * This lambda is called by API Gateway on POST /wallet/proxy/nano_contract/state
  */
 export const getState: APIGatewayProxyHandler = middy(walletIdProxyHandler((async (_walletId, event) => {
   const params = event.queryStringParameters || {};
@@ -69,9 +69,9 @@ export const getState: APIGatewayProxyHandler = middy(walletIdProxyHandler((asyn
   .use(errorHandler());
 
 /*
- * Check if a list of addresses belong to the caller wallet
+ * Proxy to fullnode /v1a/nano_contract/history
  *
- * This lambda is called by API Gateway on POST /addresses/check_mine
+ * This lambda is called by API Gateway on POST /wallet/proxy/nano_contract/history
  */
 export const getHistory: APIGatewayProxyHandler = middy(walletIdProxyHandler((async (_w, event) => {
   const params = event.queryStringParameters || {};
@@ -99,9 +99,9 @@ export const getHistory: APIGatewayProxyHandler = middy(walletIdProxyHandler((as
   .use(errorHandler());
 
 /*
- * Check if a list of addresses belong to the caller wallet
+ * Proxy to fullnode /v1a/nano_contract/blueprint/info
  *
- * This lambda is called by API Gateway on POST /addresses/check_mine
+ * This lambda is called by API Gateway on POST /wallet/proxy/nano_contract/blueprint/info
  */
 export const getBlueprintInfo: APIGatewayProxyHandler = middy(walletIdProxyHandler((async (_w, event) => {
   const params = event.queryStringParameters || {};
