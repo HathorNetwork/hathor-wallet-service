@@ -436,16 +436,13 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     }
 
     // Need to check if there is a nano header and update the nc_address's seqnum if needed
-    if (metadata.voided_by.length === 0) {
-      // Only update seqnum for valid transactions.
-      for (const header of headers) {
-        if (isNanoHeader(header)) {
-          const txseqnum = header.nc_seqnum;
-          const cachedSeqnum = await getAddressSeqnum(mysql, header.nc_address);
-          if (txseqnum > cachedSeqnum) {
-            // The tx seqnum is higher than the cached one so we need to save the tx deqnum
-            await setAddressSeqnum(mysql, header.nc_address, header.nc_seqnum);
-          }
+    for (const header of headers) {
+      if (isNanoHeader(header)) {
+        const txseqnum = header.nc_seqnum;
+        const cachedSeqnum = await getAddressSeqnum(mysql, header.nc_address);
+        if (txseqnum > cachedSeqnum) {
+          // The tx seqnum is higher than the cached one so we need to save the tx deqnum
+          await setAddressSeqnum(mysql, header.nc_address, header.nc_seqnum);
         }
       }
     }
