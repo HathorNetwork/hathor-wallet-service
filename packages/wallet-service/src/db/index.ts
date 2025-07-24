@@ -3186,5 +3186,10 @@ export const getAddressAtIndex = async (
     return null;
   }
 
-  return addresses[0];
+  return {
+    address: addresses[0].address,
+    index: addresses[0].index,
+    transactions: addresses[0].transactions,
+    seqnum: addresses[0].seqnum,
+  }
 };

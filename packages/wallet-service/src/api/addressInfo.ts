@@ -57,7 +57,6 @@ export const get: APIGatewayProxyHandler = middy(
     }
 
     const { address } = value;
-    console.log(`====================  Found ${address}`);
     let response = null;
 
     const info = await getWalletAddressDetail(mysql, walletId, address);
