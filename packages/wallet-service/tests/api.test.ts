@@ -1,6 +1,7 @@
 import { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
 
 import { mockedAddAlert } from '@tests/utils/alerting.utils.mock';
+import { get as addressInfoGet } from '@src/api/addressInfo';
 import { get as addressesGet, checkMine } from '@src/api/addresses';
 import { get as newAddressesGet } from '@src/api/newAddresses';
 import { get as balancesGet } from '@src/api/balances';
@@ -2350,4 +2351,69 @@ test('GET /addresses (query string index parameter)', async () => {
   expect(result.statusCode).toBe(404);
   expect(returnBody.success).toBe(false);
   expect(returnBody.error).toBe(ApiError.ADDRESS_NOT_FOUND);
+});
+
+test('GET /address/info', async () => {
+  expect.hasAssertions();
+
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+
+  const addresses = [
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0, seqnum: 1 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0, seqnum: 2 },
+  ];
+
+  await addToAddressTable(mysql, addresses);
+
+  // 1. Send address 0 (should return the address info)
+  let event = makeGatewayEventWithAuthorizer('my-wallet', { address: ADDRESSES[0] });
+  let result = await addressInfoGet(event, null, null) as APIGatewayProxyResult;
+  let returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+  expect(returnBody.data).toEqual({
+    address: addresses[0].address,
+    index: addresses[0].index,
+    transactions: addresses[0].transactions,
+    seqnum: addresses[0].seqnum,
+  });
+
+  // 2. Send address 1 (should return the address info)
+  event = makeGatewayEventWithAuthorizer('my-wallet', { address: ADDRESSES[1] });
+  result = await addressInfoGet(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+  expect(returnBody.data).toEqual({
+    address: addresses[1].address,
+    index: addresses[1].index,
+    transactions: addresses[1].transactions,
+    seqnum: addresses[1].seqnum,
+  });
+
+  // 3. Send invalid address (should return error)
+  event = makeGatewayEventWithAuthorizer('my-wallet', { address: 'address' });
+  result = await addressInfoGet(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(400);
+  expect(returnBody.success).toBe(false);
+  expect(returnBody.error).toBe(ApiError.INVALID_PAYLOAD);
+  expect(returnBody.details[0].message).toBeDefined();
+
+  // 4. Do not send address (should return error)
+  event = makeGatewayEventWithAuthorizer('my-wallet', null);
+  result = await addressInfoGet(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(400);
+  expect(returnBody.success).toBe(false);
+  expect(returnBody.error).toBe(ApiError.INVALID_PAYLOAD);
+  expect(returnBody.details[0].message).toBeDefined();
 });
