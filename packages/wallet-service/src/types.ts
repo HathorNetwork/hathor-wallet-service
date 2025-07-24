@@ -827,6 +827,7 @@ export interface FullnodeGetNCStateAPIParams {
   calls: string[];
   block_hash?: string;
   block_height?: number;
+  timestamp?: number;
 }
 
 export interface FullnodeGetNCHistoryAPIParams {

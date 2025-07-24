@@ -25,6 +25,7 @@ const GetNCStateAPIParams = Joi.object({
   calls: Joi.array().items(Joi.string()).required(),
   block_hash: Joi.string(),
   block_height: Joi.number(),
+  timestamp: Joi.number(),
 });
 
 const GetNCHistoryAPIParams = Joi.object({
