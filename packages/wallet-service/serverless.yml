@@ -470,6 +470,39 @@ functions:
     warmup:
       walletWarmer:
         enabled: false
+  getStateNCProxyApi:
+    handler: src/api/nanoProxy.getState
+    events:
+      - http:
+          path: wallet/proxy/nano_contract/state
+          method: get
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+    warmup:
+      walletWarmer:
+        enabled: false
+  getHistoryNCProxyApi:
+    handler: src/api/nanoProxy.getHistory
+    events:
+      - http:
+          path: wallet/proxy/nano_contract/history
+          method: get
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+    warmup:
+      walletWarmer:
+        enabled: false
+  getBpInfoNCProxyApi:
+    handler: src/api/nanoProxy.getBlueprintInfo
+    events:
+      - http:
+          path: wallet/proxy/nano_contract/blueprint/info
+          method: get
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+    warmup:
+      walletWarmer:
+        enabled: false
   wsConnect:
     handler: src/ws/connection.connect
     timeout: 2
