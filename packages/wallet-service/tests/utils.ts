@@ -690,7 +690,7 @@ export const addToAddressTable = async (
     entry.index,
     entry.walletId,
     entry.transactions,
-    entry.seqnum,
+    entry.seqnum ?? 0,
   ]));
 
   await mysql.query(`
