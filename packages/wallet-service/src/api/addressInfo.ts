@@ -43,8 +43,8 @@ export const get: APIGatewayProxyHandler = middy(
       return closeDbAndGetError(mysql, ApiError.WALLET_NOT_READY);
     }
 
-    const { value: { address }, error } = Joi.object({
-      address: Joi.string().regex(/^[A-HJ-NP-Za-km-z1-9]*$/).min(34).max(35),
+    const { value, error } = Joi.object({
+      address: Joi.string().regex(/^[A-HJ-NP-Za-km-z1-9]*$/).min(34).max(35).required(),
     }).validate(event.queryStringParameters || {}) as { value: AddressQueryRequest, error: ValidationError };
 
     if (error) {
@@ -56,6 +56,8 @@ export const get: APIGatewayProxyHandler = middy(
       return closeDbAndGetError(mysql, ApiError.INVALID_PAYLOAD, { details });
     }
 
+    const { address } = value;
+    console.log(`====================  Found ${address}`);
     let response = null;
 
     const info = await getWalletAddressDetail(mysql, walletId, address);

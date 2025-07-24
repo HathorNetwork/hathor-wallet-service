@@ -208,6 +208,7 @@ test('GET /addresses', async () => {
     address: addresses[0].address,
     index: addresses[0].index,
     transactions: addresses[0].transactions,
+    seqnum: addresses[0].seqnum,
   }]);
 
   // we should receive ApiError.ADDRESS_NOT_FOUND if the address was not found
