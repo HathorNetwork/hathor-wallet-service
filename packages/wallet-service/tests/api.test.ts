@@ -147,8 +147,8 @@ test('GET /addresses', async () => {
   }]);
 
   const addresses = [
-    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0 },
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0, seqnum: 1 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0, seqnum: 2 },
   ];
 
   await addToAddressTable(mysql, addresses);
@@ -172,11 +172,13 @@ test('GET /addresses', async () => {
     address: addresses[0].address,
     index: addresses[0].index,
     transactions: addresses[0].transactions,
+    seqnum: addresses[0].seqnum,
   });
   expect(returnBody.addresses).toContainEqual({
     address: addresses[1].address,
     index: addresses[1].index,
     transactions: addresses[1].transactions,
+    seqnum: addresses[1].seqnum,
   });
 
   // we should error on invalid index parameter
@@ -2279,8 +2281,8 @@ test('GET /addresses (query string index parameter)', async () => {
   }]);
 
   const addresses = [
-    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0 },
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0, seqnum: 1 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0, seqnum: 2 },
   ];
 
   await addToAddressTable(mysql, addresses);
@@ -2296,11 +2298,13 @@ test('GET /addresses (query string index parameter)', async () => {
     address: addresses[0].address,
     index: addresses[0].index,
     transactions: addresses[0].transactions,
+    seqnum: addresses[0].seqnum,
   });
   expect(returnBody.addresses).toContainEqual({
     address: addresses[1].address,
     index: addresses[1].index,
     transactions: addresses[1].transactions,
+    seqnum: addresses[1].seqnum,
   });
 
   // 2. index as a string (should return the address at that index)

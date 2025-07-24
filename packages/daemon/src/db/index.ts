@@ -1586,7 +1586,14 @@ export const getMaxIndicesForWallets = async (
   ]));
 };
 
-export async function getAddressInfo(mysql: MysqlConnection, address: string) {
+/**
+ * Get a single address information.
+ *
+ * @param mysql - Database connection
+ * @param address - which address to fetch information from
+ * @returns Address information if address is known or null
+ */
+export async function getAddressInfo(mysql: MysqlConnection, address: string): Promise<AddressRow | null> {
   const [results] = await mysql.query<AddressRow[]>(
     'SELECT * FROM address WHERE address = ?', [address],
   );
@@ -1598,6 +1605,12 @@ export async function getAddressInfo(mysql: MysqlConnection, address: string) {
   return results[0];
 }
 
+/**
+ * Get an address seqnum.
+ *
+ * @param mysql - Database connection
+ * @param address - which address to fetch information from
+ */
 export async function getAddressSeqnum(mysql: MysqlConnection, address: string) {
   const addressInfo = await getAddressInfo(mysql, address);
   if (!addressInfo) {
@@ -1608,6 +1621,14 @@ export async function getAddressSeqnum(mysql: MysqlConnection, address: string) 
   return addressInfo.seqnum;
 }
 
+
+/**
+ * Set an address seqnum.
+ *
+ * @param mysql - Database connection
+ * @param address - which address to fetch information from
+ * @param seqnum - seqnum value to upsert
+ */
 export async function setAddressSeqnum(mysql: MysqlConnection, address: string, seqnum: number) {
   const entries = [[address, 1, seqnum]];
 

@@ -690,11 +690,12 @@ export const addToAddressTable = async (
     entry.index,
     entry.walletId,
     entry.transactions,
+    entry.seqnum,
   ]));
 
   await mysql.query(`
     INSERT INTO \`address\`(\`address\`, \`index\`,
-                            \`wallet_id\`, \`transactions\`)
+                            \`wallet_id\`, \`transactions\`, \`seqnum\`)
     VALUES ?`,
   [payload]);
 };

@@ -3662,12 +3662,14 @@ describe('getAddressByIndex', () => {
     const walletId = 'walletId';
     const index = 0;
     const transactions = 0;
+    const seqnum = 3;
 
     await addToAddressTable(mysql, [{
       address,
       index,
       walletId,
       transactions,
+      seqnum,
     }]);
 
     await expect(getAddressAtIndex(mysql, walletId, index))
@@ -3676,6 +3678,7 @@ describe('getAddressByIndex', () => {
         address,
         index,
         transactions,
+        seqnum,
       });
   });
 
