@@ -256,7 +256,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
       // add miner to the miners table
       if (isDecodedValid(blockRewardOutput.decoded, ['address'])) {
-        await addMiner(mysql, blockRewardOutput.decoded.address, hash);
+        await addMiner(mysql, blockRewardOutput.decoded!.address, hash);
       }
 
       // here we check if we have any utxos on our database that is locked but

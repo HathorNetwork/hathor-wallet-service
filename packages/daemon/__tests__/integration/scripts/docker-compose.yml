@@ -66,7 +66,7 @@ services:
       - "8087:8080"
 
   nc_events:
-    image: hathornetwork/hathor-core:v0.64.0-alpha.2
+    image: hathornetwork/hathor-core:stable
     command: [
       "events_simulator",
       "--scenario", "NC_EVENTS",

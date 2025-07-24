@@ -35,7 +35,7 @@ export const EMPTY_SCRIPT_PORT = 8087;
 export const EMPTY_SCRIPT_LAST_EVENT = 37;
 
 export const NC_EVENTS_PORT = 8088;
-export const NC_EVENTS_LAST_EVENT = 37;
+export const NC_EVENTS_LAST_EVENT = 36;
 
 export const SCENARIOS = [
   'UNVOIDED_SCENARIO',

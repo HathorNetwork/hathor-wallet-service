@@ -17,7 +17,7 @@ import singleChainBlocksAndTransactionsBalances from './scenario_configs/single_
 import invalidMempoolBalances from './scenario_configs/invalid_mempool_transaction.balances';
 import emptyScriptBalances from './scenario_configs/empty_script.balances';
 import customScriptBalances from './scenario_configs/custom_script.balances';
-import ncEventsBalances from './scenario_configs/custom_script.balances';
+import ncEventsBalances from './scenario_configs/nc_events.balances';
 
 import {
   DB_NAME,
@@ -293,7 +293,7 @@ describe('empty script scenario', () => {
   });
 });
 
-describe.skip('nc events scenario', () => {
+describe('nc events scenario', () => {
   beforeAll(() => {
     jest.spyOn(Services, 'fetchMinRewardBlocks').mockImplementation(async () => 300);
   });
@@ -323,9 +323,8 @@ describe.skip('nc events scenario', () => {
     // @ts-ignore
     await transitionUntilEvent(mysql, machine, NC_EVENTS_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
-    console.log(JSON.stringify(addressBalances, null, 2));
 
     // @ts-ignore
     expect(validateBalances(addressBalances, ncEventsBalances));
-  }, 40000);
+  });
 });

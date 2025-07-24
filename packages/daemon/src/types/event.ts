@@ -47,12 +47,17 @@ export enum FullNodeEventTypes {
 }
 
 /**
- * All events except 'REORG_STARTED'
+ * All events with transactions
  */
 const StandardFullNodeEvents = z.union([
   z.literal('VERTEX_METADATA_CHANGED'),
-  z.literal('VERTEX_REMOVED'),
   z.literal('NEW_VERTEX_ACCEPTED'),
+]);
+
+/**
+ * Events without data
+ */
+const EmptyDataFullNodeEvents = z.union([
   z.literal('LOAD_STARTED'),
   z.literal('LOAD_FINISHED'),
   z.literal('REORG_FINISHED'),
@@ -96,7 +101,7 @@ export const EventTxOutputSchema = z.object({
     type: z.string(),
     address: z.string(),
     timelock: z.number().nullable(),
-  }),
+  }).nullable(),
 });
 export type EventTxOutput = z.infer<typeof EventTxOutputSchema>;
 
@@ -121,7 +126,11 @@ export type EventTxNanoHeader = z.infer<typeof EventTxNanoHeaderSchema>;
 export const EventTxHeaderSchema = EventTxNanoHeaderSchema;
 export type EventTxHeader = z.infer<typeof EventTxHeaderSchema>;
 
-export const TxEventDataSchema = z.object({
+export function isNanoHeader(header: EventTxHeader): header is EventTxNanoHeader {
+  return header.id === '10';
+}
+
+export const TxEventDataWithoutMetaSchema = z.object({
   hash: z.string(),
   timestamp: z.number(),
   version: z.number(),
@@ -129,12 +138,15 @@ export const TxEventDataSchema = z.object({
   nonce: z.number(),
   inputs: EventTxInputSchema.array(),
   outputs: EventTxOutputSchema.array(),
-  headers: EventTxNanoHeaderSchema.optional(),
+  headers: EventTxNanoHeaderSchema.array().optional(),
   parents: z.string().array(),
   tokens: z.string().array(),
   token_name: z.string().nullable(),
   token_symbol: z.string().nullable(),
   signal_bits: z.number(),
+});
+
+export const TxEventDataSchema = TxEventDataWithoutMetaSchema.extend({
   metadata: z.object({
     hash: z.string(),
     voided_by: z.string().array(),
@@ -170,7 +182,65 @@ export const ReorgFullNodeEventSchema = FullNodeEventBaseSchema.extend({
 });
 export type ReorgFullNodeEvent = z.infer<typeof ReorgFullNodeEventSchema>;
 
-export const FullNodeEventSchema = z.union([StandardFullNodeEventSchema, ReorgFullNodeEventSchema])
+export const EmptyDataFullNodeEventSchema = FullNodeEventBaseSchema.extend({
+  event: z.object({
+    id: z.number(),
+    timestamp: z.number(),
+    type: EmptyDataFullNodeEvents,
+    data: z.object({}).optional(),
+  }),
+});
+
+export const TxDataWithoutMetaFullNodeEventSchema = FullNodeEventBaseSchema.extend({
+  event: z.object({
+    id: z.number(),
+    timestamp: z.number(),
+    type: z.literal('VERTEX_REMOVED'),
+    data: TxEventDataWithoutMetaSchema,
+  }),
+});
+
+export const NcEventDataSchema = z.object({
+  vertex_id: z.string(),
+  nc_id: z.string(),
+  nc_execution: z.union([
+    z.literal('PENDING'),
+    z.literal('SUCCESS'),
+    z.literal('FAILURE'),
+    z.literal('SKIPPED'),
+  ]),
+  first_block: z.string(),
+  data_hex: z.string(),
+});
+
+export const NcEventSchema = FullNodeEventBaseSchema.extend({
+  event: z.object({
+    id: z.number(),
+    timestamp: z.number(),
+    type: z.literal('NC_EVENT'),
+    data: z.object({
+      vertex_id: z.string(),
+      nc_id: z.string(),
+      nc_execution: z.union([
+        z.literal('pending'),
+        z.literal('success'),
+        z.literal('failure'),
+        z.literal('skipped'),
+      ]),
+      first_block: z.string(),
+      data_hex: z.string(),
+    }),
+    group_id: z.number().nullish(),
+  }),
+});
+
+export const FullNodeEventSchema = z.union([
+  TxDataWithoutMetaFullNodeEventSchema,
+  StandardFullNodeEventSchema,
+  ReorgFullNodeEventSchema,
+  EmptyDataFullNodeEventSchema,
+  NcEventSchema,
+]);
 export type FullNodeEvent = z.infer<typeof FullNodeEventSchema>;
 
 export interface LastSyncedEvent {
