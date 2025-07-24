@@ -7,7 +7,7 @@
 
 import axios from 'axios';
 import config from '@src/config';
-import { FullNodeApiVersionResponse } from '@src/types';
+import { FullNodeApiVersionResponse, FullnodeGetNCHistoryAPIParams, FullnodeGetNCStateAPIParams } from '@src/types';
 import { FullnodeVersionSchema } from '@src/schemas';
 
 export const BASE_URL = config.defaultServer;
@@ -88,6 +88,36 @@ export const create = (baseURL = BASE_URL) => {
     return response.data;
   }
 
+  const getNCState = async (params: FullnodeGetNCStateAPIParams) => {
+    const response = await api.get('nano_contract/state', {
+      data: null,
+      params,
+      headers: { 'content-type': 'application/json' },
+    });
+
+    return response.data;
+  }
+
+  const getNCHistory = async (params: FullnodeGetNCHistoryAPIParams) => {
+    const response = await api.get('nano_contract/history', {
+      data: null,
+      params,
+      headers: { 'content-type': 'application/json' },
+    });
+
+    return response.data;
+  }
+
+  const getNCBlueprintInfo = async (blueprintId: string) => {
+    const response = await api.get('nano_contract/blueprint/info', {
+      data: null,
+      params: { blueprint_id: blueprintId },
+      headers: { 'content-type': 'application/json' },
+    });
+
+    return response.data;
+  }
+
   return {
     api, // exported so we can mock it on the tests
     version,
@@ -95,7 +125,10 @@ export const create = (baseURL = BASE_URL) => {
     getConfirmationData,
     queryGraphvizNeighbours,
     getStatus,
-    getHealth
+    getHealth,
+    getNCState,
+    getNCHistory,
+    getNCBlueprintInfo,
   };
 };
 

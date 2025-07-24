@@ -819,3 +819,19 @@ export interface WalletBalanceValue {
   addresses: string[],
   walletBalanceForTx: TokenBalanceValue[],
 }
+
+export interface FullnodeGetNCStateAPIParams {
+  id: string;
+  fields: string[];
+  balances: string[];
+  calls: string[];
+  block_hash?: string;
+  block_height?: number;
+}
+
+export interface FullnodeGetNCHistoryAPIParams {
+  id: string;
+  count?: number | null;
+  after?: number | null;
+  before?: number | null;
+}
