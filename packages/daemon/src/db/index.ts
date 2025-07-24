@@ -1611,7 +1611,7 @@ export async function getAddressInfo(mysql: MysqlConnection, address: string): P
  * @param mysql - Database connection
  * @param address - which address to fetch information from
  */
-export async function getAddressSeqnum(mysql: MysqlConnection, address: string) {
+export async function getAddressSeqnum(mysql: MysqlConnection, address: string): Promise<number> {
   const addressInfo = await getAddressInfo(mysql, address);
   if (!addressInfo) {
     // If the address does not exist on the database, then its seqnum must be 0.
@@ -1629,7 +1629,7 @@ export async function getAddressSeqnum(mysql: MysqlConnection, address: string) 
  * @param address - which address to fetch information from
  * @param seqnum - seqnum value to upsert
  */
-export async function setAddressSeqnum(mysql: MysqlConnection, address: string, seqnum: number) {
+export async function setAddressSeqnum(mysql: MysqlConnection, address: string, seqnum: number): Promise<void> {
   const entries = [[address, 1, seqnum]];
 
   await mysql.query(
