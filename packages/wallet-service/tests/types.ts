@@ -32,6 +32,7 @@ export interface AddressTableEntry {
   index: number;
   walletId?: string;
   transactions: number;
+  seqnum?: number;
 }
 
 export interface TokenTableEntry {

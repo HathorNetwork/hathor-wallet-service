@@ -153,3 +153,11 @@ export interface AddressesWalletsRow extends RowDataPacket {
   xpubkey: string,
   maxGap: number,
 }
+
+export interface AddressRow extends RowDataPacket {
+  address: string,
+  index: number,
+  wallet_id: string,
+  transactions: number,
+  seqnum: number,
+}

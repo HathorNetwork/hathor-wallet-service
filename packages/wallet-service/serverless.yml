@@ -327,6 +327,17 @@ functions:
     warmup:
       walletWarmer:
         enabled: true
+  getAddressInfoApi:
+    handler: src/api/addressInfo.get
+    events:
+      - http:
+          path: wallet/address/info
+          method: get
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+    warmup:
+      walletWarmer:
+        enabled: true
   getNewAddresses:
     handler: src/api/newAddresses.get
     events:

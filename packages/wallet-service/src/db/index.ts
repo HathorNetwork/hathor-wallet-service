@@ -435,6 +435,7 @@ export const getWalletAddressDetail = async (mysql: ServerlessMysql, walletId: s
       address: data.address as string,
       index: data.index as number,
       transactions: data.transactions as number,
+      seqnum: data.seqnum as number,
     };
 
     return addressDetail;
@@ -1303,6 +1304,7 @@ export const getWalletAddresses = async (mysql: ServerlessMysql, walletId: strin
       address: result.address as string,
       index: result.index as number,
       transactions: result.transactions as number,
+      seqnum: result.seqnum as number,
     };
     addresses.push(address);
   }
@@ -3172,7 +3174,7 @@ export const getAddressAtIndex = async (
 ): Promise<AddressInfo | null> => {
   const addresses = await mysql.query<AddressInfo[]>(
     `
-    SELECT \`address\`, \`index\`, \`transactions\`
+    SELECT \`address\`, \`index\`, \`transactions\`, \`seqnum\`
       FROM \`address\` pd
      WHERE \`index\` = ?
        AND \`wallet_id\` = ?
@@ -3185,8 +3187,9 @@ export const getAddressAtIndex = async (
   }
 
   return {
-    address: addresses[0].address as string,
-    index: addresses[0].index as number,
-    transactions: addresses[0].transactions as number,
-  } as AddressInfo;
+    address: addresses[0].address,
+    index: addresses[0].index,
+    transactions: addresses[0].transactions,
+    seqnum: addresses[0].seqnum,
+  }
 };
