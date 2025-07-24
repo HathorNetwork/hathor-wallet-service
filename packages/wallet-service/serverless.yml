@@ -681,6 +681,7 @@ functions:
           Fn::GetAtt: [ SendNotificationToDeviceLambdaFunction , Arn ]
   healthcheck:
     handler: src/api/healthcheck.getHealthcheck
+    timeout: 20 # seconds
     events:
       - http:
           private: true
