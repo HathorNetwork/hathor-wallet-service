@@ -150,6 +150,7 @@ export interface AddressInfo {
   address: string;
   index: number;
   transactions: number;
+  seqnum: number;
 }
 
 export interface ShortAddressInfo {
