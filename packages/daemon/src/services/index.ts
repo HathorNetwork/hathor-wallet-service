@@ -71,6 +71,8 @@ import {
   markUtxosAsVoided,
   cleanupVoidedTx,
   getMaxIndicesForWallets,
+  setAddressSeqnum,
+  getAddressSeqnum,
 } from '../db';
 import getConfig from '../config';
 import logger from '../logger';
@@ -431,6 +433,21 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
       NftUtils.processNftEvent(fullNodeData, STAGE, network, logger)
         .catch((err: unknown) => logger.error('[ALERT] Error processing NFT event', err));
+    }
+
+    // Need to check if there is a nano header and update the nc_address's seqnum if needed
+    if (metadata.voided_by.length === 0) {
+      // Only update seqnum for valid transactions.
+      for (const header of headers) {
+        if (isNanoHeader(header)) {
+          const txseqnum = header.nc_seqnum;
+          const cachedSeqnum = await getAddressSeqnum(mysql, header.nc_address);
+          if (txseqnum > cachedSeqnum) {
+            // The tx seqnum is higher than the cached one so we need to save the tx deqnum
+            await setAddressSeqnum(mysql, header.nc_address, header.nc_seqnum);
+          }
+        }
+      }
     }
 
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);

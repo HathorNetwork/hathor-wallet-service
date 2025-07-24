@@ -20,6 +20,7 @@ import {
   TokenSymbolsRow,
   MaxAddressIndexRow,
   AddressesWalletsRow,
+  AddressRow,
 } from '../types';
 import {
   TxInput,
@@ -1584,3 +1585,57 @@ export const getMaxIndicesForWallets = async (
     }
   ]));
 };
+
+/**
+ * Get a single address information.
+ *
+ * @param mysql - Database connection
+ * @param address - which address to fetch information from
+ * @returns Address information if address is known or null
+ */
+export async function getAddressInfo(mysql: MysqlConnection, address: string): Promise<AddressRow | null> {
+  const [results] = await mysql.query<AddressRow[]>(
+    'SELECT * FROM address WHERE address = ?', [address],
+  );
+
+  if (results.length === 0) {
+    return null;
+  }
+
+  return results[0];
+}
+
+/**
+ * Get an address seqnum.
+ *
+ * @param mysql - Database connection
+ * @param address - which address to fetch information from
+ */
+export async function getAddressSeqnum(mysql: MysqlConnection, address: string): Promise<number> {
+  const addressInfo = await getAddressInfo(mysql, address);
+  if (!addressInfo) {
+    // If the address does not exist on the database, then its seqnum must be 0.
+    return 0;
+  }
+
+  return addressInfo.seqnum;
+}
+
+
+/**
+ * Set an address seqnum.
+ *
+ * @param mysql - Database connection
+ * @param address - which address to fetch information from
+ * @param seqnum - seqnum value to upsert
+ */
+export async function setAddressSeqnum(mysql: MysqlConnection, address: string, seqnum: number): Promise<void> {
+  const entries = [[address, 1, seqnum]];
+
+  await mysql.query(
+    `INSERT INTO \`address\` (address, transactions, seqnum)
+     VALUES ?
+         ON DUPLICATE KEY UPDATE seqnum = ?`,
+    [entries, seqnum],
+  );
+}
