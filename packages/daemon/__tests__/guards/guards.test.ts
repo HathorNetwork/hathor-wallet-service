@@ -46,9 +46,8 @@ const mockContext: Context = {
   txCache: TxCache,
 };
 
-const generateStandardFullNodeEvent = (type: Exclude<FullNodeEventTypes, FullNodeEventTypes.REORG_STARTED | FullNodeEventTypes.NC_EVENT>, data = {} as any): Event => ({
+const generateStandardFullNodeEvent = (type: Exclude<FullNodeEventTypes, FullNodeEventTypes.REORG_STARTED>, data = {} as any): Event => ({
   type: EventTypes.FULLNODE_EVENT,
-  // @ts-ignore
   event: {
     type: 'EVENT',
     network: 'mainnet',
@@ -62,7 +61,7 @@ const generateStandardFullNodeEvent = (type: Exclude<FullNodeEventTypes, FullNod
     },
     latest_event_id: 0,
   },
-});
+} as Event);
 
 const generateReorgStartedEvent = (data = {
   reorg_size: 1,
@@ -90,6 +89,9 @@ const generateReorgStartedEvent = (data = {
 const generateFullNodeEvent = (type: FullNodeEventTypes, data = {} as any): Event => {
   if (type === FullNodeEventTypes.REORG_STARTED) {
     return generateReorgStartedEvent(data);
+  }
+  if (type === FullNodeEventTypes.NC_EVENT) {
+    throw new Error('Unsuported generation');
   }
   return generateStandardFullNodeEvent(type, data);
 };
