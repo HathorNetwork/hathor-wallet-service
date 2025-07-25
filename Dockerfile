@@ -13,10 +13,8 @@ RUN apk update && apk add python3 g++ make py3-setuptools
 
 COPY . .
 
+# corepack will use the version of yarn specified in package.json
 RUN corepack enable
-
-# Use the same version as flake's
-RUN yarn set version 4.1.0
 
 # This will install dependencies for all packages, except for the lambdas since
 # they are ignored in .dockerignore
