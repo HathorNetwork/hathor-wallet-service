@@ -214,8 +214,8 @@ phases:
       # name: version
     commands:
       - npm install -g yarn
+      # corepack will use the version of yarn specified in package.json
       - corepack enable
-      - yarn set version 4.1.0
       - yarn install
   pre_build:
     commands:
