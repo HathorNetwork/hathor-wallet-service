@@ -46,8 +46,9 @@ const mockContext: Context = {
   txCache: TxCache,
 };
 
-const generateStandardFullNodeEvent = (type: Exclude<FullNodeEventTypes, FullNodeEventTypes.REORG_STARTED>, data = {} as any): Event => ({
+const generateStandardFullNodeEvent = (type: Exclude<FullNodeEventTypes, FullNodeEventTypes.REORG_STARTED | FullNodeEventTypes.NC_EVENT>, data = {} as any): Event => ({
   type: EventTypes.FULLNODE_EVENT,
+  // @ts-ignore
   event: {
     type: 'EVENT',
     network: 'mainnet',

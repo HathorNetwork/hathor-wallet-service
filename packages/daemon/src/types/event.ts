@@ -44,6 +44,7 @@ export enum FullNodeEventTypes {
   LOAD_FINISHED = 'LOAD_FINISHED',
   REORG_STARTED = 'REORG_STARTED',
   REORG_FINISHED= 'REORG_FINISHED',
+  NC_EVENT= 'NC_EVENT',
 }
 
 /**
@@ -200,19 +201,6 @@ export const TxDataWithoutMetaFullNodeEventSchema = FullNodeEventBaseSchema.exte
   }),
 });
 
-export const NcEventDataSchema = z.object({
-  vertex_id: z.string(),
-  nc_id: z.string(),
-  nc_execution: z.union([
-    z.literal('PENDING'),
-    z.literal('SUCCESS'),
-    z.literal('FAILURE'),
-    z.literal('SKIPPED'),
-  ]),
-  first_block: z.string(),
-  data_hex: z.string(),
-});
-
 export const NcEventSchema = FullNodeEventBaseSchema.extend({
   event: z.object({
     id: z.number(),
@@ -233,6 +221,7 @@ export const NcEventSchema = FullNodeEventBaseSchema.extend({
     group_id: z.number().nullish(),
   }),
 });
+export type NcEvent = z.infer<typeof NcEventSchema>;
 
 export const FullNodeEventSchema = z.union([
   TxDataWithoutMetaFullNodeEventSchema,
