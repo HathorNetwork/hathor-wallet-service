@@ -79,6 +79,7 @@ export const prepareOutputs = (outputs: EventTxOutput[], tokens: string[]): TxOu
       output.token = token;
 
       if (!isDecodedValid(_output.decoded)
+        || _output.decoded === null
         || _output.decoded.type === null
         || _output.decoded.type === undefined) {
         console.log('Decode failed, skipping..');
@@ -317,10 +318,10 @@ export const prepareInputs = (inputs: EventTxInput[], tokens: string[]): TxInput
       script: utxo.script,
       token,
       decoded: isDecodedValid(output.decoded, ['type', 'address']) ? {
-        type: output.decoded.type,
-        address: output.decoded.address,
+        type: output.decoded!.type,
+        address: output.decoded!.address,
         // timelock might actually be null, so don't pass it to requiredKeys
-        timelock: output.decoded.timelock,
+        timelock: output.decoded!.timelock,
       } : null,
     };
 
