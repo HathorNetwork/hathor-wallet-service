@@ -5,7 +5,7 @@
 # This software cannot be redistributed unless explicitly agreed in writing with the authors.
 
 # Build phase
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
@@ -26,7 +26,7 @@ RUN yarn workspace sync-daemon run build
 RUN yarn workspaces focus -A --production
 
 # Run phase
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 
 WORKDIR /app
 
