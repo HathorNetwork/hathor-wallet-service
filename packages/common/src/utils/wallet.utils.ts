@@ -25,7 +25,9 @@ export const isAuthority = (tokenData: number): boolean => (
  * @param requiredKeys - A list of keys to check
  * @returns true if the decoded object is valid, false otherwise
  */
-export const isDecodedValid = (decoded: any, requiredKeys: string[] = []): boolean => {
+type Decoded = { type: string; address: string; timelock: number | null };
+
+export const isDecodedValid = (decoded: any, requiredKeys: string[] = []): decoded is Decoded => {
   return (decoded != null
     && typeof decoded === 'object'
     && Object.keys(decoded).length > 0)
