@@ -98,11 +98,14 @@ export const EventTxOutputSchema = z.object({
   token_data: z.number(),
   script: z.string(),
   locked: z.boolean().optional(),
-  decoded: z.object({
-    type: z.string(),
-    address: z.string(),
-    timelock: z.number().nullable(),
-  }).nullable(),
+  decoded: z.union([
+    z.object({
+      type: z.string(),
+      address: z.string(),
+      timelock: z.number().nullable(),
+    }).nullable(),
+    z.object({}).strict()
+  ]),
 });
 export type EventTxOutput = z.infer<typeof EventTxOutputSchema>;
 
