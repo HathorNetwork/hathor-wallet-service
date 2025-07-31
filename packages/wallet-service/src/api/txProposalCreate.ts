@@ -119,7 +119,11 @@ export const create = middy(walletIdProxyHandler(async (walletId, event) => {
 
   // mark utxos with tx-proposal id
   const txProposalId = uuidv4();
-  await markUtxosWithProposalId(mysql, txProposalId, inputUtxos);
+
+  // Nano contract transactions might have empty inputs
+  if (inputUtxos.length > 0) {
+    await markUtxosWithProposalId(mysql, txProposalId, inputUtxos);
+  }
 
   await createTxProposal(mysql, txProposalId, walletId, now);
 
