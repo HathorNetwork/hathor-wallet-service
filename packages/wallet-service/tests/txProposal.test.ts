@@ -50,7 +50,7 @@ beforeEach(async () => {
     genesis_block_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
     genesis_tx1_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
     genesis_tx2_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
-    native_token: { name: 'Hathor', symbol: 'HTR'},
+    native_token: { name: 'Hathor', symbol: 'HTR' },
   };
 
   await addToVersionDataTable(mysql, now, versionData);
@@ -174,8 +174,8 @@ test('POST /txproposals with utxos that are already used on another txproposal s
     new hathorLib.Output(
       300n,
       p2pkhAddress, {
-        tokenData: 1,
-      },
+      tokenData: 1,
+    },
     ),
   ];
   const inputs = [new hathorLib.Input(utxos[0].txId, utxos[0].index)];
@@ -221,7 +221,7 @@ test('POST /txproposals with too many outputs should fail with ApiError.TOO_MANY
     genesis_block_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
     genesis_tx1_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
     genesis_tx2_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
-    native_token: { name: 'Hathor', symbol: 'HTR'},
+    native_token: { name: 'Hathor', symbol: 'HTR' },
   });
   jest.resetModules();
 
@@ -453,8 +453,8 @@ test('PUT /txproposals/{proposalId} with an empty body should fail with ApiError
       new hathorLib.P2PKH(new hathorLib.Address(ADDRESSES[0], {
         network: new hathorLib.Network(process.env.NETWORK),
       })).createScript(), {
-        tokenData: 1,
-      },
+      tokenData: 1,
+    },
     ),
   ];
   const inputs = [new hathorLib.Input(utxos[0].txId, utxos[0].index)];
@@ -594,12 +594,12 @@ test('PUT /txproposals/{proposalId} on a proposal which status is not OPEN or SE
       new hathorLib.P2PKH(
         new hathorLib.Address(
           ADDRESSES[0], {
-            network: new hathorLib.Network(process.env.NETWORK),
-          },
+          network: new hathorLib.Network(process.env.NETWORK),
+        },
         ),
       ).createScript(), {
-        tokenData: 1,
-      },
+      tokenData: 1,
+    },
     ),
   ];
   const inputs = [new hathorLib.Input(utxos[0].txId, utxos[0].index)];
@@ -718,11 +718,11 @@ test('PUT /txproposals/{proposalId} on a proposal which is not owned by the user
       300n,
       new hathorLib.P2PKH(new hathorLib.Address(
         ADDRESSES[0], {
-          network: new hathorLib.Network(process.env.NETWORK),
-        },
-      )).createScript(), {
-        tokenData: 1,
+        network: new hathorLib.Network(process.env.NETWORK),
       },
+      )).createScript(), {
+      tokenData: 1,
+    },
     ),
   ];
   const inputs = [new hathorLib.Input(utxos[0].txId, utxos[0].index)];
@@ -869,11 +869,11 @@ test('PUT /txproposals/{proposalId} with an invalid txHex should fail and update
       300n,
       new hathorLib.P2PKH(new hathorLib.Address(
         ADDRESSES[0], {
-          network: new hathorLib.Network(process.env.NETWORK),
-        },
-      )).createScript(), {
-        tokenData: 1,
+        network: new hathorLib.Network(process.env.NETWORK),
       },
+      )).createScript(), {
+      tokenData: 1,
+    },
     ),
   ];
   const inputs = [new hathorLib.Input(utxos[0].txId, utxos[0].index)];
@@ -1013,11 +1013,11 @@ test('PUT /txproposals/{proposalId} should update tx_proposal to SEND_ERROR on f
       300n,
       new hathorLib.P2PKH(new hathorLib.Address(
         ADDRESSES[0], {
-          network: new hathorLib.Network(process.env.NETWORK),
-        },
-      )).createScript(), {
-        tokenData: 1,
+        network: new hathorLib.Network(process.env.NETWORK),
       },
+      )).createScript(), {
+      tokenData: 1,
+    },
     ),
   ];
   const inputs = [new hathorLib.Input(utxos[0].txId, utxos[0].index)];
@@ -1133,11 +1133,11 @@ test('DELETE /txproposals/{proposalId} should delete a tx_proposal and remove th
       300n,
       new hathorLib.P2PKH(new hathorLib.Address(
         ADDRESSES[0], {
-          network: new hathorLib.Network(process.env.NETWORK),
-        },
-      )).createScript(), {
-        tokenData: 1,
+        network: new hathorLib.Network(process.env.NETWORK),
       },
+      )).createScript(), {
+      tokenData: 1,
+    },
     ),
   ];
   const inputs = [new hathorLib.Input(utxos[0].txId, utxos[0].index)];
@@ -1303,11 +1303,11 @@ test('POST /txproposals one output and input on txHex', async () => {
       300n,
       new hathorLib.P2PKH(new hathorLib.Address(
         ADDRESSES[0], {
-          network: new hathorLib.Network(process.env.NETWORK),
-        },
-      )).createScript(), {
-        tokenData: 1,
+        network: new hathorLib.Network(process.env.NETWORK),
       },
+      )).createScript(), {
+      tokenData: 1,
+    },
     ),
   ];
   const inputs = [new hathorLib.Input(utxos[0].txId, utxos[0].index)];
@@ -1406,11 +1406,11 @@ test('POST /txproposals with denied utxos', async () => {
       300n,
       new hathorLib.P2PKH(new hathorLib.Address(
         ADDRESSES[0], {
-          network: new hathorLib.Network(process.env.NETWORK),
-        },
-      )).createScript(), {
-        tokenData: 1,
+        network: new hathorLib.Network(process.env.NETWORK),
       },
+      )).createScript(), {
+      tokenData: 1,
+    },
     ),
   ];
   const inputs = [new hathorLib.Input(utxos[0].txId, utxos[0].index)];
@@ -1475,8 +1475,8 @@ test('POST /txproposals a tx create action on txHex', async () => {
       new hathorLib.P2PKH(
         new hathorLib.Address(
           ADDRESSES[0], {
-            network: new hathorLib.Network(process.env.NETWORK),
-          },
+          network: new hathorLib.Network(process.env.NETWORK),
+        },
         ),
       ).createScript(),
       { tokenData: 0 },
@@ -1487,8 +1487,8 @@ test('POST /txproposals a tx create action on txHex', async () => {
       new hathorLib.P2PKH(
         new hathorLib.Address(
           ADDRESSES[0], {
-            network: new hathorLib.Network(process.env.NETWORK),
-          },
+          network: new hathorLib.Network(process.env.NETWORK),
+        },
         ),
       ).createScript(),
       { tokenData: 1 | hathorLib.constants.TOKEN_AUTHORITY_MASK }, // eslint-disable-line no-bitwise
@@ -1499,8 +1499,8 @@ test('POST /txproposals a tx create action on txHex', async () => {
       new hathorLib.P2PKH(
         new hathorLib.Address(
           ADDRESSES[0], {
-            network: new hathorLib.Network(process.env.NETWORK),
-          },
+          network: new hathorLib.Network(process.env.NETWORK),
+        },
         ),
       ).createScript(),
       { tokenData: 1 | hathorLib.constants.TOKEN_AUTHORITY_MASK }, // eslint-disable-line no-bitwise
@@ -1511,8 +1511,8 @@ test('POST /txproposals a tx create action on txHex', async () => {
       new hathorLib.P2PKH(
         new hathorLib.Address(
           ADDRESSES[0], {
-            network: new hathorLib.Network(process.env.NETWORK),
-          },
+          network: new hathorLib.Network(process.env.NETWORK),
+        },
         ),
       ).createScript(),
       { tokenData: 1 },
@@ -1878,22 +1878,16 @@ test('POST /txproposals with empty inputs array should succeed', async () => {
 
   const txHex = transaction.toHex();
   const event = makeGatewayEventWithAuthorizer('my-wallet', null, JSON.stringify({ txHex }));
-  
-  try {
-    const result = await txProposalCreate(event, null, null) as APIGatewayProxyResult;
-    const returnBody = JSON.parse(result.body as string);
 
-    expect(result.statusCode).toBe(201);
-    expect(returnBody.success).toBe(true);
-    expect(returnBody.txProposalId).toHaveLength(36);
-    expect(returnBody.inputs).toHaveLength(0);
+  const result = await txProposalCreate(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
 
-    // Verify that the tx proposal was created
-    const txProposal = await getTxProposal(mysql, returnBody.txProposalId);
-    expect(txProposal).not.toBeNull();
-  } catch (error) {
-    // If the test fails, log the error for debugging
-    console.error('Test failed with error:', error);
-    throw error;
-  }
+  expect(result.statusCode).toBe(201);
+  expect(returnBody.success).toBe(true);
+  expect(returnBody.txProposalId).toHaveLength(36);
+  expect(returnBody.inputs).toHaveLength(0);
+
+  // Verify that the tx proposal was created
+  const txProposal = await getTxProposal(mysql, returnBody.txProposalId);
+  expect(txProposal).not.toBeNull();
 });
