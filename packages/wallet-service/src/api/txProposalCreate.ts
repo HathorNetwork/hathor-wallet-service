@@ -127,8 +127,6 @@ export const create = middy(walletIdProxyHandler(async (walletId, event) => {
 
   await createTxProposal(mysql, txProposalId, walletId, now);
 
-  await closeDbConnection(mysql);
-
   const inputPromises = inputUtxos.map(async (utxo) => {
     const addressDetail: AddressInfo = await getWalletAddressDetail(mysql, walletId, utxo.address);
     // XXX We should store in address table the path of the address, not the index
@@ -139,6 +137,8 @@ export const create = middy(walletIdProxyHandler(async (walletId, event) => {
   });
 
   const retInputs = await Promise.all(inputPromises);
+
+  await closeDbConnection(mysql);
 
   return {
     statusCode: 201,

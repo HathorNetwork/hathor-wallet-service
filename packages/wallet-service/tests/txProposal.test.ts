@@ -1851,3 +1851,49 @@ test('checkMissingUtxos', async () => {
 
   expect(checkMissingResult).toHaveLength(1);
 });
+
+test('POST /txproposals with empty inputs array should succeed', async () => {
+  expect.hasAssertions();
+
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+  await addToAddressTable(mysql, [{
+    address: ADDRESSES[0],
+    index: 0,
+    walletId: 'my-wallet',
+    transactions: 2,
+  }]);
+
+  // Create a transaction with no inputs and no outputs (e.g., for nano contracts)
+  const outputs = []; // Empty outputs array
+  const inputs = []; // Empty inputs array
+  const transaction = new hathorLib.Transaction(inputs, outputs);
+
+  const txHex = transaction.toHex();
+  const event = makeGatewayEventWithAuthorizer('my-wallet', null, JSON.stringify({ txHex }));
+  
+  try {
+    const result = await txProposalCreate(event, null, null) as APIGatewayProxyResult;
+    const returnBody = JSON.parse(result.body as string);
+
+    expect(result.statusCode).toBe(201);
+    expect(returnBody.success).toBe(true);
+    expect(returnBody.txProposalId).toHaveLength(36);
+    expect(returnBody.inputs).toHaveLength(0);
+
+    // Verify that the tx proposal was created
+    const txProposal = await getTxProposal(mysql, returnBody.txProposalId);
+    expect(txProposal).not.toBeNull();
+  } catch (error) {
+    // If the test fails, log the error for debugging
+    console.error('Test failed with error:', error);
+    throw error;
+  }
+});
