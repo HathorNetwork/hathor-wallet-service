@@ -75,6 +75,7 @@ export const getFilteredUtxos = middy(walletIdProxyHandler(async (walletId, even
     skipSpent: true, // utxo is always unspent
     txId: queryString.txId,
     index: queryString.index,
+    totalAmount: queryString.totalAmount,
   };
 
   const { value, error } = bodySchema.validate(eventBody, {
@@ -127,6 +128,7 @@ export const getFilteredTxOutputs = middy(walletIdProxyHandler(async (walletId, 
     skipSpent: queryString.skipSpent,
     txId: queryString.txId,
     index: queryString.index,
+    totalAmount: queryString.totalAmount,
   };
 
   const { value, error } = bodySchema.validate(eventBody, {
@@ -196,37 +198,17 @@ const _getFilteredTxOutputs = async (walletId: string, filters: IFilterTxOutput)
   // Apply totalAmount filter if specified
   if (filters.totalAmount) {
     try {
-      // Convert DbTxOutput to format expected by selectUtxos
-      const utxosForSelection = txOutputs.map(txOutput => ({
-        txId: txOutput.txId,
-        index: txOutput.index,
-        tokenId: txOutput.tokenId,
-        address: txOutput.address,
-        value: txOutput.value,
-        authorities: BigInt(txOutput.authorities),
-        timelock: txOutput.timelock,
-        heightlock: txOutput.heightlock,
-        locked: txOutput.locked,
-        addressPath: '', // Will be filled by mapTxOutputsWithPath
+      const minimalUtxos = txOutputs.map(tx => ({
+        ...tx,
+        authorities: BigInt(tx.authorities), // Convert for compatibility
+        addressPath: '', // Required by type, but not used by selectUtxos algorithm
       }));
 
-      const { utxos } = transactionUtils.selectUtxos(utxosForSelection, filters.totalAmount);
-      
-      // Convert back to DbTxOutput format
-      finalTxOutputs = utxos.map(utxo => ({
-        txId: utxo.txId,
-        index: utxo.index,
-        tokenId: utxo.tokenId,
-        address: utxo.address,
-        value: utxo.value,
-        authorities: Number(utxo.authorities),
-        timelock: utxo.timelock,
-        heightlock: utxo.heightlock,
-        locked: utxo.locked,
-        spentBy: txOutputs.find(tx => tx.txId === utxo.txId && tx.index === utxo.index)?.spentBy,
-        txProposalId: txOutputs.find(tx => tx.txId === utxo.txId && tx.index === utxo.index)?.txProposalId,
-        txProposalIndex: txOutputs.find(tx => tx.txId === utxo.txId && tx.index === utxo.index)?.txProposalIndex,
-      }));
+      const { utxos } = transactionUtils.selectUtxos(minimalUtxos, filters.totalAmount);
+
+      // Filter original txOutputs to only include the selected ones
+      const selectedSet = new Set(utxos.map(u => `${u.txId}:${u.index}`));
+      finalTxOutputs = txOutputs.filter(tx => selectedSet.has(`${tx.txId}:${tx.index}`));
     } catch (error) {
       // If we don't have enough utxos, return empty array
       if (error.message && error.message.includes("Don't have enough utxos")) {
