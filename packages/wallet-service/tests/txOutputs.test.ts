@@ -1009,7 +1009,7 @@ test('filter tx_outputs with totalAmount', async () => {
   expect(result.statusCode).toBe(200);
   expect(returnBody.success).toBe(true);
   // Should select multiple UTXOs to fulfill the amount
-  expect(returnBody.txOutputs.length).toBeGreaterThan(1);
+  expect(returnBody.txOutputs.length).toBe(2);
   const totalValue = returnBody.txOutputs.reduce((sum, utxo) => sum + utxo.value, 0);
   expect(totalValue).toBeGreaterThanOrEqual(450);
 });
