@@ -75,7 +75,7 @@ export interface TxOutputWithIndex extends TxOutput {
   index: number;
 }
 
-export interface DecodedOutput {
+export type DecodedOutput = {
   type: string;
   address: string;
   timelock: number | null;
@@ -443,7 +443,7 @@ export class TokenBalanceMap {
 // The output structure in full node events is similar to TxOutput but with some differences
 export interface FullNodeOutput extends Omit<TxOutput, 'decoded' | 'token' | 'spent_by'> {
   // In full node data, decoded can be null
-  decoded: DecodedOutput | null;
+  decoded: DecodedOutput | null | {};
 }
 
 // The input structure in full node events is different - it contains a reference to the spent output
