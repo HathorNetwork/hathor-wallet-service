@@ -16,7 +16,7 @@ import {
 } from '@src/types';
 import { closeDbAndGetError } from '@src/api/utils';
 import { getDbConnection } from '@src/utils';
-import { constants, bigIntUtils } from '@hathor/wallet-lib';
+import { constants, bigIntUtils, transactionUtils } from '@hathor/wallet-lib';
 import middy from '@middy/core';
 import cors from '@middy/http-cors';
 import errorHandler from '@src/api/middlewares/errorHandler';
@@ -44,6 +44,7 @@ const bodySchema = Joi.object({
   biggerThan: positiveBigInt.default(0n),
   // @ts-ignore
   smallerThan: positiveBigInt.default(constants.MAX_OUTPUT_VALUE + 1n),
+  totalAmount: positiveBigInt,
   maxOutputs: Joi.number().integer().positive().default(constants.MAX_OUTPUTS),
   skipSpent: Joi.boolean().optional().default(true),
   txId: Joi.string().optional(),
@@ -190,7 +191,53 @@ const _getFilteredTxOutputs = async (walletId: string, filters: IFilterTxOutput)
   }
 
   const txOutputs: DbTxOutput[] = await filterTxOutputs(mysql, newFilters);
-  const txOutputsWithPath: DbTxOutputWithPath[] = mapTxOutputsWithPath(walletAddresses, txOutputs);
+  let finalTxOutputs: DbTxOutput[] = txOutputs;
+
+  // Apply totalAmount filter if specified
+  if (filters.totalAmount) {
+    try {
+      // Convert DbTxOutput to format expected by selectUtxos
+      const utxosForSelection = txOutputs.map(txOutput => ({
+        txId: txOutput.txId,
+        index: txOutput.index,
+        tokenId: txOutput.tokenId,
+        address: txOutput.address,
+        value: txOutput.value,
+        authorities: BigInt(txOutput.authorities),
+        timelock: txOutput.timelock,
+        heightlock: txOutput.heightlock,
+        locked: txOutput.locked,
+        addressPath: '', // Will be filled by mapTxOutputsWithPath
+      }));
+
+      const { utxos } = transactionUtils.selectUtxos(utxosForSelection, filters.totalAmount);
+      
+      // Convert back to DbTxOutput format
+      finalTxOutputs = utxos.map(utxo => ({
+        txId: utxo.txId,
+        index: utxo.index,
+        tokenId: utxo.tokenId,
+        address: utxo.address,
+        value: utxo.value,
+        authorities: Number(utxo.authorities),
+        timelock: utxo.timelock,
+        heightlock: utxo.heightlock,
+        locked: utxo.locked,
+        spentBy: txOutputs.find(tx => tx.txId === utxo.txId && tx.index === utxo.index)?.spentBy,
+        txProposalId: txOutputs.find(tx => tx.txId === utxo.txId && tx.index === utxo.index)?.txProposalId,
+        txProposalIndex: txOutputs.find(tx => tx.txId === utxo.txId && tx.index === utxo.index)?.txProposalIndex,
+      }));
+    } catch (error) {
+      // If we don't have enough utxos, return empty array
+      if (error.message && error.message.includes("Don't have enough utxos")) {
+        finalTxOutputs = [];
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  const txOutputsWithPath: DbTxOutputWithPath[] = mapTxOutputsWithPath(walletAddresses, finalTxOutputs);
 
   return {
     statusCode: 200,

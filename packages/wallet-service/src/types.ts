@@ -688,6 +688,7 @@ export interface IFilterTxOutput {
   skipSpent?: boolean;
   txId?: string;
   index?: number;
+  totalAmount?: bigint;
 }
 
 export enum InputSelectionAlgo {
