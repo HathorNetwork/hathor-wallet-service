@@ -44,7 +44,7 @@ const bodySchema = Joi.object({
   biggerThan: positiveBigInt.default(0n),
   // @ts-ignore
   smallerThan: positiveBigInt.default(constants.MAX_OUTPUT_VALUE + 1n),
-  totalAmount: positiveBigInt,
+  totalAmount: positiveBigInt.optional(),
   maxOutputs: Joi.number().integer().positive().default(constants.MAX_OUTPUTS),
   skipSpent: Joi.boolean().optional().default(true),
   txId: Joi.string().optional(),
