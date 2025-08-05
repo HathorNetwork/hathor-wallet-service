@@ -66,7 +66,7 @@ export const getFilteredUtxos = middy(walletIdProxyHandler(async (walletId, even
 
   const eventBody = {
     id: queryString.id,
-    addresses: multiQueryString.addresses,
+    addresses: multiQueryString['addresses[]'],
     tokenId: queryString.tokenId,
     authority: queryString.authority,
     ignoreLocked: queryString.ignoreLocked,
@@ -76,6 +76,7 @@ export const getFilteredUtxos = middy(walletIdProxyHandler(async (walletId, even
     txId: queryString.txId,
     index: queryString.index,
     totalAmount: queryString.totalAmount,
+    maxOutputs: queryString.maxOutputs,
   };
 
   const { value, error } = bodySchema.validate(eventBody, {
@@ -119,7 +120,7 @@ export const getFilteredTxOutputs = middy(walletIdProxyHandler(async (walletId, 
 
   const eventBody = {
     id: queryString.id,
-    addresses: multiQueryString.addresses,
+    addresses: multiQueryString['addresses[]'],
     tokenId: queryString.tokenId,
     authority: queryString.authority,
     ignoreLocked: queryString.ignoreLocked,
@@ -129,6 +130,7 @@ export const getFilteredTxOutputs = middy(walletIdProxyHandler(async (walletId, 
     txId: queryString.txId,
     index: queryString.index,
     totalAmount: queryString.totalAmount,
+    maxOutputs: queryString.maxOutputs,
   };
 
   const { value, error } = bodySchema.validate(eventBody, {

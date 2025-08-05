@@ -20,6 +20,7 @@ import config from '@src/config';
 const bip32 = BIP32Factory(ecc);
 
 hathorLib.network.setNetwork(config.network);
+hathorLib.config.setServerUrl(config.defaultServer);
 
 const libNetwork = hathorLib.network.getNetwork();
 const hathorNetwork = {
@@ -254,7 +255,7 @@ export const getAddressAtIndex = (xpubkey: string, addressIndex: number): string
  * @memberof Wallet
  * @inner
  */
-export const getAddresses = (xpubkey: string, startIndex: number, quantity: number): {[key: string]: number} => {
+export const getAddresses = (xpubkey: string, startIndex: number, quantity: number): { [key: string]: number } => {
   const addrMap = {};
 
   for (let index = startIndex; index < startIndex + quantity; index++) {

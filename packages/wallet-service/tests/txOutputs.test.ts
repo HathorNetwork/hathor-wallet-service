@@ -804,7 +804,7 @@ test('get utxos from addresses that are not my own should fail with ApiError.ADD
   await addToUtxoTable(mysql, utxos);
 
   const event = makeGatewayEventWithAuthorizer('my-wallet', null, null, {
-    addresses: [ADDRESSES[1]],
+    'addresses[]': [ADDRESSES[1]],
   });
 
   const result = await getFilteredTxOutputs(event, null, null) as APIGatewayProxyResult;
@@ -888,6 +888,96 @@ test('get spent tx_output', async () => {
   expect(returnBody.txOutputs).toHaveLength(2);
   expect(returnBody.txOutputs[0]).toStrictEqual(formatTxOutput(txOutputs[1], 0));
   expect(returnBody.txOutputs[1]).toStrictEqual(formatTxOutput(txOutputs[0], 0));
+});
+
+test('filter utxos by addresses and max utxos', async () => {
+  expect.hasAssertions();
+
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+
+  await addToAddressTable(mysql, [
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0 },
+    { address: ADDRESSES[2], index: 2, walletId: 'my-wallet', transactions: 2 },
+    { address: ADDRESSES[3], index: 3, walletId: 'my-wallet', transactions: 0 },
+    { address: ADDRESSES[4], index: 4, walletId: 'my-wallet', transactions: 3 },
+    { address: ADDRESSES[5], index: 5, walletId: 'my-wallet', transactions: 0 },
+    { address: ADDRESSES[6], index: 6, walletId: 'my-wallet', transactions: 0 },
+    { address: ADDRESSES[7], index: 7, walletId: 'my-wallet', transactions: 0 },
+    { address: ADDRESSES[8], index: 8, walletId: 'my-wallet', transactions: 0 },
+    { address: ADDRESSES[9], index: 0, walletId: null, transactions: 0 },
+    { address: ADDRESSES[10], index: 0, walletId: 'test', transactions: 0 },
+  ]);
+
+  await addToUtxoTable(mysql, [{
+    txId: 'txId',
+    index: 0,
+    tokenId: '00',
+    address: ADDRESSES[0],
+    value: 100n,
+    authorities: 0,
+    timelock: null,
+    heightlock: null,
+    locked: false,
+    spentBy: null,
+  }, {
+    txId: 'txId2',
+    index: 0,
+    tokenId: '00',
+    address: ADDRESSES[0],
+    value: 50n,
+    authorities: 0,
+    timelock: null,
+    heightlock: null,
+    locked: false,
+    spentBy: null,
+  }, {
+    txId: 'txId3',
+    index: 0,
+    tokenId: '00',
+    address: ADDRESSES[1],
+    value: 30n,
+    authorities: 0,
+    timelock: null,
+    heightlock: null,
+    locked: false,
+    spentBy: null,
+  }]);
+
+  const event = makeGatewayEventWithAuthorizer('my-wallet', null, null, null);
+  const result = await getFilteredTxOutputs(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+  expect(returnBody.txOutputs.length).toStrictEqual(3);
+
+  const event2 = makeGatewayEventWithAuthorizer('my-wallet', null, null, { 'addresses[]': [ADDRESSES[0]] });
+  const result2 = await getFilteredTxOutputs(event2, null, null) as APIGatewayProxyResult;
+  const returnBody2 = JSON.parse(result2.body as string);
+
+  expect(result2.statusCode).toBe(200);
+  expect(returnBody2.success).toBe(true);
+  expect(returnBody2.txOutputs.length).toStrictEqual(2);
+  expect(returnBody2.txOutputs[0].address).toStrictEqual(ADDRESSES[0]);
+  expect(returnBody2.txOutputs[1].address).toStrictEqual(ADDRESSES[0]);
+
+  const event3 = makeGatewayEventWithAuthorizer('my-wallet', { maxOutputs: '1' }, null, { 'addresses[]': [ADDRESSES[0]] });
+  const result3 = await getFilteredTxOutputs(event3, null, null) as APIGatewayProxyResult;
+  const returnBody3 = JSON.parse(result3.body as string);
+
+  expect(result3.statusCode).toBe(200);
+  expect(returnBody3.success).toBe(true);
+  expect(returnBody3.txOutputs.length).toStrictEqual(1);
+  expect(returnBody3.txOutputs[0].address).toStrictEqual(ADDRESSES[0]);
 });
 
 test('filter tx_outputs with totalAmount', async () => {

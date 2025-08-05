@@ -132,7 +132,7 @@ resources:
 
 provider:
   name: aws
-  runtime: nodejs18.x
+  runtime: nodejs22.x
   region: ${opt:region, 'eu-central-1'}
   # In MB. This is the memory allocated for the Lambdas, they cannot use more than this
   # and will break if they try.
