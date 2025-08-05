@@ -16,7 +16,7 @@ import {
 } from '@src/types';
 import { closeDbAndGetError } from '@src/api/utils';
 import { getDbConnection } from '@src/utils';
-import { constants, bigIntUtils } from '@hathor/wallet-lib';
+import { constants, bigIntUtils, transactionUtils } from '@hathor/wallet-lib';
 import middy from '@middy/core';
 import cors from '@middy/http-cors';
 import errorHandler from '@src/api/middlewares/errorHandler';
@@ -44,6 +44,7 @@ const bodySchema = Joi.object({
   biggerThan: positiveBigInt.default(0n),
   // @ts-ignore
   smallerThan: positiveBigInt.default(constants.MAX_OUTPUT_VALUE + 1n),
+  totalAmount: positiveBigInt.optional(),
   maxOutputs: Joi.number().integer().positive().default(constants.MAX_OUTPUTS),
   skipSpent: Joi.boolean().optional().default(true),
   txId: Joi.string().optional(),
@@ -74,6 +75,7 @@ export const getFilteredUtxos = middy(walletIdProxyHandler(async (walletId, even
     skipSpent: true, // utxo is always unspent
     txId: queryString.txId,
     index: queryString.index,
+    totalAmount: queryString.totalAmount,
     maxOutputs: queryString.maxOutputs,
   };
 
@@ -127,6 +129,7 @@ export const getFilteredTxOutputs = middy(walletIdProxyHandler(async (walletId, 
     skipSpent: queryString.skipSpent,
     txId: queryString.txId,
     index: queryString.index,
+    totalAmount: queryString.totalAmount,
     maxOutputs: queryString.maxOutputs,
   };
 
@@ -192,7 +195,33 @@ const _getFilteredTxOutputs = async (walletId: string, filters: IFilterTxOutput)
   }
 
   const txOutputs: DbTxOutput[] = await filterTxOutputs(mysql, newFilters);
-  const txOutputsWithPath: DbTxOutputWithPath[] = mapTxOutputsWithPath(walletAddresses, txOutputs);
+  let finalTxOutputs: DbTxOutput[] = txOutputs;
+
+  // Apply totalAmount filter if specified
+  if (filters.totalAmount) {
+    try {
+      const minimalUtxos = txOutputs.map(tx => ({
+        ...tx,
+        authorities: BigInt(tx.authorities), // Convert for compatibility
+        addressPath: '', // Required by type, but not used by selectUtxos algorithm
+      }));
+
+      const { utxos } = transactionUtils.selectUtxos(minimalUtxos, filters.totalAmount);
+
+      // Filter original txOutputs to only include the selected ones
+      const selectedSet = new Set(utxos.map(u => `${u.txId}:${u.index}`));
+      finalTxOutputs = txOutputs.filter(tx => selectedSet.has(`${tx.txId}:${tx.index}`));
+    } catch (error) {
+      // If we don't have enough utxos, return empty array
+      if (error.message && error.message.includes("Don't have enough utxos")) {
+        finalTxOutputs = [];
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  const txOutputsWithPath: DbTxOutputWithPath[] = mapTxOutputsWithPath(walletAddresses, finalTxOutputs);
 
   return {
     statusCode: 200,

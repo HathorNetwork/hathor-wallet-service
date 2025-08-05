@@ -979,3 +979,189 @@ test('filter utxos by addresses and max utxos', async () => {
   expect(returnBody3.txOutputs.length).toStrictEqual(1);
   expect(returnBody3.txOutputs[0].address).toStrictEqual(ADDRESSES[0]);
 });
+
+test('filter tx_outputs with totalAmount', async () => {
+  expect.hasAssertions();
+
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+
+  await addToAddressTable(mysql, [{
+    address: ADDRESSES[0],
+    index: 0,
+    walletId: 'my-wallet',
+    transactions: 4,
+  }, {
+    address: ADDRESSES[1],
+    index: 1,
+    walletId: 'my-wallet',
+    transactions: 4,
+  }]);
+
+  const token1 = '00';
+
+  const txOutputs = [{
+    txId: TX_IDS[0],
+    index: 0,
+    tokenId: token1,
+    address: ADDRESSES[0],
+    value: 50n,
+    authorities: 0,
+    timelock: null,
+    heightlock: null,
+    locked: false,
+    spentBy: null,
+  }, {
+    txId: TX_IDS[1],
+    index: 0,
+    tokenId: token1,
+    address: ADDRESSES[0],
+    value: 100n,
+    authorities: 0,
+    timelock: null,
+    heightlock: null,
+    locked: false,
+    spentBy: null,
+  }, {
+    txId: TX_IDS[2],
+    index: 0,
+    tokenId: token1,
+    address: ADDRESSES[1],
+    value: 200n,
+    authorities: 0,
+    timelock: null,
+    heightlock: null,
+    locked: false,
+    spentBy: null,
+  }, {
+    txId: TX_IDS[3],
+    index: 0,
+    tokenId: token1,
+    address: ADDRESSES[0],
+    value: 300n,
+    authorities: 0,
+    timelock: null,
+    heightlock: null,
+    locked: false,
+    spentBy: null,
+  }];
+
+  await addToUtxoTable(mysql, txOutputs);
+
+  // Test 1: Request exactly what one UTXO can fulfill
+  let event = makeGatewayEventWithAuthorizer('my-wallet', {
+    tokenId: token1,
+    totalAmount: '200',
+  }, null);
+
+  let result = await getFilteredTxOutputs(event, null, null) as APIGatewayProxyResult;
+  let returnBody = JSON.parse(result.body as string);
+
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+  expect(returnBody.txOutputs).toHaveLength(1);
+  // Should select the 200n UTXO (smallest one that can fulfill the amount)
+  expect(returnBody.txOutputs[0].txId).toBe(TX_IDS[2]);
+  expect(returnBody.txOutputs[0].value).toBe(200);
+
+  // Test 2: Request amount that requires multiple UTXOs
+  event = makeGatewayEventWithAuthorizer('my-wallet', {
+    tokenId: token1,
+    totalAmount: '250',
+  }, null);
+
+  result = await getFilteredTxOutputs(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+  // Should select the 300n UTXO (smallest single UTXO that can fulfill)
+  expect(returnBody.txOutputs).toHaveLength(1);
+  expect(returnBody.txOutputs[0].txId).toBe(TX_IDS[3]);
+  expect(returnBody.txOutputs[0].value).toBe(300);
+
+  // Test 3: Request amount that requires combining UTXOs
+  event = makeGatewayEventWithAuthorizer('my-wallet', {
+    tokenId: token1,
+    totalAmount: '450',
+  }, null);
+
+  result = await getFilteredTxOutputs(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+  // Should select multiple UTXOs to fulfill the amount
+  expect(returnBody.txOutputs.length).toBe(2);
+  const totalValue = returnBody.txOutputs.reduce((sum, utxo) => sum + utxo.value, 0);
+  expect(totalValue).toBeGreaterThanOrEqual(450);
+});
+
+test('filter tx_outputs with totalAmount insufficient funds', async () => {
+  expect.hasAssertions();
+
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+
+  await addToAddressTable(mysql, [{
+    address: ADDRESSES[0],
+    index: 0,
+    walletId: 'my-wallet',
+    transactions: 4,
+  }]);
+
+  const token1 = '00';
+
+  const txOutputs = [{
+    txId: TX_IDS[0],
+    index: 0,
+    tokenId: token1,
+    address: ADDRESSES[0],
+    value: 50n,
+    authorities: 0,
+    timelock: null,
+    heightlock: null,
+    locked: false,
+    spentBy: null,
+  }, {
+    txId: TX_IDS[1],
+    index: 0,
+    tokenId: token1,
+    address: ADDRESSES[0],
+    value: 100n,
+    authorities: 0,
+    timelock: null,
+    heightlock: null,
+    locked: false,
+    spentBy: null,
+  }];
+
+  await addToUtxoTable(mysql, txOutputs);
+
+  // Request more than available (150n available, request 200n)
+  const event = makeGatewayEventWithAuthorizer('my-wallet', {
+    tokenId: token1,
+    totalAmount: '200',
+  }, null);
+
+  const result = await getFilteredTxOutputs(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+  expect(returnBody.txOutputs).toHaveLength(0); // Should return empty array when insufficient funds
+});
