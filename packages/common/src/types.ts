@@ -75,7 +75,7 @@ export interface TxOutputWithIndex extends TxOutput {
   index: number;
 }
 
-export interface DecodedOutput {
+export type DecodedOutput = {
   type: string;
   address: string;
   timelock: number | null;
