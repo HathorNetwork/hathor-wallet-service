@@ -79,7 +79,6 @@ export const prepareOutputs = (outputs: EventTxOutput[], tokens: string[]): TxOu
       output.token = token;
 
       if (!isDecodedValid(_output.decoded)
-        || _output.decoded === null
         || _output.decoded.type === null
         || _output.decoded.type === undefined) {
         console.log('Decode failed, skipping..');
