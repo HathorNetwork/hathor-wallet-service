@@ -892,6 +892,10 @@ export const getUtxos = async (
   mysql: ServerlessMysql,
   utxosInfo: IWalletInput[],
 ): Promise<DbTxOutput[]> => {
+  if (utxosInfo.length <= 0) {
+    return [];
+  }
+
   const entries = utxosInfo.map((utxo) => [utxo.txId, utxo.index]);
   const results: DbSelectResult = await mysql.query(
     `SELECT *
