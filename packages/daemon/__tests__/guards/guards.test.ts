@@ -112,7 +112,7 @@ const generateMetadataDecidedEvent = (type: 'TX_VOIDED' | 'TX_UNVOIDED' | 'TX_NE
         timestamp: 0,
         version: 1,
         weight: 1,
-        nonce: 1,
+        nonce: 1n,
         inputs: [],
         outputs: [],
         parents: [],

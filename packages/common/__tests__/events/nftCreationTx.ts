@@ -120,7 +120,7 @@ export const nftCreationTx = {
 export function getTransaction(): HistoryTransaction {
   return {
     tx_id: nftCreationTx.tx_id,
-    nonce: 1,
+    nonce: 1n,
     timestamp: nftCreationTx.timestamp,
     signalBits: nftCreationTx.signal_bits,
     version: nftCreationTx.version,

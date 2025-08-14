@@ -46,7 +46,7 @@ const logger = new Logger();
 // Real event data from production
 const REAL_NFT_EVENT_DATA = {
   'hash': '000041f860a327969fa03685ed05cf316fc941708c53801cf81f426ac4a55866',
-  'nonce': 257857,
+  'nonce': 257857n,
   'timestamp': 1741649846,
   'signal_bits': 0,
   'version': 2,
@@ -496,7 +496,7 @@ describe('transaction transformation compatibility', () => {
           }
         }],
         headers: [],
-        nonce: 0,
+        nonce: 0n,
         signal_bits: 1,
         timestamp: 0,
         weight: 18.2,
@@ -624,7 +624,7 @@ describe('processNftEvent', () => {
     // Real event data from production
     const eventData = {
       hash: '000041f860a327969fa03685ed05cf316fc941708c53801cf81f426ac4a55866',
-      nonce: 257857,
+      nonce: 257857n,
       timestamp: 1741649846,
       signal_bits: 0,
       version: 2,
