@@ -139,7 +139,7 @@ export const TxEventDataWithoutMetaSchema = z.object({
   timestamp: z.number(),
   version: z.number(),
   weight: z.number(),
-  nonce: z.number(),
+  nonce: bigIntUtils.bigIntCoercibleSchema,
   inputs: EventTxInputSchema.array(),
   outputs: EventTxOutputSchema.array(),
   headers: EventTxNanoHeaderSchema.array().optional(),

@@ -72,6 +72,7 @@ export default (callback: any, receive: any) => {
       bigIntUtils.JSONBigInt.parse(socketEvent.data.toString())
     );
     if (!parseResult.success) {
+      logger.error(`Could not parse event: ${socketEvent.data.toString()}`);
       throw new Error(parseResult.error.message);
     }
     const event = parseResult.data;
