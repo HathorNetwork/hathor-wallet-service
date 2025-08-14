@@ -271,7 +271,8 @@ export class NftUtils {
       weight: fullNodeData.weight,
       timestamp: fullNodeData.timestamp,
       is_voided: !!fullNodeData.voided,
-      nonce: fullNodeData.nonce,
+      // XXX: This may have conversion errors but the value is of no consequence
+      nonce: Number(fullNodeData.nonce),
       parents: fullNodeData.parents ?? [],
     };
 
