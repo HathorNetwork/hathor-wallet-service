@@ -684,7 +684,7 @@ describe('getWalletBalancesForTx', () => {
 
     const tx = {
       tx_id: tx1.id,
-      nonce: 10,
+      nonce: 10n,
       timestamp: tx1.timestamp,
       version: tx1.version,
       weight: tx1.weight,
@@ -786,7 +786,7 @@ describe('getWalletBalancesForTx', () => {
 
     const tx = {
       tx_id: tx1.id,
-      nonce: 10,
+      nonce: 10n,
       timestamp: tx1.timestamp,
       version: tx1.version,
       weight: tx1.weight,
@@ -939,7 +939,7 @@ describe('getWalletBalancesForTx', () => {
 
       const tx = {
         tx_id: tx1.id,
-        nonce: 10,
+        nonce: 10n,
         timestamp: tx1.timestamp,
         version: tx1.version,
         weight: tx1.weight,
@@ -1110,7 +1110,7 @@ describe('getWalletBalancesForTx', () => {
 
       const tx = {
         tx_id: tx1.id,
-        nonce: 10,
+        nonce: 10n,
         timestamp: tx1.timestamp,
         version: tx1.version,
         weight: tx1.weight,

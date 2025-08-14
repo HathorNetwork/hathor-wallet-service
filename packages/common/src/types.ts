@@ -29,7 +29,7 @@ export enum Severity {
 export interface Transaction {
   // eslint-disable-next-line camelcase
   tx_id: string;
-  nonce: number;
+  nonce: bigint;
   timestamp: number;
   // eslint-disable-next-line camelcase
   signal_bits: number;
