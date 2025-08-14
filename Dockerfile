@@ -22,13 +22,6 @@ RUN yarn install
 
 RUN yarn workspace sync-daemon run build
 
-# If this container is initialized with the MIGRATE_ON_BUILD argument, we need to run the migrations
-ARG MIGRATE_ON_BUILD=false
-RUN if [ "$MIGRATE_ON_BUILD" = "true" ]; then \
-    echo "Running migrations..."; \
-    yarn workspace sync-daemon run migrate_blank_db; \
-  fi
-
 # This will remove all dev dependencies and install production deps only
 RUN yarn workspaces focus -A --production
 
