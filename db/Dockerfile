@@ -22,6 +22,19 @@ RUN corepack enable
 # they are ignored in .dockerignore
 RUN yarn install
 
+# As of now, the Wallet Service also needs the STREAM_ID and PEER_ID from the Fullnode at startup time.
+# This is a temporary solution until the Wallet Service can fetch these identifiers from the Fullnode itself.
+# The script fetch-identifiers.sh will be run to export these identifiers to an .env file
+# so that the Wallet Service can access them.
+ARG FETCH_IDENTIFIERS_FROM_FULLNODE=false
+RUN if [ "$FETCH_IDENTIFIERS_FROM_FULLNODE" = "true" ]; then \
+      echo "Fetching identifiers from Fullnode..."; \
+      ./scripts/fetch-identifiers.sh; \
+      ls; \
+      cat .identifiers.env; \
+      cp .identifiers.env /shared/.env; \
+    fi
+
 # When calling this container, we suggest the following configurations
 #      args:
 #        DB_ENDPOINT: "mysql-endpoint"
@@ -29,8 +42,11 @@ RUN yarn install
 #        DB_USER: "wallet_service_user_name"
 #        DB_PASS: "wallet_service_user_password"
 #        DB_PORT: 3306
+#        FETCH_IDENTIFIERS_FROM_FULLNODE: true
 #    restart: "no"  # Critical: don't restart migration service
 #    command: ["/bin/sh", "migrate.sh"]
+#    volumes:
+#      - shared-config:/shared
 #    depends_on:
 #      mysql:
 #        condition: service_healthy

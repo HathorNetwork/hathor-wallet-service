@@ -33,6 +33,12 @@ WORKDIR /app
 # Copy only the necessary files from the build phase
 COPY --from=builder /app .
 
+# If there are complementary shared environment variables to fetch, copy them
+# from the shared directory to the current working directory for the Wallet Service to use them.
+RUN if [ "FETCH_SHARED_ENV" = "true" ]; then \
+  cp /shared/.env .env; \
+  fi
+
 WORKDIR /app/packages/daemon/
 
 CMD ["node", "dist/index.js"]
