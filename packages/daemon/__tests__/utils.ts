@@ -384,6 +384,11 @@ export const checkAddressBalanceTable = async (
     };
   }
 
+  // If we expect 0 rows, we're done - just checking the count
+  if (totalResults === 0) {
+    return true;
+  }
+
   // now fetch the exact entry
   const baseQuery = `
     SELECT *
