@@ -5,7 +5,7 @@
 # This software cannot be redistributed unless explicitly agreed in writing with the authors.
 
 # This Dockerfile is used to build and run the database migration container.
-FROM node:22-alpine AS builder
+FROM node:22-alpine
 
 WORKDIR /app
 RUN pwd
@@ -22,18 +22,12 @@ RUN corepack enable
 # they are ignored in .dockerignore
 RUN yarn install
 
-# As of now, the Wallet Service also needs the STREAM_ID and PEER_ID from the Fullnode at startup time.
-# This is a temporary solution until the Wallet Service can fetch these identifiers from the Fullnode itself.
-# The script fetch-identifiers.sh will be run to export these identifiers to an .env file
-# so that the Wallet Service can access them.
-ARG FETCH_IDENTIFIERS_FROM_FULLNODE=false
-RUN if [ "$FETCH_IDENTIFIERS_FROM_FULLNODE" = "true" ]; then \
-      echo "Fetching identifiers from Fullnode..."; \
-      ./scripts/fetch-identifiers.sh; \
-      ls; \
-      cat .identifiers.env; \
-      cp .identifiers.env /shared/.env; \
-    fi
+# Create the shared directory for volume mounting
+RUN mkdir -p /shared
+
+# Create a startup script that handles fetching identifiers and copying to shared volume
+RUN cp /app/db/migration-entrypoint.sh /app/migration-entrypoint.sh
+ENTRYPOINT ["/bin/sh", "/app/migration-entrypoint.sh"]
 
 # When calling this container, we suggest the following configurations
 #      args:
@@ -44,6 +38,7 @@ RUN if [ "$FETCH_IDENTIFIERS_FROM_FULLNODE" = "true" ]; then \
 #        DB_PORT: 3306
 #        FETCH_IDENTIFIERS_FROM_FULLNODE: true
 #    restart: "no"  # Critical: don't restart migration service
+#    entrypoint: ["/app/migration-entrypoint.sh"]
 #    command: ["/bin/sh", "migrate.sh"]
 #    volumes:
 #      - shared-config:/shared
