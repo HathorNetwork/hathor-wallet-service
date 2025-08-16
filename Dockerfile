@@ -32,13 +32,18 @@ WORKDIR /app
 
 # Copy only the necessary files from the build phase
 COPY --from=builder /app .
-
-# If there are complementary shared environment variables to fetch, copy them
-# from the shared directory to the current working directory for the Wallet Service to use them.
-RUN if [ "FETCH_SHARED_ENV" = "true" ]; then \
-  cp /shared/.env .env; \
-  fi
+RUN ls
 
 WORKDIR /app/packages/daemon/
+RUN echo "Running in /app/packages/daemon/"
+RUN ls
 
-CMD ["node", "dist/index.js"]
+# The script should already be available from the builder stage copy
+# Just make it executable and verify it exists
+RUN ls -la /app/scripts/
+RUN cp /app/scripts/merge-complementary-envs.sh ./merge-complementary-envs.sh
+RUN chmod +x ./merge-complementary-envs.sh
+RUN ls -la ./merge-complementary-envs.sh
+
+# Debug the runtime environment in the CMD
+CMD ["/bin/sh", "-c", "echo 'Starting container...'; pwd; ls -la; ls -la ./merge-complementary-envs.sh; ./merge-complementary-envs.sh && exec node dist/index.js"]
