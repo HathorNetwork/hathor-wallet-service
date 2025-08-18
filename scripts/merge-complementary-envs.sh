@@ -5,23 +5,28 @@ set -e
 # Only run if FETCH_SHARED_ENV environment variable is set
 if [ -z "$FETCH_SHARED_ENV" ]; then
     echo "FETCH_SHARED_ENV not set, skipping merge of complementary environment variables"
+    # Finally, run the main script for the Wallet Service Daemon
+    node dist/index.js
     exit 0
 fi
 
 echo "FETCH_SHARED_ENV is set, merging complementary environment variables..."
+node fetch-fullnode-ids.js
 
-# Check if the shared .env file exists
-if [ ! -f "/shared/.env" ]; then
-    echo "Warning: /shared/.env file not found, skipping merge"
+# Check if the shared .identifiers.env file exists
+if [ ! -f ".identifiers.env" ]; then
+    echo "Warning: .identifiers.env file not found, skipping merge"
     exit 0
 fi
 
-# Copy the shared .env file to the local root
-echo "Copying /shared/.env to local .env file..."
-cp /shared/.env .env
+# Export each environment variable from the .identifiers.env file
+echo "Exporting environment variables from .identifiers.env file..."
 
-# Export each environment variable from the .env file
-echo "Exporting environment variables from .env file..."
+echo "Here is the file contents:"
+cat .identifiers.env
+echo "Now the next steps:"
+
+# Read the file line by line
 while IFS='=' read -r key value; do
     # Skip empty lines and comments
     if [ -z "$key" ] || echo "$key" | grep -q '^[[:space:]]*#'; then
@@ -40,6 +45,9 @@ while IFS='=' read -r key value; do
     # Export the variable
     export "$key=$value"
     echo "Exported: $key=$value"
-done < .env
+done < .identifiers.env
 
 echo "Successfully merged and exported complementary environment variables"
+
+# Finally, run the main script for the Wallet Service Daemon
+node dist/index.js
