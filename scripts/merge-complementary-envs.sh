@@ -2,15 +2,15 @@
 
 set -e
 
-# Only run if FETCH_SHARED_ENV environment variable is set
-if [ -z "$FETCH_SHARED_ENV" ]; then
-    echo "FETCH_SHARED_ENV not set, skipping merge of complementary environment variables"
+# Only run if FETCH_FULLNODE_IDS environment variable is set
+if [ -z "$FETCH_FULLNODE_IDS" ]; then
+    echo "FETCH_FULLNODE_IDS not set, skipping merge of complementary environment variables"
     # Finally, run the main script for the Wallet Service Daemon
     node dist/index.js
     exit 0
 fi
 
-echo "FETCH_SHARED_ENV is set, merging complementary environment variables..."
+echo "FETCH_FULLNODE_IDS is set, merging complementary environment variables..."
 node fetch-fullnode-ids.js
 
 # Check if the shared .identifiers.env file exists
