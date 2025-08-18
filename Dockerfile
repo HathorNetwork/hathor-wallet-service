@@ -41,9 +41,10 @@ RUN ls
 # The script should already be available from the builder stage copy
 # Just make it executable and verify it exists
 RUN ls -la /app/scripts/
+RUN cp /app/scripts/fetch-fullnode-ids.js ./fetch-fullnode-ids.js
 RUN cp /app/scripts/merge-complementary-envs.sh ./merge-complementary-envs.sh
 RUN chmod +x ./merge-complementary-envs.sh
 RUN ls -la ./merge-complementary-envs.sh
 
 # Debug the runtime environment in the CMD
-CMD ["/bin/sh", "-c", "echo 'Starting container...'; pwd; ls -la; ls -la ./merge-complementary-envs.sh; ./merge-complementary-envs.sh && exec node dist/index.js"]
+ENTRYPOINT ["./merge-complementary-envs.sh"]

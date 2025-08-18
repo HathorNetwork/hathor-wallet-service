@@ -82,9 +82,9 @@ async function fetchFullnodeIds() {
 if (require.main === module) {
   fetchFullnodeIds()
     .then(({ streamId, fullnodePeerId }) => {
-      console.log(`Successfully fetched identifiers:`);
-      console.log(`STREAM_ID: ${streamId}`);
-      console.log(`FULLNODE_PEER_ID: ${fullnodePeerId}`);
+      console.error(`Successfully fetched identifiers:`);
+      console.error(`STREAM_ID: ${streamId}`);
+      console.error(`FULLNODE_PEER_ID: ${fullnodePeerId}`);
       process.exit(0);
     })
     .catch((error) => {
