@@ -10,7 +10,7 @@ import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 
 // Check if we're running in offline mode
-const isOffline = process.env.IS_OFFLINE === 'true' || process.env.NODE_ENV === 'test';
+const shouldMockAWS = process.env.MOCK_AWS === 'true';
 
 /**
  * Mock credentials for offline development
@@ -29,7 +29,7 @@ export function createLambdaClient(config: { endpoint?: string; region?: string 
     region: config.region || process.env.AWS_REGION || 'us-east-1',
   };
 
-  if (isOffline) {
+  if (shouldMockAWS) {
     console.log('[AWS Mock] Creating mocked LambdaClient for offline development');
     clientConfig.credentials = mockCredentials;
     clientConfig.endpoint = config.endpoint || 'http://localhost:3002';
@@ -73,7 +73,7 @@ export function createApiGatewayManagementApiClient(config: { endpoint?: string;
     region: config.region || process.env.AWS_REGION || 'us-east-1',
   };
 
-  if (isOffline) {
+  if (shouldMockAWS) {
     console.log('[AWS Mock] Creating mocked ApiGatewayManagementApiClient for offline development');
     clientConfig.credentials = mockCredentials;
 
@@ -105,7 +105,7 @@ export function createSQSClient(config: { endpoint?: string; region?: string } =
     region: config.region || process.env.AWS_REGION || 'us-east-1',
   };
 
-  if (isOffline) {
+  if (shouldMockAWS) {
     console.log('[AWS Mock] Creating mocked SQSClient for offline development');
     clientConfig.credentials = mockCredentials;
 

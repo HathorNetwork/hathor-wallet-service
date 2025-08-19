@@ -9,7 +9,7 @@
     "test": "jest"
   },
   "engines": {
-    "node": "20"
+    "node": "22"
   },
   "author": "Hathor Labs",
   "license": "MIT",
@@ -67,7 +67,7 @@
     "serverless-api-gateway-throttling": "2.0.3",
     "serverless-better-credentials": "2.0.0",
     "serverless-iam-roles-per-function": "3.2.0",
-    "serverless-offline": "13.1.2",
+    "serverless-offline": "14.4.0",
     "serverless-plugin-aws-alerts": "1.7.5",
     "serverless-plugin-monorepo": "0.11.0",
     "serverless-plugin-warmup": "8.2.1",
