@@ -6,9 +6,12 @@
  */
 
 import { LambdaClient, InvokeCommand, InvokeCommandOutput } from '@aws-sdk/client-lambda';
+import 'source-map-support/register';
+
+import { createLambdaClient } from '@src/utils/aws-offline-mock';
 import { PushProvider, SendNotificationToDevice, StringMap, WalletBalanceValue } from '@src/types';
 import { Severity } from '@wallet-service/common/src/types';
-import fcmAdmin, { credential, messaging, ServiceAccount } from 'firebase-admin';
+import * as fcmAdmin from 'firebase-admin';
 import { MulticastMessage } from 'firebase-admin/messaging';
 import createDefaultLogger from '@src/logger';
 import config from '@src/config';
@@ -133,7 +136,7 @@ if (isPushNotificationEnabled()) {
     };
 
     fcmAdmin.initializeApp({
-      credential: credential.cert(serviceAccount as ServiceAccount),
+      credential: fcmAdmin.credential.cert(serviceAccount),
       projectId: FIREBASE_PROJECT_ID,
     });
     firebaseInitialized = true;
@@ -205,7 +208,7 @@ export class PushNotificationUtils {
       },
     };
 
-    const multicastResult = await messaging().sendEachForMulticast(message);
+    const multicastResult = await fcmAdmin.messaging().sendEachForMulticast(message);
 
     if (multicastResult.failureCount === 0) {
       return { success: true };
@@ -235,7 +238,7 @@ export class PushNotificationUtils {
       throw new Error('Environment variables WALLET_SERVICE_LAMBDA_ENDPOINT and STAGE are not set.');
     }
 
-    const client = new LambdaClient({
+    const client = createLambdaClient({
       endpoint: WALLET_SERVICE_LAMBDA_ENDPOINT,
       region: AWS_REGION,
     });
@@ -271,7 +274,7 @@ export class PushNotificationUtils {
       return;
     }
 
-    const client = new LambdaClient({
+    const client = createLambdaClient({
       endpoint: WALLET_SERVICE_LAMBDA_ENDPOINT,
       region: AWS_REGION,
     });

@@ -31,7 +31,7 @@ database to get the information.
 The plugin `serverless-offline` is used to emulate AWS Lambda and API Gateway on a local machine.
 
 ### Requirements
-1. NodeJS v16
+1. NodeJS v22
 
 ### Local database
 To setup a local database, you will need:

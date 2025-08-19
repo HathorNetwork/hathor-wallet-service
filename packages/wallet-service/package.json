@@ -8,6 +8,9 @@
     "check-types": "tsc --noemit --skipLibCheck",
     "test": "jest"
   },
+  "engines": {
+    "node": "20"
+  },
   "author": "Hathor Labs",
   "license": "MIT",
   "dependencies": {

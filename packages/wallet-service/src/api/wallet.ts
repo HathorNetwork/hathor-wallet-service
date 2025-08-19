@@ -9,6 +9,7 @@ import { APIGatewayProxyHandler, Handler, SNSEvent } from 'aws-lambda';
 import { LambdaClient, InvokeCommand, InvokeCommandOutput } from '@aws-sdk/client-lambda';
 import 'source-map-support/register';
 
+import { createLambdaClient } from '@src/utils/aws-offline-mock';
 import { ApiError } from '@src/api/errors';
 import {
   addNewAddresses,
@@ -94,7 +95,7 @@ const loadBodySchema = Joi.object({
  */
 /* istanbul ignore next */
 export const invokeLoadWalletAsync = async (xpubkey: string, maxGap: number): Promise<void> => {
-  const client = new LambdaClient({
+  const client = createLambdaClient({
     endpoint: config.stage === 'dev'
       ? 'http://localhost:3002'
       : `https://lambda.${config.awsRegion}.amazonaws.com`,
