@@ -74,8 +74,8 @@ import {
   setAddressSeqnum,
   getAddressSeqnum,
   unspendUtxos,
-  getUtxosSpentByTx,
   voidWalletTransaction,
+  getTxOutput,
 } from '../db';
 import getConfig from '../config';
 import logger from '../logger';
@@ -389,7 +389,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       // prepare the transaction data to be sent to the SQS queue
       const txData: Transaction = {
         tx_id: hash,
-        nonce: Number(nonce),
+        nonce: nonce ? BigInt(nonce) : BigInt(0),
         timestamp,
         version,
         voided: metadata.voided_by.length > 0,
@@ -434,7 +434,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
       // Call to process the data for NFT handling (if applicable)
       // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
-      NftUtils.processNftEvent({...fullNodeData, nonce: Number(fullNodeData.nonce)}, STAGE, network, logger)
+      NftUtils.processNftEvent({ ...fullNodeData, nonce: fullNodeData.nonce ? BigInt(fullNodeData.nonce) : BigInt(0) }, STAGE, network, logger)
         .catch((err: unknown) => logger.error('[ALERT] Error processing NFT event', err));
     }
 
@@ -541,21 +541,45 @@ export const voidTx = async (
   await markUtxosAsVoided(mysql, dbTxOutputs);
 
   // CRITICAL: Unspent the inputs when voiding a transaction
-  // Get all UTXOs that were spent by this transaction and unspent them
-  const utxosSpentByThisTx = await getUtxosSpentByTx(mysql, hash);
+  // The inputs of the voided transaction need to be marked as unspent
+  // But only if they were actually spent by this transaction
+  if (inputs.length > 0) {
+    // First, check which inputs were actually spent by this transaction
+    const inputsSpentByThisTx: DbTxOutput[] = [];
 
-  if (utxosSpentByThisTx.length > 0) {
-    await unspendUtxos(mysql, utxosSpentByThisTx);
+    for (const input of inputs) {
+      // Get the current state of this output to check if it's spent by our transaction
+      const currentOutput = await getTxOutput(mysql, input.tx_id, input.index, false);
+      if (currentOutput && currentOutput.spentBy === hash) {
+        inputsSpentByThisTx.push({
+          txId: input.tx_id,
+          index: input.index,
+          tokenId: '', // Not needed for unspending
+          address: '', // Not needed for unspending
+          value: BigInt(0), // Not needed for unspending
+          authorities: 0, // Not needed for unspending
+          timelock: null, // Not needed for unspending
+          heightlock: null, // Not needed for unspending
+          locked: false, // Not needed for unspending
+          spentBy: hash, // This is what we're unsetting
+          voided: false, // Not needed for unspending
+        });
+      }
+    }
+
+    if (inputsSpentByThisTx.length > 0) {
+      await unspendUtxos(mysql, inputsSpentByThisTx);
+    }
   }
 
   // CRITICAL: Update wallet balances when voiding a transaction
   // Get wallet information for all affected addresses
   const addressWalletMap: StringMap<Wallet> = await getAddressWalletInfo(mysql, Object.keys(addressBalanceMap));
-  
+
   if (Object.keys(addressWalletMap).length > 0) {
-    // Build wallet balance map from the address balance changes  
+    // Build wallet balance map from the address balance changes
     const walletBalanceMap: StringMap<TokenBalanceMap> = getWalletBalanceMap(addressWalletMap, addressBalanceMap);
-    
+
     if (Object.keys(walletBalanceMap).length > 0) {
       await voidWalletTransaction(mysql, hash, walletBalanceMap);
     }

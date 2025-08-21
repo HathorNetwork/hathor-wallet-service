@@ -401,7 +401,7 @@ export const voidTransaction = async (
     await mysql.query(
       `INSERT INTO \`address\`(\`address\`, \`transactions\`)
             VALUES ?
-                ON DUPLICATE KEY UPDATE transactions = transactions - 1`,
+                ON DUPLICATE KEY UPDATE transactions = CASE WHEN transactions > 0 THEN transactions - 1 ELSE 0 END`,
       [addressEntries],
     );
   }
@@ -430,9 +430,9 @@ export const voidTransaction = async (
         `INSERT INTO address_balance
                  SET ?
                   ON DUPLICATE KEY
-                            UPDATE total_received = total_received - ?,
-                                   unlocked_balance = unlocked_balance - ?,
-                                   locked_balance = locked_balance - ?,
+                            UPDATE total_received = CASE WHEN total_received >= ? THEN total_received - ? ELSE 0 END,
+                                   unlocked_balance = CASE WHEN unlocked_balance >= ? THEN unlocked_balance - ? ELSE 0 END,
+                                   locked_balance = CASE WHEN locked_balance >= ? THEN locked_balance - ? ELSE 0 END,
                                    transactions = transactions - 1,
                                    timelock_expires = CASE
                                                         WHEN timelock_expires IS NULL THEN VALUES(timelock_expires)
@@ -441,7 +441,14 @@ export const voidTransaction = async (
                                                       END,
                                    unlocked_authorities = (unlocked_authorities | VALUES(unlocked_authorities)),
                                    locked_authorities = locked_authorities | VALUES(locked_authorities)`,
-        [entry, tokenBalance.totalAmountSent, tokenBalance.unlockedAmount, tokenBalance.lockedAmount, address, token],
+        [
+          entry,
+          tokenBalance.totalAmountSent, tokenBalance.totalAmountSent,  // For total_received comparison and subtraction
+          tokenBalance.unlockedAmount, tokenBalance.unlockedAmount,     // For unlocked_balance comparison and subtraction
+          tokenBalance.lockedAmount, tokenBalance.lockedAmount,         // For locked_balance comparison and subtraction
+          address,
+          token
+        ],
       );
 
       // if we're removing any of the authorities, we need to refresh the authority columns. Unlike the values,
@@ -513,12 +520,12 @@ export const voidWalletTransaction = async (
              locked_authorities = locked_authorities | ?
          WHERE wallet_id = ? AND token_id = ?`,
         [
-          tokenBalance.totalAmountSent, 
-          tokenBalance.unlockedAmount, 
+          tokenBalance.totalAmountSent,
+          tokenBalance.unlockedAmount,
           tokenBalance.lockedAmount,
           tokenBalance.unlockedAuthorities.toUnsignedInteger(),
           tokenBalance.lockedAuthorities.toUnsignedInteger(),
-          walletId, 
+          walletId,
           token
         ],
       );
