@@ -544,11 +544,11 @@ describe('handleVertexAccepted', () => {
     (getAddressBalanceMap as jest.Mock).mockReturnValue({});
     (getUtxosLockedAtHeight as jest.Mock).mockResolvedValue([]);
     (hashTxData as jest.Mock).mockReturnValue('hashedData');
-      (getAddressWalletInfo as jest.Mock).mockResolvedValue({
+    (getAddressWalletInfo as jest.Mock).mockResolvedValue({
       'address1': {
-          walletId: 'wallet1',
-          xpubkey: 'xpubkey1',
-          maxGap: 10
+        walletId: 'wallet1',
+        xpubkey: 'xpubkey1',
+        maxGap: 10
       },
     });
 
@@ -602,11 +602,11 @@ describe('handleVertexAccepted', () => {
     (getAddressBalanceMap as jest.Mock).mockReturnValue({});
     (getUtxosLockedAtHeight as jest.Mock).mockResolvedValue([]);
     (hashTxData as jest.Mock).mockReturnValue('hashedData');
-      (getAddressWalletInfo as jest.Mock).mockResolvedValue({
+    (getAddressWalletInfo as jest.Mock).mockResolvedValue({
       'address1': {
-          walletId: 'wallet1',
-          xpubkey: 'xpubkey1',
-          maxGap: 10
+        walletId: 'wallet1',
+        xpubkey: 'xpubkey1',
+        maxGap: 10
       },
     });
     (getWalletBalancesForTx as jest.Mock).mockResolvedValue({ 'mockWallet': {} });
@@ -659,11 +659,11 @@ describe('handleVertexAccepted', () => {
     (getAddressBalanceMap as jest.Mock).mockReturnValue({});
     (getUtxosLockedAtHeight as jest.Mock).mockResolvedValue([]);
     (hashTxData as jest.Mock).mockReturnValue('hashedData');
-      (getAddressWalletInfo as jest.Mock).mockResolvedValue({
+    (getAddressWalletInfo as jest.Mock).mockResolvedValue({
       'address1': {
-          walletId: 'wallet1',
-          xpubkey: 'xpubkey1',
-          maxGap: 10
+        walletId: 'wallet1',
+        xpubkey: 'xpubkey1',
+        maxGap: 10
       },
     });
 

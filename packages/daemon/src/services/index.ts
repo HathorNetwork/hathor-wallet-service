@@ -73,6 +73,8 @@ import {
   getMaxIndicesForWallets,
   setAddressSeqnum,
   getAddressSeqnum,
+  unspendUtxos,
+  getUtxosSpentByTx,
 } from '../db';
 import getConfig from '../config';
 import logger from '../logger';
@@ -536,6 +538,14 @@ export const voidTx = async (
   const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputsWithLocked, headers);
   await voidTransaction(mysql, hash, addressBalanceMap);
   await markUtxosAsVoided(mysql, dbTxOutputs);
+
+  // CRITICAL: Unspent the inputs when voiding a transaction
+  // Get all UTXOs that were spent by this transaction and unspent them
+  const utxosSpentByThisTx = await getUtxosSpentByTx(mysql, hash);
+
+  if (utxosSpentByThisTx.length > 0) {
+    await unspendUtxos(mysql, utxosSpentByThisTx);
+  }
 
   const addresses = Object.keys(addressBalanceMap);
   await validateAddressBalances(mysql, addresses);

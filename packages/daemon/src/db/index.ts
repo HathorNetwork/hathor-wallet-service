@@ -245,7 +245,7 @@ export const getTxOutputsFromTx = async (
  */
 export const getTxOutputs = async (
   mysql: any,
-  inputs: {txId: string, index: number}[],
+  inputs: { txId: string, index: number }[],
 ): Promise<DbTxOutput[]> => {
   if (inputs.length <= 0) return [];
   const txIdIndexPair = inputs.map((utxo) => [utxo.txId, utxo.index]);
@@ -714,12 +714,12 @@ export const updateAddressLockedBalance = async (
                 \`unlocked_authorities\` = (unlocked_authorities | ?)
           WHERE \`address\` = ?
             AND \`token_id\` = ?`, [
-          tokenBalance.unlockedAmount,
-          tokenBalance.unlockedAmount,
-          tokenBalance.unlockedAuthorities.toInteger(),
-          address,
-          token,
-        ],
+        tokenBalance.unlockedAmount,
+        tokenBalance.unlockedAmount,
+        tokenBalance.unlockedAuthorities.toInteger(),
+        address,
+        token,
+      ],
       );
 
       // if any authority has been unlocked, we have to refresh the locked authorities
@@ -755,7 +755,7 @@ export const updateAddressLockedBalance = async (
              )
            WHERE \`address\` = ?
              AND \`token_id\` = ?`,
-        [address, token, address, token]);
+          [address, token, address, token]);
       }
     }
   }
@@ -830,7 +830,7 @@ export const updateWalletLockedBalance = async (
           WHERE \`wallet_id\` = ?
             AND \`token_id\` = ?`,
         [tokenBalance.unlockedAmount, tokenBalance.unlockedAmount,
-          tokenBalance.unlockedAuthorities.toInteger(), walletId, token],
+        tokenBalance.unlockedAuthorities.toInteger(), walletId, token],
       );
 
       // if any authority has been unlocked, we have to refresh the locked authorities
@@ -1249,6 +1249,27 @@ export const getTxOutputsBySpent = async (
 };
 
 /**
+ * Get all UTXOs that were spent by a specific transaction
+ *
+ * @param mysql - Database connection
+ * @param spendingTxId - The transaction ID that spent the UTXOs
+ * @returns A list of DbTxOutput objects that were spent by the transaction
+ */
+export const getUtxosSpentByTx = async (
+  mysql: MysqlConnection,
+  spendingTxId: string,
+): Promise<DbTxOutput[]> => {
+  const [results] = await mysql.query<TxOutputRow[]>(
+    `SELECT *
+     FROM \`tx_output\`
+     WHERE \`spent_by\` = ?`,
+    [spendingTxId]
+  );
+
+  return results.map(mapDbResultToDbTxOutput);
+};
+
+/**
  * Set a list of tx_outputs as unspent
  *
  * @param mysql - Database connection
@@ -1288,7 +1309,7 @@ export const markUtxosAsVoided = async (
     UPDATE \`tx_output\`
        SET \`voided\` = TRUE
      WHERE \`tx_id\` IN (?)`,
-  [txIds]);
+    [txIds]);
 };
 
 export const updateLastSyncedEvent = async (
@@ -1300,7 +1321,7 @@ export const updateLastSyncedEvent = async (
           VALUES (0, ?)
 ON DUPLICATE KEY
           UPDATE last_event_id = ?`,
-  [lastEventId, lastEventId]);
+    [lastEventId, lastEventId]);
 };
 
 export const getLastSyncedEvent = async (
@@ -1557,8 +1578,8 @@ export const getTokenSymbols = async (
  */
 export const getMaxIndicesForWallets = async (
   mysql: MysqlConnection,
-  walletData: Array<{walletId: string, addresses: string[]}>
-): Promise<Map<string, {maxAmongAddresses: number | null, maxWalletIndex: number | null}>> => {
+  walletData: Array<{ walletId: string, addresses: string[] }>
+): Promise<Map<string, { maxAmongAddresses: number | null, maxWalletIndex: number | null }>> => {
   if (walletData.length === 0) {
     return new Map();
   }
