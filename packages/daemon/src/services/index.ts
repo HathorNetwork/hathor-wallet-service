@@ -389,7 +389,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       // prepare the transaction data to be sent to the SQS queue
       const txData: Transaction = {
         tx_id: hash,
-        nonce: Number(nonce),
+        nonce: nonce ? BigInt(nonce) : BigInt(0),
         timestamp,
         version,
         voided: metadata.voided_by.length > 0,
@@ -434,7 +434,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
       // Call to process the data for NFT handling (if applicable)
       // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
-      NftUtils.processNftEvent({...fullNodeData, nonce: Number(fullNodeData.nonce)}, STAGE, network, logger)
+      NftUtils.processNftEvent({...fullNodeData, nonce: fullNodeData.nonce ? BigInt(fullNodeData.nonce) : BigInt(0)}, STAGE, network, logger)
         .catch((err: unknown) => logger.error('[ALERT] Error processing NFT event', err));
     }
 
