@@ -479,6 +479,98 @@ export const voidTransaction = async (
 };
 
 /**
+ * Void a transaction by updating the related wallet balance and transaction information in the database.
+ *
+ * @param mysql - The MySQL connection object
+ * @param txId - The ID of the transaction to be voided.
+ * @param walletBalanceMap - A map where the key is a walletId and the value is a map of token balances.
+ *   The TokenBalanceMap contains information about the total amount sent, unlocked and locked amounts, and authorities.
+ *
+ * @returns {Promise<void>} - A promise that resolves when the transaction has been voided and the wallet tables updated
+ *
+ * This function performs the following steps:
+ * 1. Iterates over the walletBalanceMap to update the `wallet_balance` table by reversing the transaction's balance changes.
+ * 2. Deletes the transaction entry from the `wallet_tx_history` table.
+ * 3. Updates authority columns correctly when authorities are removed.
+ *
+ * The function ensures that wallet balances are correctly reverted and transaction counts are decremented.
+ */
+export const voidWalletTransaction = async (
+  mysql: MysqlConnection,
+  txId: string,
+  walletBalanceMap: StringMap<TokenBalanceMap>,
+): Promise<void> => {
+  for (const [walletId, tokenMap] of Object.entries(walletBalanceMap)) {
+    for (const [token, tokenBalance] of tokenMap.iterator()) {
+      // Update wallet_balance table by reversing the transaction's impact
+      await mysql.query(
+        `UPDATE \`wallet_balance\`
+         SET total_received = total_received - ?,
+             unlocked_balance = unlocked_balance - ?,
+             locked_balance = locked_balance - ?,
+             transactions = transactions - 1,
+             unlocked_authorities = (unlocked_authorities | ?),
+             locked_authorities = locked_authorities | ?
+         WHERE wallet_id = ? AND token_id = ?`,
+        [
+          tokenBalance.totalAmountSent, 
+          tokenBalance.unlockedAmount, 
+          tokenBalance.lockedAmount,
+          tokenBalance.unlockedAuthorities.toUnsignedInteger(),
+          tokenBalance.lockedAuthorities.toUnsignedInteger(),
+          walletId, 
+          token
+        ],
+      );
+
+      // If we're removing any of the authorities, we need to refresh the authority columns
+      // Similar to the address case, we need to recalculate authorities from all addresses in the wallet
+      if (tokenBalance.unlockedAuthorities.hasNegativeValue()) {
+        await mysql.query(
+          `UPDATE \`wallet_balance\`
+              SET \`unlocked_authorities\` = (
+                SELECT BIT_OR(\`unlocked_authorities\`)
+                  FROM \`address_balance\`
+                 WHERE \`address\` IN (
+                   SELECT \`address\`
+                     FROM \`address\`
+                    WHERE \`wallet_id\` = ?)
+                   AND \`token_id\` = ?)
+            WHERE \`wallet_id\` = ?
+              AND \`token_id\` = ?`,
+          [walletId, token, walletId, token],
+        );
+      }
+
+      // Handle locked authorities refresh if needed
+      if (tokenBalance.lockedAuthorities.hasNegativeValue && tokenBalance.lockedAuthorities.hasNegativeValue()) {
+        await mysql.query(
+          `UPDATE \`wallet_balance\`
+              SET \`locked_authorities\` = (
+                SELECT BIT_OR(\`locked_authorities\`)
+                  FROM \`address_balance\`
+                 WHERE \`address\` IN (
+                   SELECT \`address\`
+                     FROM \`address\`
+                    WHERE \`wallet_id\` = ?)
+                   AND \`token_id\` = ?)
+            WHERE \`wallet_id\` = ?
+              AND \`token_id\` = ?`,
+          [walletId, token, walletId, token],
+        );
+      }
+    }
+  }
+
+  // Delete wallet transaction history entries for the voided transaction
+  await mysql.query(
+    `DELETE FROM \`wallet_tx_history\`
+      WHERE \`tx_id\` = ?`,
+    [txId],
+  );
+};
+
+/**
  * Update addresses tables with a new transaction.
  *
  * @remarks
