@@ -73,6 +73,9 @@ import {
   getMaxIndicesForWallets,
   setAddressSeqnum,
   getAddressSeqnum,
+  unspendUtxos,
+  getUtxosSpentByTx,
+  voidWalletTransaction,
 } from '../db';
 import getConfig from '../config';
 import logger from '../logger';
@@ -386,7 +389,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       // prepare the transaction data to be sent to the SQS queue
       const txData: Transaction = {
         tx_id: hash,
-        nonce,
+        nonce: nonce ? BigInt(nonce) : BigInt(0),
         timestamp,
         version,
         voided: metadata.voided_by.length > 0,
@@ -431,7 +434,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
       // Call to process the data for NFT handling (if applicable)
       // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
-      NftUtils.processNftEvent(fullNodeData, STAGE, network, logger)
+      NftUtils.processNftEvent({...fullNodeData, nonce: fullNodeData.nonce ? BigInt(fullNodeData.nonce) : BigInt(0)}, STAGE, network, logger)
         .catch((err: unknown) => logger.error('[ALERT] Error processing NFT event', err));
     }
 
@@ -536,6 +539,27 @@ export const voidTx = async (
   const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputsWithLocked, headers);
   await voidTransaction(mysql, hash, addressBalanceMap);
   await markUtxosAsVoided(mysql, dbTxOutputs);
+
+  // CRITICAL: Unspent the inputs when voiding a transaction
+  // Get all UTXOs that were spent by this transaction and unspent them
+  const utxosSpentByThisTx = await getUtxosSpentByTx(mysql, hash);
+
+  if (utxosSpentByThisTx.length > 0) {
+    await unspendUtxos(mysql, utxosSpentByThisTx);
+  }
+
+  // CRITICAL: Update wallet balances when voiding a transaction
+  // Get wallet information for all affected addresses
+  const addressWalletMap: StringMap<Wallet> = await getAddressWalletInfo(mysql, Object.keys(addressBalanceMap));
+  
+  if (Object.keys(addressWalletMap).length > 0) {
+    // Build wallet balance map from the address balance changes  
+    const walletBalanceMap: StringMap<TokenBalanceMap> = getWalletBalanceMap(addressWalletMap, addressBalanceMap);
+    
+    if (Object.keys(walletBalanceMap).length > 0) {
+      await voidWalletTransaction(mysql, hash, walletBalanceMap);
+    }
+  }
 
   const addresses = Object.keys(addressBalanceMap);
   await validateAddressBalances(mysql, addresses);
