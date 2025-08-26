@@ -8,5 +8,4 @@ node_modules/
 packages/daemon/dist/
 packages/daemon/node_modules/
 packages/common/node_modules/
-# TODO: Improve the solution for both packages. This comment worsens the daemon
-# packages/wallet-service
+packages/wallet-service

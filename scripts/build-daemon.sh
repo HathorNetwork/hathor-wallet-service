@@ -24,4 +24,8 @@ echo $DOCKER_IMAGE_TAG > /tmp/docker_image_tag;
 
 aws ecr get-login-password --region eu-central-1 | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com;
 
-docker build -t $ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/hathor-wallet-service-sync-daemon:$DOCKER_IMAGE_TAG .;
+# Fetching the daemon Dockerfile to build
+docker build \
+  -t $ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/hathor-wallet-service-sync-daemon:$DOCKER_IMAGE_TAG\
+  -f packages/daemon/Dockerfile\
+  .;
