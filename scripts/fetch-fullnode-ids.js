@@ -1,14 +1,34 @@
-#!/usr/bin/env node
+// Copyright 2025 Hathor Labs
+// This software is provided ‘as-is’, without any express or implied
+// warranty. In no event will the authors be held liable for any damages
+// arising from the use of this software.
+// This software cannot be redistributed unless explicitly agreed in writing with the authors.
 
 const WebSocket = require('ws');
 const fs = require('fs');
 
 /**
+ * Please note that this URL assumes a Docker setup where the fullnode service
+ * is accessible via the hostname 'fullnode' on port 8080. Adjust as necessary.
+ * @type {string}
+ */
+const fullnodeBaseUrl = 'fullnode:8080';
+
+/**
+ * Output .env file name
+ * @type {string}
+ */
+const outputFileName = '.identifiers.env';
+
+/**
  * Fetches identifiers from the fullnode WebSocket endpoint
- * and writes them to a .env file, then outputs to stdout
+ * and writes them to an .env file, then outputs to stdout
+ *
+ * This is especially useful when first running a containerized Wallet Service Daemon
+ * ( see /packages/daemon/Dockerfile ).
  */
 async function fetchFullnodeIds() {
-  const wsUrl = 'ws://fullnode:8080/v1a/event_ws';
+  const wsUrl = `ws://${fullnodeBaseUrl}/v1a/event_ws`;
   const payload = { type: 'START_STREAM', window_size: 1 };
 
   console.error('Connecting to fullnode WebSocket...');
@@ -46,9 +66,9 @@ async function fetchFullnodeIds() {
         // Create .env file content
         const envContent = `STREAM_ID=${streamId}\nFULLNODE_PEER_ID=${fullnodePeerId}\n`;
 
-        // Write to .identifiers.env file
-        fs.writeFileSync('.identifiers.env', envContent);
-        console.error('Written identifiers to .identifiers.env');
+        // Write to output file
+        fs.writeFileSync(outputFileName, envContent);
+        console.error(`Written identifiers to ${outputFileName}`);
 
         // Output to stdout for shell script consumption
         console.log(envContent);
@@ -92,8 +112,8 @@ if (require.main === module) {
 
       // Create empty .env file as fallback
       const fallbackContent = 'STREAM_ID=\nFULLNODE_PEER_ID=\n';
-      fs.writeFileSync('.identifiers.env', fallbackContent);
-      console.error('Created .identifiers.env with empty values due to error');
+      fs.writeFileSync(outputFileName, fallbackContent);
+      console.error(`Created ${outputFileName} with empty values due to error`);
 
       // Still output to stdout for shell script
       console.log(fallbackContent);

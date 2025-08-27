@@ -113,3 +113,5 @@ mysql -u <user> -p <database> < cleanup.sql
 ```
 
 After cleaning the database, you can reseed the HTR token as described in the previous section.
+
+### Running Inside Containers

@@ -4,6 +4,32 @@
 # arising from the use of this software.
 # This software cannot be redistributed unless explicitly agreed in writing with the authors.
 
+# This Dockerfile is used to build and run the Wallet Service Daemon container.
+# It requires:
+# - A MySQL instance, properly migrated ( see /db/Dockerfile )
+# - A Fullnode instance
+# - A Redis instance
+#
+# See the HathorNetwork / Wallet Lib repository for a live example on how to use this Dockerfile, but in short:
+#  ws-daemon:
+#    build:
+#      context: '{repository_root}/'
+#      dockerfile: 'packages/daemon/Dockerfile'
+#    depends_on:
+#      ws-migrator:
+#        condition: service_completed_successfully
+#      fullnode:
+#        condition: service_healthy
+#      mysql:
+#        condition: service_healthy
+#    environment:
+#      ...
+#    ports:
+#      - "8081:8081"
+#      - "8082:8082"
+#    networks:
+#      - hathor-privnet
+
 # Build phase
 FROM node:22-alpine AS builder
 
@@ -44,7 +70,7 @@ RUN ls -la /app/scripts/
 RUN cp /app/scripts/fetch-fullnode-ids.js ./fetch-fullnode-ids.js
 RUN cp /app/scripts/merge-complementary-envs.sh ./merge-complementary-envs.sh
 RUN chmod +x ./merge-complementary-envs.sh
-RUN ls -la ./merge-complementary-envs.sh
 
-# Debug the runtime environment in the CMD
+# The daemon could need complementary environment variables dynamically.
+# The entrypoint script manages this before actually running the daemon.
 ENTRYPOINT ["./merge-complementary-envs.sh"]
