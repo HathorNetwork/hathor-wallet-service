@@ -4,6 +4,7 @@
 # arising from the use of this software.
 # This software cannot be redistributed unless explicitly agreed in writing with the authors.
 
+# =========================================================================
 # This Dockerfile is intended for migrating the database of a dockerized private blockchain
 # for the Wallet Service Daemon.
 #
@@ -52,6 +53,6 @@ RUN yarn install
 # Create the shared directory for volume mounting
 RUN mkdir -p /shared
 
-# Create a startup script that handles fetching identifiers and copying to shared volume
+# Run the migration scripts
 RUN cp /app/db/migration-entrypoint.sh /app/migration-entrypoint.sh
 ENTRYPOINT ["/bin/sh", "/app/migration-entrypoint.sh"]

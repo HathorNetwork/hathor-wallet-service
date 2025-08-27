@@ -4,6 +4,7 @@
 # arising from the use of this software.
 # This software cannot be redistributed unless explicitly agreed in writing with the authors.
 
+# =========================================================================
 # This Dockerfile is used to build and run the Wallet Service container.
 # It requires:
 # - A MySQL instance, properly migrated ( see /db/Dockerfile )

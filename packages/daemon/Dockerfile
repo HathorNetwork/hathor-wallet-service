@@ -4,6 +4,7 @@
 # arising from the use of this software.
 # This software cannot be redistributed unless explicitly agreed in writing with the authors.
 
+# =========================================================================
 # This Dockerfile is used to build and run the Wallet Service Daemon container.
 # It requires:
 # - A MySQL instance, properly migrated ( see /db/Dockerfile )
@@ -58,15 +59,10 @@ WORKDIR /app
 
 # Copy only the necessary files from the build phase
 COPY --from=builder /app .
-RUN ls
 
 WORKDIR /app/packages/daemon/
-RUN echo "Running in /app/packages/daemon/"
-RUN ls
 
 # The script should already be available from the builder stage copy
-# Just make it executable and verify it exists
-RUN ls -la /app/scripts/
 RUN cp /app/scripts/fetch-fullnode-ids.js ./fetch-fullnode-ids.js
 RUN cp /app/scripts/merge-complementary-envs.sh ./merge-complementary-envs.sh
 RUN chmod +x ./merge-complementary-envs.sh

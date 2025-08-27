@@ -6,6 +6,7 @@
 # arising from the use of this software.
 # This software cannot be redistributed unless explicitly agreed in writing with the authors.
 
+# =========================================================================
 # This script is meant to be run inside the Wallet Service Daemon container, and, if the environment variable
 # FETCH_FULLNODE_IDS is set, it will fetch the dynamically created fullnode ids and add them to the current
 # environment variables, so that the Wallet Service can connect to the fullnode.
@@ -15,7 +16,7 @@
 
 set -e
 
-# Discard the dynamic fetching if the specific environment variable is not set
+# Skip the dynamic fetching if the specific environment variable is not set
 if [ -z "$FETCH_FULLNODE_IDS" ]; then
     echo "FETCH_FULLNODE_IDS not set, skipping merge of complementary environment variables"
     # No fetching needed, run the main script for the Wallet Service Daemon
@@ -26,18 +27,16 @@ fi
 echo "FETCH_FULLNODE_IDS is set, merging complementary environment variables..."
 node fetch-fullnode-ids.js
 
-# Check if the shared .identifiers.env file exists
+# Check if the .identifiers.env file exists
 if [ ! -f ".identifiers.env" ]; then
     echo "Warning: .identifiers.env file not found, skipping merge"
+    # No fetching needed, run the main script for the Wallet Service Daemon
+    node dist/index.js
     exit 0
 fi
 
 # Export each environment variable from the .identifiers.env file
 echo "Exporting environment variables from .identifiers.env file..."
-
-echo "Here is the file contents:"
-cat .identifiers.env
-echo "Now the next steps:"
 
 # Read the file line by line
 while IFS='=' read -r key value; do

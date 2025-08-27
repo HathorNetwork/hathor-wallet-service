@@ -114,4 +114,18 @@ mysql -u <user> -p <database> < cleanup.sql
 
 After cleaning the database, you can reseed the HTR token as described in the previous section.
 
-### Running Inside Containers
+## Running Inside Containers
+When running these applications inside containers, it's worth noting that there are a few Dockerfiles in this monorepo.
+
+### 1) The Daemon container
+This Dockerfile is located at `./packages/daemon` and is used to build the sync daemon image. It, however,needs a properly migrated database and all the fullnode identifiers to run correctly.
+
+The fullnode identifiers may be fetched dynamically at startup with the use of the `FETCH_FULLNODE_IDS` environment variable, provided the remaining fullnode connection config is available. Please note that this dynamic fetching is only recommended in development environments, as the identifiers are an additional security measure on production builds.
+
+### 2) The Migrator container
+The Migrator Dockerfile is located at `./db` and is used to build the migrator image then shut off. This image is responsible for applying database migrations to the database connection passed through the environment variables.
+
+It's specially important if the database has just been created by the dockerized environment, in which case run this migrator container before starting the daemon. This, again, is only expected in discardable development environments, as production and other more persistent databases should be managed externally.
+
+### 3) The Wallet Service container
+This is the actual serverless application containing the externally consumed API. Its Dockerfile is located at `./packages/wallet-service` and is used to build the wallet service image. It needs a healthy Daemon to run correctly.
