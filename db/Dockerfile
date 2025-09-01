@@ -36,23 +36,31 @@
 FROM node:22-alpine
 
 WORKDIR /app
-RUN pwd
 
-RUN apk update && apk add python3 g++ make py3-setuptools
+# Copy only the necessary files for the migration
+COPY ./db ./db
+COPY ./db/migrations ./migrations
 
-# Copy the entire project to access all necessary files
-COPY . .
+# This will install only the exact versions of sequelize, sequelize-cli and mysql2
+# that are already in use in the project, avoiding any unwanted upgrades.
+# It will also install the dotenv package, but it's not as critical and we can use the latest version.
+#
+# Note that this migrator container does not need to have all the dependencies of the main project,
+# as it will only be used to run the migration scripts. For this, a new package.json is created
+# with only the necessary dependencies, reducing image size.
 
-# corepack will use the version of yarn specified in package.json
+ARG SEQUELIZE_VERSION
+ARG SEQUELIZE_CLI_VERSION
+ARG MYSQL2_VERSION
+RUN test -n "$SEQUELIZE_VERSION" \
+  && test -n "$SEQUELIZE_CLI_VERSION" \
+  || (echo "Both SEQUELIZE_VERSION and SEQUELIZE_CLI_VERSION must be set" && exit 1)
+# Avoids potential conflicts with pre-installed v1.x versions of yarn
+RUN npm uninstall -g yarn
 RUN corepack enable
-
-# This will install dependencies for all packages, except for the lambdas since
-# they are ignored in .dockerignore
-RUN yarn install
-
-# Create the shared directory for volume mounting
-RUN mkdir -p /shared
+RUN echo '{"name": "migrator", "private": true}' > package.json
+RUN yarn add sequelize@"$SEQUELIZE_VERSION" sequelize-cli@"$SEQUELIZE_CLI_VERSION" mysql2@"$MYSQL2_VERSION" dotenv
 
 # Run the migration scripts
-RUN cp /app/db/migration-entrypoint.sh /app/migration-entrypoint.sh
+RUN cp /app/db/migration-entrypoint.sh /app;
 ENTRYPOINT ["/bin/sh", "/app/migration-entrypoint.sh"]

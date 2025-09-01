@@ -6,6 +6,10 @@ build-and-push-daemon:
 build-daemon:
 	bash scripts/build-daemon.sh
 
+.PHONY: build-migrator
+build-migrator:
+	bash scripts/build-migrator.sh
+
 .PHONY: push-daemon
 push-daemon:
 	bash scripts/push-daemon.sh

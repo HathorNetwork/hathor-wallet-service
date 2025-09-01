@@ -127,5 +127,7 @@ The Migrator Dockerfile is located at `./db` and is used to build the migrator i
 
 It's specially important if the database has just been created by the dockerized environment, in which case run this migrator container before starting the daemon. This, again, is only expected in discardable development environments, as production and other more persistent databases should be managed externally.
 
+Its image can be build using the `make build-migrator` while on the root folder.
+
 ### 3) The Wallet Service container
 This is the actual serverless application containing the externally consumed API. Its Dockerfile is located at `./packages/wallet-service` and is used to build the wallet service image. It needs a healthy Daemon to run correctly.
