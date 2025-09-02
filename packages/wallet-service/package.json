@@ -6,7 +6,8 @@
     "lint": "eslint src/ tests/ --ext .js,.jsx,.ts,.tsx src tests",
     "lint-fix": "eslint src/ tests/ --fix --ext .js,.jsx,.ts,.tsx src tests",
     "check-types": "tsc --noemit --skipLibCheck",
-    "test": "jest"
+    "test": "jest",
+    "debug:offline": "node --inspect-brk ./node_modules/.bin/serverless offline start --host 0.0.0.0 --httpPort 3000"
   },
   "engines": {
     "node": "22"
