@@ -18,9 +18,7 @@
 #
 # Sample usage in a docker-compose.yml:
 #  ws-migrator:
-#    build:
-#      context: '{repository_root}/'
-#      dockerfile: 'db/Dockerfile'
+#    image: hathornetwork/hathor-wallet-service-migrator
 #    restart: "no"  # Critical: don't restart migration service
 #    depends_on:
 #      mysql: # Replace with your actual mysql service name

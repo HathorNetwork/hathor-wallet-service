@@ -15,9 +15,7 @@
 #
 # See the HathorNetwork / Wallet Lib repository for a live example on how to use this Dockerfile, but in short:
 #  ws-daemon:
-#    build:
-#      context: '{repository_root}/'
-#      dockerfile: 'packages/daemon/Dockerfile'
+#    image: hathornetwork/hathor-wallet-service-sync-daemon
 #    depends_on:
 #      ws-migrator:
 #        condition: service_completed_successfully
