@@ -7,12 +7,13 @@
 # This software cannot be redistributed unless explicitly agreed in writing with the authors.
 
 # =========================================================================
-# This script is meant to be run inside the Wallet Service Daemon container, and, if the environment variable
+# This script is meant to be run inside the Wallet Service Daemon container: if the environment variable
 # FETCH_FULLNODE_IDS is set, it will fetch the dynamically created fullnode ids and add them to the current
-# environment variables, so that the Wallet Service can connect to the fullnode.
+# environment variables. This way, the Wallet Service can connect to the fullnode.
 #
-# This is in contrast to the common Wallet Service Daemon setup, where the fullnode ids are known beforehand
-# and set as environment variables directly.
+# Outside of this containerized scope, it's not advisable to dynamically obtain the fullnode ids, as it
+# serves as an additional security layer. The recommended approach is to set the fullnode ids as
+# environment variables directly, ensuring that only the trusted fullnode is used.
 
 set -e
 
