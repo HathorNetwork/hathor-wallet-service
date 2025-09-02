@@ -10,6 +10,10 @@ build-daemon:
 build-migrator:
 	bash scripts/build-migrator.sh
 
+.PHONY: build-service
+build-service:
+	bash scripts/build-service.sh
+
 .PHONY: push-daemon
 push-daemon:
 	bash scripts/push-daemon.sh

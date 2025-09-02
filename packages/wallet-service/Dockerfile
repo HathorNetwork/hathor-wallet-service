@@ -1,5 +1,5 @@
 # Copyright 2025 Hathor Labs
-# This software is provided ‘as-is’, without any express or implied
+# This software is provided 'as-is', without any express or implied
 # warranty. In no event will the authors be held liable for any damages
 # arising from the use of this software.
 # This software cannot be redistributed unless explicitly agreed in writing with the authors.
@@ -14,9 +14,7 @@
 #
 # See the HathorNetwork / Wallet Lib repository for a live example on how to use this Dockerfile, but in short:
 #  ws-serverless:
-#    build:
-#      context: '{repository_root}/'
-#      dockerfile: 'packages/wallet-service/Dockerfile'
+#    image: hathornetwork/hathor-wallet-service-service
 #    depends_on:
 #      fullnode:
 #        condition: service_healthy
