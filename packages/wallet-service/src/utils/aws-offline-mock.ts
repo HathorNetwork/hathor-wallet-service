@@ -1,8 +1,20 @@
 /**
+ * Copyright (c) Hathor Labs and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+/**
  * AWS SDK Mock for Local Development
  *
- * This module provides mock implementations of AWS services when running offline.
+ * This module provides mock implementations of AWS services when running offline AND in a private network without
+ * EC2 instances available, for example when running inside a Dockerized private network.
+ *
  * It prevents the AWS SDK from attempting to connect to EC2 metadata service.
+ *
+ * This behavior could be further improved by adding conditional logic to the requests themselves, but this will be
+ * considered and planned in the future if needed.
  */
 
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
@@ -10,7 +22,7 @@ import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import createDefaultLogger from '@src/logger'
 
-// Check if we're running in offline mode
+// Check if the mocking was requested via environment variable
 const shouldMockAWS = process.env.MOCK_AWS === 'true';
 
 /**
@@ -32,18 +44,18 @@ export function createLambdaClient(config: { endpoint?: string; region?: string 
 
   if (shouldMockAWS) {
     const logger = createDefaultLogger();
-    logger.log('[AWS Mock] Creating mocked LambdaClient for offline development');
+    logger.log({ level: 'debug', message: '[AWS Mock] Creating mocked LambdaClient for offline development'});
     clientConfig.credentials = mockCredentials;
     clientConfig.endpoint = config.endpoint || 'http://localhost:3002';
 
     // Create a mock client that doesn't actually call AWS
     const mockClient = {
       send: async (command: InvokeCommand) => {
-        logger.log('[AWS Mock] Intercepted Lambda invoke:', {
+        logger.log({ level: 'debug', message: '[AWS Mock] Intercepted Lambda invoke:', invocationData: {
           functionName: command.input.FunctionName,
           invocationType: command.input.InvocationType,
           payload: command.input.Payload ? JSON.parse(command.input.Payload as string) : null,
-        });
+        }});
 
         // Return a successful response for Event invocations
         if (command.input.InvocationType === 'Event') {
@@ -77,14 +89,21 @@ export function createApiGatewayManagementApiClient(config: { endpoint?: string;
 
   if (shouldMockAWS) {
     const logger = createDefaultLogger();
-    logger.log('[AWS Mock] Creating mocked ApiGatewayManagementApiClient for offline development');
+    logger.log({
+      level: 'debug',
+      message: '[AWS Mock] Creating mocked ApiGatewayManagementApiClient for offline development'
+    });
     clientConfig.credentials = mockCredentials;
 
     const mockClient = {
       send: async (command: PostToConnectionCommand) => {
-        logger.log('[AWS Mock] Intercepted API Gateway post to connection:', {
-          connectionId: command.input.ConnectionId,
-          data: command.input.Data,
+        logger.log({
+          level: 'debug',
+          message: '[AWS Mock] Intercepted API Gateway post to connection:',
+          postData: {
+            connectionId: command.input.ConnectionId,
+            data: command.input.Data,
+          }
         });
 
         return { StatusCode: 200 };
@@ -97,41 +116,5 @@ export function createApiGatewayManagementApiClient(config: { endpoint?: string;
       clientConfig.endpoint = config.endpoint;
     }
     return new ApiGatewayManagementApiClient(clientConfig);
-  }
-}
-
-/**
- * Create an SQSClient with proper configuration for offline/online mode
- */
-export function createSQSClient(config: { endpoint?: string; region?: string } = {}) {
-  const clientConfig: any = {
-    region: config.region || process.env.AWS_REGION || 'us-east-1',
-  };
-
-  if (shouldMockAWS) {
-    const logger = createDefaultLogger();
-    logger.log('[AWS Mock] Creating mocked SQSClient for offline development');
-    clientConfig.credentials = mockCredentials;
-
-    const mockClient = {
-      send: async (command: SendMessageCommand) => {
-        logger.log('[AWS Mock] Intercepted SQS send message:', {
-          queueUrl: command.input.QueueUrl,
-          messageBody: command.input.MessageBody,
-        });
-
-        return {
-          MessageId: 'mock-message-id-' + Date.now(),
-          MD5OfBody: 'mock-md5-hash',
-        };
-      },
-    };
-
-    return mockClient as any;
-  } else {
-    if (config.endpoint) {
-      clientConfig.endpoint = config.endpoint;
-    }
-    return new SQSClient(clientConfig);
   }
 }
