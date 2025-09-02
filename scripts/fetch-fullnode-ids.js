@@ -98,6 +98,12 @@ async function fetchFullnodeIds() {
   });
 }
 
+/*
+ * In this script, all console output is directed to stderr except for the final
+ * .env content which is printed to stdout. This allows the script to be used
+ * in shell scripts that capture the output directly into environment variables.
+ */
+
 // Main execution
 if (require.main === module) {
   fetchFullnodeIds()
