@@ -12,6 +12,10 @@
 # - A Redis instance
 # - A started Wallet Service Daemon instance ( see /packages/daemon/Dockerfile )
 #
+# The expected image size is about 1800MB as of v1.9.0. This is because `serverless` is a development
+# dependency and needs to be installed in the final image, reducing the optimization options for
+# reducing this size.
+#
 # See the HathorNetwork / Wallet Lib repository for a live example on how to use this Dockerfile, but in short:
 #  ws-serverless:
 #    image: hathornetwork/hathor-wallet-service-service

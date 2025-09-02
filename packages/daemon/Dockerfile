@@ -11,6 +11,8 @@
 # - A Fullnode instance
 # - A Redis instance
 #
+# The expected image size is about 500MB as of v1.9.0
+#
 # See the HathorNetwork / Wallet Lib repository for a live example on how to use this Dockerfile, but in short:
 #  ws-daemon:
 #    build:

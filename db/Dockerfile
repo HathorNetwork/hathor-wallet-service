@@ -14,6 +14,8 @@
 # The migration scripts do not cause any impact if it is ran multiple times, so it is safe to run this container
 # for each deployment of the Wallet Service Daemon.
 #
+# The expected image size is about 250MB as of v1.9.0
+#
 # Sample usage in a docker-compose.yml:
 #  ws-migrator:
 #    build:
