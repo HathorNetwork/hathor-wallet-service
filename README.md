@@ -122,6 +122,8 @@ This Dockerfile is located at `./packages/daemon` and is used to build the sync 
 
 The fullnode identifiers may be fetched dynamically at startup with the use of the `FETCH_FULLNODE_IDS` environment variable, provided the remaining fullnode connection config is available. Please note that this dynamic fetching is only recommended in development environments, as the identifiers are an additional security measure on production builds.
 
+Its image can be build using the `make build-daemon` while on the root folder.
+
 ### 2) The Migrator container
 The Migrator Dockerfile is located at `./db` and is used to build the migrator image then shut off. This image is responsible for applying database migrations to the database connection passed through the environment variables.
 
