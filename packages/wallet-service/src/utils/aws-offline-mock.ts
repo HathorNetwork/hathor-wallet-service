@@ -21,8 +21,20 @@ import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
 import createDefaultLogger from '@src/logger'
 
-// Check if the mocking was requested via environment variable
-const shouldMockAWS = process.env.MOCK_AWS === 'true';
+/**
+ * Flag to determine if AWS services should be mocked
+ * It is set by default via the MOCK_AWS environment variable, but can be adjusted programmatically,
+ * especially for testing environments.
+ */
+export let shouldMockAWS = process.env.MOCK_AWS === 'true';
+
+/**
+ * Set whether to mock AWS services
+ * @param value
+ */
+export function setShouldMockAWS(value: boolean) {
+  shouldMockAWS = value;
+}
 
 /**
  * Mock credentials for offline development

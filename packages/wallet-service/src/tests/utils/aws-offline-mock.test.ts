@@ -1,7 +1,7 @@
 /**
  * @fileoverview Tests for aws-offline-mock.ts
  */
-import { createLambdaClient, createApiGatewayManagementApiClient } from '@src/utils/aws-offline-mock';
+import { createLambdaClient, createApiGatewayManagementApiClient, setShouldMockAWS } from '@src/utils/aws-offline-mock';
 import { InvokeCommand } from '@aws-sdk/client-lambda';
 import { PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
 
@@ -22,7 +22,7 @@ describe('aws-offline-mock', () => {
 
   describe('createLambdaClient', () => {
     it('should return a mock LambdaClient when MOCK_AWS is true', async () => {
-      process.env.MOCK_AWS = 'true';
+      setShouldMockAWS(true);
       const client = createLambdaClient();
       const command = new InvokeCommand({
         FunctionName: 'test-fn',
@@ -34,7 +34,7 @@ describe('aws-offline-mock', () => {
     });
 
     it('should return a mock LambdaClient with sync invocation', async () => {
-      process.env.MOCK_AWS = 'true';
+      setShouldMockAWS(true);
       const client = createLambdaClient();
       const command = new InvokeCommand({
         FunctionName: 'test-fn',
@@ -47,6 +47,7 @@ describe('aws-offline-mock', () => {
     });
 
     it('should return a real LambdaClient when MOCK_AWS is not true', () => {
+      setShouldMockAWS(false);
       const client = createLambdaClient();
       expect(client).toBeInstanceOf(Object); // Not a mock
       expect(typeof client.send).toBe('function');
@@ -55,7 +56,7 @@ describe('aws-offline-mock', () => {
 
   describe('createApiGatewayManagementApiClient', () => {
     it('should return a mock ApiGatewayManagementApiClient when MOCK_AWS is true', async () => {
-      process.env.MOCK_AWS = 'true';
+      setShouldMockAWS(true);
       const client = createApiGatewayManagementApiClient();
       const command = new PostToConnectionCommand({
         ConnectionId: 'abc123',
@@ -66,7 +67,7 @@ describe('aws-offline-mock', () => {
     });
 
     it('should return a real ApiGatewayManagementApiClient when MOCK_AWS is not true', () => {
-      process.env.MOCK_AWS = 'false';
+      setShouldMockAWS(false);
       const client = createApiGatewayManagementApiClient();
       expect(client).toBeInstanceOf(Object); // Not a mock
       expect(typeof client.send).toBe('function');
