@@ -2,14 +2,19 @@
  * @fileoverview Tests for aws-offline-mock.ts
  */
 import { createLambdaClient, createApiGatewayManagementApiClient } from '@src/utils/aws-offline-mock';
-import { InvokeCommand, LambdaClient } from '@aws-sdk/client-lambda';
-import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
+import { InvokeCommand } from '@aws-sdk/client-lambda';
+import { PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
 
 describe('aws-offline-mock', () => {
   const OLD_ENV = process.env;
   beforeEach(() => {
     jest.resetModules();
-    process.env = { ...OLD_ENV };
+    process.env = {
+      ...OLD_ENV,
+      AWS_ACCESS_KEY_ID: 'test-access-key',
+      AWS_SECRET_ACCESS_KEY: 'test-secret-key',
+      AWS_REGION: 'us-east-1',
+    };
   });
   afterEach(() => {
     process.env = OLD_ENV;
@@ -42,10 +47,6 @@ describe('aws-offline-mock', () => {
     });
 
     it('should return a real LambdaClient when MOCK_AWS is not true', () => {
-      process.env.MOCK_AWS = 'false';
-      process.env.AWS_ACCESS_KEY_ID = 'test-access-key';
-      process.env.AWS_SECRET_ACCESS_KEY = 'test-secret-key';
-      process.env.AWS_REGION = 'us-east-1';
       const client = createLambdaClient();
       expect(client).toBeInstanceOf(Object); // Not a mock
       expect(typeof client.send).toBe('function');
