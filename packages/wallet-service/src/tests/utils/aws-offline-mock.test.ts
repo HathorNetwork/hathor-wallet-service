@@ -1,0 +1,70 @@
+/**
+ * @fileoverview Tests for aws-offline-mock.ts
+ */
+import { createLambdaClient, createApiGatewayManagementApiClient } from '@src/utils/aws-offline-mock';
+import { InvokeCommand, LambdaClient } from '@aws-sdk/client-lambda';
+import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
+
+describe('aws-offline-mock', () => {
+  const OLD_ENV = process.env;
+  beforeEach(() => {
+    jest.resetModules();
+    process.env = { ...OLD_ENV };
+  });
+  afterEach(() => {
+    process.env = OLD_ENV;
+  });
+
+  describe('createLambdaClient', () => {
+    it('should return a mock LambdaClient when MOCK_AWS is true', async () => {
+      process.env.MOCK_AWS = 'true';
+      const client = createLambdaClient();
+      const command = new InvokeCommand({
+        FunctionName: 'test-fn',
+        InvocationType: 'Event',
+        Payload: JSON.stringify({ foo: 'bar' }),
+      });
+      const result = await client.send(command);
+      expect(result.StatusCode).toBe(202);
+    });
+
+    it('should return a mock LambdaClient with sync invocation', async () => {
+      process.env.MOCK_AWS = 'true';
+      const client = createLambdaClient();
+      const command = new InvokeCommand({
+        FunctionName: 'test-fn',
+        InvocationType: 'RequestResponse',
+        Payload: JSON.stringify({ foo: 'bar' }),
+      });
+      const result = await client.send(command);
+      expect(result.StatusCode).toBe(200);
+      expect(JSON.parse(result.Payload)).toEqual({ success: true });
+    });
+
+    it('should return a real LambdaClient when MOCK_AWS is not true', () => {
+      process.env.MOCK_AWS = 'false';
+      const client = createLambdaClient();
+      expect(client).toBeInstanceOf(LambdaClient); // Not a mock
+    });
+  });
+
+  describe('createApiGatewayManagementApiClient', () => {
+    it('should return a mock ApiGatewayManagementApiClient when MOCK_AWS is true', async () => {
+      process.env.MOCK_AWS = 'true';
+      const client = createApiGatewayManagementApiClient();
+      const command = new PostToConnectionCommand({
+        ConnectionId: 'abc123',
+        Data: Buffer.from('hello'),
+      });
+      const result = await client.send(command);
+      expect(result.StatusCode).toBe(200);
+    });
+
+    it('should return a real ApiGatewayManagementApiClient when MOCK_AWS is not true', () => {
+      process.env.MOCK_AWS = 'false';
+      const client = createApiGatewayManagementApiClient();
+      expect(client).toBeInstanceOf(ApiGatewayManagementApiClient); // Not a mock
+    });
+  });
+});
+

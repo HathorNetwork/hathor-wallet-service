@@ -19,7 +19,6 @@
 
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
-import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import createDefaultLogger from '@src/logger'
 
 // Check if the mocking was requested via environment variable
