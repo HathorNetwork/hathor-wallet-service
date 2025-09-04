@@ -16,6 +16,7 @@ import * as bitcoinMessage from 'bitcoinjs-message';
 import * as ecc from 'tiny-secp256k1';
 import BIP32Factory from 'bip32';
 import config from '@src/config';
+import createDefaultLogger from './logger';
 
 const bip32 = BIP32Factory(ecc);
 
@@ -78,8 +79,35 @@ export const getUnixTimestamp = (): number => (
  *
  * @returns The database connection
  */
-export const getDbConnection = (): ServerlessMysql => (
-  serverlessMysql({
+export const getDbConnection = (): ServerlessMysql => {
+  const logger = createDefaultLogger();
+  logger.defaultMeta = {
+    scope: 'DATABASE',
+  }
+  return serverlessMysql({
+    backoff: 'decorrelated',
+    onError: (e) => {
+      logger.error(`[DEBUG] ON_ERROR: ${e}`);
+    },
+    onClose: () => {
+      logger.warning(`[DEBUG] MYSQL_CONN_CLOSED`);
+    },
+    onRetry: (error, numRetries, delay, backoffAlgo) => {
+      logger.warning(`[DEBUG] RETRYING CONN: ${numRetries} (${backoffAlgo}: ${delay}) / ${error}`);
+
+    },
+    onConnect: (conn) => {
+      logger.warning(`[DEBUG] GOT A DATABASE CONNECTION`);
+    },
+    onConnectError: (e) => {
+      logger.error(`[DEBUG] ON_CONN_ERROR: ${e}`);
+    },
+    onKill: (threadId) => {
+      logger.warning(`[DEBUG] KILLED A CONNECTION ${threadId}`);
+    },
+    onKillError: (e) => {
+      logger.error(`[DEBUG] ON_KILL_ERROR: ${e}`);
+    },
     config: {
       host: config.dbEndpoint,
       database: config.dbName,
@@ -93,7 +121,7 @@ export const getDbConnection = (): ServerlessMysql => (
       bigNumberStrings: true,
     },
   })
-);
+};
 
 export const closeDbConnection = async (mysql: ServerlessMysql): Promise<void> => {
   if (config.stage === 'local') {
