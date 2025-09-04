@@ -81,7 +81,7 @@ export const prepareOutputs = (outputs: EventTxOutput[], tokens: string[]): TxOu
       if (!isDecodedValid(_output.decoded)
         || _output.decoded.type === null
         || _output.decoded.type === undefined) {
-        console.log('Decode failed, skipping..');
+        console.log(`Decode failed, skipping..: ${bigIntUtils.JSONBigInt.stringify(_output)}`);
         return [currIndex + 1, newOutputs];
       }
 

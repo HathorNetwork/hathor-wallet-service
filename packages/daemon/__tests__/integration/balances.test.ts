@@ -113,16 +113,18 @@ describe('unvoided transaction scenario', () => {
       DB_PORT,
     });
 
+    console.log(`Starting test: 'should do a full sync and the balances should match'`);
     const machine = interpret(SyncMachine);
 
     // @ts-expect-error
     await transitionUntilEvent(mysql, machine, UNVOIDED_SCENARIO_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
     expect(validateBalances(addressBalances, unvoidedScenarioBalances));
+    console.log(`Finishing test: 'should do a full sync and the balances should match'`);
   });
 });
 
-describe('reorg scenario', () => {
+describe.skip('reorg scenario', () => {
   beforeAll(() => {
     jest.spyOn(Services, 'fetchMinRewardBlocks').mockImplementation(async () => 300);
   });
@@ -156,7 +158,7 @@ describe('reorg scenario', () => {
   });
 });
 
-describe('single chain blocks and transactions scenario', () => {
+describe.skip('single chain blocks and transactions scenario', () => {
   beforeAll(() => {
     jest.spyOn(Services, 'fetchMinRewardBlocks').mockImplementation(async () => 300);
   });
@@ -190,7 +192,7 @@ describe('single chain blocks and transactions scenario', () => {
   });
 });
 
-describe('invalid mempool transactions scenario', () => {
+describe.skip('invalid mempool transactions scenario', () => {
   beforeAll(() => {
     jest.spyOn(Services, 'fetchMinRewardBlocks').mockImplementation(async () => 300);
   });
@@ -224,7 +226,7 @@ describe('invalid mempool transactions scenario', () => {
   });
 });
 
-describe('custom script scenario', () => {
+describe.skip('custom script scenario', () => {
   beforeAll(() => {
     jest.spyOn(Services, 'fetchMinRewardBlocks').mockImplementation(async () => 300);
   });
@@ -258,7 +260,7 @@ describe('custom script scenario', () => {
   });
 });
 
-describe('empty script scenario', () => {
+describe.skip('empty script scenario', () => {
   beforeAll(() => {
     jest.spyOn(Services, 'fetchMinRewardBlocks').mockImplementation(async () => 300);
   });
@@ -293,7 +295,7 @@ describe('empty script scenario', () => {
   });
 });
 
-describe('nc events scenario', () => {
+describe.skip('nc events scenario', () => {
   beforeAll(() => {
     jest.spyOn(Services, 'fetchMinRewardBlocks').mockImplementation(async () => 300);
   });

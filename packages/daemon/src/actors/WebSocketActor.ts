@@ -78,7 +78,7 @@ export default (callback: any, receive: any) => {
     const event = parseResult.data;
     const type = get(event, 'event.type');
 
-    logger.debug(`Received ${type}: ${get(event, 'event.id')} from socket.`, event);
+    logger.warn(`Received ${type}: ${get(event, 'event.id')} from socket: ${bigIntUtils.JSONBigInt.stringify(event)}`);
 
     if (!type) {
       logger.error(bigIntUtils.JSONBigInt.stringify(event));
