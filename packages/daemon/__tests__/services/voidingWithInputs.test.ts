@@ -59,7 +59,7 @@ describe('voidTransaction with input unspending', () => {
     const outputValue = 100n;
 
     await addOrUpdateTx(mysql, txIdA, 0, 1, 1, 100);
-    
+
     // Add output from transaction A
     const outputA = createOutput(0, outputValue, addressA, tokenId);
     await addUtxos(mysql, txIdA, [outputA], null);
@@ -72,9 +72,9 @@ describe('voidTransaction with input unspending', () => {
     // Create transaction B that spends the output from transaction A
     const txIdB = 'tx-b';
     const addressB = 'address-b';
-    
+
     await addOrUpdateTx(mysql, txIdB, 0, 1, 1, 101);
-    
+
     // Mark the output from A as spent by B
     const inputB = createInput(outputValue, addressA, txIdA, 0, tokenId);
     await updateTxOutputSpentBy(mysql, [inputB], txIdB);
@@ -106,7 +106,7 @@ describe('voidTransaction with input unspending', () => {
 
     // CRITICAL: The voidTx function should unspent the inputs
     // This test should PASS because unspending is now implemented in voidTx
-    
+
     // Check if the UTXO from transaction A is unspent again
     utxo = await getTxOutput(mysql, txIdA, 0, true);
     expect(utxo).not.toBeNull();
@@ -128,10 +128,10 @@ describe('voidTransaction with input unspending', () => {
     // Create two UTXOs
     await addOrUpdateTx(mysql, txIdA, 0, 1, 1, 100);
     await addOrUpdateTx(mysql, txIdB, 0, 1, 1, 101);
-    
+
     const outputA = createOutput(0, 50n, address1, tokenId);
     const outputB = createOutput(0, 75n, address2, tokenId);
-    
+
     await addUtxos(mysql, txIdA, [outputA], null);
     await addUtxos(mysql, txIdB, [outputB], null);
 
@@ -143,7 +143,7 @@ describe('voidTransaction with input unspending', () => {
 
     // Create transaction C that spends both outputs
     await addOrUpdateTx(mysql, txIdC, 0, 1, 1, 102);
-    
+
     const inputC1 = createInput(50n, address1, txIdA, 0, tokenId);
     const inputC2 = createInput(75n, address2, txIdB, 0, tokenId);
     await updateTxOutputSpentBy(mysql, [inputC1, inputC2], txIdC);
@@ -180,7 +180,7 @@ describe('voidTransaction with input unspending', () => {
     // Check if both UTXOs from transactions A and B are unspent again
     utxoA = await getTxOutput(mysql, txIdA, 0, true);
     utxoB = await getTxOutput(mysql, txIdB, 0, true);
-    
+
     // These assertions should PASS because unspending is now implemented
     expect(utxoA).not.toBeNull();
     expect(utxoA!.spentBy).toBeNull(); // Should pass - should be null
@@ -219,7 +219,7 @@ describe('voidTransaction with input unspending', () => {
     await addUtxos(mysql, txIdC, [outputC], null);
 
     // First void transaction C
-    await voidTx(mysql, txIdC, 
+    await voidTx(mysql, txIdC,
       [createEventTxInput(100n, address2, txIdB, 0)],
       [{
         value: 100n,
@@ -228,7 +228,7 @@ describe('voidTransaction with input unspending', () => {
         token_data: 0,
         script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
       }],
-      [tokenId], 
+      [tokenId],
       []
     );
 
@@ -284,7 +284,7 @@ describe('voidTransaction with input unspending', () => {
     // For this test, we simulate that transaction C also tried to spend it
     // (in reality this would be a double-spend, but we're testing edge cases)
     await addOrUpdateTx(mysql, txIdC, 0, 1, 1, 102);
-    
+
     // Add output for transaction C
     const outputC = createOutput(0, 100n, address2, tokenId);
     await addUtxos(mysql, txIdC, [outputC], null);
@@ -361,7 +361,7 @@ describe('voidTransaction with input unspending', () => {
     // Both UTXOs should be unspent
     const utxo1 = await getTxOutput(mysql, txIdA, 0, true);
     const utxo2 = await getTxOutput(mysql, txIdA, 1, true);
-    
+
     // These should pass with the implementation
     expect(utxo1).not.toBeNull();
     expect(utxo1!.spentBy).toBeNull();
@@ -375,7 +375,7 @@ describe('voidTransaction with input unspending', () => {
     // Complete integration test
     const txIdA = 'tx-a';
     const txIdB = 'tx-b';
-    const address1 = 'address-1'; 
+    const address1 = 'address-1';
     const address2 = 'address-2';
     const tokenId = '00';
     const value = 200n;

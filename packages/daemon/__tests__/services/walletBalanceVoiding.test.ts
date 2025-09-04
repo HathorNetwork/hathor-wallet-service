@@ -76,11 +76,11 @@ const getWalletBalance = async (walletId: string, tokenId: string) => {
 // Helper function to manually insert wallet balance (simulating what should happen)
 const insertWalletBalance = async (walletId: string, tokenId: string, balance: bigint, transactions: number) => {
   await mysql.query(
-    `INSERT INTO \`wallet_balance\` (wallet_id, token_id, unlocked_balance, locked_balance, 
-                                   unlocked_authorities, locked_authorities, total_received, 
+    `INSERT INTO \`wallet_balance\` (wallet_id, token_id, unlocked_balance, locked_balance,
+                                   unlocked_authorities, locked_authorities, total_received,
                                    transactions, timelock_expires)
      VALUES (?, ?, ?, 0, 0, 0, ?, ?, NULL)
-     ON DUPLICATE KEY UPDATE 
+     ON DUPLICATE KEY UPDATE
        unlocked_balance = unlocked_balance + ?,
        total_received = total_received + ?,
        transactions = transactions + ?`,
@@ -143,7 +143,7 @@ describe('wallet balance voiding bug', () => {
 
     // Update wallet balance for transaction B (net zero change)
     await insertWalletBalance(walletId, tokenId, 0n, 1);
-    
+
     // Add to wallet_tx_history
     await mysql.query(
       `INSERT INTO \`wallet_tx_history\` (wallet_id, token_id, tx_id, balance, timestamp)
@@ -176,11 +176,11 @@ describe('wallet balance voiding bug', () => {
     // CRITICAL BUG: Check wallet balance after voiding
     walletBalance = await getWalletBalance(walletId, tokenId);
     expect(walletBalance).not.toBeNull();
-    
+
     // This will FAIL because wallet balances are not updated during voiding
     // The transaction count should decrease from 2 to 1
     expect(walletBalance.transactions).toBe(1); // Should be back to 1 transaction
-    
+
     // Check if wallet_tx_history was cleaned up
     const historyCount = await getWalletTxHistoryCount(walletId, txIdB);
     // This will FAIL because wallet_tx_history is not cleaned up during voiding
@@ -207,7 +207,7 @@ describe('wallet balance voiding bug', () => {
 
     // Create a transaction that transfers money from wallet1 to wallet2
     await addOrUpdateTx(mysql, txId, 0, 1, 1, 100);
-    
+
     // Transaction sends money from wallet1 to wallet2
     const outputs = [
       createOutput(0, amount, address2, tokenId), // To wallet2
@@ -223,7 +223,7 @@ describe('wallet balance voiding bug', () => {
       [amount, wallet1Id, tokenId]
     );
 
-    // Wallet2 gains money (+150n) 
+    // Wallet2 gains money (+150n)
     await insertWalletBalance(wallet2Id, tokenId, amount, 1);
 
     // Add wallet_tx_history entries
@@ -236,7 +236,7 @@ describe('wallet balance voiding bug', () => {
     // Verify wallet balances before voiding
     let wallet1Balance = await getWalletBalance(wallet1Id, tokenId);
     let wallet2Balance = await getWalletBalance(wallet2Id, tokenId);
-    
+
     expect(wallet1Balance).not.toBeNull();
     expect(BigInt(wallet1Balance.unlocked_balance)).toBe(50n); // 200 - 150
     expect(wallet1Balance.transactions).toBe(2);
@@ -266,7 +266,7 @@ describe('wallet balance voiding bug', () => {
     wallet2Balance = await getWalletBalance(wallet2Id, tokenId);
 
     // These assertions will FAIL because wallet balances are not updated during voiding
-    
+
     // Wallet1 should have its balance restored (50 + 150 = 200)
     expect(BigInt(wallet1Balance.unlocked_balance)).toBe(200n);
     expect(wallet1Balance.transactions).toBe(1); // Should decrease back to 1
@@ -280,7 +280,7 @@ describe('wallet balance voiding bug', () => {
     // Check wallet_tx_history cleanup
     const wallet1HistoryCount = await getWalletTxHistoryCount(wallet1Id, txId);
     const wallet2HistoryCount = await getWalletTxHistoryCount(wallet2Id, txId);
-    
+
     // These will FAIL because wallet_tx_history is not cleaned up
     expect(wallet1HistoryCount).toBe(0);
     expect(wallet2HistoryCount).toBe(0);
@@ -335,7 +335,7 @@ describe('wallet balance voiding bug', () => {
 
     // Check wallet balance after voiding
     walletBalance = await getWalletBalance(walletId, tokenId);
-    
+
     // This WILL FAIL because wallet balances are not updated during voiding
     if (walletBalance) {
       expect(BigInt(walletBalance.unlocked_balance)).toBe(0n); // Should be 0 after voiding

@@ -75,5 +75,15 @@ services:
     ports:
       - "8088:8080"
 
+  transaction_voiding_chain:
+    image: hathornetwork/hathor-core
+    command: [
+      "events_simulator",
+      "--scenario", "TRANSACTION_VOIDING_CHAIN",
+      "--seed", "1"
+    ]
+    ports:
+      - "8089:8080"
+
 networks:
   database:

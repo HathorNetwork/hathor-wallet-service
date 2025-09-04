@@ -10,7 +10,16 @@ import { SyncMachine } from '../../src/machines';
 import { interpret } from 'xstate';
 import { getDbConnection } from '../../src/db';
 import { Connection } from 'mysql2/promise';
-import { cleanDatabase, fetchAddressBalances, transitionUntilEvent, validateBalances } from './utils';
+import { 
+  cleanDatabase, 
+  fetchAddressBalances, 
+  transitionUntilEvent, 
+  validateBalances, 
+  validateBalanceDistribution,
+  performVoidingConsistencyChecks,
+  validateVoidingConsistency,
+  printVoidingConsistencyReport
+} from './utils';
 import unvoidedScenarioBalances from './scenario_configs/unvoided_transactions.balances';
 import reorgScenarioBalances from './scenario_configs/reorg.balances';
 import singleChainBlocksAndTransactionsBalances from './scenario_configs/single_chain_blocks_and_transactions.balances';
@@ -18,6 +27,7 @@ import invalidMempoolBalances from './scenario_configs/invalid_mempool_transacti
 import emptyScriptBalances from './scenario_configs/empty_script.balances';
 import customScriptBalances from './scenario_configs/custom_script.balances';
 import ncEventsBalances from './scenario_configs/nc_events.balances';
+import transactionVoidingChainBalances from './scenario_configs/transaction_voiding_chain.balances';
 
 import {
   DB_NAME,
@@ -39,6 +49,8 @@ import {
   EMPTY_SCRIPT_LAST_EVENT,
   NC_EVENTS_PORT,
   NC_EVENTS_LAST_EVENT,
+  TRANSACTION_VOIDING_CHAIN_PORT,
+  TRANSACTION_VOIDING_CHAIN_LAST_EVENT,
 } from './config';
 
 jest.mock('../../src/config', () => {
@@ -327,4 +339,40 @@ describe('nc events scenario', () => {
     // @ts-ignore
     expect(validateBalances(addressBalances, ncEventsBalances));
   });
+});
+
+describe('transaction voiding chain scenario', () => {
+  beforeAll(() => {
+    jest.spyOn(Services, 'fetchMinRewardBlocks').mockImplementation(async () => 300);
+  });
+
+  it('should do a full sync and the balances should match after voiding chain', async () => {
+    // @ts-ignore
+    getConfig.mockReturnValue({
+      NETWORK: 'testnet',
+      SERVICE_NAME: 'daemon-test',
+      CONSOLE_LEVEL: 'debug',
+      TX_CACHE_SIZE: 100,
+      BLOCK_REWARD_LOCK: 300,
+      FULLNODE_PEER_ID: 'simulator_peer_id',
+      STREAM_ID: 'simulator_stream_id',
+      FULLNODE_NETWORK: 'unittests',
+      FULLNODE_HOST: `127.0.0.1:${TRANSACTION_VOIDING_CHAIN_PORT}`,
+      USE_SSL: false,
+      DB_ENDPOINT,
+      DB_NAME,
+      DB_USER,
+      DB_PASS,
+      DB_PORT,
+    });
+
+    const machine = interpret(SyncMachine);
+
+    // @ts-ignore
+    await transitionUntilEvent(mysql, machine, TRANSACTION_VOIDING_CHAIN_LAST_EVENT);
+    const addressBalances = await fetchAddressBalances(mysql);
+
+    // Validate balance distribution
+    validateBalanceDistribution(addressBalances, transactionVoidingChainBalances);
+  }, 30000); // 30 second timeout for transaction voiding chain test
 });
