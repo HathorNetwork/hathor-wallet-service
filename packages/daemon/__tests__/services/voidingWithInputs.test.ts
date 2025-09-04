@@ -41,11 +41,15 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await mysql.destroy();
+  if (mysql) {
+    await mysql.destroy();
+  }
 });
 
 beforeEach(async () => {
   await cleanDatabase(mysql);
+  // Add a small delay to ensure database operations complete
+  await new Promise(resolve => setTimeout(resolve, 10));
 });
 
 describe('voidTransaction with input unspending', () => {
@@ -64,6 +68,9 @@ describe('voidTransaction with input unspending', () => {
     const outputA = createOutput(0, outputValue, addressA, tokenId);
     await addUtxos(mysql, txIdA, [outputA], null);
 
+    // Ensure database operations complete
+    await new Promise(resolve => setTimeout(resolve, 10));
+
     // Verify the UTXO is unspent
     let utxo = await getTxOutput(mysql, txIdA, 0, true);
     expect(utxo).not.toBeNull();
@@ -79,6 +86,9 @@ describe('voidTransaction with input unspending', () => {
     const inputB = createInput(outputValue, addressA, txIdA, 0, tokenId);
     await updateTxOutputSpentBy(mysql, [inputB], txIdB);
 
+    // Ensure database operations complete
+    await new Promise(resolve => setTimeout(resolve, 10));
+
     // Verify the UTXO is now spent
     utxo = await getTxOutput(mysql, txIdA, 0, false);
     expect(utxo).not.toBeNull();
@@ -87,6 +97,9 @@ describe('voidTransaction with input unspending', () => {
     // Add output from transaction B
     const outputB = createOutput(0, outputValue, addressB, tokenId);
     await addUtxos(mysql, txIdB, [outputB], null);
+
+    // Ensure database operations complete before voiding
+    await new Promise(resolve => setTimeout(resolve, 10));
 
     // Now void transaction B using the voidTx service function
     const inputs = [createEventTxInput(outputValue, addressA, txIdA, 0)];
