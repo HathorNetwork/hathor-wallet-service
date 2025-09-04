@@ -90,20 +90,20 @@ export const getDbConnection = (): ServerlessMysql => {
       logger.error(`[DEBUG] ON_ERROR: ${e}`);
     },
     onClose: () => {
-      logger.warning(`[DEBUG] MYSQL_CONN_CLOSED`);
+      logger.warn(`[DEBUG] MYSQL_CONN_CLOSED`);
     },
     onRetry: (error, numRetries, delay, backoffAlgo) => {
-      logger.warning(`[DEBUG] RETRYING CONN: ${numRetries} (${backoffAlgo}: ${delay}) / ${error}`);
+      logger.warn(`[DEBUG] RETRYING CONN: ${numRetries} (${backoffAlgo}: ${delay}) / ${error}`);
 
     },
     onConnect: (conn) => {
-      logger.warning(`[DEBUG] GOT A DATABASE CONNECTION`);
+      logger.warn(`[DEBUG] GOT A DATABASE CONNECTION`);
     },
     onConnectError: (e) => {
       logger.error(`[DEBUG] ON_CONN_ERROR: ${e}`);
     },
     onKill: (threadId) => {
-      logger.warning(`[DEBUG] KILLED A CONNECTION ${threadId}`);
+      logger.warn(`[DEBUG] KILLED A CONNECTION ${threadId}`);
     },
     onKillError: (e) => {
       logger.error(`[DEBUG] ON_KILL_ERROR: ${e}`);
