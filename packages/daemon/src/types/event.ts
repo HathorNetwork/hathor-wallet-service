@@ -99,11 +99,14 @@ export const EventTxOutputSchema = z.object({
   script: z.string(),
   locked: z.boolean().optional(),
   decoded: z.union([
-    z.object({
+    z.object({ // Common case, with mandatory type and address
       type: z.string(),
       address: z.string(),
       timelock: z.number().nullable(),
       token_data: z.number().optional(),
+    }).nullable(),
+    z.object({ // Some events have exclusively the token_data field
+      token_data: z.number(),
     }).nullable(),
     z.object({}).strict()
   ]),
