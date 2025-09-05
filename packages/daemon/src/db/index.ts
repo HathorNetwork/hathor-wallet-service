@@ -141,6 +141,7 @@ export const addUtxos = async (
         output.decoded?.timelock,
         heightlock,
         output.locked,
+        null, // spent_by - initially null for new UTXOs
       ];
     },
   );
@@ -149,7 +150,7 @@ export const addUtxos = async (
   await mysql.query(
     `INSERT INTO \`tx_output\` (\`tx_id\`, \`index\`, \`token_id\`,
                            \`value\`, \`authorities\`, \`address\`,
-                           \`timelock\`, \`heightlock\`, \`locked\`)
+                           \`timelock\`, \`heightlock\`, \`locked\`, \`spent_by\`)
      VALUES ?
      ON DUPLICATE KEY UPDATE tx_id=tx_id`,
     [entries],
@@ -401,7 +402,7 @@ export const voidTransaction = async (
     await mysql.query(
       `INSERT INTO \`address\`(\`address\`, \`transactions\`)
             VALUES ?
-                ON DUPLICATE KEY UPDATE transactions = CASE WHEN transactions > 0 THEN transactions - 1 ELSE 0 END`,
+                ON DUPLICATE KEY UPDATE transactions = transactions - 1`,
       [addressEntries],
     );
   }
@@ -430,9 +431,9 @@ export const voidTransaction = async (
         `INSERT INTO address_balance
                  SET ?
                   ON DUPLICATE KEY
-                            UPDATE total_received = CASE WHEN total_received >= ? THEN total_received - ? ELSE 0 END,
-                                   unlocked_balance = CASE WHEN unlocked_balance >= ? THEN unlocked_balance - ? ELSE 0 END,
-                                   locked_balance = CASE WHEN locked_balance >= ? THEN locked_balance - ? ELSE 0 END,
+                            UPDATE total_received = total_received - ?,
+                                   unlocked_balance = unlocked_balance - ?,
+                                   locked_balance = locked_balance - ?,
                                    transactions = transactions - 1,
                                    timelock_expires = CASE
                                                         WHEN timelock_expires IS NULL THEN VALUES(timelock_expires)
@@ -443,9 +444,9 @@ export const voidTransaction = async (
                                    locked_authorities = locked_authorities | VALUES(locked_authorities)`,
         [
           entry,
-          tokenBalance.totalAmountSent, tokenBalance.totalAmountSent,  // For total_received comparison and subtraction
-          tokenBalance.unlockedAmount, tokenBalance.unlockedAmount,     // For unlocked_balance comparison and subtraction
-          tokenBalance.lockedAmount, tokenBalance.lockedAmount,         // For locked_balance comparison and subtraction
+          tokenBalance.totalAmountSent,  // For total_received subtraction
+          tokenBalance.unlockedAmount,   // For unlocked_balance subtraction
+          tokenBalance.lockedAmount,     // For locked_balance subtraction
           address,
           token
         ],

@@ -81,6 +81,7 @@ import getConfig from '../config';
 import logger from '../logger';
 import { invokeOnTxPushNotificationRequestedLambda } from '../utils';
 import { addAlert, Severity } from '@wallet-service/common';
+import { JSONBigInt } from '@hathor/wallet-lib/lib/utils/bigint';
 
 export const METADATA_DIFF_EVENT_TYPES = {
   IGNORE: 'IGNORE',
@@ -217,6 +218,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     } = fullNodeData;
 
     const isNano = isNanoContract(headers);
+
 
     const dbTx: DbTransaction | null = await getTransactionById(mysql, hash);
 
@@ -389,7 +391,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       // prepare the transaction data to be sent to the SQS queue
       const txData: Transaction = {
         tx_id: hash,
-        nonce: nonce ? BigInt(nonce) : BigInt(0),
+        nonce,
         timestamp,
         version,
         voided: metadata.voided_by.length > 0,
@@ -434,7 +436,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
       // Call to process the data for NFT handling (if applicable)
       // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
-      NftUtils.processNftEvent({ ...fullNodeData, nonce: fullNodeData.nonce ? BigInt(fullNodeData.nonce) : BigInt(0) }, STAGE, network, logger)
+      NftUtils.processNftEvent(fullNodeData, STAGE, network, logger)
         .catch((err: unknown) => logger.error('[ALERT] Error processing NFT event', err));
     }
 
@@ -488,6 +490,8 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
     }
 
     logger.info(`[VertexRemoved] Voiding tx: ${hash}`);
+
+
     await voidTx(
       mysql,
       hash,
@@ -540,6 +544,7 @@ export const voidTx = async (
   await voidTransaction(mysql, hash, addressBalanceMap);
   await markUtxosAsVoided(mysql, dbTxOutputs);
 
+
   // CRITICAL: Unspent the inputs when voiding a transaction
   // The inputs of the voided transaction need to be marked as unspent
   // But only if they were actually spent by this transaction
@@ -550,6 +555,8 @@ export const voidTx = async (
     for (const input of inputs) {
       // Get the current state of this output to check if it's spent by our transaction
       const currentOutput = await getTxOutput(mysql, input.tx_id, input.index, false);
+
+
       if (currentOutput && currentOutput.spentBy === hash) {
         inputsSpentByThisTx.push({
           txId: input.tx_id,
@@ -703,7 +710,7 @@ export const updateLastSyncedEvent = async (context: Context) => {
     && lastDbSyncedEvent.last_event_id > lastEventId) {
     logger.error('Tried to store an event lower than the one on the database', {
       lastEventId,
-      lastDbSyncedEvent: JSON.stringify(lastDbSyncedEvent),
+      lastDbSyncedEvent: JSONBigInt.stringify(lastDbSyncedEvent),
     });
     mysql.destroy();
     throw new Error('Event lower than stored one.');

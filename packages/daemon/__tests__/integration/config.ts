@@ -11,7 +11,7 @@ export const UNVOIDED_SCENARIO_PORT = 8081;
 // Last event is actually 39, but event 39 is ignored by the machine (because
 // the transaction is already added), and when we ignore an event, we don't store
 // it in the database.
-export const UNVOIDED_SCENARIO_LAST_EVENT = 38;
+export const UNVOIDED_SCENARIO_LAST_EVENT = 39;
 
 // reorg
 export const REORG_SCENARIO_PORT = 8082;

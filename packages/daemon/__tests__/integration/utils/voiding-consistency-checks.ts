@@ -133,25 +133,3 @@ export const validateVoidingConsistency = (checks: VoidingConsistencyCheck): voi
     throw new Error(`Voiding consistency check failed:\n${errors.join('\n')}`);
   }
 };
-
-export const printVoidingConsistencyReport = (checks: VoidingConsistencyCheck): string => {
-  let report = '=== Transaction Voiding Status ===\n';
-  
-  for (const txCheck of checks.transactionStatuses) {
-    const status = txCheck.voided === txCheck.expected ? '✅' : '❌';
-    report += `${status} ${txCheck.txId}: voided = ${txCheck.voided} (expected: ${txCheck.expected})\n`;
-  }
-
-  report += '\n=== UTXO Status ===\n';
-  
-  for (const utxoCheck of checks.utxoStatuses) {
-    const voidedStatus = utxoCheck.voided === utxoCheck.expectedVoided ? '✅' : '❌';
-    const spentByStatus = utxoCheck.spentBy === utxoCheck.expectedSpentBy ? '✅' : '❌';
-    const voidedLabel = utxoCheck.voided ? 'VOIDED' : 'VALID';
-    const spentByLabel = utxoCheck.spentBy ? `spent by ${utxoCheck.spentBy}` : 'unspent';
-    
-    report += `${voidedStatus}${spentByStatus} UTXO ${utxoCheck.txId}:${utxoCheck.index} = ${utxoCheck.value} HTR (${voidedLabel}, ${spentByLabel})\n`;
-  }
-
-  return report;
-};

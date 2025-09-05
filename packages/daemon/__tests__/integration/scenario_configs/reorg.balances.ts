@@ -3,4 +3,4 @@ export default {
   'HFyF1jYJP9FXfiC3LRqf3q4768TBL1rxbn': 6400n,
   'HMbS5P3NTLQ5oR5TfLNvAkeQ7L8MPn9VM3': 6400n,
   'HRQe4CXj8AZXzSmuNztU8iQR74QTQMbnTs': 0n,
-}
+};

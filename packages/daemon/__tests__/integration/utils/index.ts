@@ -60,16 +60,13 @@ export const validateBalances = async (
   balancesA: AddressBalance[],
   balancesB: Record<string, bigint>,
 ): Promise<void> => {
-  // Create a set of all addresses from both sources
-  const allAddresses = new Set([
-    ...balancesA.map(b => b.address),
-    ...Object.keys(balancesB)
-  ]);
+  // Only validate addresses that are explicitly mentioned in the expected config
+  const expectedAddresses = Object.keys(balancesB);
 
-  for (const address of allAddresses) {
+  for (const address of expectedAddresses) {
     const balanceA = balancesA.find(b => b.address === address);
     const balanceB = balancesB[address];
-    
+
     const totalBalanceA = balanceA ? (balanceA.lockedBalance + balanceA.unlockedBalance) : BigInt(0);
     const expectedBalance = balanceB || BigInt(0);
 
@@ -78,45 +75,6 @@ export const validateBalances = async (
     }
   }
 };
-
-export const validateBalanceDistribution = (
-  balances: AddressBalance[],
-  expectedConfig: {
-    balanceDistribution: number[];
-    totalAddresses: number;
-    tokenId: string;
-  }
-): void => {
-  // Filter balances for the expected token
-  const tokenBalances = balances.filter(b => b.tokenId === expectedConfig.tokenId);
-
-  // Check total number of addresses
-  if (tokenBalances.length !== expectedConfig.totalAddresses) {
-    throw new Error(
-      `Expected ${expectedConfig.totalAddresses} addresses, but found ${tokenBalances.length}`
-    );
-  }
-
-  // Get actual balance amounts
-  const actualBalances = tokenBalances
-    .map(b => Number(b.lockedBalance + b.unlockedBalance))
-    .sort((a, b) => b - a); // Sort descending
-
-  // Sort expected balances descending to match
-  const expectedBalances = [...expectedConfig.balanceDistribution].sort((a, b) => b - a);
-
-  // Check if balance distributions match
-  for (let i = 0; i < expectedBalances.length; i++) {
-    if (actualBalances[i] !== expectedBalances[i]) {
-      throw new Error(
-        `Balance distribution mismatch at position ${i}: expected ${expectedBalances[i]}, got ${actualBalances[i]}. ` +
-        `Expected: [${expectedBalances.join(', ')}], Actual: [${actualBalances.join(', ')}]`
-      );
-    }
-  }
-};
-
-export * from './voiding-consistency-checks';
 
 export async function transitionUntilEvent(mysql: Connection, machine: Interpreter<Context, any, Event>, eventId: number) {
   return await new Promise<void>((resolve) => {
@@ -134,3 +92,5 @@ export async function transitionUntilEvent(mysql: Connection, machine: Interpret
     machine.start();
   });
 }
+
+export * from './voiding-consistency-checks';

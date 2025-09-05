@@ -14,6 +14,7 @@ import {
   getLastSyncedEvent,
   updateLastSyncedEvent as dbUpdateLastSyncedEvent,
   getTxOutputsFromTx,
+  getTxOutput,
   voidTransaction,
   getTransactionById,
   getUtxosLockedAtHeight,
@@ -65,6 +66,7 @@ jest.mock('../../src/db', () => ({
   updateLastSyncedEvent: jest.fn(),
   addOrUpdateTx: jest.fn(),
   getTxOutputsFromTx: jest.fn(),
+  getTxOutput: jest.fn(),
   voidTransaction: jest.fn(),
   markUtxosAsVoided: jest.fn(),
   dbUpdateLastSyncedEvent: jest.fn(),
@@ -411,6 +413,7 @@ describe('handleVoidedTx', () => {
     (prepareInputs as jest.Mock).mockReturnValue([]);
     (getAddressBalanceMap as jest.Mock).mockReturnValue({});
     (getTxOutputsFromTx as jest.Mock).mockResolvedValue([]);
+    (getAddressWalletInfo as jest.Mock).mockResolvedValue({});
 
     await handleVoidedTx(context as any);
 
