@@ -55,7 +55,6 @@ RUN corepack enable
 RUN yarn install
 
 WORKDIR /app/packages/wallet-service
-# RUN yarn install
 
 # Expose serverless-offline default port
 EXPOSE 3000
