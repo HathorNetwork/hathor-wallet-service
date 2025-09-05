@@ -16,6 +16,10 @@
 # dependency and needs to be installed in the final image, reducing the optimization options for
 # reducing this size.
 #
+# To properly connect to a dockerized private network, in the environment variables, you should set `MOCK_AWS=true`
+# to avoid trying to connect to external AWS services, except if the container is being run connected to a publicly
+# available network.
+#
 # See the HathorNetwork / Wallet Lib repository for a live example on how to use this Dockerfile, but in short:
 #  ws-serverless:
 #    image: hathornetwork/hathor-wallet-service-service
@@ -27,6 +31,8 @@
 #      ws-daemon:
 #        condition: service_started
 #    environment:
+#      IS_OFFLINE: true
+#      ENV MOCK_AWS=true # Necessary to avoid trying to connect to external AWS services
 #      ...
 #    ports:
 #      - "3000:3000"
