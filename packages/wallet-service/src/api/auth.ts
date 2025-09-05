@@ -53,6 +53,10 @@ function parseBody(body) {
 const mysql = getDbConnection();
 
 export const tokenHandler: APIGatewayProxyHandler = middy(async (event) => {
+  const logger = createDefaultLogger();
+  logger.defaultMeta = {
+    scope: 'TOKEN',
+  };
   const eventBody = parseBody(event.body);
 
   const { value, error } = bodySchema.validate(eventBody, {
@@ -118,6 +122,7 @@ export const tokenHandler: APIGatewayProxyHandler = middy(async (event) => {
   const address = getAddressFromXpub(authXpubStr);
   const walletId = wallet.walletId;
 
+  const d1 = Date.now();
   if (!verifySignature(signature, timestamp, address, walletId)) {
     await closeDbConnection(mysql);
 
@@ -134,7 +139,9 @@ export const tokenHandler: APIGatewayProxyHandler = middy(async (event) => {
       }),
     };
   }
+  const verifyTime = Date.now() - d1;
 
+  const d = Date.now();
   // To understand the other options to the sign method: https://github.com/auth0/node-jsonwebtoken#readme
   const token = jwt.sign(
     {
@@ -149,6 +156,8 @@ export const tokenHandler: APIGatewayProxyHandler = middy(async (event) => {
       jwtid: uuid4(),
     },
   );
+  const sigTime = Date.now() - d;
+  logger.warn(`[DEBUG] times for verify(${verifyTime} ms) sig(${sigTime} ms)`);
 
   return {
     statusCode: 200,
@@ -191,8 +200,11 @@ const _generatePolicy = (principalId: string, effect: string, resource: string, 
   return authResponse;
 };
 
-export const bearerAuthorizer: APIGatewayTokenAuthorizerHandler = middy(async (event) => {
+export const bearerAuthorizer: APIGatewayTokenAuthorizerHandler = async (event) => {
   const logger = createDefaultLogger();
+  logger.defaultMeta = {
+    scope: 'AUTHORIZER',
+  };
   const { authorizationToken } = event;
   if (!authorizationToken) {
     throw new Error('Unauthorized'); // returns a 401
@@ -200,11 +212,16 @@ export const bearerAuthorizer: APIGatewayTokenAuthorizerHandler = middy(async (e
   const sanitizedToken = authorizationToken.replace(/Bearer /gi, '');
   let data;
 
+  let jwtVerifyTime;
+  let sigVerifyTime;
+
   try {
+    const d1 = Date.now();
     data = jwt.verify(
       sanitizedToken,
       config.authSecret,
     );
+    jwtVerifyTime = Date.now() - d1;
   } catch (e) {
     // XXX: find a way to return specific error to frontend or make all errors Unauthorized?
     //
@@ -228,11 +245,15 @@ export const bearerAuthorizer: APIGatewayTokenAuthorizerHandler = middy(async (e
 
   // header data
   const expirationTs = data.exp;
+  const d2 = Date.now();
   const verified = verifySignature(signature, timestamp, address, walletId);
+  sigVerifyTime = Date.now() - d2;
+
+  logger.warn(`[DEBUG] Verification times for jwt(${jwtVerifyTime}) sig(${sigVerifyTime})`);
 
   if (verified && Math.floor(Date.now() / 1000) <= expirationTs) {
     return _generatePolicy(walletId, 'Allow', event.methodArn, logger);
   }
 
   return _generatePolicy(walletId, 'Deny', event.methodArn, logger);
-}).use(cors());
+};
