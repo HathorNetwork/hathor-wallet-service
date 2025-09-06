@@ -6,35 +6,21 @@
  */
 
 /**
- * AWS SDK Mock for Local Development
+ * AWS Utils and mocker for Local Development
  *
  * This module provides mock implementations of AWS services when running offline AND in a private network without
  * EC2 instances available, for example when running inside a Dockerized private network.
  *
- * It prevents the AWS SDK from attempting to connect to EC2 metadata service.
+ * When requested, it prevents the AWS SDK from attempting to connect to EC2 metadata service.
  *
  * This behavior could be further improved by adding conditional logic to the requests themselves, but this will be
  * considered and planned in the future if needed.
  */
 
-import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
+import { InvokeCommand, LambdaClient } from '@aws-sdk/client-lambda';
 import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
 import createDefaultLogger from '@src/logger'
-
-/**
- * Flag to determine if AWS services should be mocked
- * It is set by default via the MOCK_AWS environment variable, but can be adjusted programmatically,
- * especially for testing environments.
- */
-export let shouldMockAWS = process.env.MOCK_AWS === 'true';
-
-/**
- * Set whether to mock AWS services
- * @param value
- */
-export function setShouldMockAWS(value: boolean) {
-  shouldMockAWS = value;
-}
+import wsConfig from '@src/config';
 
 /**
  * Mock credentials for offline development
@@ -54,7 +40,7 @@ export function createLambdaClient(config: { endpoint?: string; region?: string 
   };
 
   // If not mocking, return a real LambdaClient
-  if (!shouldMockAWS) {
+  if (!wsConfig.shouldMockAWS) {
     if (config.endpoint) {
       clientConfig.endpoint = config.endpoint;
     }
@@ -102,7 +88,7 @@ export function createApiGatewayManagementApiClient(config: { endpoint?: string;
   };
 
   // If not mocking, return a real ApiGatewayManagementApiClient
-  if (!shouldMockAWS) {
+  if (!wsConfig.shouldMockAWS) {
     if (config.endpoint) {
       clientConfig.endpoint = config.endpoint;
     }

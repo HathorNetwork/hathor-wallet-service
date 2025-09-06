@@ -63,6 +63,7 @@ export interface EnvironmentConfig {
   pushNotificationEnabled: boolean;
   pushAllowedProviders: string;
   isOffline: boolean;
+  shouldMockAWS: boolean;
   txHistoryMaxCount: number;
   healthCheckMaximumHeightDifference: number;
   awsRegion: string;
