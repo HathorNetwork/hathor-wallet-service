@@ -28,16 +28,17 @@ fi
 echo "FETCH_FULLNODE_IDS is set, merging complementary environment variables..."
 node fetch-fullnode-ids.js
 
-# Check if the .identifiers.env file exists
-if [ ! -f ".identifiers.env" ]; then
-    echo "Warning: .identifiers.env file not found, skipping merge"
+# Check if the identifiers env file exists
+FULLNODE_IDENTIFIER_ENVS_FILE="${FULLNODE_IDENTIFIER_ENVS_FILE:-.identifiers.env}"
+if [ ! -f "$FULLNODE_IDENTIFIER_ENVS_FILE" ]; then
+    echo "Warning: $FULLNODE_IDENTIFIER_ENVS_FILE file not found, skipping merge"
     # No fetching needed, run the main script for the Wallet Service Daemon
     node dist/index.js
     exit 0
 fi
 
-# Export each environment variable from the .identifiers.env file
-echo "Exporting environment variables from .identifiers.env file..."
+# Export each environment variable from the identifiers env file
+echo "Exporting environment variables from $FULLNODE_IDENTIFIER_ENVS_FILE file..."
 
 # Read the file line by line
 while IFS='=' read -r key value; do

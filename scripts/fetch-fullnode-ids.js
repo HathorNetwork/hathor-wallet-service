@@ -8,21 +8,23 @@ const WebSocket = require('ws');
 const fs = require('fs');
 
 /**
- * Please note that this URL assumes a Docker setup where the fullnode service
- * is accessible via the hostname 'fullnode' on port 8080. Adjust as necessary.
+ * Please note that by default this URL assumes a Docker setup where the fullnode service
+ * is accessible via the hostname 'fullnode' on port 8080.
+ * It is possible to adjust this using the FULLNODE_WEBSOCKET_BASEURL environment variable.
  * @type {string}
  */
-const fullnodeBaseUrl = 'fullnode:8080';
+const fullnodeBaseUrl = process.env.FULLNODE_WEBSOCKET_BASEURL || 'fullnode:8080';
 
 /**
- * Output .env file name
+ * Output .env file name.
+ * By default, it is '.identifiers.env' in the current directory.
+ * This can be changed using the FULLNODE_IDENTIFIER_ENVS_FILE environment variable.
  * @type {string}
  */
-const outputFileName = '.identifiers.env';
+const outputFileName = process.env.FULLNODE_IDENTIFIER_ENVS_FILE || '.identifiers.env';
 
 /**
- * Fetches identifiers from the fullnode WebSocket endpoint
- * and writes them to an .env file, then outputs to stdout
+ * Fetches identifiers from the fullnode WebSocket endpoint and writes them to an .env file.
  *
  * This is especially useful when first running a containerized Wallet Service Daemon
  * ( see /packages/daemon/Dockerfile ).
@@ -31,7 +33,7 @@ async function fetchFullnodeIds() {
   const wsUrl = `ws://${fullnodeBaseUrl}/v1a/event_ws`;
   const payload = { type: 'START_STREAM', window_size: 1 };
 
-  console.error('Connecting to fullnode WebSocket...');
+  console.log('Connecting to fullnode WebSocket...');
 
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(wsUrl);
@@ -43,17 +45,17 @@ async function fetchFullnodeIds() {
     }, 3000);
 
     ws.on('open', () => {
-      console.error('WebSocket connected, sending payload...');
+      console.log('WebSocket connected, sending payload...');
       ws.send(JSON.stringify(payload));
     });
 
     ws.on('message', (data) => {
       clearTimeout(timeout);
-      console.error('Received response from fullnode');
+      console.log('Received response from fullnode');
 
       try {
         const response = JSON.parse(data.toString());
-        console.error('Parsed response:', JSON.stringify(response, null, 2));
+        console.log('Parsed response:', JSON.stringify(response, null, 2));
 
         // Extract the required fields
         const streamId = response.stream_id;
@@ -68,10 +70,7 @@ async function fetchFullnodeIds() {
 
         // Write to output file
         fs.writeFileSync(outputFileName, envContent);
-        console.error(`Written identifiers to ${outputFileName}`);
-
-        // Output to stdout for shell script consumption
-        console.log(envContent);
+        console.warn(`Written identifiers to ${outputFileName}: ${envContent}`);
 
         ws.close();
         resolve({ streamId, fullnodePeerId });
@@ -108,22 +107,17 @@ async function fetchFullnodeIds() {
 if (require.main === module) {
   fetchFullnodeIds()
     .then(({ streamId, fullnodePeerId }) => {
-      console.error(`Successfully fetched identifiers:`);
-      console.error(`STREAM_ID: ${streamId}`);
-      console.error(`FULLNODE_PEER_ID: ${fullnodePeerId}`);
+      console.log(`Successfully fetched identifiers. Exiting.`);
       process.exit(0);
     })
     .catch((error) => {
-      console.error('Error:', error.message);
+      console.error('Failed to fetch identifiers with error:', error.message);
 
       // Create empty .env file as fallback
       const fallbackContent = 'STREAM_ID=\nFULLNODE_PEER_ID=\n';
       fs.writeFileSync(outputFileName, fallbackContent);
-      console.error(`Created ${outputFileName} with empty values due to error`);
 
-      // Still output to stdout for shell script
-      console.log(fallbackContent);
-
+      console.log(`Created ${outputFileName} with empty values due to error. Exiting.`);
       process.exit(1);
     });
 }
