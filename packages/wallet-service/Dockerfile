@@ -9,7 +9,6 @@
 # It requires:
 # - A MySQL instance, properly migrated ( see /db/Dockerfile )
 # - A Fullnode instance
-# - A Redis instance
 # - A started Wallet Service Daemon instance ( see /packages/daemon/Dockerfile )
 #
 # The expected image size is about 1800MB as of v1.9.0. This is because `serverless` is a development
