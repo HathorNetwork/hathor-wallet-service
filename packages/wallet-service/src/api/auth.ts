@@ -84,6 +84,17 @@ export const tokenHandler: APIGatewayProxyHandler = middy(async (event) => {
   const authXpubStr = value.xpub;
   const wallet: Wallet = await getWallet(mysql, value.walletId);
 
+  if (!wallet) {
+    await closeDbConnection(mysql);
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        success: false,
+        error: ApiError.WALLET_NOT_FOUND,
+      }),
+    };
+  }
+
   const [validTimestamp, timestampShift] = validateAuthTimestamp(timestamp, Date.now() / 1000);
 
   if (!validTimestamp) {
