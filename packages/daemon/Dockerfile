@@ -53,7 +53,7 @@ RUN yarn workspace sync-daemon run build
 RUN yarn workspaces focus -A --production
 
 # Run phase
-FROM node:22-alpine AS runner
+FROM node:22-alpine AS dev
 
 WORKDIR /app
 
@@ -70,3 +70,14 @@ RUN chmod +x ./merge-complementary-envs.sh
 # The daemon could need complementary environment variables dynamically.
 # The entrypoint script manages this before actually running the daemon.
 ENTRYPOINT ["./merge-complementary-envs.sh"]
+
+FROM node:22-alpine AS prod
+
+WORKDIR /app
+
+# Copy only the necessary files from the build phase
+COPY --from=builder /app .
+
+WORKDIR /app/packages/daemon/
+
+CMD ["node", "dist/index.js"]
