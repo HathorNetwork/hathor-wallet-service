@@ -1,12 +1,12 @@
 /**
- * @fileoverview Tests for aws-offline-mock.ts
+ * @fileoverview Tests for aws-utils.ts
  */
 import { createLambdaClient, createApiGatewayManagementApiClient } from '@src/utils/aws.utils';
 import { InvokeCommand } from '@aws-sdk/client-lambda';
 import { PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
 import config, { loadEnvConfig } from '@src/config';
 
-describe('aws-offline-mock', () => {
+describe('aws-utils', () => {
   const OLD_ENV = process.env;
   beforeEach(() => {
     jest.resetModules();

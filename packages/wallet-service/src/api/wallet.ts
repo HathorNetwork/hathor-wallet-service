@@ -9,7 +9,7 @@ import { APIGatewayProxyHandler, Handler, SNSEvent } from 'aws-lambda';
 import { InvokeCommand, InvokeCommandOutput } from '@aws-sdk/client-lambda';
 import 'source-map-support/register';
 
-import { createLambdaClient } from '@src/utils/aws-offline-mock';
+import { createLambdaClient } from '@src/utils/aws.utils';
 import { ApiError } from '@src/api/errors';
 import {
   addNewAddresses,

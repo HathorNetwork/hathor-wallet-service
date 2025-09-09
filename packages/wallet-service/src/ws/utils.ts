@@ -14,7 +14,7 @@ import createDefaultLogger from '@src/logger';
 import config from '@src/config';
 import util from 'util';
 
-import { createApiGatewayManagementApiClient } from '@src/utils/aws-offline-mock';
+import { createApiGatewayManagementApiClient } from '@src/utils/aws.utils';
 import { Severity } from '@wallet-service/common/src/types';
 import { WsConnectionInfo } from '@src/types';
 import { endWsConnection } from '@src/redis';
