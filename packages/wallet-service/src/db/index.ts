@@ -1322,32 +1322,27 @@ export const getWalletAddresses = async (mysql: ServerlessMysql, walletId: strin
  * @param walletId - Wallet id
  * @returns A list of addresses and their indexes
  */
-export const getNewAddresses = async (mysql: ServerlessMysql, walletId: string): Promise<ShortAddressInfo[]> => {
+export const getNewAddresses = async (mysql: ServerlessMysql, wallet: Wallet): Promise<ShortAddressInfo[]> => {
   const addresses: ShortAddressInfo[] = [];
-  const resultsWallet: DbSelectResult = await mysql.query('SELECT * FROM `wallet` WHERE `id` = ?', walletId);
-  if (resultsWallet.length) {
-    const gapLimit = resultsWallet[0].max_gap as number;
-    const latestUsedIndex = resultsWallet[0].last_used_address_index as number;
-    // Select all addresses that are empty and the index is bigger than the last used address index
-    const results: DbSelectResult = await mysql.query(`
-      SELECT *
-        FROM \`address\`
-       WHERE \`wallet_id\` = ?
-         AND \`transactions\` = 0
-         AND \`index\` > ?
-    ORDER BY \`index\`
-         ASC
-    LIMIT ?`, [walletId, latestUsedIndex, gapLimit]);
+  // Select all addresses that are empty and the index is bigger than the last used address index
+  const results: DbSelectResult = await mysql.query(`
+    SELECT *
+      FROM \`address\`
+     WHERE \`wallet_id\` = ?
+       AND \`transactions\` = 0
+       AND \`index\` > ?
+  ORDER BY \`index\`
+       ASC
+  LIMIT ?`, [wallet.walletId, wallet.lastUsedAddressIndex, wallet.maxGap]);
 
-    for (const result of results) {
-      const index = result.index as number;
-      const address = {
-        address: result.address as string,
-        index,
-        addressPath: getAddressPath(index),
-      };
-      addresses.push(address);
-    }
+  for (const result of results) {
+    const index = result.index as number;
+    const address = {
+      address: result.address as string,
+      index,
+      addressPath: getAddressPath(index),
+    };
+    addresses.push(address);
   }
   return addresses;
 };
