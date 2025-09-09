@@ -103,7 +103,8 @@ export const EventTxOutputSchema = z.object({
       type: z.string(),
       address: z.string(),
       timelock: z.number().nullable(),
-    }).nullable(),
+      token_data: z.number().nullish(),
+    }).passthrough().nullable(),
     z.object({}).strict()
   ]),
 });
