@@ -789,3 +789,55 @@ export const generateFullNodeEvent = (event: any) => ({
     data: event.data,
   },
 });
+
+// Helper function to create a wallet and addresses
+export const setupWallet = async (mysql: MysqlConnection, walletId: string, addresses: string[]) => {
+  const now = Math.floor(Date.now() / 1000); // Unix timestamp
+  // Create wallet
+  await mysql.query(
+    `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+     VALUES (?, 'xpub123', 'xpub456', 'ready', 20, ?, ?)`,
+    [walletId, now, now]
+  );
+
+  // Add addresses to the wallet
+  const addressEntries = addresses.map((address, index) => [address, index, walletId, 1]);
+  await mysql.query(
+    `INSERT INTO \`address\` (address, \`index\`, wallet_id, transactions)
+     VALUES ?`,
+    [addressEntries]
+  );
+};
+
+// Helper function to get wallet balance
+export const getWalletBalance = async (mysql: MysqlConnection, walletId: string, tokenId: string) => {
+  const [results] = await mysql.query(
+    `SELECT * FROM \`wallet_balance\` WHERE \`wallet_id\` = ? AND \`token_id\` = ?`,
+    [walletId, tokenId]
+  ) as [any[], any];
+  return results[0] || null;
+};
+
+// Helper function to manually insert wallet balance (simulating what should happen)
+export const insertWalletBalance = async (mysql: MysqlConnection, walletId: string, tokenId: string, balance: bigint, transactions: number) => {
+  await mysql.query(
+    `INSERT INTO \`wallet_balance\` (wallet_id, token_id, unlocked_balance, locked_balance,
+                                   unlocked_authorities, locked_authorities, total_received,
+                                   transactions, timelock_expires)
+     VALUES (?, ?, ?, 0, 0, 0, ?, ?, NULL)
+     ON DUPLICATE KEY UPDATE
+       unlocked_balance = unlocked_balance + ?,
+       total_received = total_received + ?,
+       transactions = transactions + ?`,
+    [walletId, tokenId, balance, balance, transactions, balance, balance, transactions]
+  );
+};
+
+// Helper function to get wallet transaction history count
+export const getWalletTxHistoryCount = async (mysql: MysqlConnection, walletId: string, txId: string) => {
+  const [results] = await mysql.query(
+    `SELECT COUNT(*) as count FROM \`wallet_tx_history\` WHERE \`wallet_id\` = ? AND \`tx_id\` = ?`,
+    [walletId, txId]
+  ) as [any[], any];
+  return results[0].count;
+};

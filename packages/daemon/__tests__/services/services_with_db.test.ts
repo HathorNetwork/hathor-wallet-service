@@ -21,6 +21,10 @@ import {
   createOutput,
   createInput,
   createEventTxInput,
+  setupWallet,
+  getWalletBalance,
+  insertWalletBalance,
+  getWalletTxHistoryCount,
 } from '../utils';
 import { DbTxOutput, EventTxInput } from '../../src/types';
 import { Connection } from 'mysql2/promise';
@@ -545,57 +549,6 @@ describe('unspentTxOutputs function', () => {
   });
 });
 
-// Helper function to create a wallet and addresses
-const setupWallet = async (walletId: string, addresses: string[]) => {
-  const now = Math.floor(Date.now() / 1000); // Unix timestamp
-  // Create wallet
-  await mysql.query(
-    `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
-     VALUES (?, 'xpub123', 'xpub456', 'ready', 20, ?, ?)`,
-    [walletId, now, now]
-  );
-
-  // Add addresses to the wallet
-  const addressEntries = addresses.map((address, index) => [address, index, walletId, 1]);
-  await mysql.query(
-    `INSERT INTO \`address\` (address, \`index\`, wallet_id, transactions)
-     VALUES ?`,
-    [addressEntries]
-  );
-};
-
-// Helper function to get wallet balance
-const getWalletBalance = async (walletId: string, tokenId: string) => {
-  const [results] = await mysql.query(
-    `SELECT * FROM \`wallet_balance\` WHERE \`wallet_id\` = ? AND \`token_id\` = ?`,
-    [walletId, tokenId]
-  ) as [any[], any];
-  return results[0] || null;
-};
-
-// Helper function to manually insert wallet balance (simulating what should happen)
-const insertWalletBalance = async (walletId: string, tokenId: string, balance: bigint, transactions: number) => {
-  await mysql.query(
-    `INSERT INTO \`wallet_balance\` (wallet_id, token_id, unlocked_balance, locked_balance,
-                                   unlocked_authorities, locked_authorities, total_received,
-                                   transactions, timelock_expires)
-     VALUES (?, ?, ?, 0, 0, 0, ?, ?, NULL)
-     ON DUPLICATE KEY UPDATE
-       unlocked_balance = unlocked_balance + ?,
-       total_received = total_received + ?,
-       transactions = transactions + ?`,
-    [walletId, tokenId, balance, balance, transactions, balance, balance, transactions]
-  );
-};
-
-// Helper function to get wallet transaction history count
-const getWalletTxHistoryCount = async (walletId: string, txId: string) => {
-  const [results] = await mysql.query(
-    `SELECT COUNT(*) as count FROM \`wallet_tx_history\` WHERE \`wallet_id\` = ? AND \`tx_id\` = ?`,
-    [walletId, txId]
-  ) as [any[], any];
-  return results[0].count;
-};
 
 describe('wallet balance voiding bug', () => {
   it('should demonstrate wallet balance not being updated when voiding a transaction', async () => {
@@ -609,7 +562,7 @@ describe('wallet balance voiding bug', () => {
     const initialValue = 100n;
 
     // Setup wallet and address
-    await setupWallet(walletId, [address]);
+    await setupWallet(mysql, walletId, [address]);
 
     // Create transaction A that creates an output to our wallet address
     await addOrUpdateTx(mysql, txIdA, 0, 1, 1, 100);
@@ -617,7 +570,7 @@ describe('wallet balance voiding bug', () => {
     await addUtxos(mysql, txIdA, [outputA], null);
 
     // Manually insert wallet balance (simulating what updateWalletTablesWithTx would do)
-    await insertWalletBalance(walletId, tokenId, initialValue, 1);
+    await insertWalletBalance(mysql, walletId, tokenId, initialValue, 1);
 
     // Also insert into wallet_tx_history
     await mysql.query(
@@ -627,7 +580,7 @@ describe('wallet balance voiding bug', () => {
     );
 
     // Verify initial wallet balance
-    let walletBalance = await getWalletBalance(walletId, tokenId);
+    let walletBalance = await getWalletBalance(mysql, walletId, tokenId);
     expect(walletBalance).not.toBeNull();
     expect(BigInt(walletBalance.unlocked_balance)).toBe(initialValue);
     expect(walletBalance.transactions).toBe(1);
@@ -642,7 +595,7 @@ describe('wallet balance voiding bug', () => {
     await addUtxos(mysql, txIdB, [outputB], null);
 
     // Update wallet balance for transaction B (net zero change)
-    await insertWalletBalance(walletId, tokenId, 0n, 1);
+    await insertWalletBalance(mysql, walletId, tokenId, 0n, 1);
 
     // Add to wallet_tx_history
     await mysql.query(
@@ -652,7 +605,7 @@ describe('wallet balance voiding bug', () => {
     );
 
     // Verify wallet balance after transaction B
-    walletBalance = await getWalletBalance(walletId, tokenId);
+    walletBalance = await getWalletBalance(mysql, walletId, tokenId);
     expect(walletBalance).not.toBeNull();
     expect(BigInt(walletBalance.unlocked_balance)).toBe(initialValue); // Still 100n
     expect(walletBalance.transactions).toBe(2); // Now 2 transactions
@@ -674,7 +627,7 @@ describe('wallet balance voiding bug', () => {
     await voidTx(mysql, txIdB, inputs, outputs, [tokenId], []);
 
     // CRITICAL BUG: Check wallet balance after voiding
-    walletBalance = await getWalletBalance(walletId, tokenId);
+    walletBalance = await getWalletBalance(mysql, walletId, tokenId);
     expect(walletBalance).not.toBeNull();
 
     // This will FAIL because wallet balances are not updated during voiding
@@ -682,7 +635,7 @@ describe('wallet balance voiding bug', () => {
     expect(walletBalance.transactions).toBe(1); // Should be back to 1 transaction
 
     // Check if wallet_tx_history was cleaned up
-    const historyCount = await getWalletTxHistoryCount(walletId, txIdB);
+    const historyCount = await getWalletTxHistoryCount(mysql, walletId, txIdB);
     // This will FAIL because wallet_tx_history is not cleaned up during voiding
     expect(historyCount).toBe(0); // Should be 0 after voiding
   });
@@ -699,11 +652,11 @@ describe('wallet balance voiding bug', () => {
     const amount = 150n;
 
     // Setup two wallets
-    await setupWallet(wallet1Id, [address1]);
-    await setupWallet(wallet2Id, [address2]);
+    await setupWallet(mysql, wallet1Id, [address1]);
+    await setupWallet(mysql, wallet2Id, [address2]);
 
     // Simulate wallet1 already having some balance
-    await insertWalletBalance(wallet1Id, tokenId, 200n, 1);
+    await insertWalletBalance(mysql, wallet1Id, tokenId, 200n, 1);
 
     // Create a transaction that transfers money from wallet1 to wallet2
     await addOrUpdateTx(mysql, txId, 0, 1, 1, 100);
@@ -724,7 +677,7 @@ describe('wallet balance voiding bug', () => {
     );
 
     // Wallet2 gains money (+150n)
-    await insertWalletBalance(wallet2Id, tokenId, amount, 1);
+    await insertWalletBalance(mysql, wallet2Id, tokenId, amount, 1);
 
     // Add wallet_tx_history entries
     await mysql.query(
@@ -734,8 +687,8 @@ describe('wallet balance voiding bug', () => {
     );
 
     // Verify wallet balances before voiding
-    let wallet1Balance = await getWalletBalance(wallet1Id, tokenId);
-    let wallet2Balance = await getWalletBalance(wallet2Id, tokenId);
+    let wallet1Balance = await getWalletBalance(mysql, wallet1Id, tokenId);
+    let wallet2Balance = await getWalletBalance(mysql, wallet2Id, tokenId);
 
     expect(wallet1Balance).not.toBeNull();
     expect(BigInt(wallet1Balance.unlocked_balance)).toBe(50n); // 200 - 150
@@ -762,8 +715,8 @@ describe('wallet balance voiding bug', () => {
     await voidTx(mysql, txId, inputs, voidOutputs, [tokenId], []);
 
     // Check wallet balances after voiding
-    wallet1Balance = await getWalletBalance(wallet1Id, tokenId);
-    wallet2Balance = await getWalletBalance(wallet2Id, tokenId);
+    wallet1Balance = await getWalletBalance(mysql, wallet1Id, tokenId);
+    wallet2Balance = await getWalletBalance(mysql, wallet2Id, tokenId);
 
     // These assertions will FAIL because wallet balances are not updated during voiding
 
@@ -778,8 +731,8 @@ describe('wallet balance voiding bug', () => {
     }
 
     // Check wallet_tx_history cleanup
-    const wallet1HistoryCount = await getWalletTxHistoryCount(wallet1Id, txId);
-    const wallet2HistoryCount = await getWalletTxHistoryCount(wallet2Id, txId);
+    const wallet1HistoryCount = await getWalletTxHistoryCount(mysql, wallet1Id, txId);
+    const wallet2HistoryCount = await getWalletTxHistoryCount(mysql, wallet2Id, txId);
 
     // These will FAIL because wallet_tx_history is not cleaned up
     expect(wallet1HistoryCount).toBe(0);
@@ -796,7 +749,7 @@ describe('wallet balance voiding bug', () => {
     const value = 50n;
 
     // Setup wallet
-    await setupWallet(walletId, [address]);
+    await setupWallet(mysql, walletId, [address]);
 
     // Create transaction
     await addOrUpdateTx(mysql, txId, 0, 1, 1, 100);
@@ -804,7 +757,7 @@ describe('wallet balance voiding bug', () => {
     await addUtxos(mysql, txId, [output], null);
 
     // Simulate wallet balance update
-    await insertWalletBalance(walletId, tokenId, value, 1);
+    await insertWalletBalance(mysql, walletId, tokenId, value, 1);
     await mysql.query(
       `INSERT INTO \`wallet_tx_history\` (wallet_id, token_id, tx_id, balance, timestamp)
        VALUES (?, ?, ?, ?, ?)`,
@@ -812,7 +765,7 @@ describe('wallet balance voiding bug', () => {
     );
 
     // Verify wallet balance exists
-    let walletBalance = await getWalletBalance(walletId, tokenId);
+    let walletBalance = await getWalletBalance(mysql, walletId, tokenId);
     expect(walletBalance).not.toBeNull();
     expect(BigInt(walletBalance.unlocked_balance)).toBe(value);
     expect(walletBalance.transactions).toBe(1);
@@ -834,7 +787,7 @@ describe('wallet balance voiding bug', () => {
     await voidTx(mysql, txId, inputs, outputs, [tokenId], []);
 
     // Check wallet balance after voiding
-    walletBalance = await getWalletBalance(walletId, tokenId);
+    walletBalance = await getWalletBalance(mysql, walletId, tokenId);
 
     // This WILL FAIL because wallet balances are not updated during voiding
     if (walletBalance) {
@@ -843,7 +796,7 @@ describe('wallet balance voiding bug', () => {
     }
 
     // Check wallet_tx_history cleanup
-    const historyCount = await getWalletTxHistoryCount(walletId, txId);
+    const historyCount = await getWalletTxHistoryCount(mysql, walletId, txId);
     expect(historyCount).toBe(0); // Should be 0 after voiding
   });
 });
