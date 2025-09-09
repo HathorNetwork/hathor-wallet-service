@@ -119,7 +119,9 @@ export const tokenHandler: APIGatewayProxyHandler = middy(async (event) => {
     };
   }
 
+  const d2 = Date.now();
   const address = getAddressFromXpub(authXpubStr);
+  const deriveTime = Date.now() - d2;
   const walletId = wallet.walletId;
 
   const d1 = Date.now();
@@ -157,7 +159,7 @@ export const tokenHandler: APIGatewayProxyHandler = middy(async (event) => {
     },
   );
   const sigTime = Date.now() - d;
-  logger.warn(`[DEBUG] times for verify(${verifyTime} ms) sig(${sigTime} ms)`);
+  logger.warn(`[DEBUG] times for derive(${deriveTime}) verify(${verifyTime} ms) sig(${sigTime} ms)`);
 
   return {
     statusCode: 200,
