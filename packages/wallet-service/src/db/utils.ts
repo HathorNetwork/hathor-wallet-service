@@ -83,6 +83,7 @@ export const getWalletFromDbEntry = (entry: Record<string, unknown>): Wallet => 
   maxGap: entry.max_gap as number,
   createdAt: entry.created_at as number,
   readyAt: entry.ready_at as number,
+  lastUsedAddressIndex: entry.last_used_address_index as number,
 });
 
 /**
