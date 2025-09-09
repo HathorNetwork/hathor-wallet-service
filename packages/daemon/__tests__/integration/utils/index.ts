@@ -60,15 +60,23 @@ export const validateBalances = async (
   balancesA: AddressBalance[],
   balancesB: Record<string, bigint>,
 ): Promise<void> => {
-  // Only validate addresses that are explicitly mentioned in the expected config
-  const expectedAddresses = Object.keys(balancesB);
+  const expectedAddresses = new Set(Object.keys(balancesB));
 
+  // Check for unexpected addresses with non-zero balances
+  for (const balance of balancesA) {
+    const totalBalance = balance.lockedBalance + balance.unlockedBalance;
+
+    if (!expectedAddresses.has(balance.address) && totalBalance !== BigInt(0)) {
+      throw new Error(`Unexpected address with non-zero balance: ${balance.address}, balance: ${totalBalance}`);
+    }
+  }
+
+  // Validate all expected addresses
   for (const address of expectedAddresses) {
     const balanceA = balancesA.find(b => b.address === address);
-    const balanceB = balancesB[address];
+    const expectedBalance = balancesB[address];
 
     const totalBalanceA = balanceA ? (balanceA.lockedBalance + balanceA.unlockedBalance) : BigInt(0);
-    const expectedBalance = balanceB || BigInt(0);
 
     if (totalBalanceA !== expectedBalance) {
       throw new Error(`Balances are not equal for address: ${address}, expected: ${expectedBalance}, received: ${totalBalanceA}`);

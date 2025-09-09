@@ -127,7 +127,7 @@ describe('voidTransaction with input unspending', () => {
     // Verify the UTXO is unspent
     let utxo = await getTxOutput(mysql, txIdA, 0, true);
     expect(utxo).not.toBeNull();
-    expect(utxo!.spentBy).toBeNull();
+    expect(utxo?.spentBy).toBeNull();
 
     // Create transaction B that spends the output from transaction A
     const txIdB = 'test1-tx-b';
@@ -142,7 +142,7 @@ describe('voidTransaction with input unspending', () => {
     // Verify the UTXO is now spent
     utxo = await getTxOutput(mysql, txIdA, 0, false);
     expect(utxo).not.toBeNull();
-    expect(utxo!.spentBy).toBe(txIdB);
+    expect(utxo?.spentBy).toBe(txIdB);
 
     // Add output from transaction B
     const outputB = createOutput(0, outputValue, addressB, tokenId);
@@ -168,7 +168,7 @@ describe('voidTransaction with input unspending', () => {
     // Check if the UTXO from transaction A is unspent again
     utxo = await getTxOutput(mysql, txIdA, 0, false);
     expect(utxo).not.toBeNull();
-    expect(utxo!.spentBy).toBeNull();
+    expect(utxo?.spentBy).toBeNull();
   });
 
   it('should unspent multiple inputs when voiding a transaction with multiple inputs', async () => {
@@ -196,8 +196,8 @@ describe('voidTransaction with input unspending', () => {
     // Verify both UTXOs are unspent
     let utxoA = await getTxOutput(mysql, txIdA, 0, true);
     let utxoB = await getTxOutput(mysql, txIdB, 0, true);
-    expect(utxoA!.spentBy).toBeNull();
-    expect(utxoB!.spentBy).toBeNull();
+    expect(utxoA?.spentBy).toBeNull();
+    expect(utxoB?.spentBy).toBeNull();
 
     // Create transaction C that spends both outputs
     await addOrUpdateTx(mysql, txIdC, 0, 1, 1, 102);
@@ -209,8 +209,8 @@ describe('voidTransaction with input unspending', () => {
     // Verify both UTXOs are now spent by C
     utxoA = await getTxOutput(mysql, txIdA, 0, false);
     utxoB = await getTxOutput(mysql, txIdB, 0, false);
-    expect(utxoA!.spentBy).toBe(txIdC);
-    expect(utxoB!.spentBy).toBe(txIdC);
+    expect(utxoA?.spentBy).toBe(txIdC);
+    expect(utxoB?.spentBy).toBe(txIdC);
 
     // Add output from transaction C
     const outputC = createOutput(0, 125n, address3, tokenId);
@@ -241,9 +241,9 @@ describe('voidTransaction with input unspending', () => {
 
     // Both outputs should be unspent again after voiding C (which was spending them)
     expect(utxoA).not.toBeNull();
-    expect(utxoA!.spentBy).toBeNull(); // Should pass - should be null
+    expect(utxoA?.spentBy).toBeNull(); // Should pass - should be null
     expect(utxoB).not.toBeNull();
-    expect(utxoB!.spentBy).toBeNull(); // Should pass - should be null
+    expect(utxoB?.spentBy).toBeNull(); // Should pass - should be null
 
     // The output from transaction C should be voided (not accessible with getTxOutput)
     const utxoC = await getTxOutput(mysql, txIdC, 0, false);
@@ -297,7 +297,7 @@ describe('voidTransaction with input unspending', () => {
     // B's output should be unspent now (and it will be with the fix)
     let utxoB = await getTxOutput(mysql, txIdB, 0, true);
     expect(utxoB).not.toBeNull();
-    expect(utxoB!.spentBy).toBeNull(); // Should pass - should be null
+    expect(utxoB?.spentBy).toBeNull(); // Should pass - should be null
 
     // Now void transaction B
     await voidTx(mysql, txIdB,
@@ -316,7 +316,7 @@ describe('voidTransaction with input unspending', () => {
     // A's output should be unspent now
     let utxoA = await getTxOutput(mysql, txIdA, 0, true);
     expect(utxoA).not.toBeNull();
-    expect(utxoA!.spentBy).toBeNull(); // Should pass - should be null
+    expect(utxoA?.spentBy).toBeNull(); // Should pass - should be null
   });
 
   it('should handle voiding when one input is already spent by another transaction', async () => {
@@ -343,11 +343,15 @@ describe('voidTransaction with input unspending', () => {
     const inputB = createInput(100n, address1, txIdA, 0, tokenId);
     await updateTxOutputSpentBy(mysql, [inputB], txIdB);
 
-    // For this test, we simulate that transaction C also tried to spend it
-    // (in reality this would be a double-spend, but we're testing edge cases)
+    // Add output for transaction B
+    const outputB = createOutput(0, 100n, address2, tokenId);
+    await addUtxos(mysql, txIdB, [outputB], null);
+
+    // Transaction C also tries to spend the same UTXO (double-spend scenario)
+    // In reality, this would be detected and prevented, but we're testing edge cases
     await addOrUpdateTx(mysql, txIdC, 0, 1, 1, 102);
 
-    // Add output for transaction C
+    // Add output for transaction C (this transaction exists but its input reference is invalid)
     const outputC = createOutput(0, 100n, address2, tokenId);
     await addUtxos(mysql, txIdC, [outputC], null);
 
@@ -366,7 +370,7 @@ describe('voidTransaction with input unspending', () => {
     // The UTXO should still be spent by B, not unspent
     const utxo = await getTxOutput(mysql, txIdA, 0, false);
     expect(utxo).not.toBeNull();
-    expect(utxo!.spentBy).toBe(txIdB); // Should remain spent by B
+    expect(utxo?.spentBy).toBe(txIdB); // Should remain spent by B
   });
 
   it('should correctly unspent inputs with different token types', async () => {
@@ -426,9 +430,9 @@ describe('voidTransaction with input unspending', () => {
 
     // These should pass with the implementation
     expect(utxo1).not.toBeNull();
-    expect(utxo1!.spentBy).toBeNull();
+    expect(utxo1?.spentBy).toBeNull();
     expect(utxo2).not.toBeNull();
-    expect(utxo2!.spentBy).toBeNull();
+    expect(utxo2?.spentBy).toBeNull();
   });
 
   it('should verify the complete flow with balance checks', async () => {
@@ -459,7 +463,7 @@ describe('voidTransaction with input unspending', () => {
 
     // Verify spent state
     const spentUtxo = await getTxOutput(mysql, txIdA, 0, false);
-    expect(spentUtxo!.spentBy).toBe(txIdB);
+    expect(spentUtxo?.spentBy).toBe(txIdB);
 
     // Void the spending transaction
     const inputs = [createEventTxInput(value, address1, txIdA, 0)];
@@ -476,7 +480,7 @@ describe('voidTransaction with input unspending', () => {
     // Verify the original UTXO is unspent again
     const unspentUtxo = await getTxOutput(mysql, txIdA, 0, true);
     expect(unspentUtxo).not.toBeNull();
-    expect(unspentUtxo!.spentBy).toBeNull(); // This should pass
+    expect(unspentUtxo?.spentBy).toBeNull(); // This should pass
 
     // Also verify that B's outputs are marked as voided
     const voidedUtxo = await getTxOutput(mysql, txIdB, 0, false);
@@ -523,9 +527,9 @@ describe('unspentTxOutputs function', () => {
     let utxoA = await getTxOutput(mysql, txIdA, 0, false);
     let utxoB = await getTxOutput(mysql, txIdB, 0, false);
     let utxoC = await getTxOutput(mysql, txIdC, 0, false);
-    expect(utxoA!.spentBy).toBe(spendingTx);
-    expect(utxoB!.spentBy).toBe(spendingTx);
-    expect(utxoC!.spentBy).toBe(spendingTx);
+    expect(utxoA?.spentBy).toBe(spendingTx);
+    expect(utxoB?.spentBy).toBe(spendingTx);
+    expect(utxoC?.spentBy).toBe(spendingTx);
 
     // Now unspent them
     const txOutputsToUnspent: DbTxOutput[] = [
@@ -541,11 +545,11 @@ describe('unspentTxOutputs function', () => {
     utxoB = await getTxOutput(mysql, txIdB, 0, true);
     utxoC = await getTxOutput(mysql, txIdC, 0, true);
     expect(utxoA).not.toBeNull();
-    expect(utxoA!.spentBy).toBeNull();
+    expect(utxoA?.spentBy).toBeNull();
     expect(utxoB).not.toBeNull();
-    expect(utxoB!.spentBy).toBeNull();
+    expect(utxoB?.spentBy).toBeNull();
     expect(utxoC).not.toBeNull();
-    expect(utxoC!.spentBy).toBeNull();
+    expect(utxoC?.spentBy).toBeNull();
   });
 });
 
