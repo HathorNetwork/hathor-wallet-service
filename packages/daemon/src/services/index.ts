@@ -545,7 +545,7 @@ export const voidTx = async (
   await markUtxosAsVoided(mysql, dbTxOutputs);
 
 
-  // CRITICAL: Unspent the inputs when voiding a transaction
+  // CRITICAL: Unspend the inputs when voiding a transaction
   // The inputs of the voided transaction need to be marked as unspent
   // But only if they were actually spent by this transaction
   if (inputs.length > 0) {

@@ -255,8 +255,8 @@ describe('voidTransaction with input unspending', () => {
 
     // Create transaction A that creates an output
     const txIdA = 'test3-tx-a';
-    const txIdB = 'test3-tx-b'; // Will be voided first
-    const txIdC = 'test3-tx-c'; // Will be voided second
+    const txIdB = 'test3-tx-b'; // Will be voided second
+    const txIdC = 'test3-tx-c'; // Will be voided first
     const address1 = 'test3-address-1';
     const address2 = 'test3-address-2';
     const address3 = 'test3-address-3';
@@ -317,6 +317,10 @@ describe('voidTransaction with input unspending', () => {
     let utxoA = await getTxOutput(mysql, txIdA, 0, true);
     expect(utxoA).not.toBeNull();
     expect(utxoA?.spentBy).toBeNull(); // Should pass - should be null
+
+    // B's output should be voided (not accessible with getTxOutput)
+    utxoB = await getTxOutput(mysql, txIdB, 0, false);
+    expect(utxoB).toBeNull(); // Should be null because it's voided
   });
 
   it('should handle voiding when one input is already spent by another transaction', async () => {

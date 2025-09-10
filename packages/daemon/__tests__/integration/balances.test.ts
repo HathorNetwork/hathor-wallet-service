@@ -124,7 +124,7 @@ describe('unvoided transaction scenario', () => {
     // @ts-expect-error
     await transitionUntilEvent(mysql, machine, UNVOIDED_SCENARIO_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
-    await validateBalances(addressBalances, unvoidedScenarioBalances);
+    await expect(validateBalances(addressBalances, unvoidedScenarioBalances)).resolves.not.toThrow();
   });
 });
 
@@ -159,7 +159,7 @@ describe('reorg scenario', () => {
     // @ts-expect-error
     await transitionUntilEvent(mysql, machine, REORG_SCENARIO_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
-    await validateBalances(addressBalances, reorgScenarioBalances);
+    await expect(validateBalances(addressBalances, reorgScenarioBalances)).resolves.not.toThrow();
   });
 });
 
@@ -194,7 +194,7 @@ describe('single chain blocks and transactions scenario', () => {
     // @ts-expect-error
     await transitionUntilEvent(mysql, machine, SINGLE_CHAIN_BLOCKS_AND_TRANSACTIONS_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
-    await validateBalances(addressBalances, singleChainBlocksAndTransactionsBalances);
+    await expect(validateBalances(addressBalances, singleChainBlocksAndTransactionsBalances)).resolves.not.toThrow();
   });
 });
 
@@ -229,7 +229,7 @@ describe('invalid mempool transactions scenario', () => {
     // @ts-expect-error
     await transitionUntilEvent(mysql, machine, INVALID_MEMPOOL_TRANSACTION_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
-    await validateBalances(addressBalances, invalidMempoolBalances);
+    await expect(validateBalances(addressBalances, invalidMempoolBalances)).resolves.not.toThrow();
   });
 });
 
@@ -264,7 +264,7 @@ describe('custom script scenario', () => {
     // @ts-expect-error
     await transitionUntilEvent(mysql, machine, CUSTOM_SCRIPT_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
-    await validateBalances(addressBalances, customScriptBalances);
+    await expect(validateBalances(addressBalances, customScriptBalances)).resolves.not.toThrow();
   });
 });
 
@@ -300,7 +300,7 @@ describe('empty script scenario', () => {
     await transitionUntilEvent(mysql, machine, EMPTY_SCRIPT_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
 
-    await validateBalances(addressBalances, emptyScriptBalances);
+    await expect(validateBalances(addressBalances, emptyScriptBalances)).resolves.not.toThrow();
   });
 });
 
@@ -336,7 +336,7 @@ describe('nc events scenario', () => {
     await transitionUntilEvent(mysql, machine, NC_EVENTS_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
 
-    await validateBalances(addressBalances, ncEventsBalances);
+    await expect(validateBalances(addressBalances, ncEventsBalances)).resolves.not.toThrow();
   });
 });
 
@@ -372,7 +372,7 @@ describe('transaction voiding chain scenario', () => {
     await transitionUntilEvent(mysql, machine, TRANSACTION_VOIDING_CHAIN_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
 
-    await validateBalances(addressBalances, transactionVoidingChainBalances);
+    await expect(validateBalances(addressBalances, transactionVoidingChainBalances)).resolves.not.toThrow();
 
     // Validate transaction voiding consistency
     const voidingChecks = await performVoidingConsistencyChecks(mysql, {
