@@ -89,8 +89,8 @@ export const USE_SSL = process.env.USE_SSL === 'true';
 // Reorg size thresholds for different alert levels
 export const REORG_SIZE_INFO = parseInt(process.env.REORG_SIZE_INFO ?? '1', 10);
 export const REORG_SIZE_MINOR = parseInt(process.env.REORG_SIZE_MINOR ?? '3', 10);
-export const REORG_SIZE_MAJOR = parseInt(process.env.REORG_SIZE_MAJOR ?? '5', 10);
-export const REORG_SIZE_CRITICAL = parseInt(process.env.REORG_SIZE_CRITICAL ?? '10', 10);
+export const REORG_SIZE_MEDIUM = parseInt(process.env.REORG_SIZE_MEDIUM ?? '5', 10);
+export const REORG_SIZE_MAJOR = parseInt(process.env.REORG_SIZE_MAJOR ?? '10', 10);
 
 export default () => ({
   SERVICE_NAME,
@@ -123,6 +123,6 @@ export default () => ({
   HEALTHCHECK_PING_INTERVAL,
   REORG_SIZE_INFO,
   REORG_SIZE_MINOR,
+  REORG_SIZE_MEDIUM,
   REORG_SIZE_MAJOR,
-  REORG_SIZE_CRITICAL,
 });

@@ -131,14 +131,14 @@ jest.mock('../../src/config', () => {
     default: jest.fn(() => ({
       REORG_SIZE_INFO: 1,
       REORG_SIZE_MINOR: 3,
-      REORG_SIZE_MAJOR: 5,
-      REORG_SIZE_CRITICAL: 10,
+      REORG_SIZE_MEDIUM: 5,
+      REORG_SIZE_MAJOR: 10,
     })),
     getConfig: jest.fn(() => ({
       REORG_SIZE_INFO: 1,
       REORG_SIZE_MINOR: 3,
-      REORG_SIZE_MAJOR: 5,
-      REORG_SIZE_CRITICAL: 10,
+      REORG_SIZE_MEDIUM: 5,
+      REORG_SIZE_MAJOR: 10,
     })),
   };
 });
@@ -878,8 +878,8 @@ describe('handleReorgStarted', () => {
     (getConfig as jest.Mock).mockReturnValue({
       REORG_SIZE_INFO: 1,
       REORG_SIZE_MINOR: 3,
-      REORG_SIZE_MAJOR: 5,
-      REORG_SIZE_CRITICAL: 10,
+      REORG_SIZE_MEDIUM: 5,
+      REORG_SIZE_MAJOR: 10,
     });
   });
 
@@ -943,7 +943,7 @@ describe('handleReorgStarted', () => {
     );
   });
 
-  it('should add MAJOR alert when reorg size is between REORG_SIZE_MAJOR and REORG_SIZE_CRITICAL', async () => {
+  it('should add MEDIUM alert when reorg size is between REORG_SIZE_MEDIUM and REORG_SIZE_MAJOR', async () => {
     const event = generateFullNodeEvent({
       type: FullNodeEventTypes.REORG_STARTED,
       data: {
@@ -960,7 +960,7 @@ describe('handleReorgStarted', () => {
     expect(addAlert).toHaveBeenCalledWith(
       'Major Reorg Detected',
       'A major reorg of size 7 has occurred.',
-      Severity.MAJOR,
+      Severity.MEDIUM,
       {
         reorg_size: 7,
         previous_best_block: 'prev',
@@ -971,7 +971,7 @@ describe('handleReorgStarted', () => {
     );
   });
 
-  it('should add CRITICAL alert when reorg size is greater than REORG_SIZE_CRITICAL', async () => {
+  it('should add MAJOR alert when reorg size is greater than REORG_SIZE_MAJOR', async () => {
     const event = generateFullNodeEvent({
       type: FullNodeEventTypes.REORG_STARTED,
       data: {
@@ -988,7 +988,7 @@ describe('handleReorgStarted', () => {
     expect(addAlert).toHaveBeenCalledWith(
       'Critical Reorg Detected',
       'A critical reorg of size 11 has occurred.',
-      Severity.CRITICAL,
+      Severity.MAJOR,
       {
         reorg_size: 11,
         previous_best_block: 'prev',

@@ -706,7 +706,7 @@ export const handleReorgStarted = async (context: Context): Promise<void> => {
   }
 
   const { reorg_size, previous_best_block, new_best_block, common_block } = fullNodeEvent.event.data;
-  const { REORG_SIZE_INFO, REORG_SIZE_MINOR, REORG_SIZE_MAJOR, REORG_SIZE_CRITICAL } = getConfig();
+  const { REORG_SIZE_INFO, REORG_SIZE_MINOR, REORG_SIZE_MEDIUM, REORG_SIZE_MAJOR } = getConfig();
 
   const metadata = {
     reorg_size,
@@ -715,19 +715,19 @@ export const handleReorgStarted = async (context: Context): Promise<void> => {
     common_block,
   };
 
-  if (reorg_size >= REORG_SIZE_CRITICAL) {
-    await addAlert(
-      'Critical Reorg Detected',
-      `A critical reorg of size ${reorg_size} has occurred.`,
-      Severity.CRITICAL,
-      metadata,
-      logger,
-    );
-  } else if (reorg_size >= REORG_SIZE_MAJOR) {
+  if (reorg_size >= REORG_SIZE_MAJOR) {
     await addAlert(
       'Major Reorg Detected',
       `A major reorg of size ${reorg_size} has occurred.`,
       Severity.MAJOR,
+      metadata,
+      logger,
+    );
+  } else if (reorg_size >= REORG_SIZE_MEDIUM) {
+    await addAlert(
+      'Medium Reorg Detected',
+      `A medium reorg of size ${reorg_size} has occurred.`,
+      Severity.MEDIUM,
       metadata,
       logger,
     );
