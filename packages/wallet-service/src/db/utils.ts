@@ -75,7 +75,7 @@ export async function transactionDecorator(_mysql: ServerlessMysql, wrapped: Fun
  * @param result - The result row to map to a Wallet object
  */
 export const getWalletFromDbEntry = (entry: Record<string, unknown>): Wallet => ({
-  walletId: getWalletId(entry.xpubkey as string),
+  walletId: entry.id as string,
   xpubkey: entry.xpubkey as string,
   authXpubkey: entry.auth_xpubkey as string,
   status: entry.status as WalletStatus,
@@ -83,6 +83,7 @@ export const getWalletFromDbEntry = (entry: Record<string, unknown>): Wallet => 
   maxGap: entry.max_gap as number,
   createdAt: entry.created_at as number,
   readyAt: entry.ready_at as number,
+  lastUsedAddressIndex: entry.last_used_address_index as number,
 });
 
 /**

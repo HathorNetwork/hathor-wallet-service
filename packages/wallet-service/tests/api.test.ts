@@ -750,7 +750,7 @@ test('GET /wallet', async () => {
   expect(result.statusCode).toBe(200);
   expect(returnBody.success).toBe(true);
   expect(returnBody.status).toStrictEqual({
-    walletId: getWalletId(XPUBKEY),
+    walletId: 'my-wallet',
     xpubkey: XPUBKEY,
     authXpubkey: AUTH_XPUBKEY,
     status: 'ready',
@@ -758,6 +758,7 @@ test('GET /wallet', async () => {
     retryCount: 0,
     createdAt: 10000,
     readyAt: 10001,
+    lastUsedAddressIndex: -1,
   });
 });
 
