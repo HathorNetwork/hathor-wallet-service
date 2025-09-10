@@ -104,10 +104,10 @@ export const EventTxOutputSchema = z.object({
       address: z.string(),
       timelock: z.number().nullable(),
     }).passthrough().nullable(),
-    z.object({}).strict(),
     z.object({
-      token_data: z.number().nullish(),
-    }).strict()
+      token_data: z.number(),
+    }),
+    z.object({}).strict(),
   ]),
 });
 export type EventTxOutput = z.infer<typeof EventTxOutputSchema>;
