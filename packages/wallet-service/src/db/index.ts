@@ -64,6 +64,7 @@ const logger: Logger = createDefaultLogger();
 const BLOCK_VERSION = [
   constants.BLOCK_VERSION,
   constants.MERGED_MINED_BLOCK_VERSION,
+  constants.POA_BLOCK_VERSION
 ];
 const BURN_ADDRESS = 'HDeadDeadDeadDeadDeadDeadDeagTPgmn';
 
