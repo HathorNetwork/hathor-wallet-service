@@ -289,6 +289,7 @@ export const createWallet = async (
     status: WalletStatus.CREATING,
     created_at: ts,
     max_gap: maxGap,
+    last_used_address_index: -1,
   };
   await mysql.query(
     `INSERT INTO \`wallet\`
@@ -304,6 +305,7 @@ export const createWallet = async (
     status: WalletStatus.CREATING,
     createdAt: ts,
     readyAt: null,
+    lastUsedAddressIndex: -1,
   };
 };
 

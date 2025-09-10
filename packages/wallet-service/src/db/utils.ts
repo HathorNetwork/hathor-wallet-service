@@ -75,7 +75,7 @@ export async function transactionDecorator(_mysql: ServerlessMysql, wrapped: Fun
  * @param result - The result row to map to a Wallet object
  */
 export const getWalletFromDbEntry = (entry: Record<string, unknown>): Wallet => ({
-  walletId: getWalletId(entry.xpubkey as string),
+  walletId: entry.id as string,
   xpubkey: entry.xpubkey as string,
   authXpubkey: entry.auth_xpubkey as string,
   status: entry.status as WalletStatus,
