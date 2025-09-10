@@ -531,31 +531,18 @@ export const voidWalletTransaction = async (
         ],
       );
 
-      // If we're removing any of the authorities, we need to refresh the authority columns
-      // Similar to the address case, we need to recalculate authorities from all addresses in the wallet
+      // If we're removing any of the authorities, we need to refresh the
+      // authority columns because we might have more than one, so we need to
+      // calculate the complete state from the complete wallet point of view,
+      // not just from a single transaction balance point of view.
+
+      // NOTE: No need to do the same for locked authorities as they can't be
+      // spent before being unlocked and we trust the fullnode
       if (tokenBalance.unlockedAuthorities.hasNegativeValue()) {
         await mysql.query(
           `UPDATE \`wallet_balance\`
               SET \`unlocked_authorities\` = (
                 SELECT BIT_OR(\`unlocked_authorities\`)
-                  FROM \`address_balance\`
-                 WHERE \`address\` IN (
-                   SELECT \`address\`
-                     FROM \`address\`
-                    WHERE \`wallet_id\` = ?)
-                   AND \`token_id\` = ?)
-            WHERE \`wallet_id\` = ?
-              AND \`token_id\` = ?`,
-          [walletId, token, walletId, token],
-        );
-      }
-
-      // Handle locked authorities refresh if needed
-      if (tokenBalance.lockedAuthorities.hasNegativeValue && tokenBalance.lockedAuthorities.hasNegativeValue()) {
-        await mysql.query(
-          `UPDATE \`wallet_balance\`
-              SET \`locked_authorities\` = (
-                SELECT BIT_OR(\`locked_authorities\`)
                   FROM \`address_balance\`
                  WHERE \`address\` IN (
                    SELECT \`address\`

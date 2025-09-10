@@ -634,17 +634,15 @@ describe('wallet balance voiding bug', () => {
 
     await voidTx(mysql, txIdB, inputs, outputs, [tokenId], []);
 
-    // CRITICAL BUG: Check wallet balance after voiding
+    // Check wallet balance after voiding
     walletBalance = await getWalletBalance(mysql, walletId, tokenId);
     expect(walletBalance).not.toBeNull();
 
-    // This will FAIL because wallet balances are not updated during voiding
     // The transaction count should decrease from 2 to 1
     expect(walletBalance.transactions).toBe(1); // Should be back to 1 transaction
 
     // Check if wallet_tx_history was cleaned up
     const historyCount = await getWalletTxHistoryCount(mysql, walletId, txIdB);
-    // This will FAIL because wallet_tx_history is not cleaned up during voiding
     expect(historyCount).toBe(0); // Should be 0 after voiding
   });
 
@@ -726,8 +724,6 @@ describe('wallet balance voiding bug', () => {
     wallet1Balance = await getWalletBalance(mysql, wallet1Id, tokenId);
     wallet2Balance = await getWalletBalance(mysql, wallet2Id, tokenId);
 
-    // These assertions will FAIL because wallet balances are not updated during voiding
-
     // Wallet1 should have its balance restored (50 + 150 = 200)
     expect(BigInt(wallet1Balance.unlocked_balance)).toBe(200n);
     expect(wallet1Balance.transactions).toBe(1); // Should decrease back to 1
@@ -742,7 +738,6 @@ describe('wallet balance voiding bug', () => {
     const wallet1HistoryCount = await getWalletTxHistoryCount(mysql, wallet1Id, txId);
     const wallet2HistoryCount = await getWalletTxHistoryCount(mysql, wallet2Id, txId);
 
-    // These will FAIL because wallet_tx_history is not cleaned up
     expect(wallet1HistoryCount).toBe(0);
     expect(wallet2HistoryCount).toBe(0);
   });
@@ -797,7 +792,6 @@ describe('wallet balance voiding bug', () => {
     // Check wallet balance after voiding
     walletBalance = await getWalletBalance(mysql, walletId, tokenId);
 
-    // This WILL FAIL because wallet balances are not updated during voiding
     if (walletBalance) {
       expect(BigInt(walletBalance.unlocked_balance)).toBe(0n); // Should be 0 after voiding
       expect(walletBalance.transactions).toBe(0); // Should be 0 after voiding
