@@ -175,11 +175,9 @@ describe('TxProposal UTXO unlocking on send failure', () => {
     const txProposal = await getTxProposal(mysql, txProposalId);
     expect(txProposal!.status).toBe(TxProposalStatus.SEND_ERROR);
 
-    // BUG: UTXO should be released when send fails, but currently it remains locked
     utxoResults = await getUtxos(mysql, [{ txId: utxos[0].txId, index: utxos[0].index }]);
     expect(utxoResults).toHaveLength(1);
 
-    // THIS ASSERTION WILL FAIL because UTXOs are not released on send failure
     expect(utxoResults[0].txProposalId).toBeNull(); // Should be null (released)
     expect(utxoResults[0].txProposalIndex).toBeNull(); // Should be null (released)
 
