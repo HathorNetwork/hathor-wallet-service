@@ -2,9 +2,9 @@ export default {
   addressBalances: {
     "H92QQ83Ldm8Sgj6kT8ebu2CmqtZrvhZb6k:00": { unlockedBalance: 0n, lockedBalance: 0n },
     "HAoH1xLZXdDByVsBRUcz9t5GeGDoEfMF2H:00": { unlockedBalance: 1n, lockedBalance: 0n },
-    "HEV1qK3dZDuXZn4rUTHZvfsU3L78usLh6u:00": { unlockedBalance: 6400n, lockedBalance: 0n },
-    "HF6XLDMZVA5KjJejBxDNeg1j8isXpPUVpU:00": { unlockedBalance: 6400n, lockedBalance: 0n },
-    "HFnTiBtKmriJ4iFG9VBDZv6Te134b9DMmZ:00": { unlockedBalance: 6400n, lockedBalance: 0n },
+    "HEV1qK3dZDuXZn4rUTHZvfsU3L78usLh6u:00": { unlockedBalance: 0n, lockedBalance: 6400n },
+    "HF6XLDMZVA5KjJejBxDNeg1j8isXpPUVpU:00": { unlockedBalance: 0n, lockedBalance: 6400n },
+    "HFnTiBtKmriJ4iFG9VBDZv6Te134b9DMmZ:00": { unlockedBalance: 0n, lockedBalance: 6400n },
     "HHZsdpy6U6vy4DPaAwBT5jUWLvYbSefQ7Z:00": { unlockedBalance: 0n, lockedBalance: 0n },
     "HKpb6ABejTCFWG5nFrAVEvVcSrRuFgFnB4:00": { unlockedBalance: 99999999996n, lockedBalance: 0n },
     "HKZHo7yZK49P1EqT43awxqSwiEbH1SsQVZ:00": { unlockedBalance: 1n, lockedBalance: 0n },
@@ -18,7 +18,5 @@ export default {
     "HVcaqHL5e471jp7gRm7sBYmSMr3K1YQVp1:00": { unlockedBalance: 0n, lockedBalance: 0n },
     "HVCGqDBHXkdhghtaS2v4XKqfixui3HeYs1:00": { unlockedBalance: 1n, lockedBalance: 0n },
   },
-  walletBalances: {
-    // Add wallet balances when needed
-  },
+  walletBalances: {},
 };

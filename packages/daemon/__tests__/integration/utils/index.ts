@@ -92,10 +92,10 @@ export const fetchWalletBalances = async (
 
 export const validateBalances = async (
   balancesA: AddressBalance[],
-  expectedBalances: Record<string, { 
-    unlockedBalance: bigint; 
-    lockedBalance: bigint; 
-    authorities?: { locked: number; unlocked: number } 
+  expectedBalances: Record<string, {
+    unlockedBalance: bigint;
+    lockedBalance: bigint;
+    authorities?: { locked: number; unlocked: number }
   }>,
 ): Promise<void> => {
   const expectedAddressTokenKeys = new Set(Object.keys(expectedBalances));
@@ -142,15 +142,15 @@ export const validateBalances = async (
 
 export const validateWalletBalances = async (
   walletBalances: WalletBalance[],
-  expectedWalletBalances: Record<string, { 
-    unlockedBalance: bigint; 
-    lockedBalance: bigint; 
-    authorities?: { locked: number; unlocked: number } 
+  expectedWalletBalances: Record<string, {
+    unlockedBalance: bigint;
+    lockedBalance: bigint;
+    authorities?: { locked: number; unlocked: number }
   }>,
 ): Promise<void> => {
   for (const [walletTokenKey, expected] of Object.entries(expectedWalletBalances)) {
     const [walletId, tokenId] = walletTokenKey.split(':');
-    
+
     const walletBalance = walletBalances.find(
       b => b.walletId === walletId && b.tokenId === tokenId
     );
