@@ -541,9 +541,9 @@ export const voidTx = async (
   });
 
   const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputsWithLocked, headers);
-  await voidTransaction(mysql, hash, addressBalanceMap);
-  await markUtxosAsVoided(mysql, dbTxOutputs);
 
+  await markUtxosAsVoided(mysql, dbTxOutputs);
+  await voidTransaction(mysql, hash, addressBalanceMap);
 
   // CRITICAL: Unspend the inputs when voiding a transaction
   // The inputs of the voided transaction need to be marked as unspent
@@ -620,8 +620,6 @@ export const handleVoidedTx = async (context: Context) => {
       tokens,
       headers,
     );
-    logger.debug(`Voided tx ${hash}`);
-
     await mysql.commit();
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
   } catch (e) {

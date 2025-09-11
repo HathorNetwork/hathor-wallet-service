@@ -456,7 +456,7 @@ export const voidTransaction = async (
       // we cannot only sum/subtract, as authorities are binary: you have it or you don't. We might be spending
       // an authority output in this tx without creating a new one, but it doesn't mean this address does not
       // have this authority anymore, as it might have other authority outputs
-      if (tokenBalance.unlockedAuthorities.hasNegativeValue()) {
+      if (!tokenBalance.unlockedAuthorities.hasNegativeValue()) {
         await mysql.query(
           `UPDATE \`address_balance\`
               SET \`unlocked_authorities\` = (
@@ -538,7 +538,7 @@ export const voidWalletTransaction = async (
 
       // NOTE: No need to do the same for locked authorities as they can't be
       // spent before being unlocked and we trust the fullnode
-      if (tokenBalance.unlockedAuthorities.hasNegativeValue()) {
+      if (!tokenBalance.unlockedAuthorities.hasNegativeValue()) {
         await mysql.query(
           `UPDATE \`wallet_balance\`
               SET \`unlocked_authorities\` = (
