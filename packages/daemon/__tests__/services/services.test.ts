@@ -14,7 +14,6 @@ import {
   getLastSyncedEvent,
   updateLastSyncedEvent as dbUpdateLastSyncedEvent,
   getTxOutputsFromTx,
-  getTxOutput,
   voidTransaction,
   getTransactionById,
   getUtxosLockedAtHeight,

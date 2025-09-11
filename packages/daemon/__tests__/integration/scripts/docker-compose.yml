@@ -85,5 +85,15 @@ services:
     ports:
       - "8089:8080"
 
+  voided_token_authority:
+    image: hathornetwork/hathor-core
+    command: [
+      "events_simulator",
+      "--scenario", "VOIDED_TOKEN_AUTHORITY",
+      "--seed", "1"
+    ]
+    ports:
+      - "8090:8080"
+
 networks:
   database:

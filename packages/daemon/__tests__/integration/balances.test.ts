@@ -13,10 +13,13 @@ import { Connection } from 'mysql2/promise';
 import {
   cleanDatabase,
   fetchAddressBalances,
+  fetchWalletBalances,
   transitionUntilEvent,
   validateBalances,
+  validateWalletBalances,
   performVoidingConsistencyChecks,
   validateVoidingConsistency,
+  initializeWallet,
 } from './utils';
 import unvoidedScenarioBalances from './scenario_configs/unvoided_transactions.balances';
 import reorgScenarioBalances from './scenario_configs/reorg.balances';
@@ -26,6 +29,7 @@ import emptyScriptBalances from './scenario_configs/empty_script.balances';
 import customScriptBalances from './scenario_configs/custom_script.balances';
 import ncEventsBalances from './scenario_configs/nc_events.balances';
 import transactionVoidingChainBalances from './scenario_configs/transaction_voiding_chain.balances';
+import voidedTokenAuthorityBalances from './scenario_configs/voided_token_authority.balances';
 
 import {
   DB_NAME,
@@ -49,12 +53,21 @@ import {
   NC_EVENTS_LAST_EVENT,
   TRANSACTION_VOIDING_CHAIN_PORT,
   TRANSACTION_VOIDING_CHAIN_LAST_EVENT,
+  VOIDED_TOKEN_AUTHORITY_PORT,
+  VOIDED_TOKEN_AUTHORITY_LAST_EVENT,
 } from './config';
 
 jest.mock('../../src/config', () => {
   return {
     __esModule: true, // This property is needed for mocking a default export
     default: jest.fn(() => ({})),
+  };
+});
+
+jest.mock('../../src/utils/aws', () => {
+  return {
+    sendRealtimeTx: jest.fn(),
+    invokeOnTxPushNotificationRequestedLambda: jest.fn(),
   };
 });
 
@@ -124,7 +137,7 @@ describe('unvoided transaction scenario', () => {
     // @ts-expect-error
     await transitionUntilEvent(mysql, machine, UNVOIDED_SCENARIO_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
-    await expect(validateBalances(addressBalances, unvoidedScenarioBalances)).resolves.not.toThrow();
+    await expect(validateBalances(addressBalances, unvoidedScenarioBalances.addressBalances)).resolves.not.toThrow();
   });
 });
 
@@ -159,7 +172,7 @@ describe('reorg scenario', () => {
     // @ts-expect-error
     await transitionUntilEvent(mysql, machine, REORG_SCENARIO_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
-    await expect(validateBalances(addressBalances, reorgScenarioBalances)).resolves.not.toThrow();
+    await expect(validateBalances(addressBalances, reorgScenarioBalances.addressBalances)).resolves.not.toThrow();
   });
 });
 
@@ -194,7 +207,7 @@ describe('single chain blocks and transactions scenario', () => {
     // @ts-expect-error
     await transitionUntilEvent(mysql, machine, SINGLE_CHAIN_BLOCKS_AND_TRANSACTIONS_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
-    await expect(validateBalances(addressBalances, singleChainBlocksAndTransactionsBalances)).resolves.not.toThrow();
+    await expect(validateBalances(addressBalances, singleChainBlocksAndTransactionsBalances.addressBalances)).resolves.not.toThrow();
   });
 });
 
@@ -229,7 +242,7 @@ describe('invalid mempool transactions scenario', () => {
     // @ts-expect-error
     await transitionUntilEvent(mysql, machine, INVALID_MEMPOOL_TRANSACTION_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
-    await expect(validateBalances(addressBalances, invalidMempoolBalances)).resolves.not.toThrow();
+    await expect(validateBalances(addressBalances, invalidMempoolBalances.addressBalances)).resolves.not.toThrow();
   });
 });
 
@@ -264,7 +277,7 @@ describe('custom script scenario', () => {
     // @ts-expect-error
     await transitionUntilEvent(mysql, machine, CUSTOM_SCRIPT_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
-    await expect(validateBalances(addressBalances, customScriptBalances)).resolves.not.toThrow();
+    await expect(validateBalances(addressBalances, customScriptBalances.addressBalances)).resolves.not.toThrow();
   });
 });
 
@@ -300,7 +313,7 @@ describe('empty script scenario', () => {
     await transitionUntilEvent(mysql, machine, EMPTY_SCRIPT_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
 
-    await expect(validateBalances(addressBalances, emptyScriptBalances)).resolves.not.toThrow();
+    await expect(validateBalances(addressBalances, emptyScriptBalances.addressBalances)).resolves.not.toThrow();
   });
 });
 
@@ -336,7 +349,7 @@ describe('nc events scenario', () => {
     await transitionUntilEvent(mysql, machine, NC_EVENTS_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
 
-    await expect(validateBalances(addressBalances, ncEventsBalances)).resolves.not.toThrow();
+    await expect(validateBalances(addressBalances, ncEventsBalances.addressBalances)).resolves.not.toThrow();
   });
 });
 
@@ -372,7 +385,11 @@ describe('transaction voiding chain scenario', () => {
     await transitionUntilEvent(mysql, machine, TRANSACTION_VOIDING_CHAIN_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
 
-    await expect(validateBalances(addressBalances, transactionVoidingChainBalances)).resolves.not.toThrow();
+    await expect(validateBalances(addressBalances, transactionVoidingChainBalances.addressBalances)).resolves.not.toThrow();
+
+    // Validate wallet balances
+    const walletBalances = await fetchWalletBalances(mysql);
+    await expect(validateWalletBalances(walletBalances, transactionVoidingChainBalances.walletBalances)).resolves.not.toThrow();
 
     // Validate transaction voiding consistency
     const voidingChecks = await performVoidingConsistencyChecks(mysql, {
@@ -396,4 +413,62 @@ describe('transaction voiding chain scenario', () => {
     // Validate consistency
     validateVoidingConsistency(voidingChecks);
   }, 30000); // 30 second timeout for transaction voiding chain test
+});
+
+describe('voided token authority scenario', () => {
+  beforeAll(async () => {
+    jest.spyOn(Services, 'fetchMinRewardBlocks').mockImplementation(async () => 300);
+    await cleanDatabase(mysql);
+  });
+
+  it.only('should do a full sync and the balances should match after voiding token authority', async () => {
+    // @ts-ignore
+    getConfig.mockReturnValue({
+      NETWORK: 'testnet',
+      SERVICE_NAME: 'daemon-test',
+      CONSOLE_LEVEL: 'debug',
+      TX_CACHE_SIZE: 100,
+      BLOCK_REWARD_LOCK: 300,
+      FULLNODE_PEER_ID: 'simulator_peer_id',
+      STREAM_ID: 'simulator_stream_id',
+      FULLNODE_NETWORK: 'unittests',
+      FULLNODE_HOST: `127.0.0.1:${VOIDED_TOKEN_AUTHORITY_PORT}`,
+      USE_SSL: false,
+      DB_ENDPOINT,
+      DB_NAME,
+      DB_USER,
+      DB_PASS,
+      DB_PORT,
+    });
+
+    // Initialize wallet before processing events
+    await initializeWallet(mysql);
+
+    const machine = interpret(SyncMachine);
+
+    // @ts-ignore
+    await transitionUntilEvent(mysql, machine, VOIDED_TOKEN_AUTHORITY_LAST_EVENT);
+    const addressBalances = await fetchAddressBalances(mysql);
+    const walletBalances = await fetchWalletBalances(mysql);
+
+    await expect(validateBalances(addressBalances, voidedTokenAuthorityBalances.addressBalances)).resolves.not.toThrow();
+
+    // Validate wallet balances
+    await expect(validateWalletBalances(walletBalances, voidedTokenAuthorityBalances.walletBalances)).resolves.not.toThrow();
+
+    // Validate transaction voiding consistency
+    const voidingChecks = await performVoidingConsistencyChecks(mysql, {
+      transactions: [
+        { txId: 'efb08b3e79e0ddaa6bc288183f66fe49a07ba0b7b2595861000478cc56447539', expectedVoided: false },
+        { txId: 'deabafb4b3e87a98ee60c5190c63de10809811818f663c040b29eaa0a92463af', expectedVoided: true },
+        { txId: '4f5625892f602e191c22fd0aa533bea7764e93e3a03dc498d30cb23932eb462c', expectedVoided: false },
+      ],
+      utxos: [
+        // No specific UTXO checks needed for this scenario
+      ],
+    });
+
+    // Validate consistency
+    validateVoidingConsistency(voidingChecks);
+  }, 30000); // 30 second timeout for voided token authority test
 });
