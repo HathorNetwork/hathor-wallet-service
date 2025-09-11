@@ -19,7 +19,6 @@ import {
   validateWalletBalances,
   performVoidingConsistencyChecks,
   validateVoidingConsistency,
-  initializeWallet,
 } from './utils';
 import unvoidedScenarioBalances from './scenario_configs/unvoided_transactions.balances';
 import reorgScenarioBalances from './scenario_configs/reorg.balances';
@@ -413,6 +412,56 @@ describe('transaction voiding chain scenario', () => {
 });
 
 describe('voided token authority scenario', () => {
+
+  const initializeWallet = async (mysql: Connection): Promise<void> => {
+    // Insert wallet records
+    const walletSQL = `
+      INSERT INTO wallet (
+          id,
+          xpubkey,
+          status,
+          max_gap,
+          created_at,
+          ready_at,
+          retry_count,
+          auth_xpubkey,
+          last_used_address_index
+      ) VALUES
+      (
+          'deafbeef',
+          'xpub6F81iNtH5HVknoJ65cK2XAGA5F3okdJK7WHwVAAPZnSir2sfwbhvB9ffNKQ4wLor75QxPe9p12tqt8xUZSG8i8AAPMpkFho7fbWkBJQ5s1x',
+          'ready',
+          20,
+          UNIX_TIMESTAMP(),
+          UNIX_TIMESTAMP(),
+          0,
+          'xpub6F81iNtH5HVknoJ65cK2XAGA5F3okdJK7WHwVAAPZnSir2sfwbhvB9ffNKQ4wLor75QxPe9p12tqt8xUZSG8i8AAPMpkFho7fbWkBJQ5s1x',
+          -1
+      ),
+      (
+          'cafecafe',
+          'xpub6F81iNtH5HVknoJ65cK2XAGA5F3okdJK7WHwVAAPZnSir2sfwbhvB9ffNKQ4wLor75QxPe9p12tqt8xUZSG8i8AAPMpkFho7fbWkBJQ5s1x',
+          'ready',
+          20,
+          UNIX_TIMESTAMP(),
+          UNIX_TIMESTAMP(),
+          0,
+          'xpub6F81iNtH5HVknoJ65cK2XAGA5F3okdJK7WHwVAAPZnSir2sfwbhvB9ffNKQ4wLor75QxPe9p12tqt8xUZSG8i8AAPMpkFho7fbWkBJQ5s1x',
+          -1
+      )`;
+
+    // Insert address records - all addresses with the same wallet_id
+    const addressSQL = `
+      INSERT INTO address (address, \`index\`, wallet_id, transactions, seqnum) VALUES
+      ('HFtz2f59Lms4p3Jfgtsr73s97MbJHsRENh', 0, 'deafbeef', 0, 0),
+      ('HJQbEERnD5Ak3f2dsi8zAmsZrCWTT8FZns', 0, 'cafecafe', 1, 0),
+      ('HRQe4CXj8AZXzSmuNztU8iQR74QTQMbnTs', 1, 'deafbeef', 21, 0),
+      ('HRXVDmLVdq8pgok1BCUKpiFWdAVAy4a5AJ', 2, 'deafbeef', 1, 0)`;
+
+    await mysql.query(walletSQL);
+    await mysql.query(addressSQL);
+  };
+
   beforeAll(async () => {
     jest.spyOn(Services, 'fetchMinRewardBlocks').mockImplementation(async () => 300);
     await cleanDatabase(mysql);
