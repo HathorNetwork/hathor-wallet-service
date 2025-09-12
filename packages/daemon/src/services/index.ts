@@ -65,6 +65,7 @@ import {
   addNewAddresses,
   updateWalletTablesWithTx,
   voidTransaction,
+  voidAddressTransaction,
   updateLastSyncedEvent as dbUpdateLastSyncedEvent,
   getLastSyncedEvent,
   getTxOutputsFromTx,
@@ -542,8 +543,9 @@ export const voidTx = async (
 
   const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputsWithLocked, headers);
 
+  await voidTransaction(mysql, hash);
   await markUtxosAsVoided(mysql, dbTxOutputs);
-  await voidTransaction(mysql, hash, addressBalanceMap);
+  await voidAddressTransaction(mysql, hash, addressBalanceMap);
 
   // CRITICAL: Unspend the inputs when voiding a transaction
   // The inputs of the voided transaction need to be marked as unspent
@@ -580,17 +582,7 @@ export const voidTx = async (
   }
 
   // CRITICAL: Update wallet balances when voiding a transaction
-  // Get wallet information for all affected addresses
-  const addressWalletMap: StringMap<Wallet> = await getAddressWalletInfo(mysql, Object.keys(addressBalanceMap));
-
-  if (Object.keys(addressWalletMap).length > 0) {
-    // Build wallet balance map from the address balance changes
-    const walletBalanceMap: StringMap<TokenBalanceMap> = getWalletBalanceMap(addressWalletMap, addressBalanceMap);
-
-    if (Object.keys(walletBalanceMap).length > 0) {
-      await voidWalletTransaction(mysql, hash, walletBalanceMap);
-    }
-  }
+  await voidWalletTransaction(mysql, hash, addressBalanceMap);
 
   const addresses = Object.keys(addressBalanceMap);
   await validateAddressBalances(mysql, addresses);
@@ -620,6 +612,7 @@ export const handleVoidedTx = async (context: Context) => {
       tokens,
       headers,
     );
+    logger.debug(`Voided tx ${hash}`);
     await mysql.commit();
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
   } catch (e) {
