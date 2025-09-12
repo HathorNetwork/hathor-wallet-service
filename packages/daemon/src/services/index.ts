@@ -544,6 +544,9 @@ export const voidTx = async (
   const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputsWithLocked, headers);
 
   await voidTransaction(mysql, hash);
+  // CRITICAL: markUtxosAsVoided must be called before voidAddressTransaction
+  // and voidWalletTransaction as those methods recalculate balances based on
+  // the UTXOs table.
   await markUtxosAsVoided(mysql, dbTxOutputs);
   await voidAddressTransaction(mysql, hash, addressBalanceMap);
 
