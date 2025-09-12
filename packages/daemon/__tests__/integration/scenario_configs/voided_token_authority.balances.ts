@@ -37,6 +37,11 @@ export default {
       unlockedBalance: 0n,
       lockedBalance: 0n,
       authorities: { unlocked: 0, locked: 0 }
+    },
+    'cafecafe:efb08b3e79e0ddaa6bc288183f66fe49a07ba0b7b2595861000478cc56447539': {
+      unlockedBalance: 0n,
+      lockedBalance: 0n,
+      authorities: { unlocked: 1, locked: 0 }
     }
   },
 };
