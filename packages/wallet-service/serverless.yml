@@ -588,12 +588,12 @@ functions:
           cors: true
     warmup:
       walletWarmer:
-        enabled: false
+        enabled: true
   bearerAuthorizer:
     handler: src/api/auth.bearerAuthorizer
     warmup:
       walletWarmer:
-        enabled: false
+        enabled: true
   metrics:
     handler: src/metrics.getMetrics
     events:

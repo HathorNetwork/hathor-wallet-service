@@ -26,6 +26,7 @@ import {
   validateAuthTimestamp,
   AUTH_MAX_TIMESTAMP_SHIFT_IN_SECONDS,
 } from '@src/utils';
+import { warmupMiddleware } from '@src/api/utils';
 import middy from '@middy/core';
 import cors from '@middy/http-cors';
 import createDefaultLogger from '@src/logger';
@@ -82,6 +83,17 @@ export const tokenHandler: APIGatewayProxyHandler = middy(async (event) => {
   const timestamp = value.ts;
   const authXpubStr = value.xpub;
   const wallet: Wallet = await getWallet(mysql, value.walletId);
+
+  if (!wallet) {
+    await closeDbConnection(mysql);
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        success: false,
+        error: ApiError.WALLET_NOT_FOUND,
+      }),
+    };
+  }
 
   const [validTimestamp, timestampShift] = validateAuthTimestamp(timestamp, Date.now() / 1000);
 
@@ -155,6 +167,7 @@ export const tokenHandler: APIGatewayProxyHandler = middy(async (event) => {
     body: JSON.stringify({ success: true, token }),
   };
 }).use(cors())
+  .use(warmupMiddleware())
   .use(errorHandler());
 
 /**
@@ -235,4 +248,5 @@ export const bearerAuthorizer: APIGatewayTokenAuthorizerHandler = middy(async (e
   }
 
   return _generatePolicy(walletId, 'Deny', event.methodArn, logger);
-}).use(cors());
+}).use(cors())
+  .use(warmupMiddleware());
