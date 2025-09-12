@@ -472,7 +472,7 @@ describe('voided token authority scenario', () => {
     await cleanDatabase(mysql);
   });
 
-  it.only('should do a full sync and the balances should match after voiding token authority', async () => {
+  it('should do a full sync and the balances should match after voiding token authority', async () => {
     // @ts-ignore
     getConfig.mockReturnValue({
       NETWORK: 'testnet',
