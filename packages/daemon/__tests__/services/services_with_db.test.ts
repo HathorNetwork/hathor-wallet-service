@@ -54,8 +54,6 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await cleanDatabase(mysql);
-  // Add a small delay to ensure database operations complete
-  await new Promise(resolve => setTimeout(resolve, 10));
 });
 
 describe('handleVoidedTx (db)', () => {
@@ -91,7 +89,6 @@ describe('handleVoidedTx (db)', () => {
       },
     };
 
-    const mysql = await db.getDbConnection();
     await expect(handleVoidedTx(context as any)).resolves.not.toThrow();
 
     const lastEvent = await db.getLastSyncedEvent(mysql);

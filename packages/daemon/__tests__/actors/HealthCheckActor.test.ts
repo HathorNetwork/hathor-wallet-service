@@ -15,6 +15,7 @@ describe('HealthCheckActor', () => {
 
     afterAll(() => {
         jest.clearAllMocks();
+        jest.useRealTimers();
     });
 
     it('should not start pinging on initialization', () => {
