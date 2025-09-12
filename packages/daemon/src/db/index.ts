@@ -452,8 +452,8 @@ export const voidAddressTransaction = async (
         );
       } else {
         // Entry doesn't exist, this means the balance was never added in the first place
-        // This can happen in tests that don't simulate the complete transaction flow
-        console.log(`Warning: Trying to void transaction for address ${address} token ${token} but no balance entry exists`);
+        // This shouldn't happen since we receive events in order
+        console.warn(`warning: Trying to void transaction for address ${address} token ${token} but no balance entry exists`);
       }
 
       // if we're removing any of the authorities, we need to refresh the authority columns. Unlike the values,
@@ -492,7 +492,7 @@ export const voidAddressTransaction = async (
 
 /**
  * Void a transaction by updating the transaction table to mark it as voided.
- * 
+ *
  * @param mysql - The MySQL connection object
  * @param txId - The ID of the transaction to be voided.
  *

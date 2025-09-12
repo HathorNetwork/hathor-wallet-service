@@ -220,7 +220,6 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
     const isNano = isNanoContract(headers);
 
-
     const dbTx: DbTransaction | null = await getTransactionById(mysql, hash);
 
     if (dbTx) {
@@ -491,7 +490,6 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
     }
 
     logger.info(`[VertexRemoved] Voiding tx: ${hash}`);
-
 
     await voidTx(
       mysql,
