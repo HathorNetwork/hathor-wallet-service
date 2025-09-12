@@ -45,6 +45,10 @@ export const cleanDatabase = async (mysql: Connection): Promise<void> => {
   }
 
   await mysql.query('SET FOREIGN_KEY_CHECKS = 1');
+  
+  // Ensure all changes are committed and flushed
+  await mysql.query('COMMIT');
+  await mysql.query('FLUSH TABLES');
 };
 
 export const fetchAddressBalances = async (

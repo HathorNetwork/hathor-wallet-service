@@ -98,6 +98,10 @@ beforeAll(async () => {
   await cleanDatabase(mysql);
 });
 
+beforeEach(async () => {
+  await cleanDatabase(mysql);
+});
+
 afterAll(async () => {
   jest.resetAllMocks();
   if (mysql && 'release' in mysql) {
