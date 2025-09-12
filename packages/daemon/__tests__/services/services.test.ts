@@ -15,6 +15,7 @@ import {
   updateLastSyncedEvent as dbUpdateLastSyncedEvent,
   getTxOutputsFromTx,
   voidTransaction,
+  voidAddressTransaction,
   getTransactionById,
   getUtxosLockedAtHeight,
   addOrUpdateTx,
@@ -67,7 +68,10 @@ jest.mock('../../src/db', () => ({
   getTxOutputsFromTx: jest.fn(),
   getTxOutput: jest.fn(),
   voidTransaction: jest.fn(),
+  voidAddressTransaction: jest.fn(),
+  voidWalletTransaction: jest.fn(),
   markUtxosAsVoided: jest.fn(),
+  unspendUtxos: jest.fn(),
   dbUpdateLastSyncedEvent: jest.fn(),
   getTransactionById: jest.fn(),
   getUtxosLockedAtHeight: jest.fn(),
@@ -416,7 +420,7 @@ describe('handleVoidedTx', () => {
 
     await handleVoidedTx(context as any);
 
-    expect(voidTransaction).toHaveBeenCalledWith(expect.any(Object), 'hashValue', {});
+    expect(voidTransaction).toHaveBeenCalledWith(expect.any(Object), 'hashValue');
     expect(logger.debug).toHaveBeenCalledWith('Will handle voided tx for hashValue');
     expect(logger.debug).toHaveBeenCalledWith('Voided tx hashValue');
     expect(mockDb.beginTransaction).toHaveBeenCalled();

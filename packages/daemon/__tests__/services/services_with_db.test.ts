@@ -98,7 +98,6 @@ describe('handleVoidedTx (db)', () => {
     expect(db.voidTransaction).toHaveBeenCalledWith(
       expect.any(Object),
       'random-hash',
-      expect.any(Object),
     );
     expect(lastEvent).toStrictEqual({
       id: expect.any(Number),
@@ -272,6 +271,10 @@ describe('voidTransaction with input unspending', () => {
     await updateTxOutputSpentBy(mysql, [inputB], txIdB);
     const outputB = createOutput(0, 100n, address2, tokenId);
     await addUtxos(mysql, txIdB, [outputB], null);
+    
+    // Only update address transaction counts (not balances) to prevent negative decrements
+    await mysql.query('INSERT INTO address (address, transactions) VALUES (?, 1) ON DUPLICATE KEY UPDATE transactions = transactions + 1', [address1]);
+    await mysql.query('INSERT INTO address (address, transactions) VALUES (?, 1) ON DUPLICATE KEY UPDATE transactions = transactions + 1', [address2]);
 
     // Transaction C spends B's output
     await addOrUpdateTx(mysql, txIdC, 0, 1, 1, 102);
@@ -279,6 +282,10 @@ describe('voidTransaction with input unspending', () => {
     await updateTxOutputSpentBy(mysql, [inputC], txIdC);
     const outputC = createOutput(0, 100n, address3, tokenId);
     await addUtxos(mysql, txIdC, [outputC], null);
+    
+    // Only update address transaction counts (not balances) to prevent negative decrements  
+    await mysql.query('INSERT INTO address (address, transactions) VALUES (?, 1) ON DUPLICATE KEY UPDATE transactions = transactions + 1', [address2]);
+    await mysql.query('INSERT INTO address (address, transactions) VALUES (?, 1) ON DUPLICATE KEY UPDATE transactions = transactions + 1', [address3]);
 
     // First void transaction C
     await voidTx(mysql, txIdC,
