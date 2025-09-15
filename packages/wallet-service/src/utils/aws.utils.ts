@@ -6,7 +6,7 @@
  */
 
 /**
- * AWS Utils and mocker for Local Development
+ * AWS Utils and mocker for Local Development -- Wallet Service Package
  *
  * This module provides mock implementations of AWS services when running offline AND in a private network without
  * EC2 instances available, for example when running inside a Dockerized private network.

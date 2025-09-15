@@ -5,7 +5,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
+import { SendMessageCommand } from '@aws-sdk/client-sqs';
+import { createSQSClient } from './aws.utils';
 import { Severity } from '../types';
 import { Logger } from 'winston';
 
@@ -39,14 +40,23 @@ export const addAlert = async (
     ALERT_MANAGER_ACCOUNT_ID,
     ALERT_MANAGER_REGION,
     ALERT_MANAGER_TOPIC,
+    BOCK_AWS,
   } = process.env;
 
   const account_id = ALERT_MANAGER_ACCOUNT_ID || ACCOUNT_ID;
   const QUEUE_URL = `https://sqs.${ALERT_MANAGER_REGION}.amazonaws.com/${account_id}/${ALERT_MANAGER_TOPIC}`;
 
-  const client = new SQSClient({
+  logger.log({
+    level: 'info',
+    message: `[ALERT] Sending alert with this env vars`,
+    alertEnvVars: { ...process.env }
+  })
+  const client = createSQSClient({
     endpoint: QUEUE_URL,
     region: ALERT_MANAGER_REGION,
+  }, {
+    shouldMockAWS: BOCK_AWS === 'true',
+    logger,
   });
   const command = new SendMessageCommand({
     QueueUrl: QUEUE_URL,
