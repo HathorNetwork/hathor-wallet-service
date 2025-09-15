@@ -92,11 +92,12 @@ export const SyncMachine = Machine<Context, any, Event>({
     retryAttempt: 0,
     event: null,
     initialEventId: null,
-    txCache: new LRU(TX_CACHE_SIZE),
+    txCache: null as any, // Will be set on entry
   },
   states: {
     [SYNC_MACHINE_STATES.INITIALIZING]: {
       entry: assign({
+        txCache: () => new LRU(TX_CACHE_SIZE),
         healthcheck: () => spawn(HealthCheckActor),
       }),
       invoke: {

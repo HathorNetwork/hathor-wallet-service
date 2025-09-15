@@ -207,7 +207,7 @@ describe('single chain blocks and transactions scenario', () => {
     });
 
     const machine = interpret(SyncMachine);
-
+    
     // @ts-expect-error
     await transitionUntilEvent(mysql, machine, SINGLE_CHAIN_BLOCKS_AND_TRANSACTIONS_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
@@ -384,7 +384,7 @@ describe('transaction voiding chain scenario', () => {
     });
 
     const machine = interpret(SyncMachine);
-
+    
     // @ts-ignore
     await transitionUntilEvent(mysql, machine, TRANSACTION_VOIDING_CHAIN_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);

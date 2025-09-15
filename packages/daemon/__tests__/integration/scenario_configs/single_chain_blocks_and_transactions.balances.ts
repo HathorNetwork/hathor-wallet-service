@@ -14,7 +14,7 @@ export default {
     'HRH8Wbmr1A3BrLswSBhvVE4hhsv4jUdyVA:00': { unlockedBalance: 3400n, lockedBalance: 0n },
     'HSd6PqXesUmHHv6MoN24aUiMuw7Pdcxrwk:00': { unlockedBalance: 0n, lockedBalance: 6400n },
     'HNqTfEASfdx7H4vMUGzfD2HyD3GeKuxjTJ:00': { unlockedBalance: 0n, lockedBalance: 0n },
-    // 'HRXVDmLVdq8pgok1BCUKpiFWdAVAy4a5AJ:00': { unlockedBalance: 0n, lockedBalance: 100000000000n },
+    'HRXVDmLVdq8pgok1BCUKpiFWdAVAy4a5AJ:00': { unlockedBalance: 0n, lockedBalance: 100000000000n },
   },
   walletBalances: {},
 }

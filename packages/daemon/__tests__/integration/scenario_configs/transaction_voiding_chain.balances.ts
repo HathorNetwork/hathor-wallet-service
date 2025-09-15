@@ -30,11 +30,11 @@ export default {
       lockedBalance: 0n,
       authorities: { locked: 0, unlocked: 2 }
     },
-    // HRXVDmLVdq8pgok1BCUKpiFWdAVAy4a5AJ - HTR (00): unlocked=100000000000, locked=0
-    /* 'HRXVDmLVdq8pgok1BCUKpiFWdAVAy4a5AJ:00': {
-      unlockedBalance: 100000000000n,
-      lockedBalance: 0n
-    }, */
+    // HRXVDmLVdq8pgok1BCUKpiFWdAVAy4a5AJ - HTR (00): unlocked=0, locked=100000000000 (genesis tx)
+    'HRXVDmLVdq8pgok1BCUKpiFWdAVAy4a5AJ:00': {
+      unlockedBalance: 0n,
+      lockedBalance: 100000000000n
+    },
     // HPNvtPZaDF44i6CL91u4BvZPu6z2xPNt26 - HTR (00): unlocked=5900, locked=0
     'HPNvtPZaDF44i6CL91u4BvZPu6z2xPNt26:00': {
       unlockedBalance: 5900n,
