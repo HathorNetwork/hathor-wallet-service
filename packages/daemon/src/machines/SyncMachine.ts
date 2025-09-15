@@ -92,7 +92,7 @@ export const SyncMachine = Machine<Context, any, Event>({
     retryAttempt: 0,
     event: null,
     initialEventId: null,
-    txCache: null as any, // Will be set on entry
+    txCache: null,
   },
   states: {
     [SYNC_MACHINE_STATES.INITIALIZING]: {
