@@ -41,8 +41,9 @@ export function createSQSClient(sqsConfig: { endpoint?: string; region?: string 
   };
   envConfig.logger?.log({
     level: 'debug',
-    message: `[AWS Common Utils] Creating ${envConfig.shouldMockAWS ? 'mocked' : 'actual'} SQSClient with config: ${JSON.stringify(clientConfig)}`,
-  })
+    message: `[AWS Common Utils] Creating ${envConfig.shouldMockAWS ? 'mocked' : 'actual'} SQSClient`,
+    clientConfig
+  });
 
   // If not mocking, return a real SQSClient
   if (!envConfig.shouldMockAWS) {
@@ -51,11 +52,6 @@ export function createSQSClient(sqsConfig: { endpoint?: string; region?: string 
     }
     return new SQSClient(clientConfig);
   }
-
-  envConfig.logger?.log({
-    level: 'debug',
-    message: '[AWS Mock] Creating mocked SQSClient for offline development',
-  });
   clientConfig.credentials = mockCredentials;
   clientConfig.endpoint = sqsConfig.endpoint;
 

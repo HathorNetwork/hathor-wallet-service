@@ -26,6 +26,7 @@ export const connectionInfoFromEvent = (
   event: APIGatewayProxyEvent,
 ): WsConnectionInfo => {
   const logger: Logger = createDefaultLogger();
+  logger.defaultMeta = { title: 'connectionInfoFromEvent' };
   const connID = event.requestContext.connectionId;
   if (config.isOffline) {
     // This will enter when running the service on serverless offline mode
@@ -77,6 +78,19 @@ export const sendMessageToClient = async (
     const response: PostToConnectionCommandOutput = await apiGwClient.send(command);
 
     if (response.$metadata.httpStatusCode !== 200) {
+
+      /*
+       In offline mode, the response may have a 204 status code, which is not an error.
+       It's just an alternate implementation to a response that's not supposed to have any content, and thus can be
+       represented by a 204 No Content status code.
+
+       See:
+       https://docs.aws.amazon.com/cli/latest/reference/apigatewaymanagementapi/post-to-connection.html#examples
+      */
+      if (response.$metadata.httpStatusCode === 204 && config.isOffline) {
+        return;
+      }
+
       logger.error(response.$metadata);
       throw new Error(`Status code from post to connection is not 200: ${response.$metadata.httpStatusCode}`);
     }
@@ -86,7 +100,11 @@ export const sendMessageToClient = async (
       return endWsConnection(client, connInfo.id);
     }
 
-    logger.error(e);
+    logger.error({
+      contextFn: 'sendMessageToClient error',
+      error: e,
+      message
+    });
 
     // Unhandled exception. We shouldn't end the connection as it might be a temporary
     // instability with api gateway.

@@ -40,22 +40,16 @@ export const addAlert = async (
     ALERT_MANAGER_ACCOUNT_ID,
     ALERT_MANAGER_REGION,
     ALERT_MANAGER_TOPIC,
-    BOCK_AWS,
   } = process.env;
 
   const account_id = ALERT_MANAGER_ACCOUNT_ID || ACCOUNT_ID;
   const QUEUE_URL = `https://sqs.${ALERT_MANAGER_REGION}.amazonaws.com/${account_id}/${ALERT_MANAGER_TOPIC}`;
 
-  logger.log({
-    level: 'info',
-    message: `[ALERT] Sending alert with this env vars`,
-    alertEnvVars: { ...process.env }
-  })
   const client = createSQSClient({
     endpoint: QUEUE_URL,
     region: ALERT_MANAGER_REGION,
   }, {
-    shouldMockAWS: BOCK_AWS === 'true',
+    shouldMockAWS: true, // FIXME: change to process.env.MOCK_AWS when available
     logger,
   });
   const command = new SendMessageCommand({
