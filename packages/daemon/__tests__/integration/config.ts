@@ -11,7 +11,7 @@ export const UNVOIDED_SCENARIO_PORT = 8081;
 // Last event is actually 39, but event 39 is ignored by the machine (because
 // the transaction is already added), and when we ignore an event, we don't store
 // it in the database.
-export const UNVOIDED_SCENARIO_LAST_EVENT = 38;
+export const UNVOIDED_SCENARIO_LAST_EVENT = 39;
 
 // reorg
 export const REORG_SCENARIO_PORT = 8082;
@@ -37,6 +37,12 @@ export const EMPTY_SCRIPT_LAST_EVENT = 37;
 export const NC_EVENTS_PORT = 8088;
 export const NC_EVENTS_LAST_EVENT = 36;
 
+export const TRANSACTION_VOIDING_CHAIN_PORT = 8089;
+export const TRANSACTION_VOIDING_CHAIN_LAST_EVENT = 52;
+
+export const VOIDED_TOKEN_AUTHORITY_PORT = 8090;
+export const VOIDED_TOKEN_AUTHORITY_LAST_EVENT = 66;
+
 export const SCENARIOS = [
   'UNVOIDED_SCENARIO',
   'REORG_SCENARIO',
@@ -45,4 +51,6 @@ export const SCENARIOS = [
   'EMPTY_SCRIPT',
   'CUSTOM_SCRIPT',
   'NC_EVENTS',
+  'TRANSACTION_VOIDING_CHAIN',
+  'VOIDED_TOKEN_AUTHORITY',
 ];

@@ -15,6 +15,6 @@ export interface Context {
   retryAttempt: number;
   event?: FullNodeEvent | null;
   initialEventId: null | number;
-  txCache: LRU;
+  txCache: LRU | null;
   rewardMinBlocks?: number | null;
 }

@@ -10,5 +10,6 @@ module.exports = {
     }]
   },
   testPathIgnorePatterns: ['<rootDir>/__tests__/integration/'],
-  moduleFileExtensions: ["ts", "js", "json", "node"]
+  moduleFileExtensions: ["ts", "js", "json", "node"],
+  forceExit: true
 };

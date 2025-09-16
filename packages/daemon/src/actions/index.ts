@@ -166,11 +166,15 @@ export const metadataDecided = raise((_context: Context, event: Event) => ({
  * Updates the cache with the last processed event (from the context)
  */
 export const updateCache = (context: Context) => {
+  if (!context.txCache) {
+    throw new Error('TxCache was not initialized');
+  }
+
   const fullNodeEvent = context.event as StandardFullNodeEvent;
   if (!fullNodeEvent) {
     return;
   }
-  const { metadata, hash }  = fullNodeEvent.event.data;
+  const { metadata, hash } = fullNodeEvent.event.data;
   const hashedTxData = hashTxData(metadata);
 
   context.txCache.set(hash, hashedTxData);

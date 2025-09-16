@@ -145,6 +145,7 @@ export interface Wallet {
   retryCount?: number;
   createdAt?: number;
   readyAt?: number;
+  lastUsedAddressIndex?: number;
 }
 
 export interface AddressInfo {
