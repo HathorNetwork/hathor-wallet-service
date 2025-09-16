@@ -195,8 +195,8 @@ export const voided = (_context: Context, event: Event) => {
   }
 
   if (event.event.event.type !== FullNodeEventTypes.VERTEX_METADATA_CHANGED
-      && event.event.event.type !== FullNodeEventTypes.NEW_VERTEX_ACCEPTED) {
-        return false;
+    && event.event.event.type !== FullNodeEventTypes.NEW_VERTEX_ACCEPTED) {
+    return false;
   }
 
   const fullNodeEvent = event.event.event;
@@ -218,7 +218,7 @@ export const unchanged = (context: Context, event: Event) => {
   }
 
   if (event.event.event.type !== FullNodeEventTypes.VERTEX_METADATA_CHANGED
-      && event.event.event.type !== FullNodeEventTypes.NEW_VERTEX_ACCEPTED) {
+    && event.event.event.type !== FullNodeEventTypes.NEW_VERTEX_ACCEPTED) {
 
     // Not unchanged
     return false;
@@ -227,6 +227,10 @@ export const unchanged = (context: Context, event: Event) => {
   const { data } = event.event.event;
 
   const txCache = context.txCache;
+  if (!txCache) {
+    throw new Error('txCache is not initialized in context');
+  }
+
   const txHashFromCache = txCache.get(data.hash);
   // Not on the cache, it's not unchanged.
   if (!txHashFromCache) {

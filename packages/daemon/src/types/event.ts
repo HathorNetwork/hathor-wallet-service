@@ -14,14 +14,14 @@ export type WebSocketEvent =
 
 export type WebSocketSendEvent =
   | {
-      type: 'START_STREAM';
-      window_size: number;
-      last_ack_event_id?: number;
+    type: 'START_STREAM';
+    window_size: number;
+    last_ack_event_id?: number;
   }
   | {
-      type: 'ACK';
-      window_size: number;
-      ack_event_id?: number;
+    type: 'ACK';
+    window_size: number;
+    ack_event_id?: number;
   };
 
 export type HealthCheckEvent =
@@ -43,8 +43,8 @@ export enum FullNodeEventTypes {
   LOAD_STARTED = 'LOAD_STARTED',
   LOAD_FINISHED = 'LOAD_FINISHED',
   REORG_STARTED = 'REORG_STARTED',
-  REORG_FINISHED= 'REORG_FINISHED',
-  NC_EVENT= 'NC_EVENT',
+  REORG_FINISHED = 'REORG_FINISHED',
+  NC_EVENT = 'NC_EVENT',
 }
 
 /**
@@ -76,7 +76,7 @@ export type Event =
   | { type: EventTypes.FULLNODE_EVENT, event: FullNodeEvent }
   | { type: EventTypes.METADATA_DECIDED, event: MetadataDecidedEvent }
   | { type: EventTypes.WEBSOCKET_SEND_EVENT, event: WebSocketSendEvent }
-  | { type: EventTypes.HEALTHCHECK_EVENT, event: HealthCheckEvent};
+  | { type: EventTypes.HEALTHCHECK_EVENT, event: HealthCheckEvent };
 
 
 export interface VertexRemovedEventData {
@@ -105,7 +105,7 @@ export const EventTxOutputSchema = z.object({
       timelock: z.number().nullable(),
     }).passthrough().nullable(),
     z.object({
-      token_data: z.number(),
+      token_data: z.number().nullable(),
     }),
     z.object({}).strict(),
   ]),
@@ -120,11 +120,11 @@ export const EventTxInputSchema = z.object({
 export type EventTxInput = z.infer<typeof EventTxInputSchema>;
 
 export const EventTxNanoHeaderSchema = z.object({
-    id: z.string(),
-    nc_seqnum: z.number(),
-    nc_id: z.string(),
-    nc_method: z.string(),
-    nc_address: z.string(),
+  id: z.string(),
+  nc_seqnum: z.number(),
+  nc_id: z.string(),
+  nc_method: z.string(),
+  nc_address: z.string(),
 });
 export type EventTxNanoHeader = z.infer<typeof EventTxNanoHeaderSchema>;
 

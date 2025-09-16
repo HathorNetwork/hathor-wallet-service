@@ -40,7 +40,8 @@ import {
   updateTxOutputSpentBy,
   updateWalletLockedBalance,
   updateWalletTablesWithTx,
-  voidTransaction
+  voidTransaction,
+  voidAddressTransaction
 } from '../../src/db';
 import { Connection } from 'mysql2/promise';
 import {
@@ -1223,7 +1224,8 @@ describe('voidTransaction', () => {
       }),
     };
 
-    await voidTransaction(mysql, txId, addressBalance);
+    await voidTransaction(mysql, txId);
+    await voidAddressTransaction(mysql, txId, addressBalance);
 
     await expect(checkAddressBalanceTable(mysql, 2, addr1, token2, 1n, 0n, null, 3)).resolves.toBe(true);
     await expect(checkAddressBalanceTable(mysql, 2, addr1, token1, 1n, 0n, null, 4)).resolves.toBe(true);
@@ -1247,7 +1249,7 @@ describe('voidTransaction', () => {
 
     const addressBalance: StringMap<TokenBalanceMap> = {};
 
-    await expect(voidTransaction(mysql, txId, addressBalance)).resolves.not.toThrow();
+    await expect(voidTransaction(mysql, txId)).resolves.not.toThrow();
     // Tx should be voided
     await expect(checkTransactionTable(mysql, 1, txId, 0, constants.BLOCK_VERSION, true, 1)).resolves.toBe(true);
   });
@@ -1255,7 +1257,7 @@ describe('voidTransaction', () => {
   it('should throw an error if the transaction is not found in the database', async () => {
     expect.hasAssertions();
 
-    await expect(voidTransaction(mysql, 'mysterious-transaction', {})).rejects.toThrow('Tried to void a transaction that is not in the database.');
+    await expect(voidTransaction(mysql, 'mysterious-transaction')).rejects.toThrow('Tried to void a transaction that is not in the database.');
   });
 });
 

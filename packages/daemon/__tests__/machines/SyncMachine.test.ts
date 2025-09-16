@@ -69,7 +69,7 @@ describe('machine initialization', () => {
   it('should fetch initial state, connect to websocket and validate network before transitioning to idle', () => {
     const MockedFetchMachine = SyncMachine.withConfig({
       actions: {
-        startStream: () => {},
+        startStream: () => { },
       },
     });
 
@@ -118,8 +118,10 @@ describe('machine initialization', () => {
 
     currentState = MockedFetchMachine.transition(currentState, {
       type: EventTypes.WEBSOCKET_EVENT,
-      event: { type: 'DISCONNECTED',
-    }});
+      event: {
+        type: 'DISCONNECTED',
+      }
+    });
 
     expect(currentState.matches(SYNC_MACHINE_STATES.RECONNECTING)).toBeTruthy();
   });
@@ -163,7 +165,7 @@ describe('machine initialization', () => {
   it('should transition to RECONNECTING to reconnect after a failure', () => {
     const MockedFetchMachine = SyncMachine.withConfig({
       actions: {
-        startStream: () => {},
+        startStream: () => { },
       },
     });
 
@@ -215,18 +217,22 @@ describe('Event handling', () => {
   });
 
   it('should validate the peerid on every message', () => {
+    process.env.FULLNODE_PEER_ID = 'invalidPeerId';
+
     const MockedFetchMachine = SyncMachine.withConfig({
       guards: {
         invalidPeerId,
-        invalidStreamId: () => {
-          return false;
-        }
+        invalidStreamId: () => false,
+        invalidNetwork: () => false,
       },
     });
 
     let currentState = untilIdle(MockedFetchMachine);
 
-    process.env.FULLNODE_PEER_ID = 'invalidPeerId';
+    // Manually initialize txCache since untilIdle doesn't execute entry actions
+    if (!currentState.context.txCache) {
+      currentState.context.txCache = new LRU(TX_CACHE_SIZE);
+    }
 
     currentState = MockedFetchMachine.transition(currentState, {
       type: EventTypes.FULLNODE_EVENT,
@@ -237,15 +243,22 @@ describe('Event handling', () => {
   });
 
   it('should validate the stream id on every message', () => {
+    process.env.STREAM_ID = 'invalidStreamId';
+
     const MockedFetchMachine = SyncMachine.withConfig({
       guards: {
+        invalidPeerId: () => false,
         invalidStreamId,
+        invalidNetwork: () => false,
       },
     });
 
     let currentState = untilIdle(MockedFetchMachine);
 
-    process.env.STREAM_ID  = 'invalidStreamId';
+    // Manually initialize txCache since untilIdle doesn't execute entry actions
+    if (!currentState.context.txCache) {
+      currentState.context.txCache = new LRU(TX_CACHE_SIZE);
+    }
 
     currentState = MockedFetchMachine.transition(currentState, {
       type: EventTypes.FULLNODE_EVENT,
@@ -268,23 +281,22 @@ describe('Event handling', () => {
         invalidNetwork: () => false,
         unchanged: unchangedMock,
       },
-    }).withContext({
-      event: null,
-      socket: null,
-      healthcheck: null,
-      retryAttempt: 0,
-      initialEventId: 0,
-      txCache: TxCache,
     });
 
     unchangedMock.mockImplementation(unchanged);
 
     let currentState = untilIdle(MockedFetchMachine);
 
+    // Manually initialize txCache since untilIdle doesn't execute entry actions
+    if (!currentState.context.txCache) {
+      currentState.context.txCache = new LRU(TX_CACHE_SIZE);
+    }
+    const machineCache = currentState.context.txCache;
+
     expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.idle}`)).toBeTruthy();
 
     const hashedTx = hashTxData(VERTEX_METADATA_CHANGED.event.data.metadata);
-    TxCache.set(VERTEX_METADATA_CHANGED.event.data.hash, hashedTx);
+    machineCache.set(VERTEX_METADATA_CHANGED.event.data.hash, hashedTx);
 
     currentState = MockedFetchMachine.transition(currentState, {
       type: EventTypes.FULLNODE_EVENT,
@@ -301,7 +313,7 @@ describe('Event handling', () => {
     // @ts-ignore: last event id should be the event we sent
     expect(currentState.context.event.event.id).toStrictEqual(VERTEX_METADATA_CHANGED.event.id);
 
-    TxCache.clear();
+    machineCache.clear();
 
     currentState = MockedFetchMachine.transition(currentState, {
       type: EventTypes.FULLNODE_EVENT,

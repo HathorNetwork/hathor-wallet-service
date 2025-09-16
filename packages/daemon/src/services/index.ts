@@ -65,6 +65,7 @@ import {
   addNewAddresses,
   updateWalletTablesWithTx,
   voidTransaction,
+  voidAddressTransaction,
   updateLastSyncedEvent as dbUpdateLastSyncedEvent,
   getLastSyncedEvent,
   getTxOutputsFromTx,
@@ -73,11 +74,15 @@ import {
   getMaxIndicesForWallets,
   setAddressSeqnum,
   getAddressSeqnum,
+  unspendUtxos,
+  voidWalletTransaction,
+  getTxOutput,
 } from '../db';
 import getConfig from '../config';
 import logger from '../logger';
 import { invokeOnTxPushNotificationRequestedLambda } from '../utils';
 import { addAlert, Severity } from '@wallet-service/common';
+import { JSONBigInt } from '@hathor/wallet-lib/lib/utils/bigint';
 
 export const METADATA_DIFF_EVENT_TYPES = {
   IGNORE: 'IGNORE',
@@ -485,6 +490,7 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
     }
 
     logger.info(`[VertexRemoved] Voiding tx: ${hash}`);
+
     await voidTx(
       mysql,
       hash,
@@ -534,8 +540,50 @@ export const voidTx = async (
   });
 
   const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputsWithLocked, headers);
-  await voidTransaction(mysql, hash, addressBalanceMap);
+
+  await voidTransaction(mysql, hash);
+  // CRITICAL: markUtxosAsVoided must be called before voidAddressTransaction
+  // and voidWalletTransaction as those methods recalculate balances based on
+  // the UTXOs table.
   await markUtxosAsVoided(mysql, dbTxOutputs);
+  await voidAddressTransaction(mysql, hash, addressBalanceMap);
+
+  // CRITICAL: Unspend the inputs when voiding a transaction
+  // The inputs of the voided transaction need to be marked as unspent
+  // But only if they were actually spent by this transaction
+  if (inputs.length > 0) {
+    // First, check which inputs were actually spent by this transaction
+    const inputsSpentByThisTx: DbTxOutput[] = [];
+
+    for (const input of inputs) {
+      // Get the current state of this output to check if it's spent by our transaction
+      const currentOutput = await getTxOutput(mysql, input.tx_id, input.index, false);
+
+
+      if (currentOutput && currentOutput.spentBy === hash) {
+        inputsSpentByThisTx.push({
+          txId: input.tx_id,
+          index: input.index,
+          tokenId: '', // Not needed for unspending
+          address: '', // Not needed for unspending
+          value: BigInt(0), // Not needed for unspending
+          authorities: 0, // Not needed for unspending
+          timelock: null, // Not needed for unspending
+          heightlock: null, // Not needed for unspending
+          locked: false, // Not needed for unspending
+          spentBy: hash, // This is what we're unsetting
+          voided: false, // Not needed for unspending
+        });
+      }
+    }
+
+    if (inputsSpentByThisTx.length > 0) {
+      await unspendUtxos(mysql, inputsSpentByThisTx);
+    }
+  }
+
+  // CRITICAL: Update wallet balances when voiding a transaction
+  await voidWalletTransaction(mysql, hash, addressBalanceMap);
 
   const addresses = Object.keys(addressBalanceMap);
   await validateAddressBalances(mysql, addresses);
@@ -566,7 +614,6 @@ export const handleVoidedTx = async (context: Context) => {
       headers,
     );
     logger.debug(`Voided tx ${hash}`);
-
     await mysql.commit();
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
   } catch (e) {
@@ -655,7 +702,7 @@ export const updateLastSyncedEvent = async (context: Context) => {
     && lastDbSyncedEvent.last_event_id > lastEventId) {
     logger.error('Tried to store an event lower than the one on the database', {
       lastEventId,
-      lastDbSyncedEvent: JSON.stringify(lastDbSyncedEvent),
+      lastDbSyncedEvent: JSONBigInt.stringify(lastDbSyncedEvent),
     });
     mysql.destroy();
     throw new Error('Event lower than stored one.');
