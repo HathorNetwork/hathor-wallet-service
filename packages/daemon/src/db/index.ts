@@ -572,6 +572,14 @@ export const voidWalletTransaction = async (
     return;
   }
 
+  // Check if this is a token creation transaction
+  const [txResults] = await mysql.query(
+    'SELECT version FROM transaction WHERE tx_id = ?',
+    [txId]
+  );
+  const isCreateTokenTx = (txResults as any[]).length > 0
+    && (txResults as any[])[0].version === constants.CREATE_TOKEN_TX_VERSION;
+
   for (const [walletId, tokenMap] of Object.entries(walletBalanceMap)) {
     for (const [token, tokenBalance] of tokenMap.iterator()) {
       // Update wallet_balance table by reversing the transaction's impact
@@ -616,6 +624,22 @@ export const voidWalletTransaction = async (
             WHERE \`wallet_id\` = ?
               AND \`token_id\` = ?`,
           [walletId, token, walletId, token],
+        );
+      }
+
+      // If this is a token creation transaction, clean up zeroed entries
+      if (isCreateTokenTx) {
+        await mysql.query(
+          `DELETE FROM wallet_balance
+            WHERE wallet_id = ?
+              AND token_id = ?
+              AND total_received = 0
+              AND unlocked_balance = 0
+              AND locked_balance = 0
+              AND unlocked_authorities = 0
+              AND locked_authorities = 0
+              AND transactions = 0`,
+          [walletId, token]
         );
       }
     }
