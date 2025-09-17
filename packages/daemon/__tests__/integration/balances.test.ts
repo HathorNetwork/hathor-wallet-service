@@ -475,7 +475,7 @@ describe('voided token authority scenario', () => {
 
   afterAll(async () => {
     // Clean up wallet data after this test to prevent affecting other tests
-    // await cleanDatabase(mysql);
+    await cleanDatabase(mysql);
   });
 
   it('should do a full sync and the balances should match after voiding token authority', async () => {
@@ -627,6 +627,8 @@ describe('single voided create token transaction scenario', () => {
     // @ts-expect-error
     await transitionUntilEvent(mysql, machine, SINGLE_VOIDED_CREATE_TOKEN_TRANSACTION_LAST_EVENT);
 
+    const voidedTokenId = 'efb08b3e79e0ddaa6bc288183f66fe49a07ba0b7b2595861000478cc56447539';
+
     // Check for addresses that have balances for a specific token
     const addressBalanceResults = await mysql.query(`
       SELECT token_id,
@@ -637,10 +639,10 @@ describe('single voided create token transaction scenario', () => {
              BIT_OR(unlocked_authorities) AS unlocked_authorities,
              BIT_OR(locked_authorities) AS locked_authorities
         FROM address_balance
-       WHERE token_id LIKE '%' -- Get all tokens
+       WHERE token_id = ?
     GROUP BY token_id
     ORDER BY token_id
-    `);
+    `, [voidedTokenId]);
 
     // Check for transaction history for the same tokens (excluding voided)
     const txHistoryResults = await mysql.query(`
@@ -649,10 +651,10 @@ describe('single voided create token transaction scenario', () => {
              COUNT(DISTINCT tx_id) AS transactions
         FROM address_tx_history
        WHERE voided = FALSE
-         AND token_id LIKE '%' -- Get all tokens
+         AND token_id = ?
     GROUP BY token_id
     ORDER BY token_id
-    `);
+    `, [voidedTokenId]);
 
     console.log({
       addressBalanceResults,
@@ -666,7 +668,6 @@ describe('single voided create token transaction scenario', () => {
     expect(addressRows.length).toEqual(txHistoryRows.length);
 
     // Verify that the voided token was removed from the token table
-    const voidedTokenId = 'efb08b3e79e0ddaa6bc288183f66fe49a07ba0b7b2595861000478cc56447539';
     const tokenResults = await mysql.query(
       'SELECT * FROM token WHERE id = ?',
       [voidedTokenId]
