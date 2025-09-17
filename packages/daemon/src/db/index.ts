@@ -40,6 +40,7 @@ import {
   TxOutputRow,
 } from '../types';
 import getConfig from '../config';
+import { constants } from '@hathor/wallet-lib';
 
 let pool: Pool;
 
@@ -396,11 +397,20 @@ export const voidAddressTransaction = async (
     );
   }
 
+  // Check if this is a token creation transaction
+  const [txResults] = await mysql.query(
+    'SELECT version FROM transaction WHERE tx_id = ?',
+    [txId]
+  );
+
+  const isCreateTokenTx = txResults.length > 0
+    && txResults[0].version === constants.CREATE_TOKEN_TX_VERSION;
+
   for (const [address, tokenMap] of Object.entries(addressBalanceMap)) {
     for (const [token, tokenBalance] of tokenMap.iterator()) {
       // Check if address_balance entry exists first
       const [existingRows] = await mysql.query(
-        'SELECT total_received FROM address_balance WHERE address = ? AND token_id = ?',
+        'SELECT * FROM address_balance WHERE address = ? AND token_id = ?',
         [address, token]
       );
 
@@ -463,6 +473,31 @@ export const voidAddressTransaction = async (
       // for locked authorities, it doesn't make sense to perform the same operation. The authority needs to be
       // unlocked before it can be spent. In case we're just adding new locked authorities, this will be taken
       // care by the first sql query.
+
+      // If this is a token creation transaction, we must remove the address_balance
+      // row for that token as it has ceased to exist
+      if (isCreateTokenTx) {
+        await mysql.query(
+          `DELETE FROM address_balance
+            WHERE address = ?
+              AND token_id = ?
+              AND total_received = 0
+              AND unlocked_balance = 0
+              AND locked_balance = 0
+              AND unlocked_authorities = 0
+              AND locked_authorities = 0
+              AND transactions = 0`,
+          [address, token]
+        );
+
+        // The transaction that created the token was voided, so we can remove
+        // it from the tokens table as well.
+        await mysql.query(
+          `DELETE FROM token
+            WHERE id = ?`,
+          [token]
+        );
+      }
     }
   }
 

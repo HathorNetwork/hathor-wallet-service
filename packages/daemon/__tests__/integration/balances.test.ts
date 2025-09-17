@@ -626,5 +626,15 @@ describe('single voided create token transaction scenario', () => {
     const txHistoryRows = txHistoryResults[0] as any[];
 
     expect(addressRows.length).toEqual(txHistoryRows.length);
+
+    // Verify that the voided token was removed from the token table
+    const voidedTokenId = 'efb08b3e79e0ddaa6bc288183f66fe49a07ba0b7b2595861000478cc56447539';
+    const tokenResults = await mysql.query(
+      'SELECT * FROM token WHERE id = ?',
+      [voidedTokenId]
+    );
+
+    // Token should not exist in the database after being voided
+    expect(tokenResults[0]).toHaveLength(0);
   }, 30000);
 });
