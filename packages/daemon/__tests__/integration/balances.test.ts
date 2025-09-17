@@ -656,11 +656,6 @@ describe('single voided create token transaction scenario', () => {
     ORDER BY token_id
     `, [voidedTokenId]);
 
-    console.log({
-      addressBalanceResults,
-      txHistoryResults
-    });
-
     // Cast to array to access length property
     const addressRows = addressBalanceResults[0] as any[];
     const txHistoryRows = txHistoryResults[0] as any[];
