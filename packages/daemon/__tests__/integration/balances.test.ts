@@ -531,6 +531,41 @@ describe('voided token authority scenario', () => {
 });
 
 describe('single voided create token transaction scenario', () => {
+  const initializeWallet = async (mysql: Connection): Promise<void> => {
+    // Insert wallet records
+    const walletSQL = `
+      INSERT INTO wallet (
+          id,
+          xpubkey,
+          status,
+          max_gap,
+          created_at,
+          ready_at,
+          retry_count,
+          auth_xpubkey,
+          last_used_address_index
+      ) VALUES
+      (
+          'test-wallet-voided-token',
+          'xpub6F81iNtH5HVknoJ65cK2XAGA5F3okdJK7WHwVAAPZnSir2sfwbhvB9ffNKQ4wLor75QxPe9p12tqt8xUZSG8i8AAPMpkFho7fbWkBJQ5s1x',
+          'ready',
+          20,
+          UNIX_TIMESTAMP(),
+          UNIX_TIMESTAMP(),
+          0,
+          'xpub6F81iNtH5HVknoJ65cK2XAGA5F3okdJK7WHwVAAPZnSir2sfwbhvB9ffNKQ4wLor75QxPe9p12tqt8xUZSG8i8AAPMpkFho7fbWkBJQ5s1x',
+          -1
+      )`;
+
+    // Insert address records that will receive the voided token
+    const addressSQL = `
+      INSERT INTO address (address, \`index\`, wallet_id, transactions, seqnum) VALUES
+      ('HRQe4CXj8AZXzSmuNztU8iQR74QTQMbnTs', 0, 'test-wallet-voided-token', 0, 0)`;
+
+    await mysql.query(walletSQL);
+    await mysql.query(addressSQL);
+  };
+
   beforeAll(async () => {
     jest.spyOn(Services, 'fetchMinRewardBlocks').mockImplementation(async () => 300);
     await cleanDatabase(mysql);
@@ -584,6 +619,9 @@ describe('single voided create token transaction scenario', () => {
       DB_PORT,
     });
 
+    // Initialize wallet before processing events
+    await initializeWallet(mysql);
+
     const machine = interpret(SyncMachine);
 
     // @ts-expect-error
@@ -636,5 +674,14 @@ describe('single voided create token transaction scenario', () => {
 
     // Token should not exist in the database after being voided
     expect(tokenResults[0]).toHaveLength(0);
+
+    // Verify that the wallet_balance table doesn't contain the voided token
+    const walletBalanceResults = await mysql.query(
+      'SELECT * FROM wallet_balance WHERE token_id = ?',
+      [voidedTokenId]
+    );
+
+    // Wallet balance should not exist for the voided token
+    expect(walletBalanceResults[0]).toHaveLength(0);
   }, 30000);
 });
