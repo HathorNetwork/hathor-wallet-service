@@ -96,7 +96,7 @@ services:
       - "8090:8080"
 
   single_voided_create_token_transaction:
-    image: hathornetwork/hathor-core
+    image: hathornetwork/hathor-core:sha-9828383b
     command: [
       "events_simulator",
       "--scenario", "SINGLE_VOIDED_CREATE_TOKEN_TRANSACTION",
