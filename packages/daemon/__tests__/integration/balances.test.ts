@@ -387,7 +387,6 @@ describe('transaction voiding chain scenario', () => {
     });
 
     const machine = interpret(SyncMachine);
-
     // @ts-ignore
     await transitionUntilEvent(mysql, machine, TRANSACTION_VOIDING_CHAIN_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
