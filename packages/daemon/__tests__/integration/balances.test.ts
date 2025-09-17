@@ -571,7 +571,7 @@ describe('single voided create token transaction scenario', () => {
     await cleanDatabase(mysql);
   });
 
-  it.only('should do a full sync and the balances should match', async () => {
+  it('should do a full sync and the balances should match', async () => {
     // @ts-expect-error
     getConfig.mockReturnValue({
       NETWORK: 'testnet',
@@ -599,7 +599,7 @@ describe('single voided create token transaction scenario', () => {
     await expect(validateBalances(addressBalances, singleVoidedCreateTokenTransactionBalances.addressBalances)).resolves.not.toThrow();
   }, 30000);
 
-  it.only('should expose the address_balance vs address_tx_history length mismatch issue', async () => {
+  it('should expose the address_balance vs address_tx_history length mismatch issue', async () => {
     // @ts-expect-error
     getConfig.mockReturnValue({
       NETWORK: 'testnet',
