@@ -29,6 +29,7 @@ import customScriptBalances from './scenario_configs/custom_script.balances';
 import ncEventsBalances from './scenario_configs/nc_events.balances';
 import transactionVoidingChainBalances from './scenario_configs/transaction_voiding_chain.balances';
 import voidedTokenAuthorityBalances from './scenario_configs/voided_token_authority.balances';
+import singleVoidedCreateTokenTransactionBalances from './scenario_configs/single_voided_create_token_transaction.balances';
 
 import {
   DB_NAME,
@@ -54,6 +55,8 @@ import {
   TRANSACTION_VOIDING_CHAIN_LAST_EVENT,
   VOIDED_TOKEN_AUTHORITY_PORT,
   VOIDED_TOKEN_AUTHORITY_LAST_EVENT,
+  SINGLE_VOIDED_CREATE_TOKEN_TRANSACTION_PORT,
+  SINGLE_VOIDED_CREATE_TOKEN_TRANSACTION_LAST_EVENT,
 } from './config';
 
 jest.mock('../../src/config', () => {
@@ -207,7 +210,7 @@ describe('single chain blocks and transactions scenario', () => {
     });
 
     const machine = interpret(SyncMachine);
-    
+
     // @ts-expect-error
     await transitionUntilEvent(mysql, machine, SINGLE_CHAIN_BLOCKS_AND_TRANSACTIONS_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
@@ -384,7 +387,7 @@ describe('transaction voiding chain scenario', () => {
     });
 
     const machine = interpret(SyncMachine);
-    
+
     // @ts-ignore
     await transitionUntilEvent(mysql, machine, TRANSACTION_VOIDING_CHAIN_LAST_EVENT);
     const addressBalances = await fetchAddressBalances(mysql);
@@ -473,7 +476,7 @@ describe('voided token authority scenario', () => {
 
   afterAll(async () => {
     // Clean up wallet data after this test to prevent affecting other tests
-    await cleanDatabase(mysql);
+    // await cleanDatabase(mysql);
   });
 
   it('should do a full sync and the balances should match after voiding token authority', async () => {
@@ -526,4 +529,103 @@ describe('voided token authority scenario', () => {
     // Validate consistency
     validateVoidingConsistency(voidingChecks);
   }, 30000); // 30 second timeout for voided token authority test
+});
+
+describe('single voided create token transaction scenario', () => {
+  beforeAll(async () => {
+    jest.spyOn(Services, 'fetchMinRewardBlocks').mockImplementation(async () => 300);
+    await cleanDatabase(mysql);
+  });
+
+  it.only('should do a full sync and the balances should match', async () => {
+    // @ts-expect-error
+    getConfig.mockReturnValue({
+      NETWORK: 'testnet',
+      SERVICE_NAME: 'daemon-test',
+      CONSOLE_LEVEL: 'debug',
+      TX_CACHE_SIZE: 100,
+      BLOCK_REWARD_LOCK: 300,
+      FULLNODE_PEER_ID: 'simulator_peer_id',
+      STREAM_ID: 'simulator_stream_id',
+      FULLNODE_NETWORK: 'unittests',
+      FULLNODE_HOST: `127.0.0.1:${SINGLE_VOIDED_CREATE_TOKEN_TRANSACTION_PORT}`,
+      USE_SSL: false,
+      DB_ENDPOINT,
+      DB_NAME,
+      DB_USER,
+      DB_PASS,
+      DB_PORT,
+    });
+
+    const machine = interpret(SyncMachine);
+
+    // @ts-expect-error
+    await transitionUntilEvent(mysql, machine, SINGLE_VOIDED_CREATE_TOKEN_TRANSACTION_LAST_EVENT);
+    const addressBalances = await fetchAddressBalances(mysql);
+    await expect(validateBalances(addressBalances, singleVoidedCreateTokenTransactionBalances.addressBalances)).resolves.not.toThrow();
+  }, 30000);
+
+  it.only('should expose the address_balance vs address_tx_history length mismatch issue', async () => {
+    // @ts-expect-error
+    getConfig.mockReturnValue({
+      NETWORK: 'testnet',
+      SERVICE_NAME: 'daemon-test',
+      CONSOLE_LEVEL: 'debug',
+      TX_CACHE_SIZE: 100,
+      BLOCK_REWARD_LOCK: 300,
+      FULLNODE_PEER_ID: 'simulator_peer_id',
+      STREAM_ID: 'simulator_stream_id',
+      FULLNODE_NETWORK: 'unittests',
+      FULLNODE_HOST: `127.0.0.1:${SINGLE_VOIDED_CREATE_TOKEN_TRANSACTION_PORT}`,
+      USE_SSL: false,
+      DB_ENDPOINT,
+      DB_NAME,
+      DB_USER,
+      DB_PASS,
+      DB_PORT,
+    });
+
+    const machine = interpret(SyncMachine);
+
+    // @ts-expect-error
+    await transitionUntilEvent(mysql, machine, SINGLE_VOIDED_CREATE_TOKEN_TRANSACTION_LAST_EVENT);
+
+    // Check for addresses that have balances for a specific token
+    const addressBalanceResults = await mysql.query(`
+      SELECT token_id,
+             SUM(total_received) AS total_received,
+             SUM(unlocked_balance) AS unlocked_balance,
+             SUM(locked_balance) AS locked_balance,
+             MIN(timelock_expires) AS timelock_expires,
+             BIT_OR(unlocked_authorities) AS unlocked_authorities,
+             BIT_OR(locked_authorities) AS locked_authorities
+        FROM address_balance
+       WHERE token_id LIKE '%' -- Get all tokens
+    GROUP BY token_id
+    ORDER BY token_id
+    `);
+
+    // Check for transaction history for the same tokens (excluding voided)
+    const txHistoryResults = await mysql.query(`
+      SELECT token_id,
+             SUM(balance) AS balance,
+             COUNT(DISTINCT tx_id) AS transactions
+        FROM address_tx_history
+       WHERE voided = FALSE
+         AND token_id LIKE '%' -- Get all tokens
+    GROUP BY token_id
+    ORDER BY token_id
+    `);
+
+    console.log({
+      addressBalanceResults,
+      txHistoryResults
+    });
+
+    // Cast to array to access length property
+    const addressRows = addressBalanceResults[0] as any[];
+    const txHistoryRows = txHistoryResults[0] as any[];
+
+    expect(addressRows.length).toEqual(txHistoryRows.length);
+  }, 30000);
 });

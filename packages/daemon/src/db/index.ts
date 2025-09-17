@@ -398,23 +398,6 @@ export const voidAddressTransaction = async (
 
   for (const [address, tokenMap] of Object.entries(addressBalanceMap)) {
     for (const [token, tokenBalance] of tokenMap.iterator()) {
-      // update address_balance table or update balance and transactions if there's an entry already
-      const entry = {
-        address,
-        token_id: token,
-        // totalAmountSent is the sum of the value of all outputs of this token on the tx being sent to this address
-        // which means it is the "total_received" for this address
-        total_received: tokenBalance.totalAmountSent,
-        // if it's < 0, there must be an entry already, so it will execute "ON DUPLICATE KEY UPDATE" instead of setting it to 0
-        unlocked_balance: (tokenBalance.unlockedAmount < 0 ? 0 : tokenBalance.unlockedAmount),
-        // this is never less than 0, as locked balance only changes when a tx is unlocked
-        locked_balance: tokenBalance.lockedAmount,
-        unlocked_authorities: tokenBalance.unlockedAuthorities.toUnsignedInteger(),
-        locked_authorities: tokenBalance.lockedAuthorities.toUnsignedInteger(),
-        timelock_expires: tokenBalance.lockExpires,
-        transactions: 1,
-      };
-
       // Check if address_balance entry exists first
       const [existingRows] = await mysql.query(
         'SELECT total_received FROM address_balance WHERE address = ? AND token_id = ?',
