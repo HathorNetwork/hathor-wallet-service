@@ -385,6 +385,7 @@ export const voidAddressTransaction = async (
   mysql: any,
   txId: string,
   addressBalanceMap: StringMap<TokenBalanceMap>,
+  version?: number,
 ): Promise<void> => {
   const addressEntries = Object.keys(addressBalanceMap).map((address) => [address, 0]);
 
@@ -398,13 +399,7 @@ export const voidAddressTransaction = async (
   }
 
   // Check if this is a token creation transaction
-  const [txResults] = await mysql.query(
-    'SELECT version FROM transaction WHERE tx_id = ?',
-    [txId]
-  );
-
-  const isCreateTokenTx = txResults.length > 0
-    && txResults[0].version === constants.CREATE_TOKEN_TX_VERSION;
+  const isCreateTokenTx = version === constants.CREATE_TOKEN_TX_VERSION;
 
   for (const [address, tokenMap] of Object.entries(addressBalanceMap)) {
     for (const [token, tokenBalance] of tokenMap.iterator()) {
@@ -555,6 +550,7 @@ export const voidWalletTransaction = async (
   mysql: MysqlConnection,
   txId: string,
   addressBalanceMap: StringMap<TokenBalanceMap>,
+  version?: number,
 ): Promise<void> => {
   // Get wallet information for all affected addresses
   const addressWalletMap: StringMap<Wallet> = await getAddressWalletInfo(mysql, Object.keys(addressBalanceMap));
@@ -573,12 +569,7 @@ export const voidWalletTransaction = async (
   }
 
   // Check if this is a token creation transaction
-  const [txResults] = await mysql.query(
-    'SELECT version FROM transaction WHERE tx_id = ?',
-    [txId]
-  );
-  const isCreateTokenTx = (txResults as any[]).length > 0
-    && (txResults as any[])[0].version === constants.CREATE_TOKEN_TX_VERSION;
+  const isCreateTokenTx = version === constants.CREATE_TOKEN_TX_VERSION;
 
   for (const [walletId, tokenMap] of Object.entries(walletBalanceMap)) {
     for (const [token, tokenBalance] of tokenMap.iterator()) {
