@@ -599,7 +599,7 @@ describe('single voided create token transaction scenario', () => {
     await expect(validateBalances(addressBalances, singleVoidedCreateTokenTransactionBalances.addressBalances)).resolves.not.toThrow();
   }, 30000);
 
-  it('should expose the address_balance vs address_tx_history length mismatch issue', async () => {
+  it('addresses_balance and address_tx_history row length must match after a void transaction scenario', async () => {
     // @ts-expect-error
     getConfig.mockReturnValue({
       NETWORK: 'testnet',
