@@ -1,3 +1,3 @@
-import { stopGLLBackgroundTask } from '@hathor/wallet-lib';
+const { stopGLLBackgroundTask } = require('@hathor/wallet-lib');
 
 stopGLLBackgroundTask();
