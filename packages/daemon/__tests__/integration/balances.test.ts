@@ -30,6 +30,7 @@ import ncEventsBalances from './scenario_configs/nc_events.balances';
 import transactionVoidingChainBalances from './scenario_configs/transaction_voiding_chain.balances';
 import voidedTokenAuthorityBalances from './scenario_configs/voided_token_authority.balances';
 import singleVoidedCreateTokenTransactionBalances from './scenario_configs/single_voided_create_token_transaction.balances';
+import singleVoidedRegularTransactionBalances from './scenario_configs/single_voided_regular_transaction.balances';
 
 import {
   DB_NAME,
@@ -57,6 +58,8 @@ import {
   VOIDED_TOKEN_AUTHORITY_LAST_EVENT,
   SINGLE_VOIDED_CREATE_TOKEN_TRANSACTION_PORT,
   SINGLE_VOIDED_CREATE_TOKEN_TRANSACTION_LAST_EVENT,
+  SINGLE_VOIDED_REGULAR_TRANSACTION_PORT,
+  SINGLE_VOIDED_REGULAR_TRANSACTION_LAST_EVENT,
 } from './config';
 
 jest.mock('../../src/config', () => {
@@ -475,7 +478,7 @@ describe('voided token authority scenario', () => {
 
   afterAll(async () => {
     // Clean up wallet data after this test to prevent affecting other tests
-    await cleanDatabase(mysql);
+    // await cleanDatabase(mysql);
   });
 
   it('should do a full sync and the balances should match after voiding token authority', async () => {
@@ -679,5 +682,95 @@ describe('single voided create token transaction scenario', () => {
 
     // Wallet balance should not exist for the voided token
     expect(walletBalanceResults[0]).toHaveLength(0);
+  }, 30000);
+});
+
+describe('single voided regular transaction scenario', () => {
+  beforeAll(async () => {
+    jest.spyOn(Services, 'fetchMinRewardBlocks').mockImplementation(async () => 300);
+    await cleanDatabase(mysql);
+  });
+
+  it('should do a full sync and the balances should match', async () => {
+    // @ts-expect-error
+    getConfig.mockReturnValue({
+      NETWORK: 'testnet',
+      SERVICE_NAME: 'daemon-test',
+      CONSOLE_LEVEL: 'debug',
+      TX_CACHE_SIZE: 100,
+      BLOCK_REWARD_LOCK: 300,
+      FULLNODE_PEER_ID: 'simulator_peer_id',
+      STREAM_ID: 'simulator_stream_id',
+      FULLNODE_NETWORK: 'unittests',
+      FULLNODE_HOST: `127.0.0.1:${SINGLE_VOIDED_REGULAR_TRANSACTION_PORT}`,
+      USE_SSL: false,
+      DB_ENDPOINT,
+      DB_NAME,
+      DB_USER,
+      DB_PASS,
+      DB_PORT,
+    });
+
+    const machine = interpret(SyncMachine);
+
+    // @ts-expect-error
+    await transitionUntilEvent(mysql, machine, SINGLE_VOIDED_REGULAR_TRANSACTION_LAST_EVENT);
+    const addressBalances = await fetchAddressBalances(mysql);
+    await expect(validateBalances(addressBalances, singleVoidedRegularTransactionBalances.addressBalances)).resolves.not.toThrow();
+  }, 30000);
+
+  it('addresses_balance and address_tx_history row length must match after a void transaction scenario', async () => {
+    // @ts-expect-error
+    getConfig.mockReturnValue({
+      NETWORK: 'testnet',
+      SERVICE_NAME: 'daemon-test',
+      CONSOLE_LEVEL: 'debug',
+      TX_CACHE_SIZE: 100,
+      BLOCK_REWARD_LOCK: 300,
+      FULLNODE_PEER_ID: 'simulator_peer_id',
+      STREAM_ID: 'simulator_stream_id',
+      FULLNODE_NETWORK: 'unittests',
+      FULLNODE_HOST: `127.0.0.1:${SINGLE_VOIDED_REGULAR_TRANSACTION_PORT}`,
+      USE_SSL: false,
+      DB_ENDPOINT,
+      DB_NAME,
+      DB_USER,
+      DB_PASS,
+      DB_PORT,
+    });
+
+    const machine = interpret(SyncMachine);
+
+    // @ts-expect-error
+    await transitionUntilEvent(mysql, machine, SINGLE_VOIDED_REGULAR_TRANSACTION_LAST_EVENT);
+
+    const voidedAddress = 'HFtz2f59Lms4p3Jfgtsr73s97MbJHsRENh';
+
+    // Check for address balances for the specific address
+    const addressBalanceResults = await mysql.query(`
+      SELECT address,
+             COUNT(*) AS balance_rows
+        FROM address_balance
+       WHERE address = ?
+    GROUP BY address
+    ORDER BY address
+    `, [voidedAddress]);
+
+    // Check for transaction history for the same address (excluding voided)
+    const txHistoryResults = await mysql.query(`
+      SELECT address,
+             COUNT(*) AS history_rows
+        FROM address_tx_history
+       WHERE voided = FALSE
+         AND address = ?
+    GROUP BY address
+    ORDER BY address
+    `, [voidedAddress]);
+
+    // Cast to array to access length property
+    const addressRows = addressBalanceResults[0] as any[];
+    const txHistoryRows = txHistoryResults[0] as any[];
+
+    expect(addressRows.length).toEqual(txHistoryRows.length);
   }, 30000);
 });

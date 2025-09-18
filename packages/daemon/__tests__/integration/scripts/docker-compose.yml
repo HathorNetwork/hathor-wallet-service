@@ -105,5 +105,15 @@ services:
     ports:
       - "8091:8080"
 
+  single_voided_regular_transaction:
+    image: hathornetwork/hathor-core
+    command: [
+      "events_simulator",
+      "--scenario", "SINGLE_VOIDED_REGULAR_TRANSACTION",
+      "--seed", "1"
+    ]
+    ports:
+      - "8092:8080"
+
 networks:
   database:
