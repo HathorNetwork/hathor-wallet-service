@@ -619,21 +619,21 @@ export const voidWalletTransaction = async (
         );
       }
 
-      // If this is a token creation transaction, clean up zeroed entries
-      if (isCreateTokenTx) {
-        await mysql.query(
-          `DELETE FROM wallet_balance
-            WHERE wallet_id = ?
-              AND token_id = ?
-              AND total_received = 0
-              AND unlocked_balance = 0
-              AND locked_balance = 0
-              AND unlocked_authorities = 0
-              AND locked_authorities = 0
-              AND transactions = 0`,
-          [walletId, token]
-        );
-      }
+      // If the number of transactions is zero, it means that this transaction
+      // was removed from the wallet_tx_history as well, so we must delete the
+      // row
+      await mysql.query(
+        `DELETE FROM wallet_balance
+          WHERE wallet_id = ?
+            AND token_id = ?
+            AND total_received = 0
+            AND unlocked_balance = 0
+            AND locked_balance = 0
+            AND unlocked_authorities = 0
+            AND locked_authorities = 0
+            AND transactions = 0`,
+        [walletId, token]
+      );
     }
   }
 
