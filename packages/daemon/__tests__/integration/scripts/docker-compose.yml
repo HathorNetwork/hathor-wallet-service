@@ -76,7 +76,7 @@ services:
       - "8088:8080"
 
   transaction_voiding_chain:
-    image: hathornetwork/hathor-core:sha-9828383b
+    image: hathornetwork/hathor-core:experimental-single-voided-create-token-tx
     command: [
       "events_simulator",
       "--scenario", "TRANSACTION_VOIDING_CHAIN",
@@ -86,7 +86,7 @@ services:
       - "8089:8080"
 
   voided_token_authority:
-    image: hathornetwork/hathor-core:sha-9828383b
+    image: hathornetwork/hathor-core:experimental-single-voided-create-token-tx
     command: [
       "events_simulator",
       "--scenario", "VOIDED_TOKEN_AUTHORITY",
@@ -94,6 +94,26 @@ services:
     ]
     ports:
       - "8090:8080"
+
+  single_voided_create_token_transaction:
+    image: hathornetwork/hathor-core:experimental-single-voided-create-token-tx
+    command: [
+      "events_simulator",
+      "--scenario", "SINGLE_VOIDED_CREATE_TOKEN_TRANSACTION",
+      "--seed", "1"
+    ]
+    ports:
+      - "8091:8080"
+
+  single_voided_regular_transaction:
+    image: hathornetwork/hathor-core:experimental-single-voided-create-token-tx-python3.12
+    command: [
+      "events_simulator",
+      "--scenario", "SINGLE_VOIDED_REGULAR_TRANSACTION",
+      "--seed", "1"
+    ]
+    ports:
+      - "8092:8080"
 
 networks:
   database:

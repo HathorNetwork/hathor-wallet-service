@@ -159,7 +159,7 @@ describe('voidTransaction with input unspending', () => {
       script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
     }];
 
-    await voidTx(mysql, txIdB, inputs, outputs, [tokenId], []);
+    await voidTx(mysql, txIdB, inputs, outputs, [tokenId], [], 1);
 
     // Check if the UTXO from transaction A is unspent again
     utxo = await getTxOutput(mysql, txIdA, 0, false);
@@ -229,7 +229,7 @@ describe('voidTransaction with input unspending', () => {
       script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
     }];
 
-    await voidTx(mysql, txIdC, inputs, outputs, [tokenId], []);
+    await voidTx(mysql, txIdC, inputs, outputs, [tokenId], [], 1);
 
     // Check if UTXOs from transactions A and B are unspent again
     utxoA = await getTxOutput(mysql, txIdA, 0, true);
@@ -295,7 +295,8 @@ describe('voidTransaction with input unspending', () => {
         script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
       }],
       [tokenId],
-      []
+      [],
+      1
     );
 
     // B's output should be unspent now (and it will be with the fix)
@@ -314,7 +315,8 @@ describe('voidTransaction with input unspending', () => {
         script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
       }],
       [tokenId],
-      []
+      [],
+      1
     );
 
     // A's output should be unspent now
@@ -373,7 +375,7 @@ describe('voidTransaction with input unspending', () => {
       script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
     }];
 
-    await voidTx(mysql, txIdC, inputs, outputs, [tokenId], []);
+    await voidTx(mysql, txIdC, inputs, outputs, [tokenId], [], 1);
 
     // The UTXO should still be spent by B, not unspent
     const utxo = await getTxOutput(mysql, txIdA, 0, false);
@@ -430,7 +432,7 @@ describe('voidTransaction with input unspending', () => {
       }
     ];
 
-    await voidTx(mysql, txIdB, inputs, outputs, [hathorToken, customToken], []);
+    await voidTx(mysql, txIdB, inputs, outputs, [hathorToken, customToken], [], 1);
 
     // Both UTXOs should be unspent
     const utxo1 = await getTxOutput(mysql, txIdA, 0, true);
@@ -483,7 +485,7 @@ describe('voidTransaction with input unspending', () => {
       script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
     }];
 
-    await voidTx(mysql, txIdB, inputs, outputs, [tokenId], []);
+    await voidTx(mysql, txIdB, inputs, outputs, [tokenId], [], 1);
 
     // Verify the original UTXO is unspent again
     const unspentUtxo = await getTxOutput(mysql, txIdA, 0, true);
@@ -636,7 +638,7 @@ describe('wallet balance voiding bug', () => {
       script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
     }];
 
-    await voidTx(mysql, txIdB, inputs, outputs, [tokenId], []);
+    await voidTx(mysql, txIdB, inputs, outputs, [tokenId], [], 1);
 
     // Check wallet balance after voiding
     walletBalance = await getWalletBalance(mysql, walletId, tokenId);
@@ -722,7 +724,7 @@ describe('wallet balance voiding bug', () => {
       script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
     }];
 
-    await voidTx(mysql, txId, inputs, voidOutputs, [tokenId], []);
+    await voidTx(mysql, txId, inputs, voidOutputs, [tokenId], [], 1);
 
     // Check wallet balances after voiding
     wallet1Balance = await getWalletBalance(mysql, wallet1Id, tokenId);
@@ -791,7 +793,7 @@ describe('wallet balance voiding bug', () => {
       script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
     }];
 
-    await voidTx(mysql, txId, inputs, outputs, [tokenId], []);
+    await voidTx(mysql, txId, inputs, outputs, [tokenId], [], 1);
 
     // Check wallet balance after voiding
     walletBalance = await getWalletBalance(mysql, walletId, tokenId);

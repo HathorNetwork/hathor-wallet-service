@@ -481,6 +481,7 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
       inputs,
       tokens,
       headers = [],
+      version,
     } = fullNodeEvent.event.data;
 
     const dbTx: DbTransaction | null = await getTransactionById(mysql, hash);
@@ -498,6 +499,7 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
       outputs,
       tokens,
       headers,
+      version,
     );
 
     logger.info(`[VertexRemoved] Removing tx from database: ${hash}`);
@@ -521,6 +523,7 @@ export const voidTx = async (
   outputs: EventTxOutput[],
   tokens: string[],
   headers: EventTxHeader[],
+  version: number,
 ) => {
   const dbTxOutputs: DbTxOutput[] = await getTxOutputsFromTx(mysql, hash);
   const txOutputs: TxOutputWithIndex[] = prepareOutputs(outputs, tokens);
@@ -546,7 +549,7 @@ export const voidTx = async (
   // and voidWalletTransaction as those methods recalculate balances based on
   // the UTXOs table.
   await markUtxosAsVoided(mysql, dbTxOutputs);
-  await voidAddressTransaction(mysql, hash, addressBalanceMap);
+  await voidAddressTransaction(mysql, hash, addressBalanceMap, version);
 
   // CRITICAL: Unspend the inputs when voiding a transaction
   // The inputs of the voided transaction need to be marked as unspent
@@ -602,6 +605,7 @@ export const handleVoidedTx = async (context: Context) => {
       inputs,
       tokens,
       headers = [],
+      version,
     } = fullNodeEvent.event.data;
 
     logger.debug(`Will handle voided tx for ${hash}`);
@@ -612,6 +616,7 @@ export const handleVoidedTx = async (context: Context) => {
       outputs,
       tokens,
       headers,
+      version,
     );
     logger.debug(`Voided tx ${hash}`);
     await mysql.commit();
