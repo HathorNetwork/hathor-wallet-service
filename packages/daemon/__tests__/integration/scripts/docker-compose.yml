@@ -106,7 +106,7 @@ services:
       - "8091:8080"
 
   single_voided_regular_transaction:
-    image: hathornetwork/hathor-core
+    image: hathornetwork/hathor-core:experimental-single-voided-create-token-tx-python3.12
     command: [
       "events_simulator",
       "--scenario", "SINGLE_VOIDED_REGULAR_TRANSACTION",
