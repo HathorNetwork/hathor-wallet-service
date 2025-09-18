@@ -469,22 +469,23 @@ export const voidAddressTransaction = async (
       // unlocked before it can be spent. In case we're just adding new locked authorities, this will be taken
       // care by the first sql query.
 
-      // If this is a token creation transaction, we must remove the address_balance
-      // row for that token as it has ceased to exist
-      if (isCreateTokenTx) {
-        await mysql.query(
-          `DELETE FROM address_balance
-            WHERE address = ?
-              AND token_id = ?
-              AND total_received = 0
-              AND unlocked_balance = 0
-              AND locked_balance = 0
-              AND unlocked_authorities = 0
-              AND locked_authorities = 0
-              AND transactions = 0`,
-          [address, token]
-        );
+      // If the address_balance is now zeroed and the number of transactions
+      // is also zero, it means that the transaction was removed from address_tx_history
+      // so we need to remove it from the `address_balance` table.
+      await mysql.query(
+        `DELETE FROM address_balance
+          WHERE address = ?
+            AND token_id = ?
+            AND total_received = 0
+            AND unlocked_balance = 0
+            AND locked_balance = 0
+            AND unlocked_authorities = 0
+            AND locked_authorities = 0
+            AND transactions = 0`,
+        [address, token]
+      );
 
+      if (isCreateTokenTx) {
         // The transaction that created the token was voided, so we can remove
         // it from the tokens table as well.
         await mysql.query(
