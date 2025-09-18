@@ -478,7 +478,7 @@ describe('voided token authority scenario', () => {
 
   afterAll(async () => {
     // Clean up wallet data after this test to prevent affecting other tests
-    // await cleanDatabase(mysql);
+    await cleanDatabase(mysql);
   });
 
   it('should do a full sync and the balances should match after voiding token authority', async () => {
