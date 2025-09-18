@@ -686,6 +686,41 @@ describe('single voided create token transaction scenario', () => {
 });
 
 describe('single voided regular transaction scenario', () => {
+  const initializeWallet = async (mysql: Connection): Promise<void> => {
+    // Insert wallet records
+    const walletSQL = `
+      INSERT INTO wallet (
+          id,
+          xpubkey,
+          status,
+          max_gap,
+          created_at,
+          ready_at,
+          retry_count,
+          auth_xpubkey,
+          last_used_address_index
+      ) VALUES
+      (
+          'test-wallet-voided-regular',
+          'xpub6F81iNtH5HVknoJ65cK2XAGA5F3okdJK7WHwVAAPZnSir2sfwbhvB9ffNKQ4wLor75QxPe9p12tqt8xUZSG8i8AAPMpkFho7fbWkBJQ5s1x',
+          'ready',
+          20,
+          UNIX_TIMESTAMP(),
+          UNIX_TIMESTAMP(),
+          0,
+          'xpub6F81iNtH5HVknoJ65cK2XAGA5F3okdJK7WHwVAAPZnSir2sfwbhvB9ffNKQ4wLor75QxPe9p12tqt8xUZSG8i8AAPMpkFho7fbWkBJQ5s1x',
+          -1
+      )`;
+
+    // Insert address record for the voided transaction address
+    const addressSQL = `
+      INSERT INTO address (address, \`index\`, wallet_id, transactions, seqnum) VALUES
+      ('HFtz2f59Lms4p3Jfgtsr73s97MbJHsRENh', 0, 'test-wallet-voided-regular', 0, 0)`;
+
+    await mysql.query(walletSQL);
+    await mysql.query(addressSQL);
+  };
+
   beforeAll(async () => {
     jest.spyOn(Services, 'fetchMinRewardBlocks').mockImplementation(async () => 300);
     await cleanDatabase(mysql);
@@ -772,5 +807,63 @@ describe('single voided regular transaction scenario', () => {
     const txHistoryRows = txHistoryResults[0] as any[];
 
     expect(addressRows.length).toEqual(txHistoryRows.length);
+  }, 30000);
+
+  it('wallet_balance and wallet_tx_history row length must match after a void transaction scenario', async () => {
+    // @ts-expect-error
+    getConfig.mockReturnValue({
+      NETWORK: 'testnet',
+      SERVICE_NAME: 'daemon-test',
+      CONSOLE_LEVEL: 'debug',
+      TX_CACHE_SIZE: 100,
+      BLOCK_REWARD_LOCK: 300,
+      FULLNODE_PEER_ID: 'simulator_peer_id',
+      STREAM_ID: 'simulator_stream_id',
+      FULLNODE_NETWORK: 'unittests',
+      FULLNODE_HOST: `127.0.0.1:${SINGLE_VOIDED_REGULAR_TRANSACTION_PORT}`,
+      USE_SSL: false,
+      DB_ENDPOINT,
+      DB_NAME,
+      DB_USER,
+      DB_PASS,
+      DB_PORT,
+    });
+
+    // Initialize wallet before processing events
+    await initializeWallet(mysql);
+
+    const machine = interpret(SyncMachine);
+
+    // @ts-expect-error
+    await transitionUntilEvent(mysql, machine, SINGLE_VOIDED_REGULAR_TRANSACTION_LAST_EVENT);
+
+    const walletId = 'test-wallet-voided-regular';
+
+    // Check for wallet balances for the specific wallet
+    const walletBalanceResults = await mysql.query(`
+      SELECT wallet_id,
+             COUNT(*) AS balance_rows
+        FROM wallet_balance
+       WHERE wallet_id = ?
+    GROUP BY wallet_id
+    ORDER BY wallet_id
+    `, [walletId]);
+
+    // Check for wallet transaction history for the same wallet (excluding voided)
+    const walletTxHistoryResults = await mysql.query(`
+      SELECT wallet_id,
+             COUNT(*) AS history_rows
+        FROM wallet_tx_history
+       WHERE voided = FALSE
+         AND wallet_id = ?
+    GROUP BY wallet_id
+    ORDER BY wallet_id
+    `, [walletId]);
+
+    // Cast to array to access length property
+    const walletBalanceRows = walletBalanceResults[0] as any[];
+    const walletTxHistoryRows = walletTxHistoryResults[0] as any[];
+
+    expect(walletBalanceRows.length).toEqual(walletTxHistoryRows.length);
   }, 30000);
 });
