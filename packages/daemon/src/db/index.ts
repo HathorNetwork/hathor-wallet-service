@@ -385,7 +385,7 @@ export const voidAddressTransaction = async (
   mysql: any,
   txId: string,
   addressBalanceMap: StringMap<TokenBalanceMap>,
-  version?: number,
+  version: number,
 ): Promise<void> => {
   const addressEntries = Object.keys(addressBalanceMap).map((address) => [address, 0]);
 
@@ -550,8 +550,7 @@ export const voidTransaction = async (
 export const voidWalletTransaction = async (
   mysql: MysqlConnection,
   txId: string,
-  addressBalanceMap: StringMap<TokenBalanceMap>,
-  version?: number,
+  addressBalanceMap: StringMap<TokenBalanceMap>
 ): Promise<void> => {
   // Get wallet information for all affected addresses
   const addressWalletMap: StringMap<Wallet> = await getAddressWalletInfo(mysql, Object.keys(addressBalanceMap));
@@ -568,9 +567,6 @@ export const voidWalletTransaction = async (
     // No wallet balances to update
     return;
   }
-
-  // Check if this is a token creation transaction
-  const isCreateTokenTx = version === constants.CREATE_TOKEN_TX_VERSION;
 
   for (const [walletId, tokenMap] of Object.entries(walletBalanceMap)) {
     for (const [token, tokenBalance] of tokenMap.iterator()) {

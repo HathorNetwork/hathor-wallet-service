@@ -523,7 +523,7 @@ export const voidTx = async (
   outputs: EventTxOutput[],
   tokens: string[],
   headers: EventTxHeader[],
-  version?: number,
+  version: number,
 ) => {
   const dbTxOutputs: DbTxOutput[] = await getTxOutputsFromTx(mysql, hash);
   const txOutputs: TxOutputWithIndex[] = prepareOutputs(outputs, tokens);
@@ -586,7 +586,7 @@ export const voidTx = async (
   }
 
   // CRITICAL: Update wallet balances when voiding a transaction
-  await voidWalletTransaction(mysql, hash, addressBalanceMap, version);
+  await voidWalletTransaction(mysql, hash, addressBalanceMap);
 
   const addresses = Object.keys(addressBalanceMap);
   await validateAddressBalances(mysql, addresses);
