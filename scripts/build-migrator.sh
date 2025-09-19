@@ -2,7 +2,7 @@ set -e
 set -o pipefail
 
 # The image will be tagged as latest by default
-FINAL_TAG="hathornetwork/hathor-wallet-service-migrator:latest";
+FINAL_TAG="hathornetwork/hathor-wallet-service-migrator:dev";
 
 # Fetching the versions of the critical dependencies from package.json
 # to ensure consistency
@@ -21,5 +21,5 @@ docker build \
   --build-arg SEQUELIZE_CLI_VERSION=$SEQUELIZE_CLI_VERSION \
   --build-arg MYSQL2_VERSION=$MYSQL2_VERSION \
   -t $FINAL_TAG \
-  -f db/Dockerfile \
+  -f db/Dockerfile.dev \
   .;

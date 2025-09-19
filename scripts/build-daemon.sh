@@ -38,7 +38,7 @@ echo $DOCKER_IMAGE_TAG > /tmp/docker_image_tag;
 # Handling th Account ID
 if [ "$ACCOUNT_ID" = "NONE" ]; then
   echo "== Skipping AWS ECR login since ACCOUNT_ID is set to NONE";
-  FINAL_TAG="hathornetwork/hathor-wallet-service-sync-daemon:latest";
+  FINAL_TAG="hathornetwork/hathor-wallet-service-sync-daemon:dev";
   SHOULD_FETCH_IDS=true # Always fetch IDs when not using AWS ECR
 else
   aws ecr get-login-password --region eu-central-1 | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com;
