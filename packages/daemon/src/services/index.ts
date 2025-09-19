@@ -80,7 +80,7 @@ import {
 } from '../db';
 import getConfig from '../config';
 import logger from '../logger';
-import { invokeOnTxPushNotificationRequestedLambda } from '../utils';
+import { invokeOnTxPushNotificationRequestedLambda, getDaemonUptime } from '../utils';
 import { addAlert, Severity } from '@wallet-service/common';
 import { JSONBigInt } from '@hathor/wallet-lib/lib/utils/bigint';
 
@@ -91,6 +91,8 @@ export const METADATA_DIFF_EVENT_TYPES = {
   TX_NEW: 'TX_NEW',
   TX_FIRST_BLOCK: 'TX_FIRST_BLOCK',
 };
+
+const DUPLICATE_TX_ALERT_GRACE_PERIOD = 10; // seconds
 
 export const metadataDiff = async (_context: Context, event: Event) => {
   const mysql = await getDbConnection();
@@ -223,7 +225,12 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     const dbTx: DbTransaction | null = await getTransactionById(mysql, hash);
 
     if (dbTx) {
-      logger.error(`Transaction ${hash} already in the database, this should only happen if the service has been recently restarted`);
+      const daemonUptime = getDaemonUptime();
+      // We do not log if the daemon has just started, because it's expected that
+      // we receive an initial duplicate transaction from the fullnode in this case.
+      if (daemonUptime < DUPLICATE_TX_ALERT_GRACE_PERIOD) return;
+
+      logger.error(`Transaction ${hash} already in the database and the daemon has not been recently restarted (uptime of ${daemonUptime} seconds). This is unexpected.`);
 
       // This might happen if the service has been recently restarted,
       // so we should raise the alert and just ignore the tx
