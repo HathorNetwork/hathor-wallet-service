@@ -16,12 +16,12 @@ const fs = require('fs');
 const fullnodeBaseUrl = process.env.FULLNODE_WEBSOCKET_BASEURL || 'fullnode:8080';
 
 /**
- * Output .env file name.
- * By default, it is '.identifiers.env' in the current directory.
+ * Output file name.
+ * By default, it is 'export-identifiers.sh' in the current directory.
  * This can be changed using the FULLNODE_IDENTIFIER_ENVS_FILE environment variable.
  * @type {string}
  */
-const outputFileName = process.env.FULLNODE_IDENTIFIER_ENVS_FILE || '.identifiers.env';
+const outputFileName = process.env.FULLNODE_IDENTIFIER_ENVS_FILE || 'export-identifiers.sh';
 
 /**
  * Fetches identifiers from the fullnode WebSocket endpoint and writes them to an .env file.
@@ -66,7 +66,7 @@ async function fetchFullnodeIds() {
         }
 
         // Create .env file content
-        const envContent = `STREAM_ID=${streamId}\nFULLNODE_PEER_ID=${fullnodePeerId}\n`;
+        const envContent = `export STREAM_ID=${streamId}\nexport FULLNODE_PEER_ID=${fullnodePeerId}\n`;
 
         // Write to output file
         fs.writeFileSync(outputFileName, envContent);

@@ -29,7 +29,7 @@ echo "FETCH_FULLNODE_IDS is set, merging complementary environment variables..."
 node fetch-fullnode-ids.js
 
 # Check if the identifiers env file exists
-FULLNODE_IDENTIFIER_ENVS_FILE="${FULLNODE_IDENTIFIER_ENVS_FILE:-.identifiers.env}"
+FULLNODE_IDENTIFIER_ENVS_FILE="${FULLNODE_IDENTIFIER_ENVS_FILE:-export-identifiers.sh}"
 if [ ! -f "$FULLNODE_IDENTIFIER_ENVS_FILE" ]; then
     echo "Warning: $FULLNODE_IDENTIFIER_ENVS_FILE file not found, skipping merge"
     # No fetching needed, run the main script for the Wallet Service Daemon
@@ -40,26 +40,7 @@ fi
 # Export each environment variable from the identifiers env file
 echo "Exporting environment variables from $FULLNODE_IDENTIFIER_ENVS_FILE file..."
 
-# Read the file line by line
-while IFS='=' read -r key value; do
-    # Skip empty lines and comments
-    if [ -z "$key" ] || echo "$key" | grep -q '^[[:space:]]*#'; then
-        continue
-    fi
-
-    # Remove any leading/trailing whitespace (using parameter expansion instead of xargs)
-    key=$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-    value=$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-
-    # Skip if key is empty after trimming
-    if [ -z "$key" ]; then
-        continue
-    fi
-
-    # Export the variable
-    export "$key=$value"
-    echo "Exported: $key=$value"
-done < .identifiers.env
+source "$FULLNODE_IDENTIFIER_ENVS_FILE"
 
 echo "Successfully merged and exported complementary environment variables"
 
