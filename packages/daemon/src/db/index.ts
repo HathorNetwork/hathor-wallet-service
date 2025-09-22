@@ -40,6 +40,7 @@ import {
   TxOutputRow,
 } from '../types';
 import getConfig from '../config';
+import { constants } from '@hathor/wallet-lib';
 
 let pool: Pool;
 
@@ -384,6 +385,7 @@ export const voidAddressTransaction = async (
   mysql: any,
   txId: string,
   addressBalanceMap: StringMap<TokenBalanceMap>,
+  version: number,
 ): Promise<void> => {
   const addressEntries = Object.keys(addressBalanceMap).map((address) => [address, 0]);
 
@@ -396,28 +398,14 @@ export const voidAddressTransaction = async (
     );
   }
 
+  // Check if this is a token creation transaction
+  const isCreateTokenTx = version === constants.CREATE_TOKEN_TX_VERSION;
+
   for (const [address, tokenMap] of Object.entries(addressBalanceMap)) {
     for (const [token, tokenBalance] of tokenMap.iterator()) {
-      // update address_balance table or update balance and transactions if there's an entry already
-      const entry = {
-        address,
-        token_id: token,
-        // totalAmountSent is the sum of the value of all outputs of this token on the tx being sent to this address
-        // which means it is the "total_received" for this address
-        total_received: tokenBalance.totalAmountSent,
-        // if it's < 0, there must be an entry already, so it will execute "ON DUPLICATE KEY UPDATE" instead of setting it to 0
-        unlocked_balance: (tokenBalance.unlockedAmount < 0 ? 0 : tokenBalance.unlockedAmount),
-        // this is never less than 0, as locked balance only changes when a tx is unlocked
-        locked_balance: tokenBalance.lockedAmount,
-        unlocked_authorities: tokenBalance.unlockedAuthorities.toUnsignedInteger(),
-        locked_authorities: tokenBalance.lockedAuthorities.toUnsignedInteger(),
-        timelock_expires: tokenBalance.lockExpires,
-        transactions: 1,
-      };
-
       // Check if address_balance entry exists first
       const [existingRows] = await mysql.query(
-        'SELECT total_received FROM address_balance WHERE address = ? AND token_id = ?',
+        'SELECT * FROM address_balance WHERE address = ? AND token_id = ?',
         [address, token]
       );
 
@@ -480,6 +468,32 @@ export const voidAddressTransaction = async (
       // for locked authorities, it doesn't make sense to perform the same operation. The authority needs to be
       // unlocked before it can be spent. In case we're just adding new locked authorities, this will be taken
       // care by the first sql query.
+
+      // If the address_balance is now zeroed and the number of transactions
+      // is also zero, it means that the transaction was removed from address_tx_history
+      // so we need to remove it from the `address_balance` table.
+      await mysql.query(
+        `DELETE FROM address_balance
+          WHERE address = ?
+            AND token_id = ?
+            AND total_received = 0
+            AND unlocked_balance = 0
+            AND locked_balance = 0
+            AND unlocked_authorities = 0
+            AND locked_authorities = 0
+            AND transactions = 0`,
+        [address, token]
+      );
+
+      if (isCreateTokenTx) {
+        // The transaction that created the token was voided, so we can remove
+        // it from the tokens table as well.
+        await mysql.query(
+          `DELETE FROM token
+            WHERE id = ?`,
+          [token]
+        );
+      }
     }
   }
 
@@ -536,7 +550,7 @@ export const voidTransaction = async (
 export const voidWalletTransaction = async (
   mysql: MysqlConnection,
   txId: string,
-  addressBalanceMap: StringMap<TokenBalanceMap>,
+  addressBalanceMap: StringMap<TokenBalanceMap>
 ): Promise<void> => {
   // Get wallet information for all affected addresses
   const addressWalletMap: StringMap<Wallet> = await getAddressWalletInfo(mysql, Object.keys(addressBalanceMap));
@@ -600,6 +614,22 @@ export const voidWalletTransaction = async (
           [walletId, token, walletId, token],
         );
       }
+
+      // If the number of transactions is zero, it means that this transaction
+      // was removed from the wallet_tx_history as well, so we must delete the
+      // row
+      await mysql.query(
+        `DELETE FROM wallet_balance
+          WHERE wallet_id = ?
+            AND token_id = ?
+            AND total_received = 0
+            AND unlocked_balance = 0
+            AND locked_balance = 0
+            AND unlocked_authorities = 0
+            AND locked_authorities = 0
+            AND transactions = 0`,
+        [walletId, token]
+      );
     }
   }
 

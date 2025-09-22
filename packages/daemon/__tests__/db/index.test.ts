@@ -1225,7 +1225,7 @@ describe('voidTransaction', () => {
     };
 
     await voidTransaction(mysql, txId);
-    await voidAddressTransaction(mysql, txId, addressBalance);
+    await voidAddressTransaction(mysql, txId, addressBalance, 1);
 
     await expect(checkAddressBalanceTable(mysql, 2, addr1, token2, 1n, 0n, null, 3)).resolves.toBe(true);
     await expect(checkAddressBalanceTable(mysql, 2, addr1, token1, 1n, 0n, null, 4)).resolves.toBe(true);
