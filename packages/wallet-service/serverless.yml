@@ -340,6 +340,7 @@ functions:
         enabled: true
   getNewAddresses:
     handler: src/api/newAddresses.get
+    memorySize: 1024
     events:
       - http:
           path: wallet/addresses/new
@@ -581,6 +582,7 @@ functions:
   authTokenApi:
     handler: src/api/auth.tokenHandler
     timeout: 6
+    memorySize: 1024
     events:
       - http:
           path: auth/token
@@ -591,6 +593,7 @@ functions:
         enabled: true
   bearerAuthorizer:
     handler: src/api/auth.bearerAuthorizer
+    memorySize: 1024
     warmup:
       walletWarmer:
         enabled: true
