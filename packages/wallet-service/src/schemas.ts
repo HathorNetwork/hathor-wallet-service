@@ -52,6 +52,7 @@ export const EnvironmentConfigSchema = Joi.object<EnvironmentConfig>({
   pushNotificationEnabled: Joi.boolean().required(),
   pushAllowedProviders: Joi.string().required(),
   isOffline: Joi.boolean().required(),
+  shouldMockAWS: Joi.boolean().required(),
   txHistoryMaxCount: Joi.number().required(),
   healthCheckMaximumHeightDifference: Joi.number().required(),
   awsRegion: Joi.string().required(),
