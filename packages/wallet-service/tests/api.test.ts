@@ -1674,6 +1674,7 @@ test('GET /version', async () => {
   const mockData: FullNodeApiVersionResponse = {
     version: '0.38.0',
     network: 'mainnet',
+    nano_contracts_enabled: true,
     min_weight: 14,
     min_tx_weight: 14,
     min_tx_weight_coefficient: 1.6,

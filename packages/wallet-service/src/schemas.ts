@@ -13,6 +13,7 @@ export const Sha256Schema = Joi.string().hex().length(64);
 export const FullnodeVersionSchema = Joi.object<FullNodeApiVersionResponse>({
   version: Joi.string().min(1).required(),
   network: Joi.string().min(1).required(),
+  nano_contracts_enabled: Joi.boolean().required(),
   min_weight: Joi.number().integer().positive().allow(0).required(),
   min_tx_weight: Joi.number().integer().positive().allow(0).required(),
   min_tx_weight_coefficient: Joi.number().positive().allow(0).required(),
