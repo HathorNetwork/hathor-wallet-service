@@ -72,6 +72,7 @@ jest.mock('../../src/db', () => ({
   voidWalletTransaction: jest.fn(),
   markUtxosAsVoided: jest.fn(),
   unspendUtxos: jest.fn(),
+  clearTxProposalForVoidedTx: jest.fn(),
   dbUpdateLastSyncedEvent: jest.fn(),
   getTransactionById: jest.fn(),
   getUtxosLockedAtHeight: jest.fn(),
