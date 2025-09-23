@@ -1688,6 +1688,34 @@ export const cleanupVoidedTx = async (mysql: MysqlConnection, txId: string): Pro
 };
 
 /**
+ * Clear tx_proposal and tx_proposal_index columns for outputs from a voided transaction.
+ * This is necessary to release UTXOs that were marked for a transaction proposal
+ * but the transaction ended up being voided.
+ *
+ * @param mysql - Database connection
+ * @param txInputs - The inputs of the voided transaction to be released
+ */
+export const clearTxProposalForVoidedTx = async (
+  mysql: MysqlConnection,
+  txInputs: TxInput[],
+): Promise<void> => {
+  if (txInputs.length === 0) return;
+
+  // Build the WHERE clause for all input pairs
+  const whereClauses = txInputs.map(() => '(tx_id = ? AND `index` = ?)').join(' OR ');
+  const params = txInputs.flatMap(input => [input.tx_id, input.index]);
+
+  await mysql.query(
+    `UPDATE \`tx_output\`
+        SET \`tx_proposal\` = NULL,
+            \`tx_proposal_index\` = NULL
+      WHERE (${whereClauses})
+        AND \`tx_proposal\` IS NOT NULL`,
+    params,
+  );
+};
+
+/**
  * Get token symbol map, correlating token id to its symbol.
  *
  * @param mysql - Database connection

@@ -77,6 +77,7 @@ import {
   unspendUtxos,
   voidWalletTransaction,
   getTxOutput,
+  clearTxProposalForVoidedTx,
 } from '../db';
 import getConfig from '../config';
 import logger from '../logger';
@@ -594,6 +595,10 @@ export const voidTx = async (
 
   // CRITICAL: Update wallet balances when voiding a transaction
   await voidWalletTransaction(mysql, hash, addressBalanceMap);
+
+  // CRITICAL: Clear tx_proposal marks from inputs that were used in this voided transaction
+  // This ensures the UTXOs can be used in new transactions after the void
+  await clearTxProposalForVoidedTx(mysql, txInputs);
 
   const addresses = Object.keys(addressBalanceMap);
   await validateAddressBalances(mysql, addresses);

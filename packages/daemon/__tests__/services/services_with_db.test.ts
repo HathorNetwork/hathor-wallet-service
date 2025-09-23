@@ -807,4 +807,147 @@ describe('wallet balance voiding bug', () => {
     const historyCount = await getWalletTxHistoryCount(mysql, walletId, txId);
     expect(historyCount).toBe(0); // Should be 0 after voiding
   });
+
+  test('should clear tx_proposal marks when voiding a transaction', async () => {
+    expect.hasAssertions();
+    await cleanDatabase(mysql);
+
+    const address1 = 'HBCQgVR8Xsyv3L8spWJLQCJkbgj1YABWMU';
+    const tokenId = '00';
+    const txProposalId = 'test-proposal-123';
+    const txProposalIndex = 0;
+
+    // Transaction A: Initial transaction with one output
+    const txIdA = 'txA';
+    const outputsA = [createOutput(0, 100n, address1, tokenId)];
+    await addOrUpdateTx(mysql, txIdA, 10, 1000, 1, 10);
+    await addUtxos(mysql, txIdA, outputsA, null);
+
+    // Mark the UTXO with a tx_proposal (simulating it being selected for a transaction)
+    await mysql.query(
+      `UPDATE \`tx_output\`
+          SET \`tx_proposal\` = ?,
+              \`tx_proposal_index\` = ?
+        WHERE tx_id = ? AND \`index\` = ?`,
+      [txProposalId, txProposalIndex, txIdA, 0]
+    );
+
+    // Verify the tx_proposal is set
+    const utxoBeforeTx = await getTxOutput(mysql, txIdA, 0, false);
+    expect(utxoBeforeTx).not.toBeNull();
+    expect(utxoBeforeTx!.txProposalId).toBe(txProposalId);
+    expect(utxoBeforeTx!.txProposalIndex).toBe(txProposalIndex);
+
+    // Transaction B: Uses the output from A as input
+    const txIdB = 'txB';
+    const inputsB = [createInput(100n, address1, txIdA, 0, tokenId)];
+    const outputsB = [createOutput(0, 100n, address1, tokenId)];
+
+    await addOrUpdateTx(mysql, txIdB, 11, 1001, 1, 11);
+    await addUtxos(mysql, txIdB, outputsB, null);
+    await updateTxOutputSpentBy(mysql, inputsB, txIdB);
+
+    // Verify the UTXO is marked as spent
+    const utxoAfterSpent = await getTxOutput(mysql, txIdA, 0, false);
+    expect(utxoAfterSpent).not.toBeNull();
+    expect(utxoAfterSpent!.spentBy).toBe(txIdB);
+
+    // Now void transaction B
+    const inputs = [createEventTxInput(100n, address1, txIdA, 0)];
+
+    const outputs = [{
+      value: 100n,
+      token_data: 0,
+      script: 'dqkU',
+      decoded: {
+        type: 'P2PKH',
+        address: address1,
+        timelock: null,
+      },
+      token: tokenId,
+      spent_by: null,
+    }];
+
+    await voidTx(mysql, txIdB, inputs, outputs, [tokenId], [], 1);
+
+    // Check that the tx_proposal marks have been cleared
+    const utxoAfterVoid = await getTxOutput(mysql, txIdA, 0, false);
+    expect(utxoAfterVoid).not.toBeNull();
+    expect(utxoAfterVoid!.txProposalId).toBeNull(); // Should be cleared
+    expect(utxoAfterVoid!.txProposalIndex).toBeNull(); // Should be cleared
+    expect(utxoAfterVoid!.spentBy).toBeNull(); // Should be unspent again
+  });
+
+  test('should clear tx_proposal marks for multiple inputs when voiding', async () => {
+    expect.hasAssertions();
+    await cleanDatabase(mysql);
+
+    const address1 = 'HBCQgVR8Xsyv3L8spWJLQCJkbgj1YABWMU';
+    const tokenId = '00';
+    const txProposalId = 'test-proposal-456';
+
+    // Create two initial UTXOs
+    const txIdA = 'txA';
+    const outputsA = [
+      createOutput(0, 50n, address1, tokenId),
+      createOutput(1, 50n, address1, tokenId)
+    ];
+    await addOrUpdateTx(mysql, txIdA, 10, 1000, 1, 10);
+    await addUtxos(mysql, txIdA, outputsA, null);
+
+    // Mark both UTXOs with the same tx_proposal
+    await mysql.query(
+      `UPDATE \`tx_output\`
+          SET \`tx_proposal\` = ?,
+              \`tx_proposal_index\` = ?
+        WHERE tx_id = ?`,
+      [txProposalId, 0, txIdA]
+    );
+
+    // Transaction B: Uses both outputs from A as inputs
+    const txIdB = 'txB';
+    const inputsB = [
+      createInput(50n, address1, txIdA, 0, tokenId),
+      createInput(50n, address1, txIdA, 1, tokenId)
+    ];
+    const outputsB = [createOutput(0, 100n, address1, tokenId)];
+
+    await addOrUpdateTx(mysql, txIdB, 11, 1001, 1, 11);
+    await addUtxos(mysql, txIdB, outputsB, null);
+    await updateTxOutputSpentBy(mysql, inputsB, txIdB);
+
+    // Prepare inputs for voidTx
+    const inputs = [
+      createEventTxInput(50n, address1, txIdA, 0),
+      createEventTxInput(50n, address1, txIdA, 1)
+    ];
+
+    const outputs = [{
+      value: 100n,
+      token_data: 0,
+      script: 'dqkU',
+      decoded: {
+        type: 'P2PKH',
+        address: address1,
+        timelock: null,
+      },
+      token: tokenId,
+      spent_by: null,
+    }];
+
+    await voidTx(mysql, txIdB, inputs, outputs, [tokenId], [], 1);
+
+    // Check that tx_proposal marks have been cleared for both inputs
+    const utxo1AfterVoid = await getTxOutput(mysql, txIdA, 0, false);
+    expect(utxo1AfterVoid).not.toBeNull();
+    expect(utxo1AfterVoid!.txProposalId).toBeNull();
+    expect(utxo1AfterVoid!.txProposalIndex).toBeNull();
+    expect(utxo1AfterVoid!.spentBy).toBeNull();
+
+    const utxo2AfterVoid = await getTxOutput(mysql, txIdA, 1, false);
+    expect(utxo2AfterVoid).not.toBeNull();
+    expect(utxo2AfterVoid!.txProposalId).toBeNull();
+    expect(utxo2AfterVoid!.txProposalIndex).toBeNull();
+    expect(utxo2AfterVoid!.spentBy).toBeNull();
+  });
 });
