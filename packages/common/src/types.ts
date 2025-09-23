@@ -82,11 +82,11 @@ export type DecodedOutput = {
 }
 
 export interface TxNanoHeader {
-    id: string;
-    nc_seqnum: number;
-    nc_id: string;
-    nc_method: string;
-    nc_address: string;
+  id: string;
+  nc_seqnum: number;
+  nc_id: string;
+  nc_method: string;
+  nc_address: string;
 }
 
 export type TxHeader = TxNanoHeader;
@@ -227,9 +227,9 @@ export class Balance {
     totalAmountSent = 0n,
     unlockedAmount = 0n,
     lockedAmount = 0n,
-    lockExpires: number|null = null,
-    unlockedAuthorities: Authorities|null = null,
-    lockedAuthorities: Authorities|null = null
+    lockExpires: number | null = null,
+    unlockedAuthorities: Authorities | null = null,
+    lockedAuthorities: Authorities | null = null
   ) {
     this.totalAmountSent = totalAmountSent;
     this.unlockedAmount = unlockedAmount;

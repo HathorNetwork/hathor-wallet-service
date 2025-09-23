@@ -87,6 +87,7 @@ export interface EnvironmentConfig {
 export interface FullNodeVersionData {
   version: string;
   network: string;
+  nanoContractsEnabled: boolean;
   minWeight: number;
   minTxWeight: number;
   minTxWeightCoefficient: number;
@@ -106,6 +107,7 @@ export interface FullNodeVersionData {
 export interface FullNodeApiVersionResponse {
   version: string;
   network: string;
+  nano_contracts_enabled?: boolean;
   min_weight: number;
   min_tx_weight: number;
   min_tx_weight_coefficient: number; // float
