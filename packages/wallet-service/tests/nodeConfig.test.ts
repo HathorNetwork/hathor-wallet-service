@@ -10,8 +10,9 @@ import { convertApiVersionData, getRawFullnodeData } from '@src/nodeConfig';
 const mysql = getDbConnection();
 
 const VERSION_DATA: FullNodeApiVersionResponse = {
-  version: '0.63.1',
+  version: '0.65.2-alpha.1',
   network: 'mainnet',
+  nano_contracts_enabled: true,
   min_weight: 14,
   min_tx_weight: 14,
   min_tx_weight_coefficient: 1.6,
@@ -63,6 +64,7 @@ test('convertApiVersionData', async () => {
   expect(convertApiVersionData(OLD_VERSION_DATA)).toStrictEqual({
     version: OLD_VERSION_DATA.version,
     network: OLD_VERSION_DATA.network,
+    nanoContractsEnabled: false,
     minWeight: OLD_VERSION_DATA.min_weight,
     minTxWeight: OLD_VERSION_DATA.min_tx_weight,
     minTxWeightCoefficient: OLD_VERSION_DATA.min_tx_weight_coefficient,
@@ -79,6 +81,7 @@ test('convertApiVersionData', async () => {
   expect(convertApiVersionData(VERSION_DATA)).toStrictEqual({
     version: VERSION_DATA.version,
     network: VERSION_DATA.network,
+    nanoContractsEnabled: VERSION_DATA.nano_contracts_enabled,
     minWeight: VERSION_DATA.min_weight,
     minTxWeight: VERSION_DATA.min_tx_weight,
     minTxWeightCoefficient: VERSION_DATA.min_tx_weight_coefficient,
@@ -91,4 +94,33 @@ test('convertApiVersionData', async () => {
     nativeTokenName: VERSION_DATA.native_token.name,
     nativeTokenSymbol: VERSION_DATA.native_token.symbol,
   });
+});
+
+test('convertApiVersionData handles nano_contracts_enabled correctly', async () => {
+  // Test with nano_contracts_enabled = false
+  const versionWithNanoFalse: FullNodeApiVersionResponse = {
+    ...OLD_VERSION_DATA,
+    nano_contracts_enabled: false,
+  };
+  expect(convertApiVersionData(versionWithNanoFalse).nanoContractsEnabled).toBe(false);
+
+  // Test with nano_contracts_enabled = true
+  const versionWithNanoTrue: FullNodeApiVersionResponse = {
+    ...OLD_VERSION_DATA,
+    nano_contracts_enabled: true,
+  };
+  expect(convertApiVersionData(versionWithNanoTrue).nanoContractsEnabled).toBe(true);
+
+  // Test with nano_contracts_enabled = undefined (should default to false)
+  const versionWithNanoUndefined: FullNodeApiVersionResponse = {
+    ...OLD_VERSION_DATA,
+    nano_contracts_enabled: undefined,
+  };
+  expect(convertApiVersionData(versionWithNanoUndefined).nanoContractsEnabled).toBe(false);
+
+  // Test without nano_contracts_enabled field (should default to false)
+  const versionWithoutNano: FullNodeApiVersionResponse = {
+    ...OLD_VERSION_DATA,
+  };
+  expect(convertApiVersionData(versionWithoutNano).nanoContractsEnabled).toBe(false);
 });

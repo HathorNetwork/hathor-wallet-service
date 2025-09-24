@@ -519,6 +519,7 @@ test('getFullnodeData with an uninitialized version_data database should call th
   const mockData = {
     version: '0.38.0',
     network: 'mainnet',
+    nano_contracts_enabled: true,
     min_weight: 14,
     min_tx_weight: 14,
     min_tx_weight_coefficient: 1.6,
@@ -561,6 +562,7 @@ test('getFullnodeData with an initialized version_data database should query dat
   const mockedVersionData: FullNodeApiVersionResponse = {
       version: '0.38.0',
       network: 'mainnet',
+      nano_contracts_enabled: true,
       min_weight: 14,
       min_tx_weight: 14,
       min_tx_weight_coefficient: 1.6,
