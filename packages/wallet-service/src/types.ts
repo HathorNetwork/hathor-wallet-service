@@ -108,6 +108,9 @@ export interface FullNodeVersionData {
 export interface FullNodeApiVersionResponse {
   version: string;
   network: string;
+  // NOTE: Due to a bug in older fullnode versions, this field may be a string
+  // ('disabled', 'enabled', 'feature_activation') instead of boolean.
+  // Future fullnode versions will return boolean only.
   nano_contracts_enabled?: boolean | 'disabled' | 'enabled' | 'feature_activation';
   min_weight: number;
   min_tx_weight: number;

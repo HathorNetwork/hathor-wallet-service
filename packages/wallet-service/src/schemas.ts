@@ -13,6 +13,9 @@ export const Sha256Schema = Joi.string().hex().length(64);
 export const FullnodeVersionSchema = Joi.object<FullNodeApiVersionResponse>({
   version: Joi.string().min(1).required(),
   network: Joi.string().min(1).required(),
+  // NOTE: Due to a bug in older fullnode versions, this field may be a string
+  // ('disabled', 'enabled', 'feature_activation') instead of boolean.
+  // Future fullnode versions will return boolean only.
   nano_contracts_enabled: Joi.alternatives().try(
     Joi.boolean(),
     Joi.string().valid('disabled', 'enabled', 'feature_activation')
