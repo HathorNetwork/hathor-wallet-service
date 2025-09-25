@@ -75,12 +75,12 @@ export interface EnvironmentConfig {
   firebaseTokenUri: string;
   firebaseAuthProviderX509CertUrl: string;
   firebaseClientX509CertUrl: string;
-  firebasePrivateKey: string|null;
+  firebasePrivateKey: string | null;
   maxLoadWalletRetries: number;
   logLevel: string;
   createNftMaxRetries: number;
   warnMaxReorgSize: number;
-};
+}
 
 /**
  * Fullnode converted version data.
@@ -124,7 +124,7 @@ export interface FullNodeApiVersionResponse {
   genesis_block_hash?: string,
   genesis_tx1_hash?: string,
   genesis_tx2_hash?: string,
-  native_token?: { name: string, symbol: string};
+  native_token?: { name: string, symbol: string };
 }
 
 export interface TxProposal {
