@@ -111,6 +111,27 @@ test('convertApiVersionData handles nano_contracts_enabled correctly', async () 
   };
   expect(convertApiVersionData(versionWithNanoTrue).nanoContractsEnabled).toBe(true);
 
+  // Test with nano_contracts_enabled = 'disabled' (should be false)
+  const versionWithDisabled: FullNodeApiVersionResponse = {
+    ...OLD_VERSION_DATA,
+    nano_contracts_enabled: 'disabled',
+  };
+  expect(convertApiVersionData(versionWithDisabled).nanoContractsEnabled).toBe(false);
+
+  // Test with nano_contracts_enabled = 'enabled' (should be true)
+  const versionWithEnabled: FullNodeApiVersionResponse = {
+    ...OLD_VERSION_DATA,
+    nano_contracts_enabled: 'enabled',
+  };
+  expect(convertApiVersionData(versionWithEnabled).nanoContractsEnabled).toBe(true);
+
+  // Test with nano_contracts_enabled = 'feature_activation' (should be true)
+  const versionWithFeatureActivation: FullNodeApiVersionResponse = {
+    ...OLD_VERSION_DATA,
+    nano_contracts_enabled: 'feature_activation',
+  };
+  expect(convertApiVersionData(versionWithFeatureActivation).nanoContractsEnabled).toBe(true);
+
   // Test with nano_contracts_enabled = undefined (should default to false)
   const versionWithNanoUndefined: FullNodeApiVersionResponse = {
     ...OLD_VERSION_DATA,

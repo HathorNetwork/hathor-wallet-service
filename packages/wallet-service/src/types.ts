@@ -75,12 +75,12 @@ export interface EnvironmentConfig {
   firebaseTokenUri: string;
   firebaseAuthProviderX509CertUrl: string;
   firebaseClientX509CertUrl: string;
-  firebasePrivateKey: string|null;
+  firebasePrivateKey: string | null;
   maxLoadWalletRetries: number;
   logLevel: string;
   createNftMaxRetries: number;
   warnMaxReorgSize: number;
-};
+}
 
 /**
  * Fullnode converted version data.
@@ -108,7 +108,10 @@ export interface FullNodeVersionData {
 export interface FullNodeApiVersionResponse {
   version: string;
   network: string;
-  nano_contracts_enabled?: boolean;
+  // NOTE: Due to a bug in older fullnode versions, this field may be a string
+  // ('disabled', 'enabled', 'feature_activation') instead of boolean.
+  // Future fullnode versions will return boolean only.
+  nano_contracts_enabled?: boolean | 'disabled' | 'enabled' | 'feature_activation';
   min_weight: number;
   min_tx_weight: number;
   min_tx_weight_coefficient: number; // float
@@ -121,7 +124,7 @@ export interface FullNodeApiVersionResponse {
   genesis_block_hash?: string,
   genesis_tx1_hash?: string,
   genesis_tx2_hash?: string,
-  native_token?: { name: string, symbol: string};
+  native_token?: { name: string, symbol: string };
 }
 
 export interface TxProposal {
