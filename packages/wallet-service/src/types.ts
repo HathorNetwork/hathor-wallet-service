@@ -108,7 +108,7 @@ export interface FullNodeVersionData {
 export interface FullNodeApiVersionResponse {
   version: string;
   network: string;
-  nano_contracts_enabled?: boolean;
+  nano_contracts_enabled?: boolean | 'disabled' | 'enabled' | 'feature_activation';
   min_weight: number;
   min_tx_weight: number;
   min_tx_weight_coefficient: number; // float

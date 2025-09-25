@@ -41,7 +41,7 @@ export function convertApiVersionData(data: FullNodeApiVersionResponse): FullNod
   return {
     version: data.version,
     network: data.network,
-    nanoContractsEnabled: data.nano_contracts_enabled ?? false,
+    nanoContractsEnabled: data.nano_contracts_enabled === true || data.nano_contracts_enabled === 'enabled' || data.nano_contracts_enabled === 'feature_activation',
     minWeight: data.min_weight,
     minTxWeight: data.min_tx_weight,
     minTxWeightCoefficient: data.min_tx_weight_coefficient,
