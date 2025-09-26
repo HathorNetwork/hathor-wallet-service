@@ -5,6 +5,7 @@ const mainTestMatch = process.env.SPECIFIC_INTEGRATION_TEST_FILE
   : '<rootDir>/__tests__/integration/**/*.test.ts';
 
 module.exports = {
+  setupFiles: ["<rootDir>/setupTests.js"],
   roots: ["<rootDir>/__tests__"],
   transform: {
     "^.+\\.ts$": ["ts-jest", {

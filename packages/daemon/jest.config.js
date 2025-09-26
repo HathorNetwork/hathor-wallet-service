@@ -1,4 +1,5 @@
 module.exports = {
+  setupFiles: ["<rootDir>/setupTests.js"],
   roots: ["<rootDir>/__tests__"],
   testRegex: ".*\\.test\\.ts$",
   transform: {
