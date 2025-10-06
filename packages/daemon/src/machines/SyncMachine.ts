@@ -309,8 +309,8 @@ export const SyncMachine = Machine<Context, any, Event>({
               target: CONNECTED_STATES.idle,
             }],
             onError: {
-              // On error, return to idle and continue normal operation
-              target: CONNECTED_STATES.idle,
+              // Critical failure - we cannot verify event integrity
+              target: `#${SYNC_MACHINE_STATES.ERROR}`,
             },
           },
         },

@@ -222,11 +222,19 @@ describe('Event handling', () => {
     const MockedFetchMachine = SyncMachine.withConfig({
       actions: {
         startStream: () => {},
+        cancelAckTimeout: () => {},
+        startAckTimeout: () => {},
       },
       guards: {
         invalidPeerId,
         invalidStreamId: () => false,
         invalidNetwork: () => false,
+        unchanged: () => false,
+        metadataChanged: () => false,
+        voided: () => false,
+        vertexRemoved: () => false,
+        vertexAccepted: () => false,
+        reorgStarted: () => false,
       },
     });
 
@@ -251,11 +259,19 @@ describe('Event handling', () => {
     const MockedFetchMachine = SyncMachine.withConfig({
       actions: {
         startStream: () => {},
+        cancelAckTimeout: () => {},
+        startAckTimeout: () => {},
       },
       guards: {
         invalidPeerId: () => false,
         invalidStreamId,
         invalidNetwork: () => false,
+        unchanged: () => false,
+        metadataChanged: () => false,
+        voided: () => false,
+        vertexRemoved: () => false,
+        vertexAccepted: () => false,
+        reorgStarted: () => false,
       },
     });
 
