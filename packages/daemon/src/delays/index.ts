@@ -17,3 +17,6 @@ export const BACKOFF_DELAYED_RECONNECT = (context: Context) => {
 
   return context.retryAttempt * RETRY_BACKOFF_INCREASE;
 };
+
+// Timeout to check for missed events after ACK (20 seconds)
+export const ACK_TIMEOUT = 20000;

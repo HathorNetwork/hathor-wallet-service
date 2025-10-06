@@ -220,6 +220,9 @@ describe('Event handling', () => {
     process.env.FULLNODE_PEER_ID = 'invalidPeerId';
 
     const MockedFetchMachine = SyncMachine.withConfig({
+      actions: {
+        startStream: () => {},
+      },
       guards: {
         invalidPeerId,
         invalidStreamId: () => false,
@@ -246,6 +249,9 @@ describe('Event handling', () => {
     process.env.STREAM_ID = 'invalidStreamId';
 
     const MockedFetchMachine = SyncMachine.withConfig({
+      actions: {
+        startStream: () => {},
+      },
       guards: {
         invalidPeerId: () => false,
         invalidStreamId,

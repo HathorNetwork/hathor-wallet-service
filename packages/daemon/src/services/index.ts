@@ -813,3 +813,40 @@ export const handleReorgStarted = async (context: Context): Promise<void> => {
     );
   }
 };
+
+/**
+ * Checks the HTTP API for missed events after the last ACK
+ * This is used to detect if we lost an event due to network packet loss
+ */
+export const checkForMissedEvents = async (context: Context): Promise<{ hasNewEvents: boolean; events: any[] }> => {
+  if (!context.event) {
+    throw new Error('No event in context when checking for missed events');
+  }
+
+  const lastAckEventId = context.event.event.id;
+  const fullnodeUrl = getFullnodeHttpUrl();
+
+  logger.debug(`Checking for missed events after event ID ${lastAckEventId}`);
+
+  const response = await axios.get(`${fullnodeUrl}/event`, {
+    params: {
+      last_ack_event_id: lastAckEventId,
+      size: 1,
+    },
+  });
+
+  if (response.status !== 200) {
+    throw new Error(`Failed to check for missed events: HTTP ${response.status}`);
+  }
+
+  const events = response.data;
+  const hasNewEvents = Array.isArray(events) && events.length > 0;
+
+  if (hasNewEvents) {
+    logger.warn(`Detected ${events.length} missed event(s) after ACK ${lastAckEventId}. Will reconnect.`);
+  } else {
+    logger.debug(`No missed events detected after ACK ${lastAckEventId}`);
+  }
+
+  return { hasNewEvents, events };
+};

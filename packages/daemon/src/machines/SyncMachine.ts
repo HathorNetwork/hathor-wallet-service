@@ -26,6 +26,7 @@ import {
   fetchInitialState,
   handleUnvoidedTx,
   handleReorgStarted,
+  checkForMissedEvents,
 } from '../services';
 import {
   metadataIgnore,
@@ -43,6 +44,7 @@ import {
   unchanged,
   vertexRemoved,
   reorgStarted,
+  hasNewEvents,
 } from '../guards';
 import {
   storeInitialState,
@@ -57,8 +59,10 @@ import {
   updateCache,
   startHealthcheckPing,
   stopHealthcheckPing,
+  startAckTimeout,
+  cancelAckTimeout,
 } from '../actions';
-import { BACKOFF_DELAYED_RECONNECT } from '../delays';
+import { BACKOFF_DELAYED_RECONNECT, ACK_TIMEOUT } from '../delays';
 import getConfig from '../config';
 
 export const SYNC_MACHINE_STATES = {
@@ -79,6 +83,7 @@ export const CONNECTED_STATES = {
   handlingUnvoidedTx: 'handlingUnvoidedTx',
   handlingFirstBlock: 'handlingFirstBlock',
   handlingReorgStarted: 'handlingReorgStarted',
+  checkingForMissedEvents: 'checkingForMissedEvents',
 };
 
 const { TX_CACHE_SIZE } = getConfig();
@@ -137,6 +142,11 @@ export const SyncMachine = Machine<Context, any, Event>({
       states: {
         [CONNECTED_STATES.idle]: {
           id: CONNECTED_STATES.idle,
+          after: {
+            ACK_TIMEOUT: {
+              target: CONNECTED_STATES.checkingForMissedEvents,
+            },
+          },
           on: {
             FULLNODE_EVENT: [{
               cond: 'invalidStreamId',
@@ -148,34 +158,34 @@ export const SyncMachine = Machine<Context, any, Event>({
               cond: 'invalidNetwork',
               target: `#${SYNC_MACHINE_STATES.ERROR}`,
             }, {
-              actions: ['storeEvent', 'sendAck'],
+              actions: ['cancelAckTimeout', 'storeEvent', 'sendAck', 'startAckTimeout'],
               cond: 'unchanged',
               target: CONNECTED_STATES.idle,
             }, {
-              actions: ['storeEvent'],
+              actions: ['cancelAckTimeout', 'storeEvent'],
               cond: 'metadataChanged',
               target: CONNECTED_STATES.handlingMetadataChanged,
             }, {
-              actions: ['storeEvent', 'sendAck'],
+              actions: ['cancelAckTimeout', 'storeEvent', 'sendAck', 'startAckTimeout'],
               /* If the transaction is already voided and is not
                * VERTEX_METADATA_CHANGED, we should ignore it.
                */
               cond: 'voided',
               target: CONNECTED_STATES.idle,
             }, {
-              actions: ['storeEvent'],
+              actions: ['cancelAckTimeout', 'storeEvent'],
               cond: 'vertexRemoved',
               target: CONNECTED_STATES.handlingVertexRemoved,
             }, {
-              actions: ['storeEvent'],
+              actions: ['cancelAckTimeout', 'storeEvent'],
               cond: 'vertexAccepted',
               target: CONNECTED_STATES.handlingVertexAccepted,
             }, {
-              actions: ['storeEvent'],
+              actions: ['cancelAckTimeout', 'storeEvent'],
               cond: 'reorgStarted',
               target: CONNECTED_STATES.handlingReorgStarted,
             }, {
-              actions: ['storeEvent'],
+              actions: ['cancelAckTimeout', 'storeEvent'],
               target: CONNECTED_STATES.handlingUnhandledEvent,
             }],
           },
@@ -185,7 +195,7 @@ export const SyncMachine = Machine<Context, any, Event>({
           invoke: {
             src: 'updateLastSyncedEvent',
             onDone: {
-              actions: ['sendAck'],
+              actions: ['sendAck', 'startAckTimeout'],
               target: 'idle',
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
@@ -220,7 +230,7 @@ export const SyncMachine = Machine<Context, any, Event>({
             data: (_context: Context, event: Event) => event,
             onDone: {
               target: 'idle',
-              actions: ['sendAck', 'storeEvent', 'updateCache'],
+              actions: ['sendAck', 'startAckTimeout', 'storeEvent', 'updateCache'],
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
@@ -232,7 +242,7 @@ export const SyncMachine = Machine<Context, any, Event>({
             data: (_context: Context, event: Event) => event,
             onDone: {
               target: 'idle',
-              actions: ['sendAck', 'storeEvent'],
+              actions: ['sendAck', 'startAckTimeout', 'storeEvent'],
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
@@ -244,7 +254,7 @@ export const SyncMachine = Machine<Context, any, Event>({
             data: (_context: Context, event: Event) => event,
             onDone: {
               target: 'idle',
-              actions: ['storeEvent', 'sendAck', 'updateCache'],
+              actions: ['storeEvent', 'sendAck', 'startAckTimeout', 'updateCache'],
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
@@ -271,7 +281,7 @@ export const SyncMachine = Machine<Context, any, Event>({
             data: (_context: Context, event: Event) => event,
             onDone: {
               target: 'idle',
-              actions: ['storeEvent', 'sendAck', 'updateCache'],
+              actions: ['storeEvent', 'sendAck', 'startAckTimeout', 'updateCache'],
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
@@ -283,9 +293,25 @@ export const SyncMachine = Machine<Context, any, Event>({
             data: (_context: Context, event: Event) => event,
             onDone: {
               target: 'idle',
-              actions: ['sendAck', 'storeEvent'],
+              actions: ['sendAck', 'startAckTimeout', 'storeEvent'],
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
+          },
+        },
+        [CONNECTED_STATES.checkingForMissedEvents]: {
+          id: CONNECTED_STATES.checkingForMissedEvents,
+          invoke: {
+            src: 'checkForMissedEvents',
+            onDone: [{
+              cond: 'hasNewEvents',
+              target: `#SyncMachine.${SYNC_MACHINE_STATES.RECONNECTING}`,
+            }, {
+              target: CONNECTED_STATES.idle,
+            }],
+            onError: {
+              // On error, return to idle and continue normal operation
+              target: CONNECTED_STATES.idle,
+            },
           },
         },
       },
@@ -313,6 +339,7 @@ export const SyncMachine = Machine<Context, any, Event>({
     fetchInitialState,
     metadataDiff,
     updateLastSyncedEvent,
+    checkForMissedEvents,
   },
   guards: {
     metadataIgnore,
@@ -330,8 +357,9 @@ export const SyncMachine = Machine<Context, any, Event>({
     unchanged,
     vertexRemoved,
     reorgStarted,
+    hasNewEvents,
   },
-  delays: { BACKOFF_DELAYED_RECONNECT },
+  delays: { BACKOFF_DELAYED_RECONNECT, ACK_TIMEOUT },
   actions: {
     storeInitialState,
     unwrapEvent,
@@ -345,6 +373,8 @@ export const SyncMachine = Machine<Context, any, Event>({
     updateCache,
     startHealthcheckPing,
     stopHealthcheckPing,
+    startAckTimeout,
+    cancelAckTimeout,
   },
 });
 
