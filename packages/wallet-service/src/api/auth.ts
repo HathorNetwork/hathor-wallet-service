@@ -160,6 +160,7 @@ export const tokenHandler: APIGatewayProxyHandler = middy(async (event) => {
       ts: timestamp,
       addr: address.toString(),
       wid: walletId,
+      mode: 'full',
     },
     config.authSecret,
     {
