@@ -14,14 +14,22 @@ import { SyncMachine } from '../../src/machines';
 import { interpret } from 'xstate';
 import { getDbConnection } from '../../src/db';
 import { Connection } from 'mysql2/promise';
-import { cleanDatabase } from './utils';
+import {
+  cleanDatabase,
+  transitionUntilEvent,
+  fetchAddressBalances,
+  validateBalances,
+} from './utils';
 import * as Services from '../../src/services';
+import emptyScriptBalances from './scenario_configs/empty_script.balances';
 import {
   DB_NAME,
   DB_USER,
   DB_PORT,
   DB_PASS,
   DB_ENDPOINT,
+  EMPTY_SCRIPT_PORT,
+  EMPTY_SCRIPT_LAST_EVENT,
 } from './config';
 
 jest.mock('../../src/config', () => {
@@ -41,7 +49,7 @@ jest.mock('../../src/utils/aws', () => {
 import getConfig from '../../src/config';
 
 const PROXY_PORT = 9000;
-const UPSTREAM_PORT = 8087; // EMPTY_SCRIPT simulator
+const UPSTREAM_PORT = EMPTY_SCRIPT_PORT;
 
 // Mock config before any tests run
 // @ts-expect-error
@@ -196,4 +204,53 @@ describe('WebSocket Proxy Simulator', () => {
     expect(stats.acksDelayed).toBe(0); // No delays configured
     expect(stats.acksDropped).toBe(0); // No drops configured
   }, 15000);
+
+  it('should do a full sync through proxy and balances should match', async () => {
+    // Start proxy
+    proxy = new WebSocketProxySimulator({
+      proxyPort: PROXY_PORT,
+      upstreamHost: 'localhost',
+      upstreamPort: UPSTREAM_PORT,
+    });
+    await proxy.start();
+
+    // Configure daemon to connect through proxy
+    // @ts-expect-error
+    getConfig.mockReturnValue({
+      NETWORK: 'testnet',
+      SERVICE_NAME: 'daemon-test',
+      CONSOLE_LEVEL: 'debug',
+      TX_CACHE_SIZE: 100,
+      BLOCK_REWARD_LOCK: 300,
+      FULLNODE_PEER_ID: 'simulator_peer_id',
+      STREAM_ID: 'simulator_stream_id',
+      FULLNODE_NETWORK: 'unittests',
+      FULLNODE_HOST: `127.0.0.1:${PROXY_PORT}`, // Connect to proxy, not simulator directly
+      USE_SSL: false,
+      DB_ENDPOINT,
+      DB_NAME,
+      DB_USER,
+      DB_PASS,
+      DB_PORT,
+      ACK_TIMEOUT_MS: 300000, // Long timeout to avoid triggering during test
+    });
+
+    // Start daemon
+    const machine = interpret(SyncMachine);
+
+    // @ts-expect-error
+    await transitionUntilEvent(mysql, machine, EMPTY_SCRIPT_LAST_EVENT);
+    const addressBalances = await fetchAddressBalances(mysql);
+
+    await expect(validateBalances(addressBalances, emptyScriptBalances.addressBalances)).resolves.not.toThrow();
+
+    // Verify proxy stats
+    const stats = proxy.getStats();
+
+    // Verify the proxy relayed events
+    expect(stats.eventsRelayed).toBeGreaterThanOrEqual(0);
+    expect(stats.acksReceived).toBeGreaterThanOrEqual(0);
+    expect(stats.acksDelayed).toBe(0); // No delays configured
+    expect(stats.acksDropped).toBe(0); // No drops configured
+  }, 30000);
 });

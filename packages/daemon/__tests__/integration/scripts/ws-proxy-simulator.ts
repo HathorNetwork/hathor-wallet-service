@@ -44,6 +44,7 @@ export class WebSocketProxySimulator {
   private connections: Map<WebSocket.WebSocket, {
     upstream: WebSocket.WebSocket;
     eventBuffer: any[];
+    messageBuffer: any[];
     stats: ProxyStats;
   }> = new Map();
 
@@ -97,7 +98,7 @@ export class WebSocketProxySimulator {
   async start(): Promise<void> {
     return new Promise((resolve, reject) => {
       const { proxyPort, upstreamHost, upstreamPort } = this.options;
-      const upstreamUrl = `ws://${upstreamHost}:${upstreamPort}`;
+      const upstreamUrl = `ws://${upstreamHost}:${upstreamPort}/v1a/event_ws`;
 
       console.log('WebSocket Proxy Simulator starting...');
       console.log(`Proxy port: ${proxyPort}`);
@@ -196,6 +197,7 @@ export class WebSocketProxySimulator {
       const connectionData = {
         upstream: upstreamWs,
         eventBuffer: [] as any[],
+        messageBuffer: [] as any[], // Buffer for messages until upstream is connected
         stats: {
           eventsRelayed: 0,
           acksReceived: 0,
@@ -209,6 +211,15 @@ export class WebSocketProxySimulator {
       // Handle upstream connection opened
       upstreamWs.on('open', () => {
         console.log('Connected to upstream simulator');
+
+        // Flush any buffered messages
+        if (connectionData.messageBuffer.length > 0) {
+          console.log(`Flushing ${connectionData.messageBuffer.length} buffered messages to upstream`);
+          connectionData.messageBuffer.forEach(msg => {
+            upstreamWs.send(msg);
+          });
+          connectionData.messageBuffer = [];
+        }
       });
 
       // Handle upstream messages (events from simulator)
@@ -265,22 +276,38 @@ export class WebSocketProxySimulator {
                 if (index >= 0) {
                   this.pendingAcks.splice(index, 1);
                 }
-                // Forward the delayed ACK
-                upstreamWs.send(JSON.stringify(message));
-                console.log(`Forwarded delayed ACK for event: ${message.eventId}`);
+                // Forward the delayed ACK (check if still open)
+                if (upstreamWs.readyState === WebSocket.WebSocket.OPEN) {
+                  upstreamWs.send(JSON.stringify(message));
+                  console.log(`Forwarded delayed ACK for event: ${message.eventId}`);
+                }
               }, delayMs);
             } else {
-              // Forward ACK immediately
-              upstreamWs.send(JSON.stringify(message));
+              // Forward ACK immediately (buffer if not open yet)
+              const msgStr = JSON.stringify(message);
+              if (upstreamWs.readyState === WebSocket.WebSocket.OPEN) {
+                upstreamWs.send(msgStr);
+              } else {
+                connectionData.messageBuffer.push(msgStr);
+              }
             }
           } else {
-            // Forward other messages immediately
-            upstreamWs.send(JSON.stringify(message));
+            // Forward other messages immediately (buffer if not open yet)
+            const msgStr = JSON.stringify(message);
+            if (upstreamWs.readyState === WebSocket.WebSocket.OPEN) {
+              upstreamWs.send(msgStr);
+            } else {
+              connectionData.messageBuffer.push(msgStr);
+            }
           }
         } catch (error) {
           console.error('Error processing client message:', error);
-          // Relay as-is if not JSON
-          upstreamWs.send(data);
+          // Relay as-is if not JSON (buffer if not open yet)
+          if (upstreamWs.readyState === WebSocket.WebSocket.OPEN) {
+            upstreamWs.send(data);
+          } else {
+            connectionData.messageBuffer.push(data);
+          }
         }
       });
 
