@@ -261,10 +261,6 @@ describe('Event handling', () => {
       event: eventWithDifferentPeerId as unknown as FullNodeEvent,
     });
 
-    if (!currentState.matches(SYNC_MACHINE_STATES.ERROR)) {
-      console.log('PEERID TEST - Expected ERROR, got:', JSON.stringify(currentState.value));
-    }
-
     expect(currentState.matches(SYNC_MACHINE_STATES.ERROR)).toBeTruthy();
   });
 

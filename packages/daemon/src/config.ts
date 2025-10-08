@@ -83,6 +83,9 @@ export const HEALTHCHECK_SERVER_URL = process.env.HEALTHCHECK_SERVER_URL;
 export const HEALTHCHECK_SERVER_API_KEY = process.env.HEALTHCHECK_SERVER_API_KEY;
 export const HEALTHCHECK_PING_INTERVAL = parseInt(process.env.HEALTHCHECK_PING_INTERVAL ?? '10000', 10);  // 10 seconds
 
+// ACK timeout configuration (in milliseconds)
+export const ACK_TIMEOUT_MS = parseInt(process.env.ACK_TIMEOUT_MS ?? '20000', 10);  // 20 seconds
+
 // Other
 export const USE_SSL = process.env.USE_SSL === 'true';
 
@@ -121,6 +124,7 @@ export default () => ({
   HEALTHCHECK_SERVER_URL,
   HEALTHCHECK_SERVER_API_KEY,
   HEALTHCHECK_PING_INTERVAL,
+  ACK_TIMEOUT_MS,
   REORG_SIZE_INFO,
   REORG_SIZE_MINOR,
   REORG_SIZE_MAJOR,

@@ -19,7 +19,7 @@ import EventFixtures from '../__fixtures__/events';
 
 const { NEW_VERTEX_ACCEPTED } = EventFixtures;
 
-describe('Event Loss Detection - Unit Tests', () => {
+describe('Event Loss Detection', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
@@ -34,7 +34,7 @@ describe('Event Loss Detection - Unit Tests', () => {
         ACK_TIMEOUT: 100,
       },
       actions: {
-        startStream: () => {},
+        startStream: () => { },
       },
       guards: {
         invalidPeerId: () => false,
@@ -79,7 +79,7 @@ describe('Event Loss Detection - Unit Tests', () => {
 
   it('should have checkingForMissedEvents state in machine definition', () => {
     const machine = SyncMachine.withConfig({
-      actions: { startStream: () => {} },
+      actions: { startStream: () => { } },
     });
 
     const connectedState = machine.states[SYNC_MACHINE_STATES.CONNECTED];
@@ -90,7 +90,7 @@ describe('Event Loss Detection - Unit Tests', () => {
 
   it('should configure checkForMissedEvents service in checkingForMissedEvents state', () => {
     const machine = SyncMachine.withConfig({
-      actions: { startStream: () => {} },
+      actions: { startStream: () => { } },
     });
 
     const connectedState = machine.states[SYNC_MACHINE_STATES.CONNECTED];
