@@ -52,6 +52,7 @@ export class WebSocketProxySimulator {
 
   // Deterministic control over ACK behavior
   private delayNextAck: number | null = null; // Delay in ms for next ACK, or null for no delay
+  private delayAllAcks: number | null = null; // Delay in ms for ALL ACKs, or null for no delay
   private dropNextAck: boolean = false; // Whether to drop the next ACK
   private pendingAcks: Array<{ message: any; upstreamWs: WebSocket.WebSocket; clientWs: WebSocket.WebSocket }> = [];
 
@@ -64,6 +65,20 @@ export class WebSocketProxySimulator {
    */
   delayNextAckBy(ms: number): void {
     this.delayNextAck = ms;
+  }
+
+  /**
+   * Delay ALL ACKs by specified milliseconds
+   */
+  delayAllAcksBy(ms: number): void {
+    this.delayAllAcks = ms;
+  }
+
+  /**
+   * Stop delaying all ACKs
+   */
+  stopDelayingAcks(): void {
+    this.delayAllAcks = null;
   }
 
   /**
@@ -260,14 +275,21 @@ export class WebSocketProxySimulator {
             }
 
             // Check if we should delay this ACK
-            if (this.delayNextAck !== null) {
-              const delayMs = this.delayNextAck;
+            const shouldDelayNext = this.delayNextAck !== null;
+            const shouldDelayAll = this.delayAllAcks !== null;
+
+            if (shouldDelayNext || shouldDelayAll) {
+              const delayMs = shouldDelayNext ? this.delayNextAck! : this.delayAllAcks!;
               connectionData.stats.acksDelayed++;
               console.log(`Delaying ACK for ${delayMs}ms`);
 
               // Store for later
               this.pendingAcks.push({ message, upstreamWs, clientWs });
-              this.delayNextAck = null; // Reset
+
+              // Only reset delayNextAck, not delayAllAcks
+              if (shouldDelayNext) {
+                this.delayNextAck = null; // Reset
+              }
 
               // Set timeout to forward later
               setTimeout(() => {

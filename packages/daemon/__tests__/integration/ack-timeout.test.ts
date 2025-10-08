@@ -253,4 +253,67 @@ describe('WebSocket Proxy Simulator', () => {
     expect(stats.acksDelayed).toBe(0); // No delays configured
     expect(stats.acksDropped).toBe(0); // No drops configured
   }, 30000);
+
+  it('should check for missed events when idle timeout is exceeded', async () => {
+    // This test verifies that when the daemon is idle for longer than ACK_TIMEOUT_MS,
+    // it transitions to checkingForMissedEvents state to check if any events were missed
+
+    // Start proxy
+    proxy = new WebSocketProxySimulator({
+      proxyPort: PROXY_PORT,
+      upstreamHost: 'localhost',
+      upstreamPort: UPSTREAM_PORT,
+    });
+    await proxy.start();
+
+    // Configure daemon with short ACK timeout
+    // @ts-expect-error
+    getConfig.mockReturnValue({
+      NETWORK: 'testnet',
+      SERVICE_NAME: 'daemon-test',
+      CONSOLE_LEVEL: 'debug',
+      TX_CACHE_SIZE: 100,
+      BLOCK_REWARD_LOCK: 300,
+      FULLNODE_PEER_ID: 'simulator_peer_id',
+      STREAM_ID: 'simulator_stream_id',
+      FULLNODE_NETWORK: 'unittests',
+      FULLNODE_HOST: `127.0.0.1:${PROXY_PORT}`,
+      USE_SSL: false,
+      DB_ENDPOINT,
+      DB_NAME,
+      DB_USER,
+      DB_PASS,
+      DB_PORT,
+      ACK_TIMEOUT_MS: 500, // 500ms timeout
+    });
+
+    // Track when we enter checkingForMissedEvents
+    let checkForMissedEventsPromise = new Promise<void>((resolve) => {
+      const machine = interpret(SyncMachine);
+
+      machine.onTransition((state) => {
+        const stateValue = typeof state.value === 'string'
+          ? state.value
+          : JSON.stringify(state.value);
+
+        if (stateValue.includes('checkingForMissedEvents')) {
+          machine.stop();
+          resolve();
+        }
+      });
+
+      machine.start();
+    });
+
+    // Wait for the state transition with a timeout
+    await Promise.race([
+      checkForMissedEventsPromise,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Timeout waiting for checkingForMissedEvents')), 10000)
+      )
+    ]);
+
+    // If we get here, the test passed
+    expect(true).toBe(true);
+  }, 15000);
 });
