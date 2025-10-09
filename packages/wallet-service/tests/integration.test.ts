@@ -15,6 +15,7 @@ import {
   checkWalletTable,
   createOutput,
   createInput,
+  stopWalletLibOpenHandles,
 } from '@tests/utils';
 import { SNSEvent } from 'aws-lambda';
 
@@ -130,6 +131,7 @@ beforeAll(async () => {
   process.env.BLOCK_REWARD_LOCK = '1';
 
   const actualUtils = jest.requireActual('@src/utils');
+  await stopWalletLibOpenHandles();
   jest.mock('@src/utils', () => {
     return {
       ...actualUtils,
