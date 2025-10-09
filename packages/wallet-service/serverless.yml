@@ -591,6 +591,18 @@ functions:
     warmup:
       walletWarmer:
         enabled: true
+  authROTokenApi:
+    handler: src/api/auth.roTokenHandler
+    timeout: 6
+    memorySize: 1024
+    events:
+      - http:
+          path: auth/token/readonly
+          method: post
+          cors: true
+    warmup:
+      walletWarmer:
+        enabled: true
   bearerAuthorizer:
     handler: src/api/auth.bearerAuthorizer
     memorySize: 1024
