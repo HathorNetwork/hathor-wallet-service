@@ -8,7 +8,7 @@
     "test": "jest --runInBand --collectCoverage --detectOpenHandles --forceExit"
   },
   "peerDependencies": {
-    "@hathor/wallet-lib": "2.5.1"
+    "@hathor/wallet-lib": "2.8.3"
   },
   "dependencies": {
     "@aws-sdk/client-lambda": "3.540.0",
