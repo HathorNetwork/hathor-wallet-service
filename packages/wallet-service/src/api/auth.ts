@@ -342,12 +342,6 @@ export const bearerAuthorizer: APIGatewayTokenAuthorizerHandler = middy(async (e
 
   const walletId = data.wid;
   const mode = data.mode || 'full'; // Default to full for legacy tokens
-  const expirationTs = data.exp;
-
-  // Check token expiration
-  if (Math.floor(Date.now() / 1000) > expirationTs) {
-    throw new Error('Unauthorized');
-  }
 
   // For full-access tokens, verify wallet signature (existing logic)
   if (mode === 'full') {
