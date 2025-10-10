@@ -17,5 +17,4 @@ export interface Context {
   initialEventId: null | number;
   txCache: LRU | null;
   rewardMinBlocks?: number | null;
-  ackTimeoutStarted?: boolean;
 }

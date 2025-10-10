@@ -200,18 +200,3 @@ export const stopHealthcheckPing = sendTo(
  * Logs the event as an error log
  */
 export const logEventError = (_context: Context, event: Event) => logger.error(bigIntUtils.JSONBigInt.stringify(event));
-
-/*
- * Starts the ACK timeout timer
- * This timer is used to detect if we lost an event due to network packet loss
- */
-export const startAckTimeout = assign({
-  ackTimeoutStarted: () => true,
-});
-
-/*
- * Cancels the ACK timeout timer
- */
-export const cancelAckTimeout = assign({
-  ackTimeoutStarted: () => false,
-});

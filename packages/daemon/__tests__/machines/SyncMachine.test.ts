@@ -223,8 +223,6 @@ describe('Event handling', () => {
     const MockedFetchMachine = SyncMachine.withConfig({
       actions: {
         startStream: () => {},
-        cancelAckTimeout: () => {},
-        startAckTimeout: () => {},
         storeEvent: () => {},
       },
       guards: {
@@ -271,8 +269,6 @@ describe('Event handling', () => {
     const MockedFetchMachine = SyncMachine.withConfig({
       actions: {
         startStream: () => {},
-        cancelAckTimeout: () => {},
-        startAckTimeout: () => {},
         storeEvent: () => {},
       },
       guards: {

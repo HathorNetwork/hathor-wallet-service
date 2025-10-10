@@ -103,11 +103,9 @@ describe('Event Loss Detection', () => {
     expect(invokeSrc).toBe('checkForMissedEvents');
   });
 
-  it('should have all required services, guards, delays, and actions configured', () => {
+  it('should have all required services, guards, and delays configured', () => {
     expect(SyncMachine.options.services).toHaveProperty('checkForMissedEvents');
     expect(SyncMachine.options.guards).toHaveProperty('hasNewEvents');
     expect(SyncMachine.options.delays).toHaveProperty('ACK_TIMEOUT');
-    expect(SyncMachine.options.actions).toHaveProperty('startAckTimeout');
-    expect(SyncMachine.options.actions).toHaveProperty('cancelAckTimeout');
   });
 });
