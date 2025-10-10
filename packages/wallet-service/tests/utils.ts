@@ -1145,3 +1145,8 @@ export const getXPrivKeyFromSeed = (
   const code = new Mnemonic(seed);
   return code.toHDPrivateKey(passphrase, network.bitcoreNetwork);
 };
+
+export const stopWalletLibOpenHandles = async () => {
+  const { stopGLLBackgroundTask } = await import('@hathor/wallet-lib');
+  stopGLLBackgroundTask();
+};

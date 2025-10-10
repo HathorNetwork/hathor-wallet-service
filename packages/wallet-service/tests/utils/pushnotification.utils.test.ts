@@ -10,7 +10,7 @@ import { SendNotificationToDevice } from '@src/types';
 import { Severity } from '@wallet-service/common/src/types';
 import { sendMock, lambdaInvokeCommandMock } from '@tests/utils/aws-sdk.mock';
 import { LambdaClient } from '@aws-sdk/client-lambda';
-import { buildWalletBalanceValueMap } from '@tests/utils';
+import { buildWalletBalanceValueMap, stopWalletLibOpenHandles } from '@tests/utils';
 import { bigIntUtils } from '@hathor/wallet-lib';
 
 const isFirebaseInitializedMock = jest.spyOn(pushnotificationUtils, 'isFirebaseInitialized');
@@ -61,6 +61,7 @@ describe('PushNotificationUtils', () => {
     // reload module
     jest.resetModules();
     await import('@src/utils/pushnotification.utils');
+    await stopWalletLibOpenHandles();
 
     const resultMessageOfLastCallToLoggerError = logger.error.mock.calls[0][0];
     expect(resultMessageOfLastCallToLoggerError).toMatchInlineSnapshot('"Error initializing Firebase Admin SDK. ErrorMessage: Failed to parse private key: Error: Invalid PEM formatted message."');
@@ -77,6 +78,7 @@ describe('PushNotificationUtils', () => {
       // reload module
       jest.resetModules();
       await import('@src/utils/pushnotification.utils');
+      await stopWalletLibOpenHandles();
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
         'Lambda missing env variables',
@@ -97,6 +99,7 @@ describe('PushNotificationUtils', () => {
       // reload module
       jest.resetModules();
       await import('@src/utils/pushnotification.utils');
+      await stopWalletLibOpenHandles();
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
         'Lambda missing env variables',
@@ -117,6 +120,7 @@ describe('PushNotificationUtils', () => {
       // reload module
       jest.resetModules();
       await import('@src/utils/pushnotification.utils');
+      await stopWalletLibOpenHandles();
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
         'Lambda missing env variables',
@@ -137,6 +141,7 @@ describe('PushNotificationUtils', () => {
       // reload module
       jest.resetModules();
       await import('@src/utils/pushnotification.utils');
+      await stopWalletLibOpenHandles();
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
         'Lambda missing env variables',
@@ -157,6 +162,7 @@ describe('PushNotificationUtils', () => {
       // reload module
       jest.resetModules();
       await import('@src/utils/pushnotification.utils');
+      await stopWalletLibOpenHandles();
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
         'Lambda missing env variables',
@@ -177,6 +183,7 @@ describe('PushNotificationUtils', () => {
       // reload module
       jest.resetModules();
       await import('@src/utils/pushnotification.utils');
+      await stopWalletLibOpenHandles();
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
         'Lambda missing env variables',
@@ -197,6 +204,7 @@ describe('PushNotificationUtils', () => {
       // reload module
       jest.resetModules();
       await import('@src/utils/pushnotification.utils');
+      await stopWalletLibOpenHandles();
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
         'Lambda missing env variables',
@@ -217,6 +225,7 @@ describe('PushNotificationUtils', () => {
       // reload module
       jest.resetModules();
       await import('@src/utils/pushnotification.utils');
+      await stopWalletLibOpenHandles();
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
         'Lambda missing env variables',
@@ -237,6 +246,7 @@ describe('PushNotificationUtils', () => {
       // reload module
       jest.resetModules();
       await import('@src/utils/pushnotification.utils');
+      await stopWalletLibOpenHandles();
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
         'Lambda missing env variables',
@@ -257,6 +267,7 @@ describe('PushNotificationUtils', () => {
       // reload module
       jest.resetModules();
       await import('@src/utils/pushnotification.utils');
+      await stopWalletLibOpenHandles();
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
         'Lambda missing env variables',
@@ -277,6 +288,7 @@ describe('PushNotificationUtils', () => {
       // reload module
       jest.resetModules();
       await import('@src/utils/pushnotification.utils');
+      await stopWalletLibOpenHandles();
 
       expect(mockedAddAlert).toHaveBeenLastCalledWith(
         'Lambda missing env variables',
@@ -300,6 +312,7 @@ describe('PushNotificationUtils', () => {
       // reload module
       jest.resetModules();
       await import('@src/utils/pushnotification.utils');
+      await stopWalletLibOpenHandles();
 
       // No alert should be raised since push notifications are disabled
       expect(mockedAddAlert).not.toHaveBeenCalled();
@@ -315,6 +328,7 @@ describe('PushNotificationUtils', () => {
       // reload module
       jest.resetModules();
       await import('@src/utils/pushnotification.utils');
+      await stopWalletLibOpenHandles();
 
       expect(logger.error).toHaveBeenLastCalledWith('[ALERT] Error while parsing the env.FIREBASE_PRIVATE_KEY.');
     });
@@ -328,6 +342,7 @@ describe('PushNotificationUtils', () => {
       // reload module
       jest.resetModules();
       await import('@src/utils/pushnotification.utils');
+      await stopWalletLibOpenHandles();
 
       expect(logger.error).toHaveBeenLastCalledWith('[ALERT] env.PUSH_ALLOWED_PROVIDERS is empty.');
     });
@@ -468,6 +483,7 @@ describe('PushNotificationUtils', () => {
       // reload module
       jest.resetModules();
       const { PushNotificationUtils } = await import('@src/utils/pushnotification.utils');
+      await stopWalletLibOpenHandles();
 
       const notification = {
         deviceId: 'device1',
@@ -511,6 +527,7 @@ describe('PushNotificationUtils', () => {
       // reload module
       jest.resetModules();
       const { PushNotificationUtils } = await import('@src/utils/pushnotification.utils');
+      await stopWalletLibOpenHandles();
 
       const notification = {
         deviceId: 'device1',
@@ -542,6 +559,7 @@ describe('PushNotificationUtils', () => {
       // reload module
       jest.resetModules();
       const { PushNotificationUtils } = await import('@src/utils/pushnotification.utils');
+      await stopWalletLibOpenHandles();
 
       const notification = {
         deviceId: 'device1',
@@ -570,6 +588,7 @@ describe('PushNotificationUtils', () => {
       });
       jest.resetModules();
       const { PushNotificationUtils, buildFunctionName } = await import('@src/utils/pushnotification.utils');
+      await stopWalletLibOpenHandles();
 
       const walletMap = buildWalletBalanceValueMap();
       const result = await PushNotificationUtils.invokeOnTxPushNotificationRequestedLambda(walletMap);
@@ -604,6 +623,7 @@ describe('PushNotificationUtils', () => {
       process.env.PUSH_NOTIFICATION_ENABLED = 'false';
       jest.resetModules();
       const { PushNotificationUtils } = await import('@src/utils/pushnotification.utils');
+      await stopWalletLibOpenHandles();
 
       const walletMap = buildWalletBalanceValueMap();
       const result = await PushNotificationUtils.invokeOnTxPushNotificationRequestedLambda(walletMap);
@@ -634,6 +654,7 @@ describe('PushNotificationUtils', () => {
       process.env.PUSH_NOTIFICATION_ENABLED = 'true';
       jest.resetModules();
       const { PushNotificationUtils } = await import('@src/utils/pushnotification.utils');
+      await stopWalletLibOpenHandles();
 
       const walletMap = buildWalletBalanceValueMap();
       await expect(PushNotificationUtils.invokeOnTxPushNotificationRequestedLambda(walletMap)).rejects.toMatchInlineSnapshot('[Error: hathor-wallet-service-stage-txPushRequested lambda invoke failed for wallets: wallet1]');

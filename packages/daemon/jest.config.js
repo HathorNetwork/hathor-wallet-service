@@ -1,5 +1,6 @@
 module.exports = {
   roots: ["<rootDir>/__tests__"],
+  setupFiles: ['./jestSetup.ts'],
   testRegex: ".*\\.test\\.ts$",
   transform: {
     "^.+\\.ts$": ["ts-jest", {
