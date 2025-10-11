@@ -1,0 +1,68 @@
+# Node Config
+
+export APPLICATION_NAME=wallet-service-daemon
+export CONSOLE_LEVEL=debug
+export LOG_LEVEL=debug
+export NODE_ENV=development
+export STAGE=mainnet
+
+# AWS Config
+
+export AWS_SDK_LOAD_CONFIG=1
+export AWS_VPC_DEFAULT_SG_ID=123
+export AWS_SUBNET_ID_1=123
+export AWS_SUBNET_ID_2=123
+export AWS_SUBNET_ID_3=123
+export AWS_REGION=eu-central-1
+
+# DB Connection
+
+export DB_ENDPOINT=localhost
+export DB_PORT=3306
+export DB_NAME=wallet_service_local
+export DB_USER=wallet_service_user
+export DB_PASS=password
+
+export REDIS_URL=redis://localhost:6379
+export REDIS_PASSWORD=""
+
+# Hathor Config
+
+export NETWORK=mainnet
+export FULLNODE_HOST=node1.mainnet.hathor.network
+export DEFAULT_SERVER=https://node1.mainnet.hathor.network/v1a/
+
+# Application config
+
+export NFT_AUTO_REVIEW_ENABLED=false
+export AUTH_SECRET=123
+export STREAM_ID=22d8238c-d92e-47ad-bf78-6de9a81e9e81
+export FULLNODE_PEER_ID=6cbfb46459dff50e9b7546484af1fc8cf024024097588a568f9abf1a858c7105
+export WS_DOMAIN=wss://node1.hathor.network/websocket
+export WS_URL=ws://localhost:8083/v1a/event_ws
+export USE_SSL=false
+export BLOCK_REWARD_LOCK=10
+export CONFIRM_FIRST_ADDRESS=true
+export MAX_ADDRESS_GAP=20
+export VOIDED_TX_OFFSET=20
+export TX_HISTORY_MAX_COUNT=20
+export WALLET_SERVICE_LAMBDA_ENDPOINT=abc
+export PUSH_NOTIFICATION_ENABLED=false
+export PUSH_ALLOWED_PROVIDERS=abc
+export NEW_TX_SQS=abc
+export ALERT_MANAGER_REGION=eu-central-1
+export ALERT_MANAGER_TOPIC=abc
+export ALERT_MANAGER_ACCOUNT_ID=abc
+export ACCOUNT_ID=123
+
+# Firebase config
+
+export FIREBASE_PROJECT_ID=abc
+export FIREBASE_PRIVATE_KEY_ID=abc
+export FIREBASE_PRIVATE_KEY=abc
+export FIREBASE_CLIENT_EMAIL=abc
+export FIREBASE_CLIENT_ID=abc
+export FIREBASE_AUTH_URI=abc
+export FIREBASE_TOKEN_URI=abc
+export FIREBASE_AUTH_PROVIDER_X509_CERT_URL=abc
+export FIREBASE_CLIENT_X509_CERT_URL=abc
