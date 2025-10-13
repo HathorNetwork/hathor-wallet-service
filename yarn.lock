@@ -3636,9 +3636,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@hathor/wallet-lib@npm:2.5.1":
-  version: 2.5.1
-  resolution: "@hathor/wallet-lib@npm:2.5.1"
+"@hathor/wallet-lib@npm:2.8.3":
+  version: 2.8.3
+  resolution: "@hathor/wallet-lib@npm:2.8.3"
   dependencies:
     axios: "npm:1.7.7"
     bitcore-lib: "npm:8.25.10"
@@ -3650,7 +3650,7 @@ __metadata:
     queue-microtask: "npm:1.2.3"
     ws: "npm:8.17.1"
     zod: "npm:3.23.8"
-  checksum: 10/6afb2123a29de80d09cfcbe14c69709a41cd36e1f4fdcbe5dcb74690057dbff482d434a904e734a0154ded4fb8e168eb443acba4d9b5815795d92f677f274b09
+  checksum: 10/a52b8f8de761a7abdfb206ed536b0fae21c3904cb6b55730cc4dc5c293874ffd89c91babf47536d040c20dc3e2dd542016dfc6bdba282a662e86c3e638291c26
   languageName: node
   linkType: hard
 
@@ -7465,7 +7465,7 @@ __metadata:
     typescript: "npm:5.4.3"
     winston: "npm:3.13.0"
   peerDependencies:
-    "@hathor/wallet-lib": 2.5.1
+    "@hathor/wallet-lib": 2.8.3
   languageName: unknown
   linkType: soft
 
@@ -12289,7 +12289,7 @@ __metadata:
     "@aws-sdk/client-apigatewaymanagementapi": "npm:3.540.0"
     "@aws-sdk/client-lambda": "npm:3.540.0"
     "@aws-sdk/client-sqs": "npm:3.540.0"
-    "@hathor/wallet-lib": "npm:2.5.1"
+    "@hathor/wallet-lib": "npm:2.8.3"
     "@types/jest": "npm:29.5.13"
     "@typescript-eslint/eslint-plugin": "npm:^7.4.0"
     "@typescript-eslint/parser": "npm:^7.4.0"
@@ -17817,7 +17817,7 @@ __metadata:
     xstate: "npm:4.38.2"
     zod: "npm:3.23.8"
   peerDependencies:
-    "@hathor/wallet-lib": 2.5.1
+    "@hathor/wallet-lib": 2.8.3
     "@wallet-service/common": 1.5.0
   languageName: unknown
   linkType: soft
@@ -18938,7 +18938,7 @@ __metadata:
     webpack-node-externals: "npm:3.0.0"
     winston: "npm:3.13.0"
   peerDependencies:
-    "@hathor/wallet-lib": 2.5.1
+    "@hathor/wallet-lib": 2.8.3
     "@wallet-service/common": 1.5.0
   languageName: unknown
   linkType: soft
