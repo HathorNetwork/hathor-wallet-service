@@ -252,3 +252,15 @@ export const reorgStarted = (_context: Context, event: Event) => {
 
   return event.event.event.type === FullNodeEventTypes.REORG_STARTED;
 };
+
+/*
+ * This guard checks if the checkForMissedEvents service found new events
+ * that we missed due to network packet loss
+ */
+export const hasNewEvents = (_context: Context, event: any) => {
+  if (!event.data) {
+    return false;
+  }
+
+  return event.data.hasNewEvents === true;
+};

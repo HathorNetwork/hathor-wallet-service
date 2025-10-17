@@ -95,6 +95,7 @@ getConfig.mockReturnValue({
   DB_USER,
   DB_PASS,
   DB_PORT,
+  ACK_TIMEOUT_MS: 20000,
 });
 
 let mysql: Connection;
@@ -115,6 +116,12 @@ afterAll(async () => {
     await mysql.release();
   }
 });
+
+// Mock checkForMissedEvents since HTTP API is not available in test simulators
+jest.spyOn(Services, 'checkForMissedEvents').mockImplementation(async () => ({
+  hasNewEvents: false,
+  events: [],
+}));
 
 describe('unvoided transaction scenario', () => {
   beforeAll(async () => {
@@ -140,6 +147,7 @@ describe('unvoided transaction scenario', () => {
       DB_USER,
       DB_PASS,
       DB_PORT,
+      ACK_TIMEOUT_MS: 300000, // 5 minutes - long enough to not interfere with tests
     });
 
     const machine = interpret(SyncMachine);
@@ -175,6 +183,7 @@ describe('reorg scenario', () => {
       DB_USER,
       DB_PASS,
       DB_PORT,
+      ACK_TIMEOUT_MS: 300000, // 5 minutes - long enough to not interfere with tests
     });
 
     const machine = interpret(SyncMachine);
@@ -210,6 +219,7 @@ describe('single chain blocks and transactions scenario', () => {
       DB_USER,
       DB_PASS,
       DB_PORT,
+      ACK_TIMEOUT_MS: 300000, // 5 minutes - long enough to not interfere with tests
     });
 
     const machine = interpret(SyncMachine);
@@ -245,6 +255,7 @@ describe('invalid mempool transactions scenario', () => {
       DB_USER,
       DB_PASS,
       DB_PORT,
+      ACK_TIMEOUT_MS: 300000, // 5 minutes - long enough to not interfere with tests
     });
 
     const machine = interpret(SyncMachine);
@@ -280,6 +291,7 @@ describe('custom script scenario', () => {
       DB_USER,
       DB_PASS,
       DB_PORT,
+      ACK_TIMEOUT_MS: 300000, // 5 minutes - long enough to not interfere with tests
     });
 
     const machine = interpret(SyncMachine);
@@ -315,6 +327,7 @@ describe('empty script scenario', () => {
       DB_USER,
       DB_PASS,
       DB_PORT,
+      ACK_TIMEOUT_MS: 300000, // 5 minutes - long enough to not interfere with tests
     });
 
     const machine = interpret(SyncMachine);
@@ -351,6 +364,7 @@ describe('nc events scenario', () => {
       DB_USER,
       DB_PASS,
       DB_PORT,
+      ACK_TIMEOUT_MS: 300000, // 5 minutes - long enough to not interfere with tests
     });
 
     const machine = interpret(SyncMachine);
@@ -387,6 +401,7 @@ describe('transaction voiding chain scenario', () => {
       DB_USER,
       DB_PASS,
       DB_PORT,
+      ACK_TIMEOUT_MS: 300000, // 5 minutes - long enough to not interfere with tests
     });
 
     const machine = interpret(SyncMachine);
@@ -499,6 +514,7 @@ describe('voided token authority scenario', () => {
       DB_USER,
       DB_PASS,
       DB_PORT,
+      ACK_TIMEOUT_MS: 300000, // 5 minutes - long enough to not interfere with tests
     });
 
     // Initialize wallet before processing events
@@ -592,6 +608,7 @@ describe('single voided create token transaction scenario', () => {
       DB_USER,
       DB_PASS,
       DB_PORT,
+      ACK_TIMEOUT_MS: 300000, // 5 minutes - long enough to not interfere with tests
     });
 
     const machine = interpret(SyncMachine);
@@ -620,6 +637,7 @@ describe('single voided create token transaction scenario', () => {
       DB_USER,
       DB_PASS,
       DB_PORT,
+      ACK_TIMEOUT_MS: 300000, // 5 minutes - long enough to not interfere with tests
     });
 
     // Initialize wallet before processing events
@@ -744,6 +762,7 @@ describe('single voided regular transaction scenario', () => {
       DB_USER,
       DB_PASS,
       DB_PORT,
+      ACK_TIMEOUT_MS: 300000, // 5 minutes - long enough to not interfere with tests
     });
 
     const machine = interpret(SyncMachine);
@@ -772,6 +791,7 @@ describe('single voided regular transaction scenario', () => {
       DB_USER,
       DB_PASS,
       DB_PORT,
+      ACK_TIMEOUT_MS: 300000, // 5 minutes - long enough to not interfere with tests
     });
 
     const machine = interpret(SyncMachine);
@@ -827,6 +847,7 @@ describe('single voided regular transaction scenario', () => {
       DB_USER,
       DB_PASS,
       DB_PORT,
+      ACK_TIMEOUT_MS: 300000, // 5 minutes - long enough to not interfere with tests
     });
 
     // Initialize wallet before processing events
