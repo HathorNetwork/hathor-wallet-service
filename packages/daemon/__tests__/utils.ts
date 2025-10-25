@@ -201,6 +201,7 @@ export const cleanDatabase = async (mysql: MysqlConnection): Promise<void> => {
     'miner',
     'push_devices',
     'sync_metadata',
+    'tx_event_audit',
   ];
   await mysql.query('SET FOREIGN_KEY_CHECKS = 0');
   for (const table of TABLES) {
