@@ -839,7 +839,7 @@ export const checkForMissedEvents = async (context: Context): Promise<{ hasNewEv
     throw new Error(`Failed to check for missed events: HTTP ${response.status}`);
   }
 
-  const events = response.data;
+  const { events } = response.data;
   const hasNewEvents = Array.isArray(events) && events.length > 0;
 
   if (hasNewEvents) {
