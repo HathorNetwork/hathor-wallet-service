@@ -828,15 +828,34 @@ export const checkForMissedEvents = async (context: Context): Promise<{ hasNewEv
 
   logger.debug(`Checking for missed events after event ID ${lastAckEventId}`);
 
-  const response = await axios.get(`${fullnodeUrl}/event`, {
-    params: {
-      last_ack_event_id: lastAckEventId,
-      size: 1,
-    },
-  });
+  let response;
+  try {
+    response = await axios.get(`${fullnodeUrl}/event`, {
+      params: {
+        last_ack_event_id: lastAckEventId,
+        size: 1,
+      },
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error(
+      `Failed to check for missed events after ACK ${lastAckEventId}: Network error - ${errorMessage}. URL: ${fullnodeUrl}/event`
+    );
+    throw new Error(`Failed to check for missed events: Network error - ${errorMessage}`);
+  }
 
   if (response.status !== 200) {
+    logger.error(
+      `Failed to check for missed events after ACK ${lastAckEventId}: HTTP ${response.status}. URL: ${fullnodeUrl}/event`
+    );
     throw new Error(`Failed to check for missed events: HTTP ${response.status}`);
+  }
+
+  if (!response.data || typeof response.data !== 'object') {
+    logger.error(
+      `Failed to check for missed events after ACK ${lastAckEventId}: Invalid response data structure. Response: ${JSONBigInt.stringify(response.data)}`
+    );
+    throw new Error('Failed to check for missed events: Invalid response structure');
   }
 
   const { events } = response.data;

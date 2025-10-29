@@ -1143,6 +1143,34 @@ describe('checkForMissedEvents', () => {
     await expect(checkForMissedEvents(context as any))
       .rejects
       .toThrow('Failed to check for missed events: HTTP 500');
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('HTTP 500')
+    );
+  });
+
+  it('should throw error when network request fails', async () => {
+    const networkError = new Error('ECONNREFUSED: Connection refused');
+    (axios.get as jest.Mock).mockRejectedValue(networkError);
+
+    const context = {
+      event: {
+        event: {
+          id: 115181,
+        },
+      },
+    };
+
+    await expect(checkForMissedEvents(context as any))
+      .rejects
+      .toThrow('Failed to check for missed events: Network error');
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('Network error')
+    );
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('ECONNREFUSED')
+    );
   });
 
   it('should throw error when context has no event', async () => {
@@ -1175,5 +1203,28 @@ describe('checkForMissedEvents', () => {
     const result = await checkForMissedEvents(context as any);
 
     expect(result.hasNewEvents).toBe(false);
+  });
+
+  it('should throw error when response data is invalid', async () => {
+    (axios.get as jest.Mock).mockResolvedValue({
+      status: 200,
+      data: null,
+    });
+
+    const context = {
+      event: {
+        event: {
+          id: 115181,
+        },
+      },
+    };
+
+    await expect(checkForMissedEvents(context as any))
+      .rejects
+      .toThrow('Failed to check for missed events: Invalid response structure');
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('Invalid response data structure')
+    );
   });
 });
