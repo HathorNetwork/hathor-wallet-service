@@ -31,6 +31,7 @@ import {
   handleVertexAccepted,
   metadataDiff,
   handleReorgStarted,
+  checkForMissedEvents,
 } from '../../src/services';
 import logger from '../../src/logger';
 import {
@@ -54,6 +55,7 @@ jest.mock('../../src/logger', () => ({
   debug: jest.fn(),
   error: jest.fn(),
   info: jest.fn(),
+  warn: jest.fn(),
 }));
 
 jest.mock('axios', () => ({
@@ -1039,5 +1041,190 @@ describe('handleReorgStarted', () => {
     await expect(handleReorgStarted({ event } as Context))
       .rejects
       .toThrow('Invalid event type for REORG_STARTED');
+  });
+});
+
+describe('checkForMissedEvents', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    const mockUrl = 'http://mock-host:8080/v1a';
+    (getFullnodeHttpUrl as jest.Mock).mockReturnValue(mockUrl);
+  });
+
+  it('should return hasNewEvents=true when API returns events', async () => {
+    const mockResponse = {
+      status: 200,
+      data: {
+        events: [
+          {
+            id: 115182,
+            timestamp: 1761758848.1938324,
+            type: 'VERTEX_METADATA_CHANGED',
+            data: { hash: 'mockHash' },
+          },
+          {
+            id: 115183,
+            timestamp: 1761758848.196779,
+            type: 'NEW_VERTEX_ACCEPTED',
+            data: { hash: 'mockHash' },
+          },
+        ],
+        latest_event_id: 115561,
+      },
+    };
+
+    (axios.get as jest.Mock).mockResolvedValue(mockResponse);
+
+    const context = {
+      event: {
+        event: {
+          id: 115181,
+        },
+      },
+    };
+
+    const result = await checkForMissedEvents(context as any);
+
+    expect(result.hasNewEvents).toBe(true);
+    expect(result.events).toHaveLength(2);
+    expect(axios.get).toHaveBeenCalledWith('http://mock-host:8080/v1a/event', {
+      params: {
+        last_ack_event_id: 115181,
+        size: 1,
+      },
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Detected 2 missed event(s) after ACK 115181. Will reconnect.'
+    );
+  });
+
+  it('should return hasNewEvents=false when API returns no events', async () => {
+    const mockResponse = {
+      status: 200,
+      data: {
+        events: [],
+        latest_event_id: 115181,
+      },
+    };
+
+    (axios.get as jest.Mock).mockResolvedValue(mockResponse);
+
+    const context = {
+      event: {
+        event: {
+          id: 115181,
+        },
+      },
+    };
+
+    const result = await checkForMissedEvents(context as any);
+
+    expect(result.hasNewEvents).toBe(false);
+    expect(result.events).toHaveLength(0);
+    expect(logger.debug).toHaveBeenCalledWith(
+      'No missed events detected after ACK 115181'
+    );
+  });
+
+  it('should throw error when HTTP request fails', async () => {
+    (axios.get as jest.Mock).mockResolvedValue({
+      status: 500,
+      data: {},
+    });
+
+    const context = {
+      event: {
+        event: {
+          id: 115181,
+        },
+      },
+    };
+
+    await expect(checkForMissedEvents(context as any))
+      .rejects
+      .toThrow('Failed to check for missed events: HTTP 500');
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('HTTP 500')
+    );
+  });
+
+  it('should throw error when network request fails', async () => {
+    const networkError = new Error('ECONNREFUSED: Connection refused');
+    (axios.get as jest.Mock).mockRejectedValue(networkError);
+
+    const context = {
+      event: {
+        event: {
+          id: 115181,
+        },
+      },
+    };
+
+    await expect(checkForMissedEvents(context as any))
+      .rejects
+      .toThrow('Failed to check for missed events: Network error');
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('Network error')
+    );
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('ECONNREFUSED')
+    );
+  });
+
+  it('should throw error when context has no event', async () => {
+    const context = {};
+
+    await expect(checkForMissedEvents(context as any))
+      .rejects
+      .toThrow('No event in context when checking for missed events');
+  });
+
+  it('should handle API response with non-array events field', async () => {
+    const mockResponse = {
+      status: 200,
+      data: {
+        events: null,
+        latest_event_id: 115181,
+      },
+    };
+
+    (axios.get as jest.Mock).mockResolvedValue(mockResponse);
+
+    const context = {
+      event: {
+        event: {
+          id: 115181,
+        },
+      },
+    };
+
+    const result = await checkForMissedEvents(context as any);
+
+    expect(result.hasNewEvents).toBe(false);
+  });
+
+  it('should throw error when response data is invalid', async () => {
+    (axios.get as jest.Mock).mockResolvedValue({
+      status: 200,
+      data: null,
+    });
+
+    const context = {
+      event: {
+        event: {
+          id: 115181,
+        },
+      },
+    };
+
+    await expect(checkForMissedEvents(context as any))
+      .rejects
+      .toThrow('Failed to check for missed events: Invalid response structure');
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('Invalid response data structure')
+    );
   });
 });
