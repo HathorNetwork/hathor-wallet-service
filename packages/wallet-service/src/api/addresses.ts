@@ -22,6 +22,7 @@ import { walletIdProxyHandler } from '@src/commons';
 import middy from '@middy/core';
 import cors from '@middy/http-cors';
 import errorHandler from '@src/api/middlewares/errorHandler';
+import createDefaultLogger from '@src/logger';
 
 const mysql = getDbConnection();
 
@@ -53,14 +54,25 @@ class AddressAtIndexValidator {
  * This lambda is called by API Gateway on POST /addresses/check_mine
  */
 export const checkMine: APIGatewayProxyHandler = middy(walletIdProxyHandler(async (walletId, event) => {
+  const logger = createDefaultLogger();
+  const requestContext = {
+    walletId,
+    requestId: event.requestContext?.requestId,
+    operation: 'checkMine',
+  };
+
+  logger.info('Processing address check request', requestContext);
+
   const status = await getWallet(mysql, walletId);
 
   // If the wallet is not started or ready, we can skip the query on the address table
   if (!status) {
+    logger.error('Wallet not found', requestContext);
     return closeDbAndGetError(mysql, ApiError.WALLET_NOT_FOUND);
   }
 
   if (!status.readyAt) {
+    logger.error('Wallet not ready', requestContext);
     return closeDbAndGetError(mysql, ApiError.WALLET_NOT_READY);
   }
 
@@ -68,6 +80,7 @@ export const checkMine: APIGatewayProxyHandler = middy(walletIdProxyHandler(asyn
     try {
       return JSON.parse(body);
     } catch (e) {
+      logger.error('Failed to parse request body', { ...requestContext, error: e.message });
       return null;
     }
   }(event.body));
@@ -83,6 +96,7 @@ export const checkMine: APIGatewayProxyHandler = middy(walletIdProxyHandler(asyn
       path: err.path,
     }));
 
+    logger.error('Request validation failed', { ...requestContext, details });
     return closeDbAndGetError(mysql, ApiError.INVALID_PAYLOAD, { details });
   }
 
@@ -97,6 +111,8 @@ export const checkMine: APIGatewayProxyHandler = middy(walletIdProxyHandler(asyn
 
     return acc;
   }, {});
+
+  logger.info('Address check completed', { ...requestContext, addressCount: sentAddresses.length, matchCount: dbWalletAddresses.length });
 
   return {
     statusCode: 200,
@@ -117,13 +133,24 @@ export const checkMine: APIGatewayProxyHandler = middy(walletIdProxyHandler(asyn
  */
 export const get: APIGatewayProxyHandler = middy(
   walletIdProxyHandler(async (walletId, event) => {
+    const logger = createDefaultLogger();
+    const requestContext = {
+      walletId,
+      requestId: event.requestContext?.requestId,
+      operation: 'getAddresses',
+    };
+
+    logger.info('Processing get addresses request', requestContext);
+
     const status = await getWallet(mysql, walletId);
 
     if (!status) {
+      logger.error('Wallet not found', requestContext);
       return closeDbAndGetError(mysql, ApiError.WALLET_NOT_FOUND);
     }
 
     if (!status.readyAt) {
+      logger.error('Wallet not ready', requestContext);
       return closeDbAndGetError(mysql, ApiError.WALLET_NOT_READY);
     }
 
@@ -135,6 +162,7 @@ export const get: APIGatewayProxyHandler = middy(
         path: err.path,
       }));
 
+      logger.error('Request validation failed', { ...requestContext, details });
       return closeDbAndGetError(mysql, ApiError.INVALID_PAYLOAD, { details });
     }
 
@@ -144,8 +172,11 @@ export const get: APIGatewayProxyHandler = middy(
       const address: AddressInfo | null = await dbGetAddressAtIndex(mysql, walletId, body.index);
 
       if (!address) {
+        logger.error('Address not found at index', { ...requestContext, index: body.index });
         return closeDbAndGetError(mysql, ApiError.ADDRESS_NOT_FOUND);
       }
+
+      logger.info('Address retrieved by index', { ...requestContext, index: body.index });
 
       response = {
         statusCode: 200,
@@ -157,6 +188,9 @@ export const get: APIGatewayProxyHandler = middy(
     } else {
       // Searching for multiple addresses
       const addresses = await getWalletAddresses(mysql, walletId);
+
+      logger.info('All addresses retrieved', { ...requestContext, addressCount: addresses.length });
+
       response = {
         statusCode: 200,
         body: JSON.stringify({
