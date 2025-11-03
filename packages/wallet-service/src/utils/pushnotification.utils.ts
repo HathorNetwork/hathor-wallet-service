@@ -32,7 +32,7 @@ const FirebaseConfigSchema = EnvironmentConfigSchema.fork([
 ], (schema) => schema.required());
 
 export function buildFunctionName(functionName: string): string {
-  return `hathor-wallet-service-${config.stage}-${functionName}`;
+  return `${config.serverlessDeployPrefix}-${config.stage}-${functionName}`;
 }
 
 export enum FunctionName {

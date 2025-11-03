@@ -8,8 +8,8 @@ import { addAlert, Transaction } from '@wallet-service/common';
 import { bigIntUtils } from '@hathor/wallet-lib';
 
 export function buildFunctionName(functionName: string): string {
-  const { STAGE } = getConfig();
-  return `hathor-wallet-service-${STAGE}-${functionName}`;
+  const { STAGE, SERVERLESS_DEPLOY_PREFIX } = getConfig();
+  return `${SERVERLESS_DEPLOY_PREFIX}-${STAGE}-${functionName}`;
 }
 
 /**

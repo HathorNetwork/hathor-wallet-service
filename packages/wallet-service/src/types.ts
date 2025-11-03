@@ -45,6 +45,7 @@ export enum TxProposalStatus {
 export interface EnvironmentConfig {
   defaultServer: string;
   stage: string;
+  serverlessDeployPrefix: string;
   network: string;
   serviceName: string;
   maxAddressGap: number;

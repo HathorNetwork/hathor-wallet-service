@@ -59,6 +59,7 @@ env:
     testnetindia_PUSH_NOTIFICATION_ENABLED: "true"
     testnetindia_PUSH_ALLOWED_PROVIDERS: "android,ios"
     testnetindia_APPLICATION_NAME: "wallet-service-testnet-india"
+    testnetindia_SERVERLESS_DEPLOY_PREFIX: "wallet-service"
     mainnet_staging_DEFAULT_SERVER: "https://wallet-service.private-nodes.hathor.network/v1a/"
     mainnet_staging_WS_DOMAIN: "ws.staging.wallet-service.hathor.network"
     mainnet_staging_NETWORK: "mainnet"
