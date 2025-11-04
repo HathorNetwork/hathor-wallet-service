@@ -16,7 +16,7 @@ env:
     TX_HISTORY_MAX_COUNT: 50
     CREATE_NFT_MAX_RETRIES: 3
     dev_DEFAULT_SERVER: "https://wallet-service.private-nodes.india.testnet.hathor.network/v1a/"
-    dev_WS_DOMAIN: "ws.dev.wallet-service.india.testnet.hathor.network"
+    dev_WS_DOMAIN: "ws.wallet-service.india.testnet.hathor.network"
     dev_NETWORK: "testnet"
     dev_LOG_LEVEL: "debug"
     dev_NFT_AUTO_REVIEW_ENABLED: "true"
