@@ -32,6 +32,7 @@ import { constants, Network, Transaction, helpersUtils } from '@hathor/wallet-li
 import { getFullnodeData } from '@src/nodeConfig';
 import config from '@src/config';
 import errorHandler from '@src/api/middlewares/errorHandler';
+import createDefaultLogger from '@src/logger';
 
 const mysql = getDbConnection();
 
@@ -45,12 +46,22 @@ const bodySchema = Joi.object({
  * This lambda is called by API Gateway on POST /txproposals
  */
 export const create = middy(walletIdProxyHandler(async (walletId, event) => {
+  const logger = createDefaultLogger();
+  const requestContext = {
+    walletId,
+    requestId: event.requestContext?.requestId,
+    operation: 'txProposalCreate',
+  };
+
+  logger.info('Processing tx proposal creation request', requestContext);
+
   const versionData = await getFullnodeData(mysql);
 
   const eventBody = (function parseBody(body) {
     try {
       return JSON.parse(body);
     } catch (e) {
+      logger.error('Failed to parse request body', { ...requestContext, error: e.message });
       return null;
     }
   }(event.body));
@@ -66,13 +77,23 @@ export const create = middy(walletIdProxyHandler(async (walletId, event) => {
       path: err.path,
     }));
 
+    logger.error('Request validation failed', { ...requestContext, details });
     return closeDbAndGetError(mysql, ApiError.INVALID_PAYLOAD, { details });
   }
 
   const body = value;
-  const tx: Transaction = helpersUtils.createTxFromHex(body.txHex, new Network(config.network));
+
+  // WRAP in try-catch for tx parsing errors
+  let tx: Transaction;
+  try {
+    tx = helpersUtils.createTxFromHex(body.txHex, new Network(config.network));
+  } catch (e) {
+    logger.error('Failed to parse transaction hex', { ...requestContext, error: e.message });
+    return closeDbAndGetError(mysql, ApiError.INVALID_PAYLOAD, { details: [{ message: 'Invalid txHex' }] });
+  }
 
   if (tx.outputs.length > versionData.maxNumberOutputs) {
+    logger.error('Too many outputs in transaction', { ...requestContext, outputs: tx.outputs.length, max: versionData.maxNumberOutputs });
     return closeDbAndGetError(mysql, ApiError.TOO_MANY_OUTPUTS, { outputs: tx.outputs.length });
   }
 
@@ -84,10 +105,12 @@ export const create = middy(walletIdProxyHandler(async (walletId, event) => {
   const status = await getWallet(mysql, walletId);
 
   if (!status) {
+    logger.error('Wallet not found', requestContext);
     return closeDbAndGetError(mysql, ApiError.WALLET_NOT_FOUND);
   }
 
   if (!status.readyAt) {
+    logger.error('Wallet not ready', requestContext);
     return closeDbAndGetError(mysql, ApiError.WALLET_NOT_READY);
   }
 
@@ -98,6 +121,7 @@ export const create = middy(walletIdProxyHandler(async (walletId, event) => {
   const missing = checkMissingUtxos(inputs, inputUtxos);
 
   if (missing.length > 0) {
+    logger.error('Some inputs not found in database', { ...requestContext, missing });
     return closeDbAndGetError(mysql, ApiError.INPUTS_NOT_FOUND, { missing });
   }
 
@@ -105,49 +129,66 @@ export const create = middy(walletIdProxyHandler(async (walletId, event) => {
   const denied = await validateUtxoAddresses(walletId, inputUtxos);
 
   if (denied.length > 0) {
+    logger.error('Inputs do not belong to wallet', { ...requestContext, deniedCount: denied.length });
     return closeDbAndGetError(mysql, ApiError.INPUTS_NOT_IN_WALLET, { missing });
   }
 
   // check if inputs sent by user are not part of another tx proposal
   if (checkUsedUtxos(inputUtxos)) {
+    logger.error('Inputs already used in another proposal', requestContext);
     return closeDbAndGetError(mysql, ApiError.INPUTS_ALREADY_USED);
   }
 
   if (inputUtxos.length > versionData.maxNumberOutputs) {
+    logger.error('Too many inputs in transaction', { ...requestContext, inputs: inputUtxos.length, max: versionData.maxNumberOutputs });
     return closeDbAndGetError(mysql, ApiError.TOO_MANY_INPUTS, { inputs: inputUtxos.length });
   }
 
   // mark utxos with tx-proposal id
   const txProposalId = uuidv4();
+  const opContext = { ...requestContext, txProposalId };
 
-  // Nano contract transactions might have empty inputs
-  if (inputUtxos.length > 0) {
-    await markUtxosWithProposalId(mysql, txProposalId, inputUtxos);
+  logger.info('Creating tx proposal', { ...opContext, inputCount: inputUtxos.length });
+
+  // WRAP database operations in try-catch to prevent partial state
+  try {
+    // Nano contract transactions might have empty inputs
+    if (inputUtxos.length > 0) {
+      await markUtxosWithProposalId(mysql, txProposalId, inputUtxos);
+    }
+
+    await createTxProposal(mysql, txProposalId, walletId, now);
+
+    const inputPromises = inputUtxos.map(async (utxo) => {
+      const addressDetail: AddressInfo = await getWalletAddressDetail(mysql, walletId, utxo.address);
+      // XXX We should store in address table the path of the address, not the index
+      // For now we return the hardcoded path with only the address index as variable
+      // The client will be prepared to receive any path when we add this in the service in the future
+      const addressPath = `m/44'/${constants.HATHOR_BIP44_CODE}'/0'/0/${addressDetail.index}`;
+      return { txId: utxo.txId, index: utxo.index, addressPath };
+    });
+
+    const retInputs = await Promise.all(inputPromises);
+
+    await closeDbConnection(mysql);
+
+    logger.info('Tx proposal created successfully', { ...opContext, inputCount: retInputs.length });
+
+    return {
+      statusCode: 201,
+      body: JSON.stringify({
+        success: true,
+        txProposalId,
+        inputs: retInputs,
+      }),
+    };
+  } catch (e) {
+    // Database operation failed - log and re-throw to let errorHandler deal with it
+    logger.error('Database operation failed during tx proposal creation', { ...opContext, error: e.message, stack: e.stack });
+    // Close connection before re-throwing
+    await closeDbConnection(mysql);
+    throw e;
   }
-
-  await createTxProposal(mysql, txProposalId, walletId, now);
-
-  const inputPromises = inputUtxos.map(async (utxo) => {
-    const addressDetail: AddressInfo = await getWalletAddressDetail(mysql, walletId, utxo.address);
-    // XXX We should store in address table the path of the address, not the index
-    // For now we return the hardcoded path with only the address index as variable
-    // The client will be prepared to receive any path when we add this in the service in the future
-    const addressPath = `m/44'/${constants.HATHOR_BIP44_CODE}'/0'/0/${addressDetail.index}`;
-    return { txId: utxo.txId, index: utxo.index, addressPath };
-  });
-
-  const retInputs = await Promise.all(inputPromises);
-
-  await closeDbConnection(mysql);
-
-  return {
-    statusCode: 201,
-    body: JSON.stringify({
-      success: true,
-      txProposalId,
-      inputs: retInputs,
-    }),
-  };
 })).use(cors())
   .use(errorHandler());
 
