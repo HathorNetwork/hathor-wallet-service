@@ -81,7 +81,7 @@ import {
 } from '../db';
 import getConfig from '../config';
 import logger from '../logger';
-import { invokeOnTxPushNotificationRequestedLambda, getDaemonUptime } from '../utils';
+import { invokeOnTxPushNotificationRequestedLambda, getDaemonUptime, retryWithBackoff } from '../utils';
 import { addAlert, Severity } from '@wallet-service/common';
 import { JSONBigInt } from '@hathor/wallet-lib/lib/utils/bigint';
 
@@ -830,32 +830,46 @@ export const checkForMissedEvents = async (context: Context): Promise<{ hasNewEv
 
   let response;
   try {
-    response = await axios.get(`${fullnodeUrl}/event`, {
-      params: {
-        last_ack_event_id: lastAckEventId,
-        size: 1,
+    response = await retryWithBackoff(
+      async () => {
+        const res = await axios.get(`${fullnodeUrl}/event`, {
+          params: {
+            last_ack_event_id: lastAckEventId,
+            size: 1,
+          },
+        });
+
+        // Validate response status
+        if (res.status !== 200) {
+          logger.error(
+            `Failed to check for missed events after ACK ${lastAckEventId}: HTTP ${res.status}. URL: ${fullnodeUrl}/event`
+          );
+          throw new Error(`Failed to check for missed events: HTTP ${res.status}`);
+        }
+
+        // Validate response structure
+        if (!res.data || typeof res.data !== 'object') {
+          logger.error(
+            `Failed to check for missed events after ACK ${lastAckEventId}: Invalid response data structure. Response: ${JSONBigInt.stringify(res.data)}`
+          );
+          throw new Error('Failed to check for missed events: Invalid response structure');
+        }
+
+        return res;
       },
-    });
+      {
+        maxRetries: 3,
+        initialDelayMs: 1000,
+        maxDelayMs: 10000,
+        backoffMultiplier: 2,
+      }
+    );
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     logger.error(
       `Failed to check for missed events after ACK ${lastAckEventId}: Network error - ${errorMessage}. URL: ${fullnodeUrl}/event`
     );
     throw new Error(`Failed to check for missed events: Network error - ${errorMessage}`);
-  }
-
-  if (response.status !== 200) {
-    logger.error(
-      `Failed to check for missed events after ACK ${lastAckEventId}: HTTP ${response.status}. URL: ${fullnodeUrl}/event`
-    );
-    throw new Error(`Failed to check for missed events: HTTP ${response.status}`);
-  }
-
-  if (!response.data || typeof response.data !== 'object') {
-    logger.error(
-      `Failed to check for missed events after ACK ${lastAckEventId}: Invalid response data structure. Response: ${JSONBigInt.stringify(response.data)}`
-    );
-    throw new Error('Failed to check for missed events: Invalid response structure');
   }
 
   const { events } = response.data;
