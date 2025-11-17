@@ -42,6 +42,7 @@ jest.mock('redis', () => ({
 }));
 
 import { endWsConnection } from '@src/redis';
+import { stopWalletLibOpenHandles } from './utils';
 
 test('connectionInfoFromEvent', async () => {
   expect.hasAssertions();
@@ -60,6 +61,7 @@ test('connectionInfoFromEvent', async () => {
   try {
 
     const { connectionInfoFromEvent } = await import('@src/ws/utils');
+    await stopWalletLibOpenHandles();
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
     const connInfo = connectionInfoFromEvent(event);
@@ -90,6 +92,7 @@ test('missing WS_DOMAIN should throw', async () => {
 
   try {
     const { connectionInfoFromEvent } = await import('@src/ws/utils');
+    await stopWalletLibOpenHandles();
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
     expect(() => connectionInfoFromEvent(event)).toThrow('Domain not on env variables');

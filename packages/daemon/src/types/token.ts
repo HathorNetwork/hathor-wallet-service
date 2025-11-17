@@ -22,7 +22,7 @@ export class TokenInfo {
     this.symbol = symbol;
     this.transactions = transactions || 0;
 
-    // XXX: get config from settings?
+    // XXX: currently we only support Hathor/HTR as the default token
     const hathorConfig = constants.DEFAULT_NATIVE_TOKEN_CONFIG;
 
     if (this.id === constants.NATIVE_TOKEN_UID) {

@@ -14,9 +14,11 @@ import createDefaultLogger from '@src/logger';
 import config from '@src/config';
 import util from 'util';
 
+import { createApiGatewayManagementApiClient } from '@src/utils/aws.utils';
 import { Severity } from '@wallet-service/common/src/types';
 import { WsConnectionInfo } from '@src/types';
 import { endWsConnection } from '@src/redis';
+import { bigIntUtils } from '@hathor/wallet-lib';
 
 const logger = createDefaultLogger();
 
@@ -60,11 +62,11 @@ export const sendMessageToClient = async (
   connInfo: WsConnectionInfo,
   payload: any, // eslint-disable-line @typescript-eslint/explicit-module-boundary-types, @typescript-eslint/no-explicit-any
 ): Promise<any> => { // eslint-disable-line @typescript-eslint/no-explicit-any
-  const apiGwClient = new ApiGatewayManagementApiClient({
+  const apiGwClient = createApiGatewayManagementApiClient({
     endpoint: connInfo.url,
   });
 
-  const message = JSON.stringify(payload);
+  const message = bigIntUtils.JSONBigInt.stringify(payload);
 
   const command = new PostToConnectionCommand({
     ConnectionId: connInfo.id,
@@ -107,7 +109,7 @@ export const disconnectClient = async (
   client: RedisClient,
   connInfo: WsConnectionInfo,
 ): Promise<any> => { // eslint-disable-line @typescript-eslint/no-explicit-any
-  const apiGwClient = new ApiGatewayManagementApiClient({
+  const apiGwClient = createApiGatewayManagementApiClient({
     endpoint: connInfo.url,
   });
 

@@ -44,6 +44,7 @@ export const TX_CACHE_SIZE = parseInt(process.env.TX_CACHE_SIZE ?? '10000', 10);
 // Number of blocks before unlocking a block utxo
 export const BLOCK_REWARD_LOCK = parseInt(process.env.BLOCK_REWARD_LOCK ?? '10', 10);
 export const STAGE = process.env.STAGE ?? 'local';
+export const SERVERLESS_DEPLOY_PREFIX = process.env.SERVERLESS_DEPLOY_PREFIX ?? 'hathor-wallet-service';
 
 // Fullnode information, used to make sure we're connected to the same fullnode
 export const FULLNODE_PEER_ID = process.env.FULLNODE_PEER_ID;
@@ -83,6 +84,9 @@ export const HEALTHCHECK_SERVER_URL = process.env.HEALTHCHECK_SERVER_URL;
 export const HEALTHCHECK_SERVER_API_KEY = process.env.HEALTHCHECK_SERVER_API_KEY;
 export const HEALTHCHECK_PING_INTERVAL = parseInt(process.env.HEALTHCHECK_PING_INTERVAL ?? '10000', 10);  // 10 seconds
 
+// ACK timeout configuration (in milliseconds)
+export const ACK_TIMEOUT_MS = parseInt(process.env.ACK_TIMEOUT_MS ?? '20000', 10);  // 20 seconds
+
 // Other
 export const USE_SSL = process.env.USE_SSL === 'true';
 
@@ -111,6 +115,7 @@ export default () => ({
   PUSH_NOTIFICATION_ENABLED,
   WALLET_SERVICE_LAMBDA_ENDPOINT,
   STAGE,
+  SERVERLESS_DEPLOY_PREFIX,
   ACCOUNT_ID,
   AWS_REGION,
   ALERT_MANAGER_REGION,
@@ -121,6 +126,7 @@ export default () => ({
   HEALTHCHECK_SERVER_URL,
   HEALTHCHECK_SERVER_API_KEY,
   HEALTHCHECK_PING_INTERVAL,
+  ACK_TIMEOUT_MS,
   REORG_SIZE_INFO,
   REORG_SIZE_MINOR,
   REORG_SIZE_MAJOR,

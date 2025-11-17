@@ -84,7 +84,7 @@ export const cleanDatabase = async (mysql: ServerlessMysql): Promise<void> => {
 
 export const createOutput = (
   index: number,
-  value: number,
+  value: bigint,
   address: string,
   token = '00',
   timelock: number = null,
@@ -109,7 +109,7 @@ export const createOutput = (
 );
 
 export const createInput = (
-  value: number,
+  value: bigint,
   address: string,
   txId: string,
   index: number,
@@ -139,7 +139,7 @@ export const checkUtxoTable = async (
   index?: number,
   tokenId?: string,
   address?: string,
-  value?: number,
+  value?: bigint,
   authorities?: number,
   timelock?: number | null,
   heightlock?: number | null,
@@ -239,8 +239,8 @@ export const checkAddressBalanceTable = async (
   totalResults: number,
   address: string,
   tokenId: string,
-  unlocked: number,
-  locked: number,
+  unlocked: bigint,
+  locked: bigint,
   lockExpires: number | null,
   transactions: number,
   unlockedAuthorities = 0,
@@ -438,8 +438,8 @@ export const checkWalletBalanceTable = async (
   totalResults: number,
   walletId?: string,
   tokenId?: string,
-  unlocked?: number,
-  locked?: number,
+  unlocked?: bigint,
+  locked?: bigint,
   lockExpires?: number | null,
   transactions?: number,
   unlockedAuthorities = 0,
@@ -563,7 +563,7 @@ export const countTxOutputTable = async (
   );
 
   if (results.length > 0) {
-    return results[0].count as number;
+    return Number(results[0].count);
   }
 
   return 0;
@@ -690,11 +690,12 @@ export const addToAddressTable = async (
     entry.index,
     entry.walletId,
     entry.transactions,
+    entry.seqnum ?? 0,
   ]));
 
   await mysql.query(`
     INSERT INTO \`address\`(\`address\`, \`index\`,
-                            \`wallet_id\`, \`transactions\`)
+                            \`wallet_id\`, \`transactions\`, \`seqnum\`)
     VALUES ?`,
   [payload]);
 };
@@ -1034,14 +1035,14 @@ export const buildWalletBalanceValueMap = (
         tokenId: 'token1',
         tokenSymbol: 'T1',
         lockExpires: null,
-        lockedAmount: 0,
+        lockedAmount: 0n,
         lockedAuthorities: {
           melt: false,
           mint: false,
         },
-        total: 10,
-        totalAmountSent: 10,
-        unlockedAmount: 10,
+        total: 10n,
+        totalAmountSent: 10n,
+        unlockedAmount: 10n,
         unlockedAuthorities: {
           melt: false,
           mint: false,
@@ -1143,4 +1144,9 @@ export const getXPrivKeyFromSeed = (
   const network = new Network(networkName);
   const code = new Mnemonic(seed);
   return code.toHDPrivateKey(passphrase, network.bitcoreNetwork);
+};
+
+export const stopWalletLibOpenHandles = async () => {
+  const { stopGLLBackgroundTask } = await import('@hathor/wallet-lib');
+  stopGLLBackgroundTask();
 };

@@ -6,6 +6,7 @@
  */
 
 import { constants } from '@hathor/wallet-lib';
+import { DecodedOutput } from '../types';
 
 /**
  * Checks if a given tokenData has any authority bit set
@@ -25,7 +26,7 @@ export const isAuthority = (tokenData: number): boolean => (
  * @param requiredKeys - A list of keys to check
  * @returns true if the decoded object is valid, false otherwise
  */
-export const isDecodedValid = (decoded: any, requiredKeys: string[] = []): boolean => {
+export const isDecodedValid = (decoded: any, requiredKeys: string[] = []): decoded is DecodedOutput => {
   return (decoded != null
     && typeof decoded === 'object'
     && Object.keys(decoded).length > 0)

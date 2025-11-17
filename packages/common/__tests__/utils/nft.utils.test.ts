@@ -46,7 +46,7 @@ const logger = new Logger();
 // Real event data from production
 const REAL_NFT_EVENT_DATA = {
   'hash': '000041f860a327969fa03685ed05cf316fc941708c53801cf81f426ac4a55866',
-  'nonce': 257857,
+  'nonce': 257857n,
   'timestamp': 1741649846,
   'signal_bits': 0,
   'version': 2,
@@ -56,7 +56,7 @@ const REAL_NFT_EVENT_DATA = {
       'tx_id': '00000000ba6f3fc01a3e8561f2905c50c98422e7112604a8971bdaba1535e797',
       'index': 1,
       'spent_output': {
-        'value': 4,
+        'value': 4n,
         'token_data': 0,
         'script': 'dqkUWDMJLPqtb9X+jPcBSP6WLg6NIC6IrA==',
         'decoded': {
@@ -69,13 +69,13 @@ const REAL_NFT_EVENT_DATA = {
   ],
   'outputs': [
     {
-      'value': 1,
+      'value': 1n,
       'token_data': 0,
       'script': 'C2lwZnM6Ly8xMTExrA==',
       'decoded': null
     },
     {
-      'value': 2,
+      'value': 2n,
       'token_data': 0,
       'script': 'dqkUFUs/hBsLnxy5Jd94WWV24BCmIhmIrA==',
       'decoded': {
@@ -85,7 +85,7 @@ const REAL_NFT_EVENT_DATA = {
       }
     },
     {
-      'value': 1,
+      'value': 1n,
       'token_data': 1,
       'script': 'dqkUhM3YhAjNc5p/oqX+yqEYcX+miNmIrA==',
       'decoded': {
@@ -95,6 +95,7 @@ const REAL_NFT_EVENT_DATA = {
       }
     }
   ],
+  'headers': [],
   'tokens': [
     '000041f860a327969fa03685ed05cf316fc941708c53801cf81f426ac4a55866'
   ],
@@ -378,7 +379,7 @@ describe('invokeNftHandlerLambda', () => {
     const mLambdaClient = new LambdaClientMock({});
     (mLambdaClient.send as jest.Mocked<any>).mockImplementationOnce(async () => expectedLambdaResponse);
 
-    const result = await NftUtils.invokeNftHandlerLambda('test-tx-id', 'local', logger);
+    const result = await NftUtils.invokeNftHandlerLambda('test-tx-id', 'local', 'hathor-wallet-service', logger);
 
     // Method should return void
     expect(result).toBeUndefined();
@@ -404,7 +405,7 @@ describe('invokeNftHandlerLambda', () => {
     const mLambdaClient = new LambdaClientMock({});
     (mLambdaClient.send as jest.Mocked<any>).mockResolvedValueOnce(expectedLambdaResponse);
 
-    await expect(NftUtils.invokeNftHandlerLambda('test-tx-id', 'local', logger))
+    await expect(NftUtils.invokeNftHandlerLambda('test-tx-id', 'local', 'hathor-wallet-service', logger))
       .rejects.toThrow('onNewNftEvent lambda invoke failed for tx: test-tx-id');
 
     // Verify alert was added
@@ -423,7 +424,7 @@ describe('invokeNftHandlerLambda', () => {
     // Disable NFT auto review
     process.env.NFT_AUTO_REVIEW_ENABLED = 'false';
 
-    const result = await NftUtils.invokeNftHandlerLambda('test-tx-id', 'local', logger);
+    const result = await NftUtils.invokeNftHandlerLambda('test-tx-id', 'local', 'hathor-wallet-service', logger);
 
     // Method should return void
     expect(result).toBeUndefined();
@@ -475,7 +476,7 @@ describe('transaction transformation compatibility', () => {
           index: 0,
           spent_output: {
             token_data: (1 & hathorLib.constants.TOKEN_INDEX_MASK) + 1, // First token
-            value: 100,
+            value: 100n,
             script: 'script1',
             decoded: {
               type: 'P2PKH',
@@ -486,7 +487,7 @@ describe('transaction transformation compatibility', () => {
         }],
         outputs: [{
           token_data: (0 & hathorLib.constants.TOKEN_INDEX_MASK) + 1, // HTR token
-          value: 100,
+          value: 100n,
           script: 'script2',
           decoded: {
             type: 'P2PKH',
@@ -494,7 +495,8 @@ describe('transaction transformation compatibility', () => {
             timelock: null,
           }
         }],
-        nonce: 0,
+        headers: [],
+        nonce: 0n,
         signal_bits: 1,
         timestamp: 0,
         weight: 18.2,
@@ -622,7 +624,7 @@ describe('processNftEvent', () => {
     // Real event data from production
     const eventData = {
       hash: '000041f860a327969fa03685ed05cf316fc941708c53801cf81f426ac4a55866',
-      nonce: 257857,
+      nonce: 257857n,
       timestamp: 1741649846,
       signal_bits: 0,
       version: 2,
@@ -632,7 +634,7 @@ describe('processNftEvent', () => {
           tx_id: '00000000ba6f3fc01a3e8561f2905c50c98422e7112604a8971bdaba1535e797',
           index: 1,
           spent_output: {
-            value: 4,
+            value: 4n,
             token_data: 0,
             script: 'dqkUWDMJLPqtb9X+jPcBSP6WLg6NIC6IrA==',
             decoded: {
@@ -645,13 +647,13 @@ describe('processNftEvent', () => {
       ],
       outputs: [
         {
-          value: 1,
+          value: 1n,
           token_data: 0,
           script: 'C2lwZnM6Ly8xMTExrA==',
           decoded: null
         },
         {
-          value: 2,
+          value: 2n,
           token_data: 0,
           script: 'dqkUFUs/hBsLnxy5Jd94WWV24BCmIhmIrA==',
           decoded: {
@@ -661,7 +663,7 @@ describe('processNftEvent', () => {
           }
         },
         {
-          value: 1,
+          value: 1n,
           token_data: 1,
           script: 'dqkUhM3YhAjNc5p/oqX+yqEYcX+miNmIrA==',
           decoded: {
@@ -671,6 +673,7 @@ describe('processNftEvent', () => {
           }
         }
       ],
+      headers: [],
       tokens: [
         '000041f860a327969fa03685ed05cf316fc941708c53801cf81f426ac4a55866'
       ],
@@ -685,6 +688,7 @@ describe('processNftEvent', () => {
     const result = await NftUtils.processNftEvent(
       eventData,
       'test-stage',
+      'hathor-wallet-service',
       mockNetwork as unknown as hathorLib.Network,
       logger
     );
@@ -715,6 +719,7 @@ describe('processNftEvent', () => {
     expect(invokeNftLambdaSpy).toHaveBeenCalledWith(
       eventData.hash,
       'test-stage',
+      'hathor-wallet-service',
       logger
     );
   });
@@ -729,6 +734,7 @@ describe('processNftEvent', () => {
     const result = await NftUtils.processNftEvent(
       eventData,
       'test-stage',
+      'hathor-wallet-service',
       mockNetwork as unknown as hathorLib.Network,
       logger
     );
@@ -748,6 +754,7 @@ describe('processNftEvent', () => {
     const result = await NftUtils.processNftEvent(
       eventData,
       'test-stage',
+      'hathor-wallet-service',
       mockNetwork as unknown as hathorLib.Network,
       logger
     );
@@ -773,6 +780,7 @@ describe('processNftEvent', () => {
     const result = await NftUtils.processNftEvent(
       eventData,
       'test-stage',
+      'hathor-wallet-service',
       mockNetwork as unknown as hathorLib.Network,
       logger
     );
@@ -806,6 +814,7 @@ describe('processNftEvent', () => {
     const result = await NftUtils.processNftEvent(
       eventData,
       'test-stage',
+      'hathor-wallet-service',
       mockNetwork as unknown as hathorLib.Network,
       logger
     );
@@ -884,6 +893,7 @@ it('should perform full NFT processing with real event data and no mocks', async
       const result = await NftUtils.processNftEvent(
         eventData,
         'test-stage',
+        'hathor-wallet-service',
         mockNetwork as unknown as hathorLib.Network,
         logger
       );

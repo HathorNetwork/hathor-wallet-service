@@ -6,10 +6,11 @@
  */
 
 import { WebSocket } from 'ws';
-import { Event } from '../types';
+import { Event, FullNodeEventSchema } from '../types';
 import { get } from 'lodash';
 import logger from '../logger';
 import { getFullnodeWsUrl } from '../utils';
+import { bigIntUtils } from '@hathor/wallet-lib';
 
 const PING_TIMEOUT = 30000; // 30s timeout
 const PING_INTERVAL = 5000; // Will ping every 5s
@@ -23,7 +24,6 @@ export default (callback: any, receive: any) => {
     socket.ping();
   }, PING_INTERVAL);
 
-  // @ts-ignore: We already check for missing envs in startup
   const socket: WebSocket = new WebSocket(getFullnodeWsUrl());
   let pingTimeout: NodeJS.Timeout = createPingTimeout();
   let pingTimer: NodeJS.Timer;
@@ -47,7 +47,7 @@ export default (callback: any, receive: any) => {
       return;
     }
 
-    const payload = JSON.stringify(event.event);
+    const payload = bigIntUtils.JSONBigInt.stringify(event.event);
 
     logger.debug('Sending:')
     logger.debug(payload);
@@ -68,13 +68,20 @@ export default (callback: any, receive: any) => {
   };
 
   socket.onmessage = (socketEvent) => {
-    const event = JSON.parse(socketEvent.data.toString());
+    const parseResult = FullNodeEventSchema.safeParse(
+      bigIntUtils.JSONBigInt.parse(socketEvent.data.toString())
+    );
+    if (!parseResult.success) {
+      logger.error(`Could not parse event: ${socketEvent.data.toString()}`);
+      throw new Error(parseResult.error.message);
+    }
+    const event = parseResult.data;
     const type = get(event, 'event.type');
 
     logger.debug(`Received ${type}: ${get(event, 'event.id')} from socket.`, event);
 
     if (!type) {
-      logger.error(JSON.stringify(event));
+      logger.error(bigIntUtils.JSONBigInt.stringify(event));
       throw new Error('Received an event with no defined type');
     }
 

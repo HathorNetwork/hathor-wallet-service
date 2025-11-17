@@ -44,8 +44,8 @@ test('get a transaction given its ID', async () => {
     { id: token2.id, name: token2.name, symbol: token2.symbol, transactions: 0 },
   ]);
   const entries = [
-    { address: addr1, txId: txId1, tokenId: token1.id, balance: 10, timestamp: timestamp1 },
-    { address: addr1, txId: txId1, tokenId: token2.id, balance: 7, timestamp: timestamp1 },
+    { address: addr1, txId: txId1, tokenId: token1.id, balance: 10n, timestamp: timestamp1 },
+    { address: addr1, txId: txId1, tokenId: token2.id, balance: 7n, timestamp: timestamp1 },
   ];
   await addToAddressTxHistoryTable(mysql, entries);
   await initWalletTxHistory(mysql, walletId1, [addr1]);

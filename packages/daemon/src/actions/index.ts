@@ -11,6 +11,7 @@ import { get } from 'lodash';
 import logger from '../logger';
 import { hashTxData } from '../utils';
 import { createStartStreamMessage, createSendAckMessage } from '../actors';
+import { bigIntUtils } from '@hathor/wallet-lib';
 
 /*
  * This action is used to store the initial event id on the context
@@ -35,6 +36,7 @@ export const storeInitialState = assign({
  * to the original event (that initiated the metadata diff check)
  */
 export const unwrapEvent = assign({
+  // @ts-ignore: The return event.event.originalEvent.event is not the correct type for an event.
   event: (_context: Context, event: Event) => {
     if (event.type !== 'METADATA_DECIDED') {
       throw new Error(`Received unhandled ${event.type} on unwrapEvent action`);
@@ -164,11 +166,15 @@ export const metadataDecided = raise((_context: Context, event: Event) => ({
  * Updates the cache with the last processed event (from the context)
  */
 export const updateCache = (context: Context) => {
+  if (!context.txCache) {
+    throw new Error('TxCache was not initialized');
+  }
+
   const fullNodeEvent = context.event as StandardFullNodeEvent;
   if (!fullNodeEvent) {
     return;
   }
-  const { metadata, hash }  = fullNodeEvent.event.data;
+  const { metadata, hash } = fullNodeEvent.event.data;
   const hashedTxData = hashTxData(metadata);
 
   context.txCache.set(hash, hashedTxData);
@@ -193,4 +199,4 @@ export const stopHealthcheckPing = sendTo(
 /*
  * Logs the event as an error log
  */
-export const logEventError = (_context: Context, event: Event) => logger.error(JSON.stringify(event));
+export const logEventError = (_context: Context, event: Event) => logger.error(bigIntUtils.JSONBigInt.stringify(event));

@@ -23,6 +23,8 @@ import {
   WalletStatus,
   FullNodeEventTypes,
   StandardFullNodeEvent,
+  EventTxHeader,
+  isNanoHeader,
 } from '../types';
 import {
   TxInput,
@@ -63,17 +65,25 @@ import {
   addNewAddresses,
   updateWalletTablesWithTx,
   voidTransaction,
+  voidAddressTransaction,
   updateLastSyncedEvent as dbUpdateLastSyncedEvent,
   getLastSyncedEvent,
   getTxOutputsFromTx,
   markUtxosAsVoided,
   cleanupVoidedTx,
   getMaxIndicesForWallets,
+  setAddressSeqnum,
+  getAddressSeqnum,
+  unspendUtxos,
+  voidWalletTransaction,
+  getTxOutput,
+  clearTxProposalForVoidedTx,
 } from '../db';
 import getConfig from '../config';
 import logger from '../logger';
-import { invokeOnTxPushNotificationRequestedLambda } from '../utils';
+import { invokeOnTxPushNotificationRequestedLambda, getDaemonUptime, retryWithBackoff } from '../utils';
 import { addAlert, Severity } from '@wallet-service/common';
+import { JSONBigInt } from '@hathor/wallet-lib/lib/utils/bigint';
 
 export const METADATA_DIFF_EVENT_TYPES = {
   IGNORE: 'IGNORE',
@@ -82,6 +92,8 @@ export const METADATA_DIFF_EVENT_TYPES = {
   TX_NEW: 'TX_NEW',
   TX_FIRST_BLOCK: 'TX_FIRST_BLOCK',
 };
+
+const DUPLICATE_TX_ALERT_GRACE_PERIOD = 10; // seconds
 
 export const metadataDiff = async (_context: Context, event: Event) => {
   const mysql = await getDbConnection();
@@ -164,12 +176,22 @@ export const metadataDiff = async (_context: Context, event: Event) => {
 export const isBlock = (version: number): boolean => version === hathorLib.constants.BLOCK_VERSION
   || version === hathorLib.constants.MERGED_MINED_BLOCK_VERSION;
 
+export function isNanoContract(headers: EventTxHeader[]) {
+  for (const header of headers) {
+    if (isNanoHeader(header)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export const handleVertexAccepted = async (context: Context, _event: Event) => {
   const mysql = await getDbConnection();
   await mysql.beginTransaction();
   const {
     NETWORK,
     STAGE,
+    SERVERLESS_DEPLOY_PREFIX,
     PUSH_NOTIFICATION_ENABLED,
   } = getConfig();
 
@@ -197,12 +219,20 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       token_name,
       token_symbol,
       parents,
+      headers = [],
     } = fullNodeData;
+
+    const isNano = isNanoContract(headers);
 
     const dbTx: DbTransaction | null = await getTransactionById(mysql, hash);
 
     if (dbTx) {
-      logger.error(`Transaction ${hash} already in the database, this should only happen if the service has been recently restarted`);
+      const daemonUptime = getDaemonUptime();
+      // We do not log if the daemon has just started, because it's expected that
+      // we receive an initial duplicate transaction from the fullnode in this case.
+      if (daemonUptime < DUPLICATE_TX_ALERT_GRACE_PERIOD) return;
+
+      logger.error(`Transaction ${hash} already in the database and the daemon has not been recently restarted (uptime of ${daemonUptime} seconds). This is unexpected.`);
 
       // This might happen if the service has been recently restarted,
       // so we should raise the alert and just ignore the tx
@@ -240,7 +270,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
       // add miner to the miners table
       if (isDecodedValid(blockRewardOutput.decoded, ['address'])) {
-        await addMiner(mysql, blockRewardOutput.decoded.address, hash);
+        await addMiner(mysql, blockRewardOutput.decoded!.address, hash);
       }
 
       // here we check if we have any utxos on our database that is locked but
@@ -272,6 +302,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
     // Add the transaction
     logger.debug('Will add the tx with height', height);
+    // TODO: add is_nanocontract to transaction table?
     await addOrUpdateTx(
       mysql,
       hash,
@@ -288,13 +319,14 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     await updateTxOutputSpentBy(mysql, txInputs, hash);
 
     // Genesis tx has no inputs and outputs, so nothing to be updated, avoid it
-    if (inputs.length > 0 || outputs.length > 0) {
+    // Nano contracts are a special case since they can have an address to update even without inputs/outputs
+    if (inputs.length > 0 || outputs.length > 0 || isNano) {
       const tokenList: string[] = getTokenListFromInputsAndOutputs(txInputs, txOutputs);
 
       // Update transaction count with the new tx
       await incrementTokensTxCount(mysql, tokenList);
 
-      const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputs);
+      const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputs, headers);
 
       // update address tables (address, address_balance, address_tx_history)
       await updateAddressTablesWithTx(mysql, hash, timestamp, addressBalanceMap);
@@ -376,6 +408,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         parents,
         inputs: txInputs,
         outputs: txOutputs,
+        headers,
         height: metadata.height,
         token_name,
         token_symbol,
@@ -412,8 +445,20 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
       // Call to process the data for NFT handling (if applicable)
       // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
-      NftUtils.processNftEvent(fullNodeData, STAGE, network, logger)
+      NftUtils.processNftEvent(fullNodeData, STAGE, SERVERLESS_DEPLOY_PREFIX, network, logger)
         .catch((err: unknown) => logger.error('[ALERT] Error processing NFT event', err));
+    }
+
+    // Need to check if there is a nano header and update the nc_address's seqnum if needed
+    for (const header of headers) {
+      if (isNanoHeader(header)) {
+        const txseqnum = header.nc_seqnum;
+        const cachedSeqnum = await getAddressSeqnum(mysql, header.nc_address);
+        if (txseqnum > cachedSeqnum) {
+          // The tx seqnum is higher than the cached one so we need to save the tx deqnum
+          await setAddressSeqnum(mysql, header.nc_address, header.nc_seqnum);
+        }
+      }
     }
 
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
@@ -444,6 +489,8 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
       outputs,
       inputs,
       tokens,
+      headers = [],
+      version,
     } = fullNodeEvent.event.data;
 
     const dbTx: DbTransaction | null = await getTransactionById(mysql, hash);
@@ -453,12 +500,15 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
     }
 
     logger.info(`[VertexRemoved] Voiding tx: ${hash}`);
+
     await voidTx(
       mysql,
       hash,
       inputs,
       outputs,
       tokens,
+      headers,
+      version,
     );
 
     logger.info(`[VertexRemoved] Removing tx from database: ${hash}`);
@@ -481,6 +531,8 @@ export const voidTx = async (
   inputs: EventTxInput[],
   outputs: EventTxOutput[],
   tokens: string[],
+  headers: EventTxHeader[],
+  version: number,
 ) => {
   const dbTxOutputs: DbTxOutput[] = await getTxOutputsFromTx(mysql, hash);
   const txOutputs: TxOutputWithIndex[] = prepareOutputs(outputs, tokens);
@@ -499,9 +551,55 @@ export const voidTx = async (
     };
   });
 
-  const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputsWithLocked);
-  await voidTransaction(mysql, hash, addressBalanceMap);
+  const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputsWithLocked, headers);
+
+  await voidTransaction(mysql, hash);
+  // CRITICAL: markUtxosAsVoided must be called before voidAddressTransaction
+  // and voidWalletTransaction as those methods recalculate balances based on
+  // the UTXOs table.
   await markUtxosAsVoided(mysql, dbTxOutputs);
+  await voidAddressTransaction(mysql, hash, addressBalanceMap, version);
+
+  // CRITICAL: Unspend the inputs when voiding a transaction
+  // The inputs of the voided transaction need to be marked as unspent
+  // But only if they were actually spent by this transaction
+  if (inputs.length > 0) {
+    // First, check which inputs were actually spent by this transaction
+    const inputsSpentByThisTx: DbTxOutput[] = [];
+
+    for (const input of inputs) {
+      // Get the current state of this output to check if it's spent by our transaction
+      const currentOutput = await getTxOutput(mysql, input.tx_id, input.index, false);
+
+
+      if (currentOutput && currentOutput.spentBy === hash) {
+        inputsSpentByThisTx.push({
+          txId: input.tx_id,
+          index: input.index,
+          tokenId: '', // Not needed for unspending
+          address: '', // Not needed for unspending
+          value: BigInt(0), // Not needed for unspending
+          authorities: 0, // Not needed for unspending
+          timelock: null, // Not needed for unspending
+          heightlock: null, // Not needed for unspending
+          locked: false, // Not needed for unspending
+          spentBy: hash, // This is what we're unsetting
+          voided: false, // Not needed for unspending
+        });
+      }
+    }
+
+    if (inputsSpentByThisTx.length > 0) {
+      await unspendUtxos(mysql, inputsSpentByThisTx);
+    }
+  }
+
+  // CRITICAL: Update wallet balances when voiding a transaction
+  await voidWalletTransaction(mysql, hash, addressBalanceMap);
+
+  // CRITICAL: Clear tx_proposal marks from inputs that were used in this voided transaction
+  // This ensures the UTXOs can be used in new transactions after the void
+  await clearTxProposalForVoidedTx(mysql, txInputs);
 
   const addresses = Object.keys(addressBalanceMap);
   await validateAddressBalances(mysql, addresses);
@@ -519,6 +617,8 @@ export const handleVoidedTx = async (context: Context) => {
       outputs,
       inputs,
       tokens,
+      headers = [],
+      version,
     } = fullNodeEvent.event.data;
 
     logger.debug(`Will handle voided tx for ${hash}`);
@@ -527,10 +627,11 @@ export const handleVoidedTx = async (context: Context) => {
       hash,
       inputs,
       outputs,
-      tokens
+      tokens,
+      headers,
+      version,
     );
     logger.debug(`Voided tx ${hash}`);
-
     await mysql.commit();
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
   } catch (e) {
@@ -619,7 +720,7 @@ export const updateLastSyncedEvent = async (context: Context) => {
     && lastDbSyncedEvent.last_event_id > lastEventId) {
     logger.error('Tried to store an event lower than the one on the database', {
       lastEventId,
-      lastDbSyncedEvent: JSON.stringify(lastDbSyncedEvent),
+      lastDbSyncedEvent: JSONBigInt.stringify(lastDbSyncedEvent),
     });
     mysql.destroy();
     throw new Error('Event lower than stored one.');
@@ -712,4 +813,74 @@ export const handleReorgStarted = async (context: Context): Promise<void> => {
       logger,
     );
   }
+};
+
+/**
+ * Checks the HTTP API for missed events after the last ACK
+ * This is used to detect if we lost an event due to network packet loss
+ */
+export const checkForMissedEvents = async (context: Context): Promise<{ hasNewEvents: boolean; events: any[] }> => {
+  if (!context.event) {
+    throw new Error('No event in context when checking for missed events');
+  }
+
+  const lastAckEventId = context.event.event.id;
+  const fullnodeUrl = getFullnodeHttpUrl();
+
+  logger.debug(`Checking for missed events after event ID ${lastAckEventId}`);
+
+  let response;
+  try {
+    response = await retryWithBackoff(
+      async () => {
+        const res = await axios.get(`${fullnodeUrl}/event`, {
+          params: {
+            last_ack_event_id: lastAckEventId,
+            size: 1,
+          },
+        });
+
+        // Validate response status
+        if (res.status !== 200) {
+          logger.error(
+            `Failed to check for missed events after ACK ${lastAckEventId}: HTTP ${res.status}. URL: ${fullnodeUrl}/event`
+          );
+          throw new Error(`Failed to check for missed events: HTTP ${res.status}`);
+        }
+
+        // Validate response structure
+        if (!res.data || typeof res.data !== 'object') {
+          logger.error(
+            `Failed to check for missed events after ACK ${lastAckEventId}: Invalid response data structure. Response: ${JSONBigInt.stringify(res.data)}`
+          );
+          throw new Error('Failed to check for missed events: Invalid response structure');
+        }
+
+        return res;
+      },
+      {
+        maxRetries: 3,
+        initialDelayMs: 1000,
+        maxDelayMs: 10000,
+        backoffMultiplier: 2,
+      }
+    );
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error(
+      `Failed to check for missed events after ACK ${lastAckEventId}: Network error - ${errorMessage}. URL: ${fullnodeUrl}/event`
+    );
+    throw new Error(`Failed to check for missed events: Network error - ${errorMessage}`);
+  }
+
+  const { events } = response.data;
+  const hasNewEvents = Array.isArray(events) && events.length > 0;
+
+  if (hasNewEvents) {
+    logger.warn(`Detected ${events.length} missed event(s) after ACK ${lastAckEventId}. Will reconnect.`);
+  } else {
+    logger.debug(`No missed events detected after ACK ${lastAckEventId}`);
+  }
+
+  return { hasNewEvents, events };
 };

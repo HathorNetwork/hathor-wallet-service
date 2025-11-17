@@ -11,3 +11,4 @@ export * from './wallet';
 export * from './date';
 export * from './helpers';
 export * from './aws';
+export * from './retry';

@@ -145,7 +145,7 @@ export class NftUtils {
    * Invokes this application's own intermediary lambda `onNewNftEvent`.
    * This is to improve the failure tolerance on this non-critical step of the sync loop.
    */
-  static async invokeNftHandlerLambda(txId: string, stage: string, logger: Logger): Promise<void> {
+  static async invokeNftHandlerLambda(txId: string, stage: string, deployPrefix: string, logger: Logger): Promise<void> {
     // Check for required environment variables
     if (!process.env.WALLET_SERVICE_LAMBDA_ENDPOINT || !process.env.AWS_REGION) {
       throw new Error('Environment variables WALLET_SERVICE_LAMBDA_ENDPOINT and AWS_REGION are not set.');
@@ -163,7 +163,7 @@ export class NftUtils {
     });
     // invoke lambda asynchronously to metadata update
     const command = new InvokeCommand({
-      FunctionName: `hathor-wallet-service-${stage}-onNewNftEvent`,
+      FunctionName: `${deployPrefix}-${stage}-onNewNftEvent`,
       InvocationType: 'Event',
       Payload: JSON.stringify({ nftUid: txId }),
     });
@@ -190,6 +190,7 @@ export class NftUtils {
   static async processNftEvent(
     eventData: FullNodeTransaction,
     stage: string,
+    deployPrefix: string,
     network: Network,
     logger: Logger
   ): Promise<boolean> {
@@ -215,7 +216,7 @@ export class NftUtils {
         const txId = eventData.hash;
 
         // Invoke the lambda function
-        await NftUtils.invokeNftHandlerLambda(txId, stage, logger);
+        await NftUtils.invokeNftHandlerLambda(txId, stage, deployPrefix, logger);
         return true;
       }
 
@@ -271,7 +272,8 @@ export class NftUtils {
       weight: fullNodeData.weight,
       timestamp: fullNodeData.timestamp,
       is_voided: !!fullNodeData.voided,
-      nonce: fullNodeData.nonce,
+      // XXX: This may have conversion errors but the value is of no consequence
+      nonce: Number(fullNodeData.nonce),
       parents: fullNodeData.parents ?? [],
     };
 
