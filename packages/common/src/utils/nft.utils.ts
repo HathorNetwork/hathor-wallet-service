@@ -92,7 +92,7 @@ export class NftUtils {
       region: process.env.AWS_REGION,
     });
     const command = new InvokeCommand({
-      FunctionName: `hathor-explorer-service-${process.env.EXPLORER_SERVICE_STAGE}-create_or_update_dag_metadata`,
+      FunctionName: `${process.env.EXPLORER_SERVICE_PREFIX}-${process.env.EXPLORER_SERVICE_STAGE}-create_or_update_dag_metadata`,
       InvocationType: 'Event',
       Payload: JSON.stringify({
         id: nftUid,

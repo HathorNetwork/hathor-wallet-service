@@ -189,6 +189,7 @@ provider:
     STAGE: ${self:custom.stage}
     SERVERLESS_DEPLOY_PREFIX: ${env:SERVERLESS_DEPLOY_PREFIX, "hathor-wallet-service"}
     EXPLORER_SERVICE_STAGE: ${self:custom.explorerServiceStage}
+    EXPLORER_SERVICE_PREFIX: ${env:EXPLORER_SERVICE_PREFIX, "hathor-explorer-service"}
     NFT_AUTO_REVIEW_ENABLED: ${env:NFT_AUTO_REVIEW_ENABLED}
     VOIDED_TX_OFFSET: ${env:VOIDED_TX_OFFSET}
     DEFAULT_SERVER: ${env:DEFAULT_SERVER}
