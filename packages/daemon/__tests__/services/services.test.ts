@@ -113,6 +113,7 @@ jest.mock('../../src/utils', () => ({
   sendMessageSQS: jest.fn(),
   getWalletBalancesForTx: jest.fn(),
   generateAddresses: jest.fn(),
+  retryWithBackoff: jest.fn((fn) => fn()),
 }));
 
 jest.mock('@wallet-service/common', () => {
