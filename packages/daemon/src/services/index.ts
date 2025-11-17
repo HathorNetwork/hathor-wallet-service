@@ -191,6 +191,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
   const {
     NETWORK,
     STAGE,
+    SERVERLESS_DEPLOY_PREFIX,
     PUSH_NOTIFICATION_ENABLED,
   } = getConfig();
 
@@ -444,7 +445,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
       // Call to process the data for NFT handling (if applicable)
       // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
-      NftUtils.processNftEvent(fullNodeData, STAGE, network, logger)
+      NftUtils.processNftEvent(fullNodeData, STAGE, SERVERLESS_DEPLOY_PREFIX, network, logger)
         .catch((err: unknown) => logger.error('[ALERT] Error processing NFT event', err));
     }
 

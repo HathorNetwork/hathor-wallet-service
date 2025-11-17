@@ -44,6 +44,7 @@ export const TX_CACHE_SIZE = parseInt(process.env.TX_CACHE_SIZE ?? '10000', 10);
 // Number of blocks before unlocking a block utxo
 export const BLOCK_REWARD_LOCK = parseInt(process.env.BLOCK_REWARD_LOCK ?? '10', 10);
 export const STAGE = process.env.STAGE ?? 'local';
+export const SERVERLESS_DEPLOY_PREFIX = process.env.SERVERLESS_DEPLOY_PREFIX ?? 'hathor-wallet-service';
 
 // Fullnode information, used to make sure we're connected to the same fullnode
 export const FULLNODE_PEER_ID = process.env.FULLNODE_PEER_ID;
@@ -114,6 +115,7 @@ export default () => ({
   PUSH_NOTIFICATION_ENABLED,
   WALLET_SERVICE_LAMBDA_ENDPOINT,
   STAGE,
+  SERVERLESS_DEPLOY_PREFIX,
   ACCOUNT_ID,
   AWS_REGION,
   ALERT_MANAGER_REGION,
