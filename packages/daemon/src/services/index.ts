@@ -859,7 +859,9 @@ export const checkForMissedEvents = async (context: Context): Promise<{ hasNewEv
         return res;
       },
       {
-        maxRetries: 3,
+        // It's possible that the fullnode is under high load or having intermittent issues,
+        // so we use a higher number of retries to give it a chance to recover
+        maxRetries: 10,
         initialDelayMs: 1000,
         maxDelayMs: 10000,
         backoffMultiplier: 2,
