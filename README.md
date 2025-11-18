@@ -7,14 +7,35 @@ Refer to https://github.com/HathorNetwork/rfcs/blob/master/projects/wallet-servi
 ### Local environment
 
 #### System dependencies
+```
+Node: 22x
+yarn: v4 (yarn-berry)
+```
 
-You need nodejs installed on your enviroment, we suggest the latest Active LTS version (v18.x.x).
+#### Install nix (preferred)
+
+For a better developer experience we suggest nix usage for managing the enviroment. Visit this [link](https://nixos.org/download/#download-nix) to download it.
+
+To enable the commands `nix develop` and `nix build` using flakes, add the following to your `/etc/nix/nix.conf` file:
+
+```
+# see https://nixos.org/manual/nix/stable/command-ref/conf-file
+sandbox = true
+experimental-features = nix-command flakes
+```
 
 #### Clone the project and install dependencies
-
-`git clone https://github.com/HathorNetwork/hathor-wallet-service-sync_daemon.git`
-
-`npm install`
+```sh
+$ git clone https://github.com/HathorNetwork/hathor-wallet-service.git
+```
+To initialize nix dev environment:
+```sh
+$ nix develop
+```
+then, install the depencies: 
+```sh
+yarn
+```
 
 #### Add env variables or an .env file to the repository:
 
