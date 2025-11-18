@@ -303,6 +303,35 @@ deploy_ekvilibro_testnet() {
     fi;
 }
 
+deploy_testnet_playground() {
+    # Deploys the release-candidates and releases to our testnet-playground environment
+
+    # We deploy only the Lambdas here, because the daemon used in testnet-playground is the same as
+    # the one built in the hathor-network account, since it runs there as well
+
+    echo "Building git ref ${GIT_REF_TO_DEPLOY}..."
+
+    # This will match release-candidates or releases
+    if expr "${GIT_REF_TO_DEPLOY}" : "v.*" >/dev/null; then
+        make migrate;
+        make deploy-lambdas-testnet-playground;
+
+        send_slack_message "New version deployed to testnet-playground: ${GIT_REF_TO_DEPLOY}"
+    elif expr "${MANUAL_DEPLOY}" : "true" >/dev/null; then
+        make migrate;
+        make deploy-lambdas-testnet-playground;
+
+        send_slack_message "Branch manually deployed to testnet-playground: ${GIT_REF_TO_DEPLOY}"
+    elif expr "${ROLLBACK}" : "true" >/dev/null; then
+        make migrate;
+        make deploy-lambdas-testnet-playground;
+
+        send_slack_message "Rollback performed on testnet-playground to: ${GIT_REF_TO_DEPLOY}";
+    else
+        echo "We don't deploy ${GIT_REF_TO_DEPLOY} to testnet-playground. Nothing to do.";
+    fi;
+}
+
 
 # Check the first argument for the desired deploy
 option=$1
@@ -326,6 +355,9 @@ case $option in
         ;;
     ekvilibro-mainnet)
         deploy_ekvilibro_mainnet
+        ;;
+    testnet-playground)
+        deploy_testnet_playground
         ;;
     *)
         echo "Invalid option: $option"
