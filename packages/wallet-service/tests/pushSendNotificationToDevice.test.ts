@@ -19,6 +19,7 @@ import {
   makeGatewayEventWithAuthorizer,
   cleanDatabase,
   checkPushDevicesTable,
+  stopWalletLibOpenHandles,
 } from '@tests/utils';
 import { APIGatewayProxyResult, Context } from 'aws-lambda';
 import { Severity } from '@wallet-service/common/src/types';
@@ -253,6 +254,7 @@ describe('alert', () => {
     // allow android and desktop, while test for ios provider
     process.env.PUSH_ALLOWED_PROVIDERS = 'android,desktop';
     await import('@src/api/pushSendNotificationToDevice');
+    await stopWalletLibOpenHandles();
 
     await addToWalletTable(mysql, [{
       id: 'my-wallet',

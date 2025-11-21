@@ -6,6 +6,14 @@ build-and-push-daemon:
 build-daemon:
 	bash scripts/build-daemon.sh
 
+.PHONY: build-migrator
+build-migrator:
+	bash scripts/build-migrator.sh
+
+.PHONY: build-service
+build-service:
+	bash scripts/build-service.sh
+
 .PHONY: push-daemon
 push-daemon:
 	bash scripts/push-daemon.sh
@@ -13,6 +21,14 @@ push-daemon:
 .PHONY: deploy-lambdas-nano-testnet
 deploy-lambdas-nano-testnet:
 	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage nano --region eu-central-1 --aws-profile nano-testnet
+
+.PHONY: deploy-lambdas-nano-testnet-bravo
+deploy-lambdas-nano-testnet-bravo:
+	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage nano-bravo --region eu-central-1 --aws-profile nano-testnet
+
+.PHONY: deploy-lambdas-nano-testnet-hackaton
+deploy-lambdas-nano-testnet-hackaton:
+	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage hackaton --region eu-central-1 --aws-profile nano-testnet-hackaton
 
 .PHONY: deploy-lambdas-ekvilibro-testnet
 deploy-lambdas-ekvilibro-testnet:
@@ -29,6 +45,14 @@ deploy-lambdas-dev-testnet:
 .PHONY: deploy-lambdas-testnet
 deploy-lambdas-testnet:
 	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage testnet --region eu-central-1
+
+.PHONY: deploy-lambdas-testnet-hotel
+deploy-lambdas-testnet-hotel:
+	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage hotel --region eu-central-1
+
+.PHONY: deploy-lambdas-testnet-india
+deploy-lambdas-testnet-india:
+	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage india --region eu-central-1
 
 .PHONY: deploy-lambdas-mainnet-staging
 deploy-lambdas-mainnet-staging:

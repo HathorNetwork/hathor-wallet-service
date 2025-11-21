@@ -13,3 +13,15 @@
 export const getUnixTimestamp = (): number => (
   Math.round((new Date()).getTime() / 1000)
 );
+
+
+const daemonStartTime = getUnixTimestamp();
+
+/**
+ * Get the daemon uptime in seconds
+ *
+ * @returns The daemon uptime in seconds
+ */
+export const getDaemonUptime = (): number => (
+  getUnixTimestamp() - daemonStartTime
+);

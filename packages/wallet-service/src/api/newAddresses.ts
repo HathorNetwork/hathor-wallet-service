@@ -30,16 +30,16 @@ const mysql = getDbConnection();
  * This lambda is called by API Gateway on GET /addresses/new
  */
 export const get: APIGatewayProxyHandler = middy(walletIdProxyHandler(async (walletId) => {
-  const status = await getWallet(mysql, walletId);
+  const wallet = await getWallet(mysql, walletId);
 
-  if (!status) {
+  if (!wallet) {
     return closeDbAndGetError(mysql, ApiError.WALLET_NOT_FOUND);
   }
-  if (!status.readyAt) {
+  if (!wallet.readyAt) {
     return closeDbAndGetError(mysql, ApiError.WALLET_NOT_READY);
   }
 
-  const addresses = await getNewAddresses(mysql, walletId);
+  const addresses = await getNewAddresses(mysql, wallet);
 
   await closeDbConnection(mysql);
 

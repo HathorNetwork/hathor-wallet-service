@@ -1,0 +1,11 @@
+dist/
+__tests__/
+.git/
+../../.github/
+.direnv/
+flake.*
+node_modules/
+packages/daemon
+packages/wallet-service/dist/
+packages/wallet-service/node_modules/
+packages/common/node_modules/

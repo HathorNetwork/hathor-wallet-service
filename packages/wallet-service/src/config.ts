@@ -13,6 +13,7 @@ export function loadEnvConfig(): EnvironmentConfig {
   const config: EnvironmentConfig = {
     defaultServer: process.env.DEFAULT_SERVER ?? 'https://node1.mainnet.hathor.network/v1a/',
     stage: process.env.STAGE,
+    serverlessDeployPrefix: process.env.SERVERLESS_DEPLOY_PREFIX ?? 'hathor-wallet-service',
     network: process.env.NETWORK,
     serviceName: process.env.SERVICE_NAME,
     maxAddressGap: Number.parseInt(process.env.MAX_ADDRESS_GAP, 10),
@@ -31,6 +32,7 @@ export function loadEnvConfig(): EnvironmentConfig {
     pushNotificationEnabled: process.env.PUSH_NOTIFICATION_ENABLED === 'true',
     pushAllowedProviders: process.env.PUSH_ALLOWED_PROVIDERS,
     isOffline: process.env.IS_OFFLINE === 'true',
+    shouldMockAWS: process.env.MOCK_AWS === 'true',
     txHistoryMaxCount: Number.parseInt(process.env.TX_HISTORY_MAX_COUNT || '50', 10),
     healthCheckMaximumHeightDifference: Number.parseInt(process.env.HEALTHCHECK_MAXIMUM_HEIGHT_DIFFERENCE ?? '5', 10),
 

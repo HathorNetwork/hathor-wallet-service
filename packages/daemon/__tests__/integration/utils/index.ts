@@ -7,7 +7,19 @@
 import { Connection } from 'mysql2/promise';
 import { Interpreter } from 'xstate';
 import { getLastSyncedEvent } from '../../../src/db';
-import { AddressBalance, AddressBalanceRow, Context, Event } from '../../../src/types';
+import { AddressBalance, AddressBalanceRow, Context, Event, WalletBalanceRow } from '../../../src/types';
+
+export interface WalletBalance {
+  walletId: string;
+  tokenId: string;
+  unlockedBalance: bigint;
+  lockedBalance: bigint;
+  unlockedAuthorities: number;
+  lockedAuthorities: number;
+  timelockExpires: number | null;
+  transactions: number;
+  totalReceived: bigint;
+}
 
 export const cleanDatabase = async (mysql: Connection): Promise<void> => {
   const TABLES = [
@@ -33,6 +45,10 @@ export const cleanDatabase = async (mysql: Connection): Promise<void> => {
   }
 
   await mysql.query('SET FOREIGN_KEY_CHECKS = 1');
+  
+  // Ensure all changes are committed and flushed
+  await mysql.query('COMMIT');
+  await mysql.query('FLUSH TABLES');
 };
 
 export const fetchAddressBalances = async (
@@ -47,8 +63,8 @@ export const fetchAddressBalances = async (
   return results.map((result): AddressBalance => ({
     address: result.address as string,
     tokenId: result.token_id as string,
-    unlockedBalance: result.unlocked_balance as number,
-    lockedBalance: result.locked_balance as number,
+    unlockedBalance: BigInt(result.unlocked_balance),
+    lockedBalance: BigInt(result.locked_balance),
     lockedAuthorities: result.locked_authorities as number,
     unlockedAuthorities: result.unlocked_authorities as number,
     timelockExpires: result.timelock_expires as number,
@@ -56,21 +72,116 @@ export const fetchAddressBalances = async (
   }));
 };
 
+export const fetchWalletBalances = async (
+  mysql: Connection
+): Promise<WalletBalance[]> => {
+  const [results] = await mysql.query<WalletBalanceRow[]>(
+    `SELECT *
+       FROM \`wallet_balance\`
+   ORDER BY \`wallet_id\`, \`token_id\``,
+  );
+
+  return results.map((result): WalletBalance => ({
+    walletId: result.wallet_id as string,
+    tokenId: result.token_id as string,
+    unlockedBalance: BigInt(result.unlocked_balance),
+    lockedBalance: BigInt(result.locked_balance),
+    unlockedAuthorities: result.unlocked_authorities as number,
+    lockedAuthorities: result.locked_authorities as number,
+    timelockExpires: result.timelock_expires as number | null,
+    transactions: result.transactions as number,
+    totalReceived: BigInt(result.total_received),
+  }));
+};
+
 export const validateBalances = async (
   balancesA: AddressBalance[],
-  balancesB: { string: number },
+  expectedBalances: Record<string, {
+    unlockedBalance: bigint;
+    lockedBalance: bigint;
+    authorities?: { locked: number; unlocked: number }
+  }>,
 ): Promise<void> => {
-  const length = Math.max(balancesA.length, Object.keys(balancesB).length);
+  const expectedAddressTokenKeys = new Set(Object.keys(expectedBalances));
 
-  for (let i = 0; i < length; i++) {
-    const balanceA = balancesA[i];
-    const address = balanceA.address;
-    // @ts-ignore
-    const balanceB = balancesB[address];
-    const totalBalanceA = balanceA.lockedBalance + balanceA.unlockedBalance;
+  // Check for unexpected addresses with non-zero balances or authorities
+  for (const balance of balancesA) {
+    const addressTokenKey = `${balance.address}:${balance.tokenId}`;
+    const totalBalance = balance.lockedBalance + balance.unlockedBalance;
+    const totalAuthorities = balance.lockedAuthorities + balance.unlockedAuthorities;
 
-    if (totalBalanceA !== balanceB) {
-      throw new Error(`Balances are not equal for address: ${address}, expected: ${balanceB}, received: ${totalBalanceA}`);
+    if (!expectedAddressTokenKeys.has(addressTokenKey) && (totalBalance !== BigInt(0) || totalAuthorities !== 0)) {
+      throw new Error(`Unexpected address:token with non-zero balance or authorities: ${addressTokenKey}, balance: ${totalBalance}, authorities: ${totalAuthorities}`);
+    }
+  }
+
+  // Validate all expected addresses
+  for (const addressTokenKey of expectedAddressTokenKeys) {
+    const [address, tokenId] = addressTokenKey.split(':');
+    const balanceA = balancesA.find(b => b.address === address && b.tokenId === tokenId);
+    const expected = expectedBalances[addressTokenKey];
+
+    const actualUnlockedBalance = balanceA ? balanceA.unlockedBalance : BigInt(0);
+    const actualLockedBalance = balanceA ? balanceA.lockedBalance : BigInt(0);
+
+    if (actualUnlockedBalance !== expected.unlockedBalance) {
+      throw new Error(`Unlocked balance mismatch for address:token ${addressTokenKey}, expected: ${expected.unlockedBalance}, received: ${actualUnlockedBalance}`);
+    }
+
+    if (actualLockedBalance !== expected.lockedBalance) {
+      throw new Error(`Locked balance mismatch for address:token ${addressTokenKey}, expected: ${expected.lockedBalance}, received: ${actualLockedBalance}`);
+    }
+
+    // Validate authorities if specified
+    if (expected.authorities && balanceA) {
+      if (balanceA.lockedAuthorities !== expected.authorities.locked) {
+        throw new Error(`Locked authorities mismatch for address:token ${addressTokenKey}, expected: ${expected.authorities.locked}, received: ${balanceA.lockedAuthorities}`);
+      }
+      if (balanceA.unlockedAuthorities !== expected.authorities.unlocked) {
+        throw new Error(`Unlocked authorities mismatch for address:token ${addressTokenKey}, expected: ${expected.authorities.unlocked}, received: ${balanceA.unlockedAuthorities}`);
+      }
+    }
+  }
+};
+
+export const validateWalletBalances = async (
+  walletBalances: WalletBalance[],
+  expectedWalletBalances: Record<string, {
+    unlockedBalance: bigint;
+    lockedBalance: bigint;
+    authorities?: { locked: number; unlocked: number }
+  }>,
+): Promise<void> => {
+  for (const [walletTokenKey, expected] of Object.entries(expectedWalletBalances)) {
+    const [walletId, tokenId] = walletTokenKey.split(':');
+
+    const walletBalance = walletBalances.find(
+      b => b.walletId === walletId && b.tokenId === tokenId
+    );
+
+    const actualUnlockedBalance = walletBalance ? walletBalance.unlockedBalance : BigInt(0);
+    const actualLockedBalance = walletBalance ? walletBalance.lockedBalance : BigInt(0);
+
+    if (actualUnlockedBalance !== expected.unlockedBalance) {
+      throw new Error(
+        `Wallet unlocked balance mismatch for wallet ${walletId} token ${tokenId}: expected ${expected.unlockedBalance}, received ${actualUnlockedBalance}`
+      );
+    }
+
+    if (actualLockedBalance !== expected.lockedBalance) {
+      throw new Error(
+        `Wallet locked balance mismatch for wallet ${walletId} token ${tokenId}: expected ${expected.lockedBalance}, received ${actualLockedBalance}`
+      );
+    }
+
+    // Validate authorities if specified
+    if (expected.authorities && walletBalance) {
+      if (walletBalance.lockedAuthorities !== expected.authorities.locked) {
+        throw new Error(`Wallet locked authorities mismatch for wallet ${walletId} token ${tokenId}: expected ${expected.authorities.locked}, received ${walletBalance.lockedAuthorities}`);
+      }
+      if (walletBalance.unlockedAuthorities !== expected.authorities.unlocked) {
+        throw new Error(`Wallet unlocked authorities mismatch for wallet ${walletId} token ${tokenId}: expected ${expected.authorities.unlocked}, received ${walletBalance.unlockedAuthorities}`);
+      }
     }
   }
 };
@@ -79,7 +190,6 @@ export async function transitionUntilEvent(mysql: Connection, machine: Interpret
   return await new Promise<void>((resolve) => {
     machine.onTransition(async (state) => {
       if (state.matches('CONNECTED.idle')) {
-        // @ts-ignore
         const lastSyncedEvent = await getLastSyncedEvent(mysql);
         if (lastSyncedEvent?.last_event_id === eventId) {
           machine.stop();
@@ -92,3 +202,6 @@ export async function transitionUntilEvent(mysql: Connection, machine: Interpret
     machine.start();
   });
 }
+
+
+export * from './voiding-consistency-checks';

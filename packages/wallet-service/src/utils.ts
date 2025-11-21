@@ -20,6 +20,7 @@ import config from '@src/config';
 const bip32 = BIP32Factory(ecc);
 
 hathorLib.network.setNetwork(config.network);
+hathorLib.config.setServerUrl(config.defaultServer);
 
 const libNetwork = hathorLib.network.getNetwork();
 const hathorNetwork = {
@@ -48,6 +49,7 @@ export const sha256d = (data: string, encoding: BinaryToTextEncoding): string =>
   const hash1 = createHash('sha256');
   hash1.update(data);
   const hash2 = createHash('sha256');
+  // @ts-ignore: `digest` returns a Buffer which is not a BinaryLike required by `update`
   hash2.update(hash1.digest());
   return hash2.digest(encoding);
 };
@@ -86,6 +88,9 @@ export const getDbConnection = (): ServerlessMysql => (
       // TODO if not on local env, get IAM token
       // https://aws.amazon.com/blogs/database/iam-role-based-authentication-to-amazon-aurora-from-serverless-applications/
       password: config.dbPass,
+      // BIGINT columns should be returned as strings to keep precision on the JS unsafe range.
+      supportBigNumbers: true,
+      bigNumberStrings: true,
     },
   })
 );
@@ -250,7 +255,7 @@ export const getAddressAtIndex = (xpubkey: string, addressIndex: number): string
  * @memberof Wallet
  * @inner
  */
-export const getAddresses = (xpubkey: string, startIndex: number, quantity: number): {[key: string]: number} => {
+export const getAddresses = (xpubkey: string, startIndex: number, quantity: number): { [key: string]: number } => {
   const addrMap = {};
 
   for (let index = startIndex; index < startIndex + quantity; index++) {

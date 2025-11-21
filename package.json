@@ -1,13 +1,13 @@
 {
   "name": "hathor-wallet-service",
-  "version": "1.8.2",
+  "version": "1.10.0",
   "workspaces": [
     "packages/common",
     "packages/daemon",
     "packages/wallet-service"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "nohoist": [
     "**"
@@ -29,12 +29,12 @@
     "sequelize-cli": "^6.6.2",
     "typescript": "^5.8.2"
   },
-  "packageManager": "yarn@4.1.0",
+  "packageManager": "yarn@4.7.0",
   "dependencies": {
     "@aws-sdk/client-apigatewaymanagementapi": "3.540.0",
     "@aws-sdk/client-lambda": "3.540.0",
     "@aws-sdk/client-sqs": "3.540.0",
-    "@hathor/wallet-lib": "1.15.0",
+    "@hathor/wallet-lib": "2.8.3",
     "@wallet-service/common": "1.5.0",
     "bip32": "^4.0.0",
     "bitcoinjs-lib": "^6.1.5",

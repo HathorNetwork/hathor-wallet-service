@@ -41,6 +41,11 @@ export function convertApiVersionData(data: FullNodeApiVersionResponse): FullNod
   return {
     version: data.version,
     network: data.network,
+    // NOTE: Due to a bug in older fullnode versions, nano_contracts_enabled may return
+    // string values ('disabled', 'enabled', 'feature_activation') instead of boolean.
+    // This will be fixed in future fullnode versions to return boolean only.
+    // Until then, we need to handle both string and boolean values.
+    nanoContractsEnabled: data.nano_contracts_enabled === true || data.nano_contracts_enabled === 'enabled' || data.nano_contracts_enabled === 'feature_activation',
     minWeight: data.min_weight,
     minTxWeight: data.min_tx_weight,
     minTxWeightCoefficient: data.min_tx_weight_coefficient,

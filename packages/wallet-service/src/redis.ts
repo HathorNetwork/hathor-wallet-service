@@ -9,8 +9,12 @@ import config from '@src/config';
 
 const redisConfig: RedisConfig = {
   url: config.redisUrl,
-  password: config.redisPassword,
 };
+// Only set password if it is not empty.
+// Dockerized environments use passwordless redis instances by default.
+if (config.redisPassword) {
+  redisConfig.password = config.redisPassword;
+}
 
 export const svcPrefix = 'walletsvc';
 

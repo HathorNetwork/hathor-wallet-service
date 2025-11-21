@@ -15,7 +15,7 @@ import { getDbConnection } from '@src/utils';
 import { ApiError } from '@src/api/errors';
 import { closeDbAndGetError, warmupMiddleware, txIdJoiValidator } from '@src/api/utils';
 import Joi from 'joi';
-import { constants } from '@hathor/wallet-lib';
+import { bigIntUtils, constants } from '@hathor/wallet-lib';
 import middy from '@middy/core';
 import cors from '@middy/http-cors';
 import errorHandler from '@src/api/middlewares/errorHandler';
@@ -94,13 +94,13 @@ export const getTokenDetails = middy(walletIdProxyHandler(async (walletId, event
   ] = await Promise.all([
     getTotalSupply(mysql, tokenId),
     getTotalTransactions(mysql, tokenId),
-    getAuthorityUtxo(mysql, tokenId, constants.TOKEN_MELT_MASK),
-    getAuthorityUtxo(mysql, tokenId, constants.TOKEN_MINT_MASK),
+    getAuthorityUtxo(mysql, tokenId, Number(constants.TOKEN_MELT_MASK)),
+    getAuthorityUtxo(mysql, tokenId, Number(constants.TOKEN_MINT_MASK)),
   ]);
 
   return {
     statusCode: 200,
-    body: JSON.stringify({
+    body: bigIntUtils.JSONBigInt.stringify({
       success: true,
       details: {
         tokenInfo,

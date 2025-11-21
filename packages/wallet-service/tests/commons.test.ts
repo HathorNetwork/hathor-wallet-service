@@ -82,22 +82,22 @@ test('markLockedOutputs and getAddressBalanceMap', () => {
   tx.tx_id = 'txId1';
   tx.timestamp = 0;
   tx.inputs = [
-    createInput(10, 'address1', 'inputTx', 0, 'token1'),
-    createInput(5, 'address1', 'inputTx', 0, 'token1'),
-    createInput(7, 'address1', 'inputTx', 1, 'token2'),
-    createInput(3, 'address2', 'inputTx', 2, 'token1'),
+    createInput(10n, 'address1', 'inputTx', 0, 'token1'),
+    createInput(5n, 'address1', 'inputTx', 0, 'token1'),
+    createInput(7n, 'address1', 'inputTx', 1, 'token2'),
+    createInput(3n, 'address2', 'inputTx', 2, 'token1'),
   ];
   tx.outputs = [
-    createOutput(0, 5, 'address1', 'token1'),
-    createOutput(1, 2, 'address1', 'token3'),
-    createOutput(2, 11, 'address2', 'token1'),
+    createOutput(0, 5n, 'address1', 'token1'),
+    createOutput(1, 2n, 'address1', 'token3'),
+    createOutput(2, 11n, 'address2', 'token1'),
   ];
   const map1 = new TokenBalanceMap();
-  map1.set('token1', new Balance(5, -10, 0));
-  map1.set('token2', new Balance(0, -7, 0));
-  map1.set('token3', new Balance(2, 2, 0));
+  map1.set('token1', new Balance(5n, -10n, 0n));
+  map1.set('token2', new Balance(0n, -7n, 0n));
+  map1.set('token3', new Balance(2n, 2n, 0n));
   const map2 = new TokenBalanceMap();
-  map2.set('token1', new Balance(11, 8, 0));
+  map2.set('token1', new Balance(11n, 8n, 0n));
   const expectedAddrMap = {
     address1: map1,
     address2: map2,
@@ -123,14 +123,14 @@ test('markLockedOutputs and getAddressBalanceMap', () => {
   expect(tx.outputs[2].locked).toBe(true);
 
   // check balance
-  map2.set('token1', new Balance(11, -3, 11, now + 1));
+  map2.set('token1', new Balance(11n, -3n, 11n, now + 1));
   const addrMap2 = getAddressBalanceMap(tx.inputs, tx.outputs);
   expect(addrMap2).toStrictEqual(expectedAddrMap);
 
   // a block will have its rewards locked, even with no timelock
   tx.inputs = [];
   tx.outputs = [
-    createOutput(0, 100, 'address1', 'token1'),
+    createOutput(0, 100n, 'address1', 'token1'),
   ];
   markLockedOutputs(tx.outputs, now, true);
   for (const output of tx.outputs) {
@@ -138,7 +138,7 @@ test('markLockedOutputs and getAddressBalanceMap', () => {
   }
   const addrMap3 = getAddressBalanceMap(tx.inputs, tx.outputs);
   const map3 = new TokenBalanceMap();
-  map3.set('token1', new Balance(100, 0, 100));
+  map3.set('token1', new Balance(100n, 0n, 100n));
   const expectedAddrMap2 = {
     address1: map3,
   };
@@ -146,16 +146,16 @@ test('markLockedOutputs and getAddressBalanceMap', () => {
 
   // tx with authorities
   tx.inputs = [
-    createInput(0b01, 'address1', 'inputTx', 0, 'token1', null, 129),
-    createInput(0b10, 'address1', 'inputTx', 1, 'token2', null, 129),
+    createInput(0b01n, 'address1', 'inputTx', 0, 'token1', null, 129),
+    createInput(0b10n, 'address1', 'inputTx', 1, 'token2', null, 129),
   ];
   tx.outputs = [
-    createOutput(0, 0b01, 'address1', 'token1', null, false, 129),
-    createOutput(1, 0b10, 'address1', 'token2', 1000, true, 129),
+    createOutput(0, 0b01n, 'address1', 'token1', null, false, 129),
+    createOutput(1, 0b10n, 'address1', 'token2', 1000, true, 129),
   ];
   const map4 = new TokenBalanceMap();
-  map4.set('token1', new Balance(0, 0, 0, null));
-  map4.set('token2', new Balance(0, 0, 0, 1000, new Authorities([-1, 0]), new Authorities([1, 0])));
+  map4.set('token1', new Balance(0n, 0n, 0n, null));
+  map4.set('token2', new Balance(0n, 0n, 0n, 1000, new Authorities([-1, 0]), new Authorities([1, 0])));
   const expectedAddrMap4 = {
     address1: map4,
   };
@@ -166,19 +166,19 @@ test('markLockedOutputs and getAddressBalanceMap', () => {
 test('getWalletBalanceMap', () => {
   expect.hasAssertions();
   const mapAddress1 = new TokenBalanceMap();
-  mapAddress1.set('token1', new Balance(1, -10, 0));
-  mapAddress1.set('token2', new Balance(0, -7, 0));
-  mapAddress1.set('token3', new Balance(27, 2, 0));
+  mapAddress1.set('token1', new Balance(1n, -10n, 0n));
+  mapAddress1.set('token2', new Balance(0n, -7n, 0n));
+  mapAddress1.set('token3', new Balance(27n, 2n, 0n));
   const mapAddress2 = new TokenBalanceMap();
-  mapAddress2.set('token1', new Balance(10, 8, 0));
+  mapAddress2.set('token1', new Balance(10n, 8n, 0n));
   const mapAddress3 = new TokenBalanceMap();
-  mapAddress3.set('token2', new Balance(4, 2, 0));
-  mapAddress3.set('token3', new Balance(12, 6, 0));
+  mapAddress3.set('token2', new Balance(4n, 2n, 0n));
+  mapAddress3.set('token3', new Balance(12n, 6n, 0n));
   const mapAddress4 = new TokenBalanceMap();
-  mapAddress4.set('token1', new Balance(10, 2, 0));
-  mapAddress4.set('token2', new Balance(14, 9, 1, 500));
+  mapAddress4.set('token1', new Balance(10n, 2n, 0n));
+  mapAddress4.set('token2', new Balance(14n, 9n, 1n, 500));
   const mapAddress5 = new TokenBalanceMap();
-  mapAddress5.set('token1', new Balance(20, 11, 0));
+  mapAddress5.set('token1', new Balance(20n, 11n, 0n));
   const addressBalanceMap = {
     address1: mapAddress1,
     address2: mapAddress2,
@@ -193,12 +193,12 @@ test('getWalletBalanceMap', () => {
     address3: { walletId: 'wallet2', xpubkey: 'xpubkey2', authXpubkey: 'authxpubkey2', maxGap: 5 },
   };
   const mapWallet1 = new TokenBalanceMap();
-  mapWallet1.set('token1', new Balance(21, 0, 0));
-  mapWallet1.set('token2', new Balance(14, 2, 1, 500));
-  mapWallet1.set('token3', new Balance(27, 2, 0));
+  mapWallet1.set('token1', new Balance(21n, 0n, 0n));
+  mapWallet1.set('token2', new Balance(14n, 2n, 1n, 500));
+  mapWallet1.set('token3', new Balance(27n, 2n, 0n));
   const mapWallet2 = new TokenBalanceMap();
-  mapWallet2.set('token2', new Balance(4, 2, 0));
-  mapWallet2.set('token3', new Balance(12, 6, 0));
+  mapWallet2.set('token2', new Balance(4n, 2n, 0n));
+  mapWallet2.set('token3', new Balance(12n, 6n, 0n));
   const expectedWalletBalanceMap = {
     wallet1: mapWallet1,
     wallet2: mapWallet2,
@@ -213,7 +213,7 @@ test('getWalletBalanceMap', () => {
 
 test('unlockUtxos', async () => {
   expect.hasAssertions();
-  const reward = 6400;
+  const reward = 6400n;
   const txId1 = 'txId1';
   const txId2 = 'txId2';
   const txId3 = 'txId3';
@@ -254,7 +254,7 @@ test('unlockUtxos', async () => {
       index: 0,
       tokenId: token,
       address: addr,
-      value: 2500,
+      value: 2500n,
       authorities: 0,
       timelock: now,
       heightlock: null,
@@ -265,7 +265,7 @@ test('unlockUtxos', async () => {
       index: 0,
       tokenId: token,
       address: addr,
-      value: 2500,
+      value: 2500n,
       authorities: 0,
       timelock: now * 2,
       heightlock: null,
@@ -276,7 +276,7 @@ test('unlockUtxos', async () => {
       index: 0,
       tokenId: token,
       address: addr,
-      value: 0,
+      value: 0n,
       authorities: 0b10,
       timelock: now * 3,
       heightlock: null,
@@ -303,14 +303,14 @@ test('unlockUtxos', async () => {
   }]);
 
   await addToAddressBalanceTable(mysql, [
-    [addr, token, 0, 2 * reward + 5000, now, 5, 0, 0b10, 4 * reward + 5000],
+    [addr, token, 0, 2n * reward + 5000n, now, 5, 0, 0b10, 4n * reward + 5000n],
   ]);
 
   await addToWalletBalanceTable(mysql, [{
     walletId,
     tokenId: token,
-    unlockedBalance: 0,
-    lockedBalance: 2 * reward + 5000,
+    unlockedBalance: 0n,
+    lockedBalance: 2n * reward + 5000n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0b10,
     timelockExpires: now,
@@ -334,8 +334,8 @@ test('unlockUtxos', async () => {
   await expect(
     checkUtxoTable(mysql, 5, txId1, 0, utxo.tokenId, utxo.address, utxo.value, 0, utxo.timelock, utxo.heightlock, false),
   ).resolves.toBe(true);
-  await expect(checkAddressBalanceTable(mysql, 1, addr, token, reward, reward + 5000, now, 5, 0, 0b10)).resolves.toBe(true);
-  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, reward, reward + 5000, now, 5, 0, 0b10)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 1, addr, token, reward, reward + 5000n, now, 5, 0, 0b10)).resolves.toBe(true);
+  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, reward, reward + 5000n, now, 5, 0, 0b10)).resolves.toBe(true);
 
   // unlock txId2
   utxo.txId = txId2;
@@ -344,36 +344,36 @@ test('unlockUtxos', async () => {
   await expect(
     checkUtxoTable(mysql, 5, txId2, 0, utxo.tokenId, utxo.address, utxo.value, 0, utxo.timelock, utxo.heightlock, false),
   ).resolves.toBe(true);
-  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 2 * reward, 5000, now, 5, 0, 0b10)).resolves.toBe(true);
-  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 2 * reward, 5000, now, 5, 0, 0b10)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 2n * reward, 5000n, now, 5, 0, 0b10)).resolves.toBe(true);
+  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 2n * reward, 5000n, now, 5, 0, 0b10)).resolves.toBe(true);
 
   // unlock txId3, txId4 is still locked
   utxo.txId = txId3;
-  utxo.value = 2500;
+  utxo.value = 2500n;
   utxo.timelock = now;
   utxo.heightlock = null;
   await unlockUtxos(mysql, [utxo], true);
   await expect(
     checkUtxoTable(mysql, 5, txId3, 0, utxo.tokenId, utxo.address, utxo.value, 0, utxo.timelock, utxo.heightlock, false),
   ).resolves.toBe(true);
-  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 2 * reward + 2500, 2500, 2 * now, 5, 0, 0b10)).resolves.toBe(true);
-  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 2 * reward + 2500, 2500, 2 * now, 5, 0, 0b10)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 2n * reward + 2500n, 2500n, 2 * now, 5, 0, 0b10)).resolves.toBe(true);
+  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 2n * reward + 2500n, 2500n, 2 * now, 5, 0, 0b10)).resolves.toBe(true);
 
   // unlock txId4
   utxo.txId = txId4;
-  utxo.value = 2500;
+  utxo.value = 2500n;
   utxo.timelock = now * 2;
   utxo.heightlock = null;
   await unlockUtxos(mysql, [utxo], true);
   await expect(
     checkUtxoTable(mysql, 5, txId4, 0, utxo.tokenId, utxo.address, utxo.value, 0, utxo.timelock, utxo.heightlock, false),
   ).resolves.toBe(true);
-  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 2 * reward + 5000, 0, 3 * now, 5, 0, 0b10)).resolves.toBe(true);
-  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 2 * reward + 5000, 0, 3 * now, 5, 0, 0b10)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 2n * reward + 5000n, 0n, 3 * now, 5, 0, 0b10)).resolves.toBe(true);
+  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 2n * reward + 5000n, 0n, 3 * now, 5, 0, 0b10)).resolves.toBe(true);
 
   // unlock txId5
   utxo.txId = txId5;
-  utxo.value = 0;
+  utxo.value = 0n;
   utxo.authorities = 0b10;
   utxo.timelock = now * 3;
   utxo.heightlock = null;
@@ -381,14 +381,14 @@ test('unlockUtxos', async () => {
   await expect(
     checkUtxoTable(mysql, 5, txId5, 0, utxo.tokenId, utxo.address, utxo.value, utxo.authorities, utxo.timelock, utxo.heightlock, false),
   ).resolves.toBe(true);
-  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 2 * reward + 5000, 0, null, 5, 0b10, 0)).resolves.toBe(true);
-  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 2 * reward + 5000, 0, null, 5, 0b10, 0)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 2n * reward + 5000n, 0n, null, 5, 0b10, 0)).resolves.toBe(true);
+  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 2n * reward + 5000n, 0n, null, 5, 0b10, 0)).resolves.toBe(true);
 });
 
 test('unlockTimelockedUtxos', async () => {
   expect.hasAssertions();
 
-  const reward = 6400;
+  const reward = 6400n;
   const txId1 = 'txId1';
   const txId2 = 'txId2';
   const txId3 = 'txId3';
@@ -401,7 +401,7 @@ test('unlockTimelockedUtxos', async () => {
     index: 0,
     tokenId: token,
     address: addr,
-    value: 2500,
+    value: 2500n,
     authorities: 0,
     timelock: now,
     heightlock: null,
@@ -412,7 +412,7 @@ test('unlockTimelockedUtxos', async () => {
     index: 0,
     tokenId: token,
     address: addr,
-    value: 2500,
+    value: 2500n,
     authorities: 0,
     timelock: now * 2,
     heightlock: null,
@@ -423,7 +423,7 @@ test('unlockTimelockedUtxos', async () => {
     index: 0,
     tokenId: token,
     address: addr,
-    value: 0,
+    value: 0n,
     authorities: 0b10,
     timelock: now * 3,
     heightlock: null,
@@ -455,8 +455,8 @@ test('unlockTimelockedUtxos', async () => {
   await addToWalletBalanceTable(mysql, [{
     walletId,
     tokenId: token,
-    unlockedBalance: 0,
-    lockedBalance: 5000,
+    unlockedBalance: 0n,
+    lockedBalance: 5000n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0b10,
     timelockExpires: now,
@@ -477,31 +477,31 @@ test('unlockTimelockedUtxos', async () => {
 
   // unlock txId1, txId2 is still locked
   utxo.txId = txId1;
-  utxo.value = 2500;
+  utxo.value = 2500n;
   utxo.timelock = now;
   utxo.heightlock = null;
   await unlockTimelockedUtxos(mysql, now + 1);
   await expect(
     checkUtxoTable(mysql, 3, txId1, 0, utxo.tokenId, utxo.address, utxo.value, 0, utxo.timelock, utxo.heightlock, false),
   ).resolves.toBe(true);
-  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 2500, 2500, 2 * now, 3, 0, 0b10)).resolves.toBe(true);
-  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 2500, 2500, 2 * now, 3, 0, 0b10)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 2500n, 2500n, 2 * now, 3, 0, 0b10)).resolves.toBe(true);
+  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 2500n, 2500n, 2 * now, 3, 0, 0b10)).resolves.toBe(true);
 
   // unlock txId2
   utxo.txId = txId2;
-  utxo.value = 2500;
+  utxo.value = 2500n;
   utxo.timelock = now * 2;
   utxo.heightlock = null;
   await unlockTimelockedUtxos(mysql, (now * 2) + 1);
   await expect(
     checkUtxoTable(mysql, 3, txId2, 0, utxo.tokenId, utxo.address, utxo.value, 0, utxo.timelock, utxo.heightlock, false),
   ).resolves.toBe(true);
-  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 5000, 0, 3 * now, 3, 0, 0b10)).resolves.toBe(true);
-  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 5000, 0, 3 * now, 3, 0, 0b10)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 5000n, 0n, 3 * now, 3, 0, 0b10)).resolves.toBe(true);
+  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 5000n, 0n, 3 * now, 3, 0, 0b10)).resolves.toBe(true);
 
   // unlock txId3
   utxo.txId = txId3;
-  utxo.value = 0;
+  utxo.value = 0n;
   utxo.authorities = 0b10;
   utxo.timelock = now * 3;
   utxo.heightlock = null;
@@ -509,8 +509,8 @@ test('unlockTimelockedUtxos', async () => {
   await expect(
     checkUtxoTable(mysql, 3, txId3, 0, utxo.tokenId, utxo.address, utxo.value, utxo.authorities, utxo.timelock, utxo.heightlock, false),
   ).resolves.toBe(true);
-  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 5000, 0, null, 3, 0b10, 0)).resolves.toBe(true);
-  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 5000, 0, null, 3, 0b10, 0)).resolves.toBe(true);
+  await expect(checkAddressBalanceTable(mysql, 1, addr, token, 5000n, 0n, null, 3, 0b10, 0)).resolves.toBe(true);
+  await expect(checkWalletBalanceTable(mysql, 1, walletId, token, 5000n, 0n, null, 3, 0b10, 0)).resolves.toBe(true);
 });
 
 test('getFullnodeData with an uninitialized version_data database should call the version api', async () => {
@@ -519,6 +519,7 @@ test('getFullnodeData with an uninitialized version_data database should call th
   const mockData = {
     version: '0.38.0',
     network: 'mainnet',
+    nano_contracts_enabled: true,
     min_weight: 14,
     min_tx_weight: 14,
     min_tx_weight_coefficient: 1.6,
@@ -561,6 +562,7 @@ test('getFullnodeData with an initialized version_data database should query dat
   const mockedVersionData: FullNodeApiVersionResponse = {
       version: '0.38.0',
       network: 'mainnet',
+      nano_contracts_enabled: true,
       min_weight: 14,
       min_tx_weight: 14,
       min_tx_weight_coefficient: 1.6,
@@ -654,8 +656,8 @@ describe('getWalletBalancesForTx', () => {
 
     // transaction base
     const utxos = [
-      { index: 0, value: 5, address: addr1, tokenId: token1.id, locked: false, timelock: null, tokenData: 0, spentBy: null },
-      { index: 1, value: 5, address: addr2, tokenId: token1.id, locked: false, timelock: null, tokenData: 0, spentBy: null },
+      { index: 0, value: 5n, address: addr1, tokenId: token1.id, locked: false, timelock: null, tokenData: 0, spentBy: null },
+      { index: 1, value: 5n, address: addr2, tokenId: token1.id, locked: false, timelock: null, tokenData: 0, spentBy: null },
     ];
 
     // instantiate outputs
@@ -684,7 +686,7 @@ describe('getWalletBalancesForTx', () => {
 
     const tx = {
       tx_id: tx1.id,
-      nonce: 10,
+      nonce: 10n,
       timestamp: tx1.timestamp,
       version: tx1.version,
       weight: tx1.weight,
@@ -738,8 +740,8 @@ describe('getWalletBalancesForTx', () => {
 
     // instantiate token balance
     const balanceToken1 = {
-      unlocked: 5,
-      locked: 0,
+      unlocked: 5n,
+      locked: 0n,
       lockExpires: null,
       transactions: 1,
       unlockedAuthorities: new Authorities(0b01),
@@ -756,8 +758,8 @@ describe('getWalletBalancesForTx', () => {
 
     // transaction base
     const utxos = [
-      { index: 0, value: 5, address: addr1, tokenId: token1.id, locked: false, timelock: null, tokenData: 0, spentBy: null },
-      { index: 1, value: 5, address: addr2, tokenId: token1.id, locked: false, timelock: null, tokenData: 0, spentBy: null },
+      { index: 0, value: 5n, address: addr1, tokenId: token1.id, locked: false, timelock: null, tokenData: 0, spentBy: null },
+      { index: 1, value: 5n, address: addr2, tokenId: token1.id, locked: false, timelock: null, tokenData: 0, spentBy: null },
     ];
 
     // instantiate outputs
@@ -786,7 +788,7 @@ describe('getWalletBalancesForTx', () => {
 
     const tx = {
       tx_id: tx1.id,
-      nonce: 10,
+      nonce: 10n,
       timestamp: tx1.timestamp,
       version: tx1.version,
       weight: tx1.weight,
@@ -811,18 +813,18 @@ describe('getWalletBalancesForTx', () => {
             tokenId: 'token1',
             tokenSymbol: 'T1',
             lockExpires: null,
-            lockedAmount: 0,
+            lockedAmount: 0n,
             lockedAuthorities: {
               melt: false,
               mint: false,
             },
-            totalAmountSent: 0,
-            unlockedAmount: -5,
+            totalAmountSent: 0n,
+            unlockedAmount: -5n,
             unlockedAuthorities: {
               melt: false,
               mint: false,
             },
-            total: -5,
+            total: -5n,
           },
         ],
       },
@@ -873,16 +875,16 @@ describe('getWalletBalancesForTx', () => {
 
       // instantiate token balance
       const balanceToken1 = {
-        unlocked: 5,
-        locked: 0,
+        unlocked: 5n,
+        locked: 0n,
         lockExpires: null,
         transactions: 1,
         unlockedAuthorities: new Authorities(0b01),
         lockedAuthorities: 0,
       };
       const balanceToken2 = {
-        unlocked: 10,
-        locked: 0,
+        unlocked: 10n,
+        locked: 0n,
         lockExpires: null,
         transactions: 1,
         unlockedAuthorities: new Authorities(0b01),
@@ -900,9 +902,9 @@ describe('getWalletBalancesForTx', () => {
 
       // transaction base
       const utxos = [
-        { index: 0, value: 5, address: addr1, tokenId: token1.id, locked: false, timelock: null, tokenData: 0, spentBy: null },
-        { index: 1, value: 5, address: addr2, tokenId: token1.id, locked: false, timelock: null, tokenData: 0, spentBy: null },
-        { index: 2, value: 10, address: addr1, tokenId: token2.id, locked: false, timelock: null, tokenData: 0, spentBy: null },
+        { index: 0, value: 5n, address: addr1, tokenId: token1.id, locked: false, timelock: null, tokenData: 0, spentBy: null },
+        { index: 1, value: 5n, address: addr2, tokenId: token1.id, locked: false, timelock: null, tokenData: 0, spentBy: null },
+        { index: 2, value: 10n, address: addr1, tokenId: token2.id, locked: false, timelock: null, tokenData: 0, spentBy: null },
       ];
 
       // instantiate outputs
@@ -939,7 +941,7 @@ describe('getWalletBalancesForTx', () => {
 
       const tx = {
         tx_id: tx1.id,
-        nonce: 10,
+        nonce: 10n,
         timestamp: tx1.timestamp,
         version: tx1.version,
         weight: tx1.weight,
@@ -964,14 +966,14 @@ describe('getWalletBalancesForTx', () => {
               tokenId: 'token2',
               tokenSymbol: 'T2',
               lockExpires: null,
-              lockedAmount: 0,
+              lockedAmount: 0n,
               lockedAuthorities: {
                 melt: false,
                 mint: false,
               },
-              total: -10,
-              totalAmountSent: 0,
-              unlockedAmount: -10,
+              total: -10n,
+              totalAmountSent: 0n,
+              unlockedAmount: -10n,
               unlockedAuthorities: {
                 melt: false,
                 mint: false,
@@ -981,18 +983,18 @@ describe('getWalletBalancesForTx', () => {
               tokenId: 'token1',
               tokenSymbol: 'T1',
               lockExpires: null,
-              lockedAmount: 0,
+              lockedAmount: 0n,
               lockedAuthorities: {
                 melt: false,
                 mint: false,
               },
-              totalAmountSent: 0,
-              unlockedAmount: -5,
+              totalAmountSent: 0n,
+              unlockedAmount: -5n,
               unlockedAuthorities: {
                 melt: false,
                 mint: false,
               },
-              total: -5,
+              total: -5n,
             },
           ],
         },
@@ -1043,16 +1045,16 @@ describe('getWalletBalancesForTx', () => {
 
       // instantiate token balance
       const balanceToken1 = {
-        unlocked: 5,
-        locked: 0,
+        unlocked: 5n,
+        locked: 0n,
         lockExpires: null,
         transactions: 1,
         unlockedAuthorities: new Authorities(0b01),
         lockedAuthorities: 0,
       };
       const balanceToken2 = {
-        unlocked: 10,
-        locked: 0,
+        unlocked: 10n,
+        locked: 0n,
         lockExpires: null,
         transactions: 1,
         unlockedAuthorities: new Authorities(0b01),
@@ -1070,10 +1072,10 @@ describe('getWalletBalancesForTx', () => {
 
       // transaction base
       const utxos = [
-        { index: 0, value: 5, address: addr1, tokenId: token1.id, locked: false, timelock: null, tokenData: 0, spentBy: null },
-        { index: 1, value: 5, address: addr2, tokenId: token1.id, locked: false, timelock: null, tokenData: 0, spentBy: null },
-        { index: 2, value: 10, address: addr1, tokenId: token2.id, locked: false, timelock: null, tokenData: 0, spentBy: null },
-        { index: 3, value: 10, address: addr2, tokenId: token2.id, locked: false, timelock: null, tokenData: 0, spentBy: null },
+        { index: 0, value: 5n, address: addr1, tokenId: token1.id, locked: false, timelock: null, tokenData: 0, spentBy: null },
+        { index: 1, value: 5n, address: addr2, tokenId: token1.id, locked: false, timelock: null, tokenData: 0, spentBy: null },
+        { index: 2, value: 10n, address: addr1, tokenId: token2.id, locked: false, timelock: null, tokenData: 0, spentBy: null },
+        { index: 3, value: 10n, address: addr2, tokenId: token2.id, locked: false, timelock: null, tokenData: 0, spentBy: null },
       ];
 
       // instantiate outputs
@@ -1110,7 +1112,7 @@ describe('getWalletBalancesForTx', () => {
 
       const tx = {
         tx_id: tx1.id,
-        nonce: 10,
+        nonce: 10n,
         timestamp: tx1.timestamp,
         version: tx1.version,
         weight: tx1.weight,
@@ -1135,14 +1137,14 @@ describe('getWalletBalancesForTx', () => {
               tokenId: 'token2',
               tokenSymbol: 'T2',
               lockExpires: null,
-              lockedAmount: 0,
+              lockedAmount: 0n,
               lockedAuthorities: {
                 melt: false,
                 mint: false,
               },
-              total: 10,
-              totalAmountSent: 10,
-              unlockedAmount: 10,
+              total: 10n,
+              totalAmountSent: 10n,
+              unlockedAmount: 10n,
               unlockedAuthorities: {
                 melt: false,
                 mint: false,
@@ -1152,18 +1154,18 @@ describe('getWalletBalancesForTx', () => {
               tokenId: 'token1',
               tokenSymbol: 'T1',
               lockExpires: null,
-              lockedAmount: 0,
+              lockedAmount: 0n,
               lockedAuthorities: {
                 melt: false,
                 mint: false,
               },
-              totalAmountSent: 5,
-              unlockedAmount: 5,
+              totalAmountSent: 5n,
+              unlockedAmount: 5n,
               unlockedAuthorities: {
                 melt: false,
                 mint: false,
               },
-              total: 5,
+              total: 5n,
             },
           ],
         },

@@ -13,10 +13,17 @@ export const Sha256Schema = Joi.string().hex().length(64);
 export const FullnodeVersionSchema = Joi.object<FullNodeApiVersionResponse>({
   version: Joi.string().min(1).required(),
   network: Joi.string().min(1).required(),
-  min_weight: Joi.number().integer().positive().required(),
-  min_tx_weight: Joi.number().integer().positive().required(),
-  min_tx_weight_coefficient: Joi.number().positive().required(),
-  min_tx_weight_k: Joi.number().integer().positive().required(),
+  // NOTE: Due to a bug in older fullnode versions, this field may be a string
+  // ('disabled', 'enabled', 'feature_activation') instead of boolean.
+  // Future fullnode versions will return boolean only.
+  nano_contracts_enabled: Joi.alternatives().try(
+    Joi.boolean(),
+    Joi.string().valid('disabled', 'enabled', 'feature_activation')
+  ).required(),
+  min_weight: Joi.number().integer().positive().allow(0).required(),
+  min_tx_weight: Joi.number().integer().positive().allow(0).required(),
+  min_tx_weight_coefficient: Joi.number().positive().allow(0).required(),
+  min_tx_weight_k: Joi.number().integer().positive().allow(0).required(),
   token_deposit_percentage: Joi.number().positive().required(),
   reward_spend_min_blocks: Joi.number().integer().positive().required(),
   max_number_inputs: Joi.number().integer().positive().required(),
@@ -34,6 +41,7 @@ export const FullnodeVersionSchema = Joi.object<FullNodeApiVersionResponse>({
 export const EnvironmentConfigSchema = Joi.object<EnvironmentConfig>({
   defaultServer: Joi.string().required(),
   stage: Joi.string().required(),
+  serverlessDeployPrefix: Joi.string().required(),
   network: Joi.string().required(),
   serviceName: Joi.string().required(),
   maxAddressGap: Joi.number().required(),
@@ -52,6 +60,7 @@ export const EnvironmentConfigSchema = Joi.object<EnvironmentConfig>({
   pushNotificationEnabled: Joi.boolean().required(),
   pushAllowedProviders: Joi.string().required(),
   isOffline: Joi.boolean().required(),
+  shouldMockAWS: Joi.boolean().required(),
   txHistoryMaxCount: Joi.number().required(),
   healthCheckMaximumHeightDifference: Joi.number().required(),
   awsRegion: Joi.string().required(),

@@ -6,9 +6,10 @@
  */
 
 import { APIGatewayProxyHandler, Handler, SNSEvent } from 'aws-lambda';
-import { LambdaClient, InvokeCommand, InvokeCommandOutput } from '@aws-sdk/client-lambda';
+import { InvokeCommand, InvokeCommandOutput } from '@aws-sdk/client-lambda';
 import 'source-map-support/register';
 
+import { createLambdaClient } from '@src/utils/aws.utils';
 import { ApiError } from '@src/api/errors';
 import {
   addNewAddresses,
@@ -94,7 +95,7 @@ const loadBodySchema = Joi.object({
  */
 /* istanbul ignore next */
 export const invokeLoadWalletAsync = async (xpubkey: string, maxGap: number): Promise<void> => {
-  const client = new LambdaClient({
+  const client = createLambdaClient({
     endpoint: config.stage === 'dev'
       ? 'http://localhost:3002'
       : `https://lambda.${config.awsRegion}.amazonaws.com`,
@@ -124,7 +125,7 @@ export const invokeLoadWalletAsync = async (xpubkey: string, maxGap: number): Pr
  * @param xpubkeyStr - A string with the wallet's xpubkey
  * @param xpubkeySignature - A string with the signature that proves the user owns the xpub
  * @param authXpubkeyStr - A string with the auth xpubkey
- * @param authXpubkeySignature- A string with the signature that proves the user owns the xpub
+ * @param authXpubkeySignature - A string with the signature that proves the user owns the xpub
  */
 export const validateSignatures = (
   walletId: string,

@@ -8,7 +8,7 @@ import { strict as assert } from 'assert';
 import { ServerlessMysql } from 'serverless-mysql';
 import { get } from 'lodash';
 import { OkPacket } from 'mysql';
-import { constants } from '@hathor/wallet-lib';
+import { constants, bigIntUtils } from '@hathor/wallet-lib';
 import {
   AddressIndexMap,
   AddressInfo,
@@ -64,6 +64,7 @@ const logger: Logger = createDefaultLogger();
 const BLOCK_VERSION = [
   constants.BLOCK_VERSION,
   constants.MERGED_MINED_BLOCK_VERSION,
+  constants.POA_BLOCK_VERSION
 ];
 const BURN_ADDRESS = 'HDeadDeadDeadDeadDeadDeadDeagTPgmn';
 
@@ -183,7 +184,7 @@ export const generateAddresses = async (mysql: ServerlessMysql, xpubkey: string,
       existingAddresses[address] = index;
 
       // if address is used, check if its index is higher than the current highest used index
-      if (entry.transactions > 0 && index > lastUsedAddressIndex) {
+      if (entry.transactions as number > 0 && index > lastUsedAddressIndex) {
         lastUsedAddressIndex = index;
       }
 
@@ -289,6 +290,7 @@ export const createWallet = async (
     status: WalletStatus.CREATING,
     created_at: ts,
     max_gap: maxGap,
+    last_used_address_index: -1,
   };
   await mysql.query(
     `INSERT INTO \`wallet\`
@@ -304,6 +306,7 @@ export const createWallet = async (
     status: WalletStatus.CREATING,
     createdAt: ts,
     readyAt: null,
+    lastUsedAddressIndex: -1,
   };
 };
 
@@ -426,7 +429,7 @@ export const getWalletAddressDetail = async (mysql: ServerlessMysql, walletId: s
       FROM \`address\`
      WHERE \`wallet_id\` = ?
          AND \`address\` = ?`,
-  [walletId, address]);
+    [walletId, address]);
 
   if (results.length > 0) {
     const data = results[0];
@@ -435,6 +438,7 @@ export const getWalletAddressDetail = async (mysql: ServerlessMysql, walletId: s
       address: data.address as string,
       index: data.index as number,
       transactions: data.transactions as number,
+      seqnum: data.seqnum as number,
     };
 
     return addressDetail;
@@ -536,7 +540,7 @@ export const initWalletBalance = async (mysql: ServerlessMysql, walletId: string
     const row1 = results1[i];
     const row2 = results2[i];
     assert.strictEqual(row1.token_id, row2.token_id);
-    assert.strictEqual(<number>row1.unlocked_balance + <number>row1.locked_balance, row2.balance);
+    assert.strictEqual(BigInt(row1.unlocked_balance as string) + BigInt(row1.locked_balance as string), BigInt(row2.balance as string));
     balanceEntries.push([
       walletId,
       row1.token_id,
@@ -683,8 +687,9 @@ export const addUtxos = async (
       let value = output.value;
 
       if (isAuthority(output.token_data)) {
-        authorities = value;
-        value = 0;
+        // value should be within [0, 255] for authorities to be valid.
+        authorities = Number(value);
+        value = 0n;
       }
 
       return [
@@ -890,6 +895,10 @@ export const getUtxos = async (
   mysql: ServerlessMysql,
   utxosInfo: IWalletInput[],
 ): Promise<DbTxOutput[]> => {
+  if (utxosInfo.length <= 0) {
+    return [];
+  }
+
   const entries = utxosInfo.map((utxo) => [utxo.txId, utxo.index]);
   const results: DbSelectResult = await mysql.query(
     `SELECT *
@@ -948,11 +957,11 @@ export const getWalletSortedValueUtxos = async (
       index: result.index as number,
       tokenId: result.token_id as string,
       address: result.address as string,
-      value: result.value as number,
+      value: BigInt(result.value as string),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
-      locked: result.locked > 0,
+      locked: result.locked as number > 0,
     };
     utxos.push(utxo);
   }
@@ -1013,11 +1022,11 @@ export const getLockedUtxoFromInputs = async (mysql: ServerlessMysql, inputs: Tx
       index: utxo.index as number,
       tokenId: utxo.token_id as string,
       address: utxo.address as string,
-      value: utxo.value as number,
+      value: BigInt(utxo.value as string),
       authorities: utxo.authorities as number,
       timelock: utxo.timelock as number,
       heightlock: utxo.heightlock as number,
-      locked: (utxo.locked > 0),
+      locked: (utxo.locked as number > 0),
     }));
   }
 
@@ -1160,12 +1169,12 @@ export const updateAddressLockedBalance = async (
                 \`unlocked_authorities\` = (unlocked_authorities | ?)
           WHERE \`address\` = ?
             AND \`token_id\` = ?`, [
-          tokenBalance.unlockedAmount,
-          tokenBalance.unlockedAmount,
-          tokenBalance.unlockedAuthorities.toInteger(),
-          address,
-          token,
-        ],
+        tokenBalance.unlockedAmount,
+        tokenBalance.unlockedAmount,
+        tokenBalance.unlockedAuthorities.toInteger(),
+        address,
+        token,
+      ],
       );
 
       // if any authority has been unlocked, we have to refresh the locked authorities
@@ -1201,7 +1210,7 @@ export const updateAddressLockedBalance = async (
              )
            WHERE \`address\` = ?
              AND \`token_id\` = ?`,
-        [address, token, address, token]);
+          [address, token, address, token]);
       }
     }
   }
@@ -1233,7 +1242,7 @@ export const updateWalletLockedBalance = async (
           WHERE \`wallet_id\` = ?
             AND \`token_id\` = ?`,
         [tokenBalance.unlockedAmount, tokenBalance.unlockedAmount,
-          tokenBalance.unlockedAuthorities.toInteger(), walletId, token],
+        tokenBalance.unlockedAuthorities.toInteger(), walletId, token],
       );
 
       // if any authority has been unlocked, we have to refresh the locked authorities
@@ -1302,6 +1311,7 @@ export const getWalletAddresses = async (mysql: ServerlessMysql, walletId: strin
       address: result.address as string,
       index: result.index as number,
       transactions: result.transactions as number,
+      seqnum: result.seqnum as number,
     };
     addresses.push(address);
   }
@@ -1315,32 +1325,27 @@ export const getWalletAddresses = async (mysql: ServerlessMysql, walletId: strin
  * @param walletId - Wallet id
  * @returns A list of addresses and their indexes
  */
-export const getNewAddresses = async (mysql: ServerlessMysql, walletId: string): Promise<ShortAddressInfo[]> => {
+export const getNewAddresses = async (mysql: ServerlessMysql, wallet: Wallet): Promise<ShortAddressInfo[]> => {
   const addresses: ShortAddressInfo[] = [];
-  const resultsWallet: DbSelectResult = await mysql.query('SELECT * FROM `wallet` WHERE `id` = ?', walletId);
-  if (resultsWallet.length) {
-    const gapLimit = resultsWallet[0].max_gap as number;
-    const latestUsedIndex = resultsWallet[0].last_used_address_index as number;
-    // Select all addresses that are empty and the index is bigger than the last used address index
-    const results: DbSelectResult = await mysql.query(`
-      SELECT *
-        FROM \`address\`
-       WHERE \`wallet_id\` = ?
-         AND \`transactions\` = 0
-         AND \`index\` > ?
-    ORDER BY \`index\`
-         ASC
-    LIMIT ?`, [walletId, latestUsedIndex, gapLimit]);
+  // Select all addresses that are empty and the index is bigger than the last used address index
+  const results: DbSelectResult = await mysql.query(`
+    SELECT *
+      FROM \`address\`
+     WHERE \`wallet_id\` = ?
+       AND \`transactions\` = 0
+       AND \`index\` > ?
+  ORDER BY \`index\`
+       ASC
+  LIMIT ?`, [wallet.walletId, wallet.lastUsedAddressIndex, wallet.maxGap]);
 
-    for (const result of results) {
-      const index = result.index as number;
-      const address = {
-        address: result.address as string,
-        index,
-        addressPath: getAddressPath(index),
-      };
-      addresses.push(address);
-    }
+  for (const result of results) {
+    const index = result.index as number;
+    const address = {
+      address: result.address as string,
+      index,
+      addressPath: getAddressPath(index),
+    };
+    addresses.push(address);
   }
   return addresses;
 };
@@ -1382,9 +1387,9 @@ INNER JOIN token ON w.token_id = token.id
 
   const results: DbSelectResult = await mysql.query(query, params);
   for (const result of results) {
-    const totalAmount = result.total_received as number;
-    const unlockedBalance = result.unlocked_balance as number;
-    const lockedBalance = result.locked_balance as number;
+    const totalAmount = BigInt(result.total_received as string);
+    const unlockedBalance = BigInt(result.unlocked_balance as string);
+    const lockedBalance = BigInt(result.locked_balance as string);
     const unlockedAuthorities = new Authorities(result.unlocked_authorities as number);
     const lockedAuthorities = new Authorities(result.locked_authorities as number);
     const timelockExpires = result.timelock_expires as number;
@@ -1418,7 +1423,7 @@ export const getWalletTokens = async (
   );
 
   for (const result of results) {
-    tokenList.push(<string> result.token_id);
+    tokenList.push(<string>result.token_id);
   }
 
   return tokenList;
@@ -1464,14 +1469,14 @@ LEFT OUTER JOIN transaction ON transaction.tx_id = wallet_tx_history.tx_id
   ORDER BY wallet_tx_history.timestamp
       DESC
      LIMIT ?, ?`,
-  [walletId, tokenId, skip, count]);
+    [walletId, tokenId, skip, count]);
 
   for (const result of results) {
     const tx: TxTokenBalance = {
       txId: <string>result.tx_id,
       timestamp: <number>result.timestamp,
       voided: <boolean>result.voided,
-      balance: <Balance>result.balance,
+      balance: BigInt(result.balance as string),
       version: <number>result.version,
     };
     history.push(tx);
@@ -1516,11 +1521,11 @@ export const getUtxosLockedAtHeight = async (
         index: result.index as number,
         tokenId: result.token_id as string,
         address: result.address as string,
-        value: result.value as number,
+        value: BigInt(result.value as string),
         authorities: result.authorities as number,
         timelock: result.timelock as number,
         heightlock: result.heightlock as number,
-        locked: result.locked > 0,
+        locked: result.locked as number > 0,
       };
       utxos.push(utxo);
     }
@@ -1570,11 +1575,11 @@ export const getWalletUnlockedUtxos = async (
       index: result.index as number,
       tokenId: result.token_id as string,
       address: result.address as string,
-      value: result.value as number,
+      value: BigInt(result.value as string),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
-      locked: result.locked > 0,
+      locked: result.locked as number > 0,
     };
     utxos.push(utxo);
   }
@@ -1592,7 +1597,7 @@ export const updateVersionData = async (mysql: ServerlessMysql, timestamp: numbe
   const entry = {
     id: 1,
     timestamp,
-    data: JSON.stringify(data),
+    data: bigIntUtils.JSONBigInt.stringify(data),
   };
 
   await mysql.query(
@@ -1613,7 +1618,7 @@ export const getVersionData = async (mysql: ServerlessMysql): Promise<{ timestam
   if (results.length > 0) {
     const data = results[0];
 
-    const entry: FullNodeApiVersionResponse = JSON.parse(data.data as string);
+    const entry: FullNodeApiVersionResponse = bigIntUtils.JSONBigInt.parse(data.data as string);
     const { error } = FullnodeVersionSchema.validate(entry);
     if (error) {
       throw error;
@@ -1934,11 +1939,11 @@ export const getTxOutputs = async (
       index: result.index as number,
       tokenId: result.token_id as string,
       address: result.address as string,
-      value: result.value as number,
+      value: BigInt(result.value as string),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
-      locked: result.locked > 0,
+      locked: result.locked as number > 0,
       txProposalId: result.tx_proposal as string,
       txProposalIndex: result.tx_proposal_index as number,
       spentBy: result.spent_by ? result.spent_by as string : null,
@@ -2002,11 +2007,11 @@ export const getTxOutputsBySpent = async (
       index: result.index as number,
       tokenId: result.token_id as string,
       address: result.address as string,
-      value: result.value as number,
+      value: BigInt(result.value as string),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
-      locked: result.locked > 0,
+      locked: result.locked as number > 0,
       txProposalId: result.tx_proposal as string,
       txProposalIndex: result.tx_proposal_index as number,
       spentBy: result.spent_by ? result.spent_by as string : null,
@@ -2074,7 +2079,7 @@ export const markUtxosAsVoided = async (
     UPDATE \`tx_output\`
        SET \`voided\` = TRUE
      WHERE \`tx_id\` IN (?)`,
-  [txIds]);
+    [txIds]);
 };
 
 /**
@@ -2332,8 +2337,8 @@ export const fetchAddressBalance = async (
   return results.map((result): AddressBalance => ({
     address: result.address as string,
     tokenId: result.token_id as string,
-    unlockedBalance: result.unlocked_balance as number,
-    lockedBalance: result.locked_balance as number,
+    unlockedBalance: BigInt(result.unlocked_balance as string),
+    lockedBalance: BigInt(result.locked_balance as string),
     lockedAuthorities: result.locked_authorities as number,
     unlockedAuthorities: result.unlocked_authorities as number,
     timelockExpires: result.timelock_expires as number,
@@ -2367,7 +2372,7 @@ export const fetchAddressTxHistorySum = async (
   return results.map((result): AddressTotalBalance => ({
     address: result.address as string,
     tokenId: result.token_id as string,
-    balance: result.balance as number,
+    balance: BigInt(result.balance as string),
     transactions: result.transactions as number,
   }));
 };
@@ -2388,8 +2393,8 @@ export const filterTxOutputs = async (
     authority: 0,
     ignoreLocked: false,
     skipSpent: true,
-    biggerThan: -1,
-    smallerThan: constants.MAX_OUTPUT_VALUE + 1,
+    biggerThan: 0,
+    smallerThan: constants.MAX_OUTPUT_VALUE + 1n,
     ...filters,
   };
 
@@ -2446,7 +2451,7 @@ export const mapDbResultToDbTxOutput = (result: any): DbTxOutput => ({
   index: result.index as number,
   tokenId: result.token_id as string,
   address: result.address as string,
-  value: result.value as number,
+  value: BigInt(result.value),
   authorities: result.authorities as number,
   timelock: result.timelock as number,
   heightlock: result.heightlock as number,
@@ -2549,7 +2554,7 @@ export const getMinersList = async (
       address: result.address as string,
       firstBlock: result.first_block as string,
       lastBlock: result.last_block as string,
-      count: result.count as number,
+      count: Number(result.count),
     });
   }
 
@@ -2566,7 +2571,7 @@ export const getMinersList = async (
 export const getTotalSupply = async (
   mysql: ServerlessMysql,
   tokenId: string,
-): Promise<number> => {
+): Promise<bigint> => {
   const results: DbSelectResult = await mysql.query(`
     SELECT SUM(value) as value
       FROM tx_output
@@ -2588,7 +2593,7 @@ export const getTotalSupply = async (
     throw new Error('Total supply query returned no results');
   }
 
-  return results[0].value as number;
+  return BigInt(results[0].value as string);
 };
 
 /**
@@ -2647,7 +2652,7 @@ export const getTotalTransactions = async (
     throw new Error('Total transactions query returned no results');
   }
 
-  return results[0].count as number;
+  return Number(results[0].count as string);
 };
 
 /**
@@ -2707,7 +2712,7 @@ export const getAffectedAddressTxCountFromTxList = async (
 
   const addressTransactions = results.reduce((acc, result) => {
     const address = result.address as string;
-    const txCount = result.txCount as number;
+    const txCount = Number(result.txCount);
     const tokenId = result.tokenId as string;
 
     acc[`${address}_${tokenId}`] = txCount;
@@ -2812,7 +2817,7 @@ export const existsPushDevice = async (
   mysql: ServerlessMysql,
   deviceId: string,
   walletId: string,
-) : Promise<boolean> => {
+): Promise<boolean> => {
   const [{ count }] = await mysql.query(
     `
     SELECT COUNT(1) as \`count\`
@@ -2820,7 +2825,7 @@ export const existsPushDevice = async (
      WHERE device_id = ?
        AND wallet_id = ?`,
     [deviceId, walletId],
-  ) as unknown as Array<{count}>;
+  ) as unknown as Array<{ count }>;
 
   return count > 0;
 };
@@ -2840,7 +2845,7 @@ export const registerPushDevice = async (
     enablePush: boolean,
     enableShowAmounts: boolean,
   },
-) : Promise<void> => {
+): Promise<void> => {
   await mysql.query(
     `
     INSERT
@@ -2889,7 +2894,7 @@ export const updatePushDevice = async (
     enablePush: boolean,
     enableShowAmounts: boolean,
   },
-) : Promise<void> => {
+): Promise<void> => {
   await mysql.query(
     `
     UPDATE \`push_devices\`
@@ -2912,7 +2917,7 @@ export const unregisterPushDevice = async (
   mysql: ServerlessMysql,
   deviceId: string,
   walletId?: string,
-) : Promise<void> => {
+): Promise<void> => {
   if (walletId) {
     await mysql.query(
       `
@@ -2964,22 +2969,22 @@ export const getTransactionById = async (
         WHERE transaction.tx_id = ?
           AND transaction.voided = FALSE
           AND wallet_tx_history.wallet_id = ?`,
-  // eslint-disable-next-line camelcase
-  [txId, walletId]) as Array<{tx_id, timestamp, version, voided, weight, balance, token_id, name, symbol }>;
+    // eslint-disable-next-line camelcase
+    [txId, walletId]) as Array<{ tx_id, timestamp, version, voided, weight, balance, token_id, name, symbol }>;
 
   const txTokens = [];
   result.forEach((eachTxToken) => {
-    const txToken = {
+    const txToken: TxByIdToken = {
       txId: eachTxToken.tx_id,
       timestamp: eachTxToken.timestamp,
       version: eachTxToken.version,
       voided: !!eachTxToken.voided,
       weight: eachTxToken.weight,
-      balance: eachTxToken.balance,
+      balance: BigInt(eachTxToken.balance),
       tokenId: eachTxToken.token_id,
       tokenName: eachTxToken.name,
       tokenSymbol: eachTxToken.symbol,
-    } as TxByIdToken;
+    };
     txTokens.push(txToken);
   });
 
@@ -2995,7 +3000,7 @@ export const getTransactionById = async (
 export const existsWallet = async (
   mysql: ServerlessMysql,
   walletId: string,
-) : Promise<boolean> => {
+): Promise<boolean> => {
   const [{ count }] = (await mysql.query(
     `
     SELECT COUNT(1) as \`count\`
@@ -3016,15 +3021,15 @@ export const existsWallet = async (
 export const getPushDevice = async (
   mysql: ServerlessMysql,
   deviceId: string,
-) : Promise<PushDevice|null> => {
+): Promise<PushDevice | null> => {
   const [pushDevice] = await mysql.query(
     `
     SELECT *
       FROM \`push_devices\`
      WHERE device_id = ?`,
     [deviceId],
-  // eslint-disable-next-line camelcase
-  ) as Array<{wallet_id, device_id, push_provider, enable_push, enable_show_amounts}>;
+    // eslint-disable-next-line camelcase
+  ) as Array<{ wallet_id, device_id, push_provider, enable_push, enable_show_amounts }>;
 
   if (!pushDevice) {
     return null;
@@ -3049,7 +3054,7 @@ export const getPushDevice = async (
 export const getPushDeviceSettingsList = async (
   mysql: ServerlessMysql,
   walletIdList: string[],
-) : Promise<PushDeviceSettings[]> => {
+): Promise<PushDeviceSettings[]> => {
   const pushDeviceSettingsResult = await mysql.query(
     `
     SELECT wallet_id
@@ -3059,8 +3064,8 @@ export const getPushDeviceSettingsList = async (
       FROM \`push_devices\`
      WHERE wallet_id in (?)`,
     [walletIdList],
-  // eslint-disable-next-line camelcase
-  ) as Array<{wallet_id, device_id, enable_push, enable_show_amounts}>;
+    // eslint-disable-next-line camelcase
+  ) as Array<{ wallet_id, device_id, enable_push, enable_show_amounts }>;
 
   const pushDeviceSettignsList = pushDeviceSettingsResult.map((each) => ({
     walletId: each.wallet_id,
@@ -3085,7 +3090,7 @@ export const countStalePushDevices = async (mysql: ServerlessMysql): Promise<num
       FROM \`push_devices\`
      WHERE UNIX_TIMESTAMP(updated_at) < UNIX_TIMESTAMP(date_sub(now(), interval 1 month))`,
   ) as Array<{ count }>;
-  return count;
+  return Number(count);
 };
 
 /**
@@ -3121,7 +3126,7 @@ export const getTokenSymbols = async (
   );
 
   if (results.length === 0) return null;
-  return results.reduce((prev: Record<string, string>, token: { id: string, symbol: string}) => {
+  return results.reduce((prev: Record<string, string>, token: { id: string, symbol: string }) => {
     // eslint-disable-next-line no-param-reassign
     prev[token.id] = token.symbol;
     return prev;
@@ -3171,12 +3176,12 @@ export const getAddressAtIndex = async (
 ): Promise<AddressInfo | null> => {
   const addresses = await mysql.query<AddressInfo[]>(
     `
-    SELECT \`address\`, \`index\`, \`transactions\`
+    SELECT \`address\`, \`index\`, \`transactions\`, \`seqnum\`
       FROM \`address\` pd
      WHERE \`index\` = ?
        AND \`wallet_id\` = ?
      LIMIT 1`,
-    [walletId, index],
+    [index, walletId],
   );
 
   if (addresses.length <= 0) {
@@ -3184,8 +3189,9 @@ export const getAddressAtIndex = async (
   }
 
   return {
-    address: addresses[0].address as string,
-    index: addresses[0].index as number,
-    transactions: addresses[0].transactions as number,
-  } as AddressInfo;
+    address: addresses[0].address,
+    index: addresses[0].index,
+    transactions: addresses[0].transactions,
+    seqnum: addresses[0].seqnum,
+  }
 };

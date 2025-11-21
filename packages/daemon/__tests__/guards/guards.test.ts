@@ -1,4 +1,4 @@
-import { Context, Event, FullNodeEventTypes, FullNodeEvent, StandardFullNodeEvent } from '../../src/types';
+import { Context, Event, FullNodeEventTypes, StandardFullNodeEvent } from '../../src/types';
 import {
   metadataIgnore,
   metadataVoided,
@@ -13,6 +13,7 @@ import {
   unchanged,
   invalidNetwork,
   reorgStarted,
+  hasNewEvents,
 } from '../../src/guards';
 import { EventTypes } from '../../src/types';
 
@@ -61,7 +62,7 @@ const generateStandardFullNodeEvent = (type: Exclude<FullNodeEventTypes, FullNod
     },
     latest_event_id: 0,
   },
-});
+} as Event);
 
 const generateReorgStartedEvent = (data = {
   reorg_size: 1,
@@ -90,6 +91,9 @@ const generateFullNodeEvent = (type: FullNodeEventTypes, data = {} as any): Even
   if (type === FullNodeEventTypes.REORG_STARTED) {
     return generateReorgStartedEvent(data);
   }
+  if (type === FullNodeEventTypes.NC_EVENT) {
+    throw new Error('Unsuported generation');
+  }
   return generateStandardFullNodeEvent(type, data);
 };
 
@@ -109,7 +113,7 @@ const generateMetadataDecidedEvent = (type: 'TX_VOIDED' | 'TX_UNVOIDED' | 'TX_NE
         timestamp: 0,
         version: 1,
         weight: 1,
-        nonce: 1,
+        nonce: 1n,
         inputs: [],
         outputs: [],
         parents: [],
@@ -304,5 +308,53 @@ describe('websocket guards', () => {
 
     expect(websocketDisconnected(mockContext, mockDisconnectedEvent)).toBe(true);
     expect(websocketDisconnected(mockContext, mockConnectedEvent)).toBe(false);
+  });
+});
+
+describe('event loss detection guards', () => {
+  test('hasNewEvents returns true when data.hasNewEvents is true', () => {
+    const mockEvent = {
+      data: {
+        hasNewEvents: true,
+        events: [{ id: 1 }, { id: 2 }],
+      },
+    };
+
+    expect(hasNewEvents(mockContext, mockEvent)).toBe(true);
+  });
+
+  test('hasNewEvents returns false when data.hasNewEvents is false', () => {
+    const mockEvent = {
+      data: {
+        hasNewEvents: false,
+        events: [],
+      },
+    };
+
+    expect(hasNewEvents(mockContext, mockEvent)).toBe(false);
+  });
+
+  test('hasNewEvents returns false when data is missing', () => {
+    const mockEvent = {};
+
+    expect(hasNewEvents(mockContext, mockEvent)).toBe(false);
+  });
+
+  test('hasNewEvents returns false when data is null', () => {
+    const mockEvent = {
+      data: null,
+    };
+
+    expect(hasNewEvents(mockContext, mockEvent)).toBe(false);
+  });
+
+  test('hasNewEvents returns false when hasNewEvents is undefined', () => {
+    const mockEvent = {
+      data: {
+        events: [],
+      },
+    };
+
+    expect(hasNewEvents(mockContext, mockEvent)).toBe(false);
   });
 });

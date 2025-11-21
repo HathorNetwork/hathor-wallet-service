@@ -1,5 +1,6 @@
 module.exports = {
   roots: ["<rootDir>/__tests__"],
+  setupFiles: ['./jestSetup.ts'],
   testRegex: ".*\\.test\\.ts$",
   transform: {
     "^.+\\.ts$": ["ts-jest", {
@@ -10,5 +11,6 @@ module.exports = {
     }]
   },
   testPathIgnorePatterns: ['<rootDir>/__tests__/integration/'],
-  moduleFileExtensions: ["ts", "js", "json", "node"]
+  moduleFileExtensions: ["ts", "js", "json", "node"],
+  forceExit: true
 };

@@ -87,7 +87,7 @@ export const unlockUtxos = async (mysql: ServerlessMysql, utxos: DbTxOutput[], u
     };
 
     return {
-      value: utxo.authorities > 0 ? utxo.authorities : utxo.value,
+      value: utxo.authorities > 0 ? BigInt(utxo.authorities) : utxo.value,
       token: utxo.tokenId,
       decoded,
       locked: false,

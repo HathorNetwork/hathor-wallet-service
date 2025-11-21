@@ -69,7 +69,7 @@ describe('machine initialization', () => {
   it('should fetch initial state, connect to websocket and validate network before transitioning to idle', () => {
     const MockedFetchMachine = SyncMachine.withConfig({
       actions: {
-        startStream: () => {},
+        startStream: () => { },
       },
     });
 
@@ -118,8 +118,10 @@ describe('machine initialization', () => {
 
     currentState = MockedFetchMachine.transition(currentState, {
       type: EventTypes.WEBSOCKET_EVENT,
-      event: { type: 'DISCONNECTED',
-    }});
+      event: {
+        type: 'DISCONNECTED',
+      }
+    });
 
     expect(currentState.matches(SYNC_MACHINE_STATES.RECONNECTING)).toBeTruthy();
   });
@@ -163,7 +165,7 @@ describe('machine initialization', () => {
   it('should transition to RECONNECTING to reconnect after a failure', () => {
     const MockedFetchMachine = SyncMachine.withConfig({
       actions: {
-        startStream: () => {},
+        startStream: () => { },
       },
     });
 
@@ -215,41 +217,92 @@ describe('Event handling', () => {
   });
 
   it('should validate the peerid on every message', () => {
+    // Use a guard that checks against a different peer_id than what's in the fixture
+    // The fixture has peer_id: 'bdf4fa876f5cdba84be0cab53b21fc9eb45fe4b3d6ede99f493119d37df4e560'
+    // We'll check against 'invalidPeerId', which won't match, so invalidPeerId will return true
     const MockedFetchMachine = SyncMachine.withConfig({
+      actions: {
+        startStream: () => {},
+        storeEvent: () => {},
+      },
       guards: {
-        invalidPeerId,
-        invalidStreamId: () => {
-          return false;
-        }
+        invalidPeerId: (_context, event) => {
+          if (event.type !== EventTypes.FULLNODE_EVENT) {
+            throw new Error(`Invalid event type on invalidPeerId guard: ${event.type}`);
+          }
+          // Return true if peer_id is invalid (doesn't match expected)
+          return event.event.peer_id !== 'bdf4fa876f5cdba84be0cab53b21fc9eb45fe4b3d6ede99f493119d37df4e560';
+        },
+        invalidStreamId: () => false,
+        invalidNetwork: () => false,
       },
     });
 
     let currentState = untilIdle(MockedFetchMachine);
 
-    process.env.FULLNODE_PEER_ID = 'invalidPeerId';
+    // Manually initialize txCache since untilIdle doesn't execute entry actions
+    if (!currentState.context.txCache) {
+      currentState.context.txCache = new LRU(TX_CACHE_SIZE);
+    }
+
+    // Send event with different peer_id to trigger invalidPeerId guard
+    const eventWithDifferentPeerId = {
+      ...VERTEX_METADATA_CHANGED,
+      event: {
+        ...VERTEX_METADATA_CHANGED.event,
+        peer_id: 'differentPeerId',
+      },
+    };
 
     currentState = MockedFetchMachine.transition(currentState, {
       type: EventTypes.FULLNODE_EVENT,
-      event: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
+      event: eventWithDifferentPeerId as unknown as FullNodeEvent,
     });
 
     expect(currentState.matches(SYNC_MACHINE_STATES.ERROR)).toBeTruthy();
   });
 
   it('should validate the stream id on every message', () => {
+    // Use a guard that checks against a different stream_id than what's in the fixture
+    // The fixture has stream_id: 'f7d9157c-9906-4bd2-bc84-cfb9f5b607d1'
+    // We'll check against that, and send an event with a different stream_id
     const MockedFetchMachine = SyncMachine.withConfig({
+      actions: {
+        startStream: () => {},
+        storeEvent: () => {},
+      },
       guards: {
-        invalidStreamId,
+        invalidPeerId: () => false,
+        invalidStreamId: (_context, event) => {
+          if (event.type !== EventTypes.FULLNODE_EVENT) {
+            throw new Error(`Invalid event type on invalidStreamId guard: ${event.type}`);
+          }
+          // Return true if stream_id is invalid (doesn't match expected)
+          return event.event.stream_id !== 'f7d9157c-9906-4bd2-bc84-cfb9f5b607d1';
+        },
+        invalidNetwork: () => false,
       },
     });
 
     let currentState = untilIdle(MockedFetchMachine);
 
-    process.env.STREAM_ID  = 'invalidStreamId';
+    // Manually initialize txCache since untilIdle doesn't execute entry actions
+    if (!currentState.context.txCache) {
+      currentState.context.txCache = new LRU(TX_CACHE_SIZE);
+    }
+
+    // Send event with different stream_id to trigger invalidStreamId guard
+    const eventWithDifferentStreamId = {
+      ...VERTEX_METADATA_CHANGED,
+      event: {
+        ...VERTEX_METADATA_CHANGED.event,
+        stream_id: 'differentStreamId',
+      },
+    };
 
     currentState = MockedFetchMachine.transition(currentState, {
       type: EventTypes.FULLNODE_EVENT,
-      event: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
+      event: eventWithDifferentStreamId as unknown as FullNodeEvent,
     });
 
     expect(currentState.matches(SYNC_MACHINE_STATES.ERROR)).toBeTruthy();
@@ -268,23 +321,22 @@ describe('Event handling', () => {
         invalidNetwork: () => false,
         unchanged: unchangedMock,
       },
-    }).withContext({
-      event: null,
-      socket: null,
-      healthcheck: null,
-      retryAttempt: 0,
-      initialEventId: 0,
-      txCache: TxCache,
     });
 
     unchangedMock.mockImplementation(unchanged);
 
     let currentState = untilIdle(MockedFetchMachine);
 
+    // Manually initialize txCache since untilIdle doesn't execute entry actions
+    if (!currentState.context.txCache) {
+      currentState.context.txCache = new LRU(TX_CACHE_SIZE);
+    }
+    const machineCache = currentState.context.txCache;
+
     expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.idle}`)).toBeTruthy();
 
     const hashedTx = hashTxData(VERTEX_METADATA_CHANGED.event.data.metadata);
-    TxCache.set(VERTEX_METADATA_CHANGED.event.data.hash, hashedTx);
+    machineCache.set(VERTEX_METADATA_CHANGED.event.data.hash, hashedTx);
 
     currentState = MockedFetchMachine.transition(currentState, {
       type: EventTypes.FULLNODE_EVENT,
@@ -301,7 +353,7 @@ describe('Event handling', () => {
     // @ts-ignore: last event id should be the event we sent
     expect(currentState.context.event.event.id).toStrictEqual(VERTEX_METADATA_CHANGED.event.id);
 
-    TxCache.clear();
+    machineCache.clear();
 
     currentState = MockedFetchMachine.transition(currentState, {
       type: EventTypes.FULLNODE_EVENT,

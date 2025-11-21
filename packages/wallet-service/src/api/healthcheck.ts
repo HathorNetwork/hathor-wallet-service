@@ -1,11 +1,11 @@
 import middy from '@middy/core';
 import {
-    Healthcheck,
-    HealthcheckInternalComponent,
-    HealthcheckDatastoreComponent,
-    HealthcheckHTTPComponent,
-    HealthcheckCallbackResponse,
-    HealthcheckStatus,
+  Healthcheck,
+  HealthcheckInternalComponent,
+  HealthcheckDatastoreComponent,
+  HealthcheckHTTPComponent,
+  HealthcheckCallbackResponse,
+  HealthcheckStatus,
 } from '@hathor/healthcheck-lib';
 import { getLatestHeight } from '@src/db';
 import fullnode from '@src/fullnode';

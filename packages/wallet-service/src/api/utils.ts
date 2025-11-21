@@ -80,10 +80,13 @@ export const closeDbAndGetError = async (
 
 /**
  * Will return early if the request is a wake-up call from serverless-plugin-warmup
+ * Generic to work with both APIGatewayProxyResult and APIGatewayAuthorizerResult
  */
-export const warmupMiddleware = (): middy.MiddlewareObj<APIGatewayProxyEvent, APIGatewayProxyResult> => {
-  const warmupBefore = (request: middy.Request): APIGatewayProxyResult | undefined => {
+export const warmupMiddleware = <TEvent = APIGatewayProxyEvent, TResult = APIGatewayProxyResult>(): middy.MiddlewareObj<TEvent, TResult> => {
+  const warmupBefore = (request: middy.Request<TEvent, TResult>): TResult | undefined => {
+    // @ts-expect-error - checking for warmup source property
     if (request.event.source === 'serverless-plugin-warmup') {
+      // @ts-expect-error - returning a generic warmup response
       return {
         statusCode: 200,
         body: 'OK',

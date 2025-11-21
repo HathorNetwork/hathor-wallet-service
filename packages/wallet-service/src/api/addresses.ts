@@ -39,7 +39,7 @@ class AddressAtIndexValidator {
     index: Joi.number().min(0).optional(),
   });
 
-  static validate(payload: unknown): { value: AddressAtIndexRequest, error: ValidationError} {
+  static validate(payload: unknown): { value: AddressAtIndexRequest, error: ValidationError } {
     return AddressAtIndexValidator.bodySchema.validate(payload, {
       abortEarly: false, // We want it to return all the errors not only the first
       convert: true, // We need to convert as parameters are sent on the QueryString
@@ -92,7 +92,7 @@ export const checkMine: APIGatewayProxyHandler = middy(walletIdProxyHandler(asyn
 
   await closeDbConnection(mysql);
 
-  const addressBelongMap = sentAddresses.reduce((acc: {string: boolean}, address: string) => {
+  const addressBelongMap = sentAddresses.reduce((acc: { string: boolean }, address: string) => {
     acc[address] = walletAddresses.has(address);
 
     return acc;
@@ -108,7 +108,7 @@ export const checkMine: APIGatewayProxyHandler = middy(walletIdProxyHandler(asyn
 })).use(cors())
   .use(errorHandler());
 
-/*
+/**
  * Get the addresses of a wallet, allowing an index filter
  * Notice: If the index filter is passed, it will only find addresses
  * that are already in our database, this will not derive new addresses
@@ -127,7 +127,7 @@ export const get: APIGatewayProxyHandler = middy(
       return closeDbAndGetError(mysql, ApiError.WALLET_NOT_READY);
     }
 
-    const { value: body, error } = AddressAtIndexValidator.validate(event.pathParameters || {});
+    const { value: body, error } = AddressAtIndexValidator.validate(event.queryStringParameters || {});
 
     if (error) {
       const details = error.details.map((err) => ({

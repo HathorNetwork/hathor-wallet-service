@@ -10,6 +10,7 @@ import {
   getTxProposal,
   getTxProposalInputs,
   updateTxProposal,
+  releaseTxProposalUtxos,
 } from '@src/db';
 import {
   TxProposalStatus,
@@ -139,6 +140,8 @@ export const send: APIGatewayProxyHandler = middy(walletIdProxyHandler(async (wa
       now,
       TxProposalStatus.SEND_ERROR,
     );
+
+    await releaseTxProposalUtxos(mysql, [txProposalId]);
 
     return closeDbAndGetError(mysql, ApiError.TX_PROPOSAL_SEND_ERROR, {
       message: e.message,

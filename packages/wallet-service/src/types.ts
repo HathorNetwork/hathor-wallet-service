@@ -45,6 +45,7 @@ export enum TxProposalStatus {
 export interface EnvironmentConfig {
   defaultServer: string;
   stage: string;
+  serverlessDeployPrefix: string;
   network: string;
   serviceName: string;
   maxAddressGap: number;
@@ -63,6 +64,7 @@ export interface EnvironmentConfig {
   pushNotificationEnabled: boolean;
   pushAllowedProviders: string;
   isOffline: boolean;
+  shouldMockAWS: boolean;
   txHistoryMaxCount: number;
   healthCheckMaximumHeightDifference: number;
   awsRegion: string;
@@ -74,12 +76,12 @@ export interface EnvironmentConfig {
   firebaseTokenUri: string;
   firebaseAuthProviderX509CertUrl: string;
   firebaseClientX509CertUrl: string;
-  firebasePrivateKey: string|null;
+  firebasePrivateKey: string | null;
   maxLoadWalletRetries: number;
   logLevel: string;
   createNftMaxRetries: number;
   warnMaxReorgSize: number;
-};
+}
 
 /**
  * Fullnode converted version data.
@@ -87,6 +89,7 @@ export interface EnvironmentConfig {
 export interface FullNodeVersionData {
   version: string;
   network: string;
+  nanoContractsEnabled: boolean;
   minWeight: number;
   minTxWeight: number;
   minTxWeightCoefficient: number;
@@ -106,6 +109,10 @@ export interface FullNodeVersionData {
 export interface FullNodeApiVersionResponse {
   version: string;
   network: string;
+  // NOTE: Due to a bug in older fullnode versions, this field may be a string
+  // ('disabled', 'enabled', 'feature_activation') instead of boolean.
+  // Future fullnode versions will return boolean only.
+  nano_contracts_enabled?: boolean | 'disabled' | 'enabled' | 'feature_activation';
   min_weight: number;
   min_tx_weight: number;
   min_tx_weight_coefficient: number; // float
@@ -118,7 +125,7 @@ export interface FullNodeApiVersionResponse {
   genesis_block_hash?: string,
   genesis_tx1_hash?: string,
   genesis_tx2_hash?: string,
-  native_token?: { name: string, symbol: string};
+  native_token?: { name: string, symbol: string };
 }
 
 export interface TxProposal {
@@ -144,12 +151,14 @@ export interface Wallet {
   retryCount?: number;
   createdAt?: number;
   readyAt?: number;
+  lastUsedAddressIndex?: number;
 }
 
 export interface AddressInfo {
   address: string;
   index: number;
   transactions: number;
+  seqnum: number;
 }
 
 export interface ShortAddressInfo {
@@ -204,12 +213,12 @@ export class Authorities {
 
   array: number[];
 
-  constructor(authorities?: number | number[]) {
+  constructor(authorities?: bigint | number | number[]) {
     let tmp = [];
     if (authorities instanceof Array) {
       tmp = authorities;
     } else if (authorities != null) {
-      tmp = Authorities.intToArray(authorities);
+      tmp = Authorities.intToArray(Number(authorities));
     }
 
     this.array = new Array(Authorities.LENGTH - tmp.length).fill(0).concat(tmp);
@@ -306,7 +315,8 @@ export class Authorities {
   }
 
   toJSON(): Record<string, unknown> {
-    const authorities = this.toInteger();
+    // TOKEN_MINT_MASK and TOKEN_MELT_MASK are bigint (since they come from the output amount)
+    const authorities = BigInt(this.toInteger());
     return {
       mint: (authorities & hathorLib.constants.TOKEN_MINT_MASK) > 0, // eslint-disable-line no-bitwise
       melt: (authorities & hathorLib.constants.TOKEN_MELT_MASK) > 0, // eslint-disable-line no-bitwise
@@ -315,11 +325,11 @@ export class Authorities {
 }
 
 export class Balance {
-  totalAmountSent: number;
+  totalAmountSent: bigint;
 
-  lockedAmount: number;
+  lockedAmount: bigint;
 
-  unlockedAmount: number;
+  unlockedAmount: bigint;
 
   lockedAuthorities: Authorities;
 
@@ -327,7 +337,7 @@ export class Balance {
 
   lockExpires: number | null;
 
-  constructor(totalAmountSent = 0, unlockedAmount = 0, lockedAmount = 0, lockExpires = null, unlockedAuthorities = null, lockedAuthorities = null) {
+  constructor(totalAmountSent = 0n, unlockedAmount = 0n, lockedAmount = 0n, lockExpires = null, unlockedAuthorities = null, lockedAuthorities = null) {
     this.totalAmountSent = totalAmountSent;
     this.unlockedAmount = unlockedAmount;
     this.lockedAmount = lockedAmount;
@@ -341,7 +351,7 @@ export class Balance {
    *
    * @returns The total balance
    */
-  total(): number {
+  total(): bigint {
     return this.unlockedAmount + this.lockedAmount;
   }
 
@@ -403,13 +413,13 @@ export class Balance {
 export type TokenBalanceValue = {
   tokenId: string,
   tokenSymbol: string,
-  totalAmountSent: number;
-  lockedAmount: number;
-  unlockedAmount: number;
+  totalAmountSent: bigint;
+  lockedAmount: bigint;
+  unlockedAmount: bigint;
   lockedAuthorities: Record<string, unknown>;
   unlockedAuthorities: Record<string, unknown>;
   lockExpires: number | null;
-  total: number;
+  total: bigint;
 }
 
 export class WalletTokenBalance {
@@ -446,7 +456,7 @@ export interface TxTokenBalance {
   txId: string;
   timestamp: number;
   voided: boolean;
-  balance: Balance;
+  balance: bigint;
   version: number;
 }
 
@@ -459,7 +469,7 @@ export class TokenBalanceMap {
 
   get(tokenId: string): Balance {
     // if the token is not present, return 0 instead of undefined
-    return this.map[tokenId] || new Balance(0, 0, 0);
+    return this.map[tokenId] || new Balance(0n, 0n, 0n);
   }
 
   set(tokenId: string, balance: Balance): void {
@@ -498,10 +508,10 @@ export class TokenBalanceMap {
    * @param tokenBalanceMap - The js object to convert to a TokenBalanceMap
    * @returns - The new TokenBalanceMap object
    */
-  static fromStringMap(tokenBalanceMap: StringMap<StringMap<number | Authorities>>): TokenBalanceMap {
+  static fromStringMap(tokenBalanceMap: StringMap<StringMap<number | bigint | Authorities>>): TokenBalanceMap {
     const obj = new TokenBalanceMap();
     for (const [tokenId, balance] of Object.entries(tokenBalanceMap)) {
-      obj.set(tokenId, new Balance(balance.totalSent as number, balance.unlocked as number, balance.locked as number, balance.lockExpires || null,
+      obj.set(tokenId, new Balance(balance.totalSent as bigint, balance.unlocked as bigint, balance.locked as bigint, balance.lockExpires || null,
         balance.unlockedAuthorities, balance.lockedAuthorities));
     }
     return obj;
@@ -539,14 +549,14 @@ export class TokenBalanceMap {
 
     if (output.locked) {
       if (isAuthority(output.token_data)) {
-        obj.set(token, new Balance(0, 0, 0, output.decoded.timelock, 0, new Authorities(output.value)));
+        obj.set(token, new Balance(0n, 0n, 0n, output.decoded.timelock, 0, new Authorities(output.value)));
       } else {
-        obj.set(token, new Balance(value, 0, value, output.decoded.timelock, 0, 0));
+        obj.set(token, new Balance(value, 0n, value, output.decoded.timelock, 0, 0));
       }
     } else if (isAuthority(output.token_data)) {
-      obj.set(token, new Balance(0, 0, 0, null, new Authorities(output.value), 0));
+      obj.set(token, new Balance(0n, 0n, 0n, null, new Authorities(output.value), 0));
     } else {
-      obj.set(token, new Balance(value, value, 0, null));
+      obj.set(token, new Balance(value, value, 0n, null));
     }
 
     return obj;
@@ -568,9 +578,9 @@ export class TokenBalanceMap {
     if (isAuthority(input.token_data)) {
       // for inputs, the authorities will have a value of -1 when set
       const authorities = new Authorities(input.value);
-      obj.set(token, new Balance(0, 0, 0, null, authorities.toNegative(), new Authorities(0)));
+      obj.set(token, new Balance(0n, 0n, 0n, null, authorities.toNegative(), new Authorities(0)));
     } else {
-      obj.set(token, new Balance(0, -input.value, 0, null));
+      obj.set(token, new Balance(0n, -input.value, 0n, null));
     }
     return obj;
   }
@@ -630,8 +640,8 @@ export interface Tx {
 export interface AddressBalance {
   address: string;
   tokenId: string;
-  unlockedBalance: number;
-  lockedBalance: number;
+  unlockedBalance: bigint;
+  lockedBalance: bigint;
   unlockedAuthorities: number;
   lockedAuthorities: number;
   timelockExpires: number;
@@ -641,7 +651,7 @@ export interface AddressBalance {
 export interface AddressTotalBalance {
   address: string;
   tokenId: string;
-  balance: number;
+  balance: bigint;
   transactions: number;
 }
 
@@ -650,7 +660,7 @@ export interface DbTxOutput {
   index: number;
   tokenId: string;
   address: string;
-  value: number;
+  value: bigint;
   authorities: number;
   timelock: number | null;
   heightlock: number | null;
@@ -680,12 +690,13 @@ export interface IFilterTxOutput {
   tokenId?: string;
   authority?: number;
   ignoreLocked?: boolean;
-  biggerThan?: number;
-  smallerThan?: number;
+  biggerThan?: bigint;
+  smallerThan?: bigint;
   maxOutputs?: number;
   skipSpent?: boolean;
   txId?: string;
   index?: number;
+  totalAmount?: bigint;
 }
 
 export enum InputSelectionAlgo {
@@ -694,8 +705,8 @@ export enum InputSelectionAlgo {
 
 export interface IWalletInsufficientFunds {
   tokenId: string;
-  requested: number;
-  available: number;
+  requested: bigint;
+  available: bigint;
 }
 
 export interface DbTxOutputWithPath extends DbTxOutput {
@@ -745,7 +756,7 @@ export interface TxByIdToken {
   version: number;
   voided: boolean;
   weight: number;
-  balance: Balance;
+  balance: bigint;
   tokenId: string;
   tokenName: string;
   tokenSymbol: string;
@@ -816,4 +827,21 @@ export interface WalletBalanceValue {
   walletId: string,
   addresses: string[],
   walletBalanceForTx: TokenBalanceValue[],
+}
+
+export interface FullnodeGetNCStateAPIParams {
+  id: string;
+  fields: string[];
+  balances: string[];
+  calls: string[];
+  block_hash?: string;
+  block_height?: number;
+  timestamp?: number;
+}
+
+export interface FullnodeGetNCHistoryAPIParams {
+  id: string;
+  count?: number | null;
+  after?: number | null;
+  before?: number | null;
 }

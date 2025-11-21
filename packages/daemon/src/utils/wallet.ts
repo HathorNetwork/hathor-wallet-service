@@ -5,15 +5,17 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import hathorLib, { constants, Output, walletUtils, addressUtils } from '@hathor/wallet-lib';
+import hathorLib, { constants, Output, walletUtils, addressUtils, bigIntUtils } from '@hathor/wallet-lib';
 import { Connection as MysqlConnection } from 'mysql2/promise';
 import { strict as assert } from 'assert';
 import {
   AddressBalance,
   AddressTotalBalance,
   DbTxOutput,
+  EventTxHeader,
   EventTxInput,
   EventTxOutput,
+  isNanoHeader,
   StringMap,
   TokenBalanceValue,
   Wallet,
@@ -103,7 +105,7 @@ export const prepareOutputs = (outputs: EventTxOutput[], tokens: string[]): TxOu
 };
 
 /**
- * Get the map of token balances for each address in the transaction inputs and outputs.
+ * Get the map of token balances for each address in the transaction inputs, outputs and headers.
  *
  * @example
  * Return map has this format:
@@ -121,8 +123,9 @@ export const prepareOutputs = (outputs: EventTxOutput[], tokens: string[]): TxOu
 export const getAddressBalanceMap = (
   inputs: TxInput[],
   outputs: TxOutput[],
+  headers: EventTxHeader[],
 ): StringMap<TokenBalanceMap> => {
-  const addressBalanceMap = {};
+  const addressBalanceMap: StringMap<TokenBalanceMap> = {};
 
   for (const input of inputs) {
     if (!isDecodedValid(input.decoded)) {
@@ -131,12 +134,11 @@ export const getAddressBalanceMap = (
       continue;
     }
 
-    const address = input.decoded?.address;
+    const address = input.decoded?.address!;
 
     // get the TokenBalanceMap from this input
     const tokenBalanceMap = TokenBalanceMap.fromTxInput(input);
     // merge it with existing TokenBalanceMap for the address
-    // @ts-ignore
     addressBalanceMap[address] = TokenBalanceMap.merge(addressBalanceMap[address], tokenBalanceMap);
   }
 
@@ -154,8 +156,26 @@ export const getAddressBalanceMap = (
     const tokenBalanceMap = TokenBalanceMap.fromTxOutput(output);
 
     // merge it with existing TokenBalanceMap for the address
-    // @ts-ignore
     addressBalanceMap[address] = TokenBalanceMap.merge(addressBalanceMap[address], tokenBalanceMap);
+  }
+
+  for (const header of headers) {
+    if (!isNanoHeader(header)) {
+      // We currently only handle nano contract headers
+      continue;
+    }
+
+    const address = header.nc_address;
+
+    if (addressBalanceMap[address]) {
+      // Already have balance for the nc_address
+      continue;
+    }
+
+    // Create an empty balance HTR entry if nc_address did not already have balance on the tx
+    const emptyHTR = new TokenBalanceMap();
+    emptyHTR.set(constants.NATIVE_TOKEN_UID, emptyHTR.get(constants.NATIVE_TOKEN_UID));
+    addressBalanceMap[address] = emptyHTR;
   }
 
   return addressBalanceMap;
@@ -179,7 +199,7 @@ export const unlockUtxos = async (mysql: MysqlConnection, utxos: DbTxOutput[], u
     };
 
     return {
-      value: utxo.authorities > 0 ? utxo.authorities : utxo.value,
+      value: utxo.authorities > 0 ? BigInt(utxo.authorities) : utxo.value,
       token: utxo.tokenId,
       decoded,
       locked: false,
@@ -202,7 +222,7 @@ export const unlockUtxos = async (mysql: MysqlConnection, utxos: DbTxOutput[], u
     decoded: null,
   })));
 
-  const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap([], outputs);
+  const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap([], outputs, []);
   // update address_balance table
   await updateAddressLockedBalance(mysql, addressBalanceMap, updateTimelocks);
 
@@ -238,7 +258,7 @@ export const getWalletBalanceMap = (
   addressWalletMap: StringMap<Wallet>,
   addressBalanceMap: StringMap<TokenBalanceMap>,
 ): StringMap<TokenBalanceMap> => {
-  const walletBalanceMap = {};
+  const walletBalanceMap: StringMap<TokenBalanceMap> = {};
   for (const [address, balanceMap] of Object.entries(addressBalanceMap)) {
     const wallet = addressWalletMap[address];
     const walletId = wallet && wallet.walletId;
@@ -246,7 +266,6 @@ export const getWalletBalanceMap = (
     // if this address is not from a started wallet, ignore
     if (!walletId) continue;
 
-    // @ts-ignore
     walletBalanceMap[walletId] = TokenBalanceMap.merge(walletBalanceMap[walletId], balanceMap);
   }
   return walletBalanceMap;
@@ -298,10 +317,10 @@ export const prepareInputs = (inputs: EventTxInput[], tokens: string[]): TxInput
       script: utxo.script,
       token,
       decoded: isDecodedValid(output.decoded, ['type', 'address']) ? {
-        type: output.decoded.type,
-        address: output.decoded.address,
+        type: output.decoded!.type,
+        address: output.decoded!.address,
         // timelock might actually be null, so don't pass it to requiredKeys
-        timelock: output.decoded.timelock,
+        timelock: output.decoded!.timelock,
       } : null,
     };
 
@@ -373,7 +392,7 @@ export const validateAddressBalances = async (mysql: MysqlConnection, addresses:
   const addressBalances: AddressBalance[] = await fetchAddressBalance(mysql, addresses);
   const addressTxHistorySums: AddressTotalBalance[] = await fetchAddressTxHistorySum(mysql, addresses);
 
-  logger.debug(`Validating address balances for ${JSON.stringify(addresses)}`);
+  logger.debug(`Validating address balances for ${bigIntUtils.JSONBigInt.stringify(addresses)}`);
 
   /* We need to filter out zero transactions address balances as we won't have
    * any records in the address_tx_history table and the assertion ahead will
@@ -407,7 +426,7 @@ export const validateAddressBalances = async (mysql: MysqlConnection, addresses:
  * @returns
  */
 export const getWalletBalancesForTx = async (mysql: MysqlConnection, tx: Transaction): Promise<StringMap<WalletBalanceValue>> => {
-  const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(tx.inputs, tx.outputs);
+  const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(tx.inputs, tx.outputs, tx.headers ?? []);
   // return only wallets that were started
   const addressWalletMap: StringMap<Wallet> = await getAddressWalletInfo(mysql, Object.keys(addressBalanceMap));
 
@@ -445,7 +464,6 @@ export const getWalletBalancesForTx = async (mysql: MysqlConnection, tx: Transac
   const tokenIdSet = new Set<string>(tokenIdAccumulation.reduce((prev, eachGroup) => [...prev, ...eachGroup], []));
   const tokenSymbolsMap = await getTokenSymbols(mysql, Array.from(tokenIdSet.values()));
 
-  // @ts-ignore
   return WalletBalanceMapConverter.toValue(walletsMap, tokenSymbolsMap);
 };
 
@@ -476,7 +494,10 @@ export class FromTokenBalanceMapToBalanceValueList {
 }
 
 export const sortBalanceValueByAbsTotal = (balanceA: TokenBalanceValue, balanceB: TokenBalanceValue): number => {
-  if (Math.abs(balanceA.total) - Math.abs(balanceB.total) >= 0) return -1;
+  function abs(num: bigint) {
+    return num >= 0n ? num : -num;
+  }
+  if (abs(balanceA.total) - abs(balanceB.total) >= 0n) return -1;
   return 0;
 };
 
