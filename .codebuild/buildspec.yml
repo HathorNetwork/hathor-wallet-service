@@ -15,8 +15,8 @@ env:
     VOIDED_TX_OFFSET: 20
     TX_HISTORY_MAX_COUNT: 50
     CREATE_NFT_MAX_RETRIES: 3
-    dev_DEFAULT_SERVER: "https://wallet-service.private-nodes.testnet.hathor.network/v1a/"
-    dev_WS_DOMAIN: "ws.dev.wallet-service.testnet.hathor.network"
+    dev_DEFAULT_SERVER: "https://wallet-service.private-nodes.india.testnet.hathor.network/v1a/"
+    dev_WS_DOMAIN: "ws.dev.wallet-service.india.testnet.hathor.network"
     dev_NETWORK: "testnet"
     dev_LOG_LEVEL: "debug"
     dev_NFT_AUTO_REVIEW_ENABLED: "true"
@@ -37,6 +37,29 @@ env:
     testnet_PUSH_NOTIFICATION_ENABLED: "true"
     testnet_PUSH_ALLOWED_PROVIDERS: "android,ios"
     testnet_APPLICATION_NAME: "wallet-service-testnet"
+    testnethotel_DEFAULT_SERVER: "https://wallet-service.private-nodes.hotel.testnet.hathor.network/v1a/"
+    testnethotel_WS_DOMAIN: "ws.wallet-service.hotel.testnet.hathor.network"
+    testnethotel_NETWORK: "testnet"
+    testnethotel_LOG_LEVEL: "debug"
+    testnethotel_NFT_AUTO_REVIEW_ENABLED: "true"
+    testnethotel_EXPLORER_STAGE: "hotel"
+    testnethotel_EXPLORER_SERVICE_LAMBDA_ENDPOINT: "https://lambda.eu-central-1.amazonaws.com"
+    testnethotel_WALLET_SERVICE_LAMBDA_ENDPOINT: "https://lambda.eu-central-1.amazonaws.com"
+    testnethotel_PUSH_NOTIFICATION_ENABLED: "true"
+    testnethotel_PUSH_ALLOWED_PROVIDERS: "android,ios"
+    testnethotel_APPLICATION_NAME: "wallet-service-testnet-hotel"
+    testnetindia_DEFAULT_SERVER: "https://wallet-service.private-nodes.india.testnet.hathor.network/v1a/"
+    testnetindia_WS_DOMAIN: "ws.wallet-service.india.testnet.hathor.network"
+    testnetindia_NETWORK: "testnet"
+    testnetindia_LOG_LEVEL: "debug"
+    testnetindia_NFT_AUTO_REVIEW_ENABLED: "true"
+    testnetindia_EXPLORER_STAGE: "india"
+    testnetindia_EXPLORER_SERVICE_LAMBDA_ENDPOINT: "https://lambda.eu-central-1.amazonaws.com"
+    testnetindia_WALLET_SERVICE_LAMBDA_ENDPOINT: "https://lambda.eu-central-1.amazonaws.com"
+    testnetindia_PUSH_NOTIFICATION_ENABLED: "true"
+    testnetindia_PUSH_ALLOWED_PROVIDERS: "android,ios"
+    testnetindia_APPLICATION_NAME: "wallet-service-testnet-india"
+    testnetindia_SERVERLESS_DEPLOY_PREFIX: "wallet-service"
     mainnet_staging_DEFAULT_SERVER: "https://wallet-service.private-nodes.hathor.network/v1a/"
     mainnet_staging_WS_DOMAIN: "ws.staging.wallet-service.hathor.network"
     mainnet_staging_NETWORK: "mainnet"
@@ -116,6 +139,58 @@ env:
     testnet_ALERT_MANAGER_REGION: "WalletService/testnet:ALERT_MANAGER_REGION"
     testnet_ALERT_MANAGER_TOPIC: "WalletService/testnet:ALERT_MANAGER_TOPIC"
     testnet_ALERT_MANAGER_ACCOUNT_ID: "WalletService/testnet:ALERT_MANAGER_ACCOUNT_ID"
+    # Testnet Hotel secrets
+    testnethotel_ACCOUNT_ID: "WalletService/testnet-hotel:account_id"
+    testnethotel_AUTH_SECRET: "WalletService/testnet-hotel:auth_secret"
+    testnethotel_AWS_VPC_DEFAULT_SG_ID: "WalletService/testnet-hotel:aws_vpc_default_sg_id"
+    testnethotel_AWS_SUBNET_ID_1: "WalletService/testnet-hotel:aws_subnet_id_1"
+    testnethotel_AWS_SUBNET_ID_2: "WalletService/testnet-hotel:aws_subnet_id_2"
+    testnethotel_AWS_SUBNET_ID_3: "WalletService/testnet-hotel:aws_subnet_id_3"
+    testnethotel_DB_NAME: "WalletService/rds/testnet-hotel:dbname"
+    testnethotel_DB_USER: "WalletService/rds/testnet-hotel:username"
+    testnethotel_DB_PASS: "WalletService/rds/testnet-hotel:password"
+    testnethotel_DB_ENDPOINT: "WalletService/rds/testnet-hotel:host"
+    testnethotel_DB_PORT: "WalletService/rds/testnet-hotel:port"
+    testnethotel_REDIS_URL: "WalletService/redis/testnet-hotel:url"
+    testnethotel_REDIS_PASSWORD: "WalletService/redis/testnet-hotel:password"
+    testnethotel_FIREBASE_PROJECT_ID: "WalletService/testnet-hotel:FIREBASE_PROJECT_ID"
+    testnethotel_FIREBASE_PRIVATE_KEY_ID: "WalletService/testnet-hotel:FIREBASE_PRIVATE_KEY_ID"
+    testnethotel_FIREBASE_PRIVATE_KEY: "WalletService/testnet-hotel:FIREBASE_PRIVATE_KEY"
+    testnethotel_FIREBASE_CLIENT_EMAIL: "WalletService/testnet-hotel:FIREBASE_CLIENT_EMAIL"
+    testnethotel_FIREBASE_CLIENT_ID: "WalletService/testnet-hotel:FIREBASE_CLIENT_ID"
+    testnethotel_FIREBASE_AUTH_URI: "WalletService/testnet-hotel:FIREBASE_AUTH_URI"
+    testnethotel_FIREBASE_TOKEN_URI: "WalletService/testnet-hotel:FIREBASE_TOKEN_URI"
+    testnethotel_FIREBASE_AUTH_PROVIDER_X509_CERT_URL: "WalletService/testnet-hotel:FIREBASE_AUTH_PROVIDER_X509_CERT_URL"
+    testnethotel_FIREBASE_CLIENT_X509_CERT_URL: "WalletService/testnet-hotel:FIREBASE_CLIENT_X509_CERT_URL"
+    testnethotel_ALERT_MANAGER_REGION: "WalletService/testnet-hotel:ALERT_MANAGER_REGION"
+    testnethotel_ALERT_MANAGER_TOPIC: "WalletService/testnet-hotel:ALERT_MANAGER_TOPIC"
+    testnethotel_ALERT_MANAGER_ACCOUNT_ID: "WalletService/testnet-hotel:ALERT_MANAGER_ACCOUNT_ID"
+    # Testnet India secrets
+    testnetindia_ACCOUNT_ID: "WalletService/testnet-india:account_id"
+    testnetindia_AUTH_SECRET: "WalletService/testnet-india:auth_secret"
+    testnetindia_AWS_VPC_DEFAULT_SG_ID: "WalletService/testnet-india:aws_vpc_default_sg_id"
+    testnetindia_AWS_SUBNET_ID_1: "WalletService/testnet-india:aws_subnet_id_1"
+    testnetindia_AWS_SUBNET_ID_2: "WalletService/testnet-india:aws_subnet_id_2"
+    testnetindia_AWS_SUBNET_ID_3: "WalletService/testnet-india:aws_subnet_id_3"
+    testnetindia_DB_NAME: "WalletService/rds/testnet-india:dbname"
+    testnetindia_DB_USER: "WalletService/rds/testnet-india:username"
+    testnetindia_DB_PASS: "WalletService/rds/testnet-india:password"
+    testnetindia_DB_ENDPOINT: "WalletService/rds/testnet-india:host"
+    testnetindia_DB_PORT: "WalletService/rds/testnet-india:port"
+    testnetindia_REDIS_URL: "WalletService/redis/testnet-india:url"
+    testnetindia_REDIS_PASSWORD: "WalletService/redis/testnet-india:password"
+    testnetindia_FIREBASE_PROJECT_ID: "WalletService/testnet-india:FIREBASE_PROJECT_ID"
+    testnetindia_FIREBASE_PRIVATE_KEY_ID: "WalletService/testnet-india:FIREBASE_PRIVATE_KEY_ID"
+    testnetindia_FIREBASE_PRIVATE_KEY: "WalletService/testnet-india:FIREBASE_PRIVATE_KEY"
+    testnetindia_FIREBASE_CLIENT_EMAIL: "WalletService/testnet-india:FIREBASE_CLIENT_EMAIL"
+    testnetindia_FIREBASE_CLIENT_ID: "WalletService/testnet-india:FIREBASE_CLIENT_ID"
+    testnetindia_FIREBASE_AUTH_URI: "WalletService/testnet-india:FIREBASE_AUTH_URI"
+    testnetindia_FIREBASE_TOKEN_URI: "WalletService/testnet-india:FIREBASE_TOKEN_URI"
+    testnetindia_FIREBASE_AUTH_PROVIDER_X509_CERT_URL: "WalletService/testnet-india:FIREBASE_AUTH_PROVIDER_X509_CERT_URL"
+    testnetindia_FIREBASE_CLIENT_X509_CERT_URL: "WalletService/testnet-india:FIREBASE_CLIENT_X509_CERT_URL"
+    testnetindia_ALERT_MANAGER_REGION: "WalletService/testnet-india:ALERT_MANAGER_REGION"
+    testnetindia_ALERT_MANAGER_TOPIC: "WalletService/testnet-india:ALERT_MANAGER_TOPIC"
+    testnetindia_ALERT_MANAGER_ACCOUNT_ID: "WalletService/testnet-india:ALERT_MANAGER_ACCOUNT_ID"
     # Mainnet Staging secrets
     mainnet_staging_ACCOUNT_ID: "WalletService/mainnet_staging:account_id"
     mainnet_staging_AUTH_SECRET: "WalletService/mainnet_staging:auth_secret"
@@ -173,12 +248,12 @@ phases:
     #If you use the Ubuntu standard image 2.0 or later, you must specify runtime-versions.
     #If you specify runtime-versions and use an image other than Ubuntu standard image 2.0, the build fails.
     runtime-versions:
-      nodejs: 20
+      nodejs: 22
       # name: version
     commands:
       - npm install -g yarn
+      # corepack will use the version of yarn specified in package.json
       - corepack enable
-      - yarn set version 4.1.0
       - yarn install
   pre_build:
     commands:

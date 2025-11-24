@@ -15,6 +15,7 @@ import middy from '@middy/core';
 import cors from '@middy/http-cors';
 import Joi, { ValidationError } from 'joi';
 import { TxByIdRequest } from '@src/types';
+import { bigIntUtils } from '@hathor/wallet-lib';
 import errorHandler from '@src/api/middlewares/errorHandler';
 
 const mysql = getDbConnection();
@@ -56,7 +57,7 @@ export const get: APIGatewayProxyHandler = middy(walletIdProxyHandler(async (wal
 
   return {
     statusCode: 200,
-    body: JSON.stringify({ success: true, txTokens }),
+    body: bigIntUtils.JSONBigInt.stringify({ success: true, txTokens }),
   };
 }))
   .use(cors())

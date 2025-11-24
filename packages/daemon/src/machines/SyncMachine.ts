@@ -26,6 +26,7 @@ import {
   fetchInitialState,
   handleUnvoidedTx,
   handleReorgStarted,
+  checkForMissedEvents,
 } from '../services';
 import {
   metadataIgnore,
@@ -43,6 +44,7 @@ import {
   unchanged,
   vertexRemoved,
   reorgStarted,
+  hasNewEvents,
 } from '../guards';
 import {
   storeInitialState,
@@ -58,7 +60,7 @@ import {
   startHealthcheckPing,
   stopHealthcheckPing,
 } from '../actions';
-import { BACKOFF_DELAYED_RECONNECT } from '../delays';
+import { BACKOFF_DELAYED_RECONNECT, ACK_TIMEOUT } from '../delays';
 import getConfig from '../config';
 
 export const SYNC_MACHINE_STATES = {
@@ -79,6 +81,7 @@ export const CONNECTED_STATES = {
   handlingUnvoidedTx: 'handlingUnvoidedTx',
   handlingFirstBlock: 'handlingFirstBlock',
   handlingReorgStarted: 'handlingReorgStarted',
+  checkingForMissedEvents: 'checkingForMissedEvents',
 };
 
 const { TX_CACHE_SIZE } = getConfig();
@@ -92,11 +95,12 @@ export const SyncMachine = Machine<Context, any, Event>({
     retryAttempt: 0,
     event: null,
     initialEventId: null,
-    txCache: new LRU(TX_CACHE_SIZE),
+    txCache: null,
   },
   states: {
     [SYNC_MACHINE_STATES.INITIALIZING]: {
       entry: assign({
+        txCache: () => new LRU(TX_CACHE_SIZE),
         healthcheck: () => spawn(HealthCheckActor),
       }),
       invoke: {
@@ -136,6 +140,11 @@ export const SyncMachine = Machine<Context, any, Event>({
       states: {
         [CONNECTED_STATES.idle]: {
           id: CONNECTED_STATES.idle,
+          after: {
+            ACK_TIMEOUT: {
+              target: CONNECTED_STATES.checkingForMissedEvents,
+            },
+          },
           on: {
             FULLNODE_EVENT: [{
               cond: 'invalidStreamId',
@@ -287,6 +296,22 @@ export const SyncMachine = Machine<Context, any, Event>({
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
         },
+        [CONNECTED_STATES.checkingForMissedEvents]: {
+          id: CONNECTED_STATES.checkingForMissedEvents,
+          invoke: {
+            src: 'checkForMissedEvents',
+            onDone: [{
+              cond: 'hasNewEvents',
+              target: `#SyncMachine.${SYNC_MACHINE_STATES.RECONNECTING}`,
+            }, {
+              target: CONNECTED_STATES.idle,
+            }],
+            onError: {
+              // Critical failure - we cannot verify event integrity
+              target: `#${SYNC_MACHINE_STATES.ERROR}`,
+            },
+          },
+        },
       },
       on: {
         WEBSOCKET_EVENT: [{
@@ -312,6 +337,7 @@ export const SyncMachine = Machine<Context, any, Event>({
     fetchInitialState,
     metadataDiff,
     updateLastSyncedEvent,
+    checkForMissedEvents,
   },
   guards: {
     metadataIgnore,
@@ -329,8 +355,9 @@ export const SyncMachine = Machine<Context, any, Event>({
     unchanged,
     vertexRemoved,
     reorgStarted,
+    hasNewEvents,
   },
-  delays: { BACKOFF_DELAYED_RECONNECT },
+  delays: { BACKOFF_DELAYED_RECONNECT, ACK_TIMEOUT },
   actions: {
     storeInitialState,
     unwrapEvent,

@@ -1,6 +1,7 @@
 import { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
 
 import { mockedAddAlert } from '@tests/utils/alerting.utils.mock';
+import { get as addressInfoGet } from '@src/api/addressInfo';
 import { get as addressesGet, checkMine } from '@src/api/addresses';
 import { get as newAddressesGet } from '@src/api/newAddresses';
 import { get as balancesGet } from '@src/api/balances';
@@ -147,8 +148,8 @@ test('GET /addresses', async () => {
   }]);
 
   const addresses = [
-    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0 },
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0, seqnum: 1 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0, seqnum: 2 },
   ];
 
   await addToAddressTable(mysql, addresses);
@@ -172,11 +173,13 @@ test('GET /addresses', async () => {
     address: addresses[0].address,
     index: addresses[0].index,
     transactions: addresses[0].transactions,
+    seqnum: addresses[0].seqnum,
   });
   expect(returnBody.addresses).toContainEqual({
     address: addresses[1].address,
     index: addresses[1].index,
     transactions: addresses[1].transactions,
+    seqnum: addresses[1].seqnum,
   });
 
   // we should error on invalid index parameter
@@ -188,8 +191,8 @@ test('GET /addresses', async () => {
 
   expect(result.statusCode).toBe(STATUS_CODE_TABLE[ApiError.INVALID_PAYLOAD]);
   expect(returnBody.details).toHaveLength(1);
-  expect(returnBody.details[0].message)
-    .toMatchInlineSnapshot('"\"index\" must be greater than or equal to 0"');
+  expect(returnBody.details[0].message.trim())
+    .toMatchInlineSnapshot(`""index" must be greater than or equal to 0"`);
 
   // we should be able to filter for a specific index
   event = makeGatewayEventWithAuthorizer('my-wallet', {
@@ -205,6 +208,7 @@ test('GET /addresses', async () => {
     address: addresses[0].address,
     index: addresses[0].index,
     transactions: addresses[0].transactions,
+    seqnum: addresses[0].seqnum,
   }]);
 
   // we should receive ApiError.ADDRESS_NOT_FOUND if the address was not found
@@ -458,8 +462,8 @@ test('GET /balances', async () => {
   await addToWalletBalanceTable(mysql, [{
     walletId: 'my-wallet',
     tokenId: 'token1',
-    unlockedBalance: 10,
-    lockedBalance: 0,
+    unlockedBalance: 10n,
+    lockedBalance: 0n,
     unlockedAuthorities: 0b01,
     lockedAuthorities: 0b10,
     timelockExpires: null,
@@ -467,8 +471,8 @@ test('GET /balances', async () => {
   }, {
     walletId: 'my-wallet',
     tokenId: 'token2',
-    unlockedBalance: 3,
-    lockedBalance: 2,
+    unlockedBalance: 3n,
+    lockedBalance: 2n,
     unlockedAuthorities: 0b00,
     lockedAuthorities: 0b11,
     timelockExpires: lockExpires,
@@ -524,8 +528,8 @@ test('GET /balances', async () => {
   await addToWalletBalanceTable(mysql, [{
     walletId: 'my-wallet',
     tokenId: 'token3',
-    unlockedBalance: 5,
-    lockedBalance: 1,
+    unlockedBalance: 5n,
+    lockedBalance: 1n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0,
     timelockExpires: lockExpires2,
@@ -536,7 +540,7 @@ test('GET /balances', async () => {
     index: 0,
     tokenId: 'token3',
     address: ADDRESSES[0],
-    value: 1,
+    value: 1n,
     authorities: 0,
     timelock: lockExpires2,
     heightlock: null,
@@ -562,8 +566,8 @@ test('GET /balances', async () => {
   await addToWalletBalanceTable(mysql, [{
     walletId: 'my-wallet',
     tokenId: 'token4',
-    unlockedBalance: 10,
-    lockedBalance: 5,
+    unlockedBalance: 10n,
+    lockedBalance: 5n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0,
     timelockExpires: lockExpires2,
@@ -574,7 +578,7 @@ test('GET /balances', async () => {
     index: 0,
     tokenId: 'token4',
     address: ADDRESSES[0],
-    value: 3,
+    value: 3n,
     authorities: 0,
     timelock: lockExpires2,
     heightlock: null,
@@ -585,7 +589,7 @@ test('GET /balances', async () => {
     index: 0,
     tokenId: 'token4',
     address: ADDRESSES[0],
-    value: 2,
+    value: 2n,
     authorities: 0,
     timelock: lockExpires,
     heightlock: null,
@@ -610,8 +614,8 @@ test('GET /balances', async () => {
   await addToWalletBalanceTable(mysql, [{
     walletId: 'my-wallet',
     tokenId: '00',
-    unlockedBalance: 10,
-    lockedBalance: 0,
+    unlockedBalance: 10n,
+    lockedBalance: 0n,
     unlockedAuthorities: 0,
     lockedAuthorities: 0,
     timelockExpires: null,
@@ -746,7 +750,7 @@ test('GET /wallet', async () => {
   expect(result.statusCode).toBe(200);
   expect(returnBody.success).toBe(true);
   expect(returnBody.status).toStrictEqual({
-    walletId: getWalletId(XPUBKEY),
+    walletId: 'my-wallet',
     xpubkey: XPUBKEY,
     authXpubkey: AUTH_XPUBKEY,
     status: 'ready',
@@ -754,6 +758,7 @@ test('GET /wallet', async () => {
     retryCount: 0,
     createdAt: 10000,
     readyAt: 10001,
+    lastUsedAddressIndex: -1,
   });
 });
 
@@ -1478,7 +1483,7 @@ test('GET /wallet/tokens/token_id/details', async () => {
     index: 0,
     tokenId: token1.id,
     address: ADDRESSES[0],
-    value: 100,
+    value: 100n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -1490,8 +1495,8 @@ test('GET /wallet/tokens/token_id/details', async () => {
     index: 1,
     tokenId: token1.id,
     address: ADDRESSES[0],
-    value: 0,
-    authorities: constants.TOKEN_MINT_MASK,
+    value: 0n,
+    authorities: Number(constants.TOKEN_MINT_MASK),
     timelock: null,
     heightlock: null,
     locked: false,
@@ -1502,8 +1507,8 @@ test('GET /wallet/tokens/token_id/details', async () => {
     index: 2,
     tokenId: token1.id,
     address: ADDRESSES[0],
-    value: 0,
-    authorities: constants.TOKEN_MINT_MASK,
+    value: 0n,
+    authorities: Number(constants.TOKEN_MINT_MASK),
     timelock: null,
     heightlock: null,
     locked: false,
@@ -1514,7 +1519,7 @@ test('GET /wallet/tokens/token_id/details', async () => {
     index: 0,
     tokenId: token2.id,
     address: ADDRESSES[0],
-    value: 250,
+    value: 250n,
     authorities: 0,
     timelock: null,
     heightlock: null,
@@ -1526,8 +1531,8 @@ test('GET /wallet/tokens/token_id/details', async () => {
     index: 1,
     tokenId: token2.id,
     address: ADDRESSES[0],
-    value: 0,
-    authorities: constants.TOKEN_MINT_MASK,
+    value: 0n,
+    authorities: Number(constants.TOKEN_MINT_MASK),
     timelock: 1000,
     heightlock: null,
     locked: true,
@@ -1538,8 +1543,8 @@ test('GET /wallet/tokens/token_id/details', async () => {
     index: 2,
     tokenId: token2.id,
     address: ADDRESSES[0],
-    value: 0,
-    authorities: constants.TOKEN_MINT_MASK,
+    value: 0n,
+    authorities: Number(constants.TOKEN_MINT_MASK),
     timelock: 1000,
     heightlock: null,
     locked: true,
@@ -1549,8 +1554,8 @@ test('GET /wallet/tokens/token_id/details', async () => {
     index: 0,
     tokenId: token2.id,
     address: ADDRESSES[0],
-    value: 0,
-    authorities: constants.TOKEN_MINT_MASK,
+    value: 0n,
+    authorities: Number(constants.TOKEN_MINT_MASK),
     timelock: null,
     heightlock: null,
     locked: false,
@@ -1561,8 +1566,8 @@ test('GET /wallet/tokens/token_id/details', async () => {
     index: 1,
     tokenId: token2.id,
     address: ADDRESSES[0],
-    value: 0,
-    authorities: constants.TOKEN_MELT_MASK,
+    value: 0n,
+    authorities: Number(constants.TOKEN_MELT_MASK),
     timelock: null,
     heightlock: null,
     locked: false,
@@ -1570,9 +1575,9 @@ test('GET /wallet/tokens/token_id/details', async () => {
   }]);
 
   await addToAddressTxHistoryTable(mysql, [
-    { address: ADDRESSES[0], txId: 'txId', tokenId: token1.id, balance: 100, timestamp: 0 },
-    { address: ADDRESSES[0], txId: 'txId2', tokenId: token2.id, balance: 250, timestamp: 0 },
-    { address: ADDRESSES[0], txId: 'txId3', tokenId: token2.id, balance: 0, timestamp: 0 },
+    { address: ADDRESSES[0], txId: 'txId', tokenId: token1.id, balance: 100n, timestamp: 0 },
+    { address: ADDRESSES[0], txId: 'txId2', tokenId: token2.id, balance: 250n, timestamp: 0 },
+    { address: ADDRESSES[0], txId: 'txId3', tokenId: token2.id, balance: 0n, timestamp: 0 },
   ]);
 
   event = makeGatewayEventWithAuthorizer('my-wallet', { token_id: token1.id });
@@ -1669,6 +1674,7 @@ test('GET /version', async () => {
   const mockData: FullNodeApiVersionResponse = {
     version: '0.38.0',
     network: 'mainnet',
+    nano_contracts_enabled: true,
     min_weight: 14,
     min_tx_weight: 14,
     min_tx_weight_coefficient: 1.6,
@@ -1681,7 +1687,7 @@ test('GET /version', async () => {
     genesis_block_hash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     genesis_tx1_hash: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
     genesis_tx2_hash: 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
-    native_token: { name: 'Hathor', symbol: 'HTR'},
+    native_token: { name: 'Hathor', symbol: 'HTR' },
   };
   const returnData = convertApiVersionData(mockData);
 
@@ -2263,4 +2269,154 @@ describe('GET /health', () => {
       }
     });
   });
+});
+
+test('GET /addresses (query string index parameter)', async () => {
+  expect.hasAssertions();
+
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+
+  const addresses = [
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0, seqnum: 1 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0, seqnum: 2 },
+  ];
+
+  await addToAddressTable(mysql, addresses);
+
+  // 1. No index parameter (should return all addresses)
+  let event = makeGatewayEventWithAuthorizer('my-wallet', null);
+  let result = await addressesGet(event, null, null) as APIGatewayProxyResult;
+  let returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+  expect(returnBody.addresses).toHaveLength(2);
+  expect(returnBody.addresses).toContainEqual({
+    address: addresses[0].address,
+    index: addresses[0].index,
+    transactions: addresses[0].transactions,
+    seqnum: addresses[0].seqnum,
+  });
+  expect(returnBody.addresses).toContainEqual({
+    address: addresses[1].address,
+    index: addresses[1].index,
+    transactions: addresses[1].transactions,
+    seqnum: addresses[1].seqnum,
+  });
+
+  // 2. index as a string (should return the address at that index)
+  event = makeGatewayEventWithAuthorizer('my-wallet', { index: '1' });
+  result = await addressesGet(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+  expect(returnBody.addresses).toHaveLength(1);
+  expect(returnBody.addresses[0].index).toBe(1);
+
+  // 3. index as a number (should return the address at that index)
+  event = makeGatewayEventWithAuthorizer('my-wallet', { index: '0' });
+  result = await addressesGet(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+  expect(returnBody.addresses).toHaveLength(1);
+  expect(returnBody.addresses[0].index).toBe(0);
+
+  // 4. index is invalid (non-numeric)
+  event = makeGatewayEventWithAuthorizer('my-wallet', { index: 'not-a-number' });
+  result = await addressesGet(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(400);
+  expect(returnBody.success).toBe(false);
+  expect(returnBody.error).toBe(ApiError.INVALID_PAYLOAD);
+  expect(returnBody.details[0].message).toMatch(/must be a number/);
+
+  // 5. index is negative (should error)
+  event = makeGatewayEventWithAuthorizer('my-wallet', { index: '-1' });
+  result = await addressesGet(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(400);
+  expect(returnBody.success).toBe(false);
+  expect(returnBody.error).toBe(ApiError.INVALID_PAYLOAD);
+  expect(returnBody.details[0].message).toMatch(/greater than or equal to 0/);
+
+  // 6. index not found (should return ADDRESS_NOT_FOUND)
+  event = makeGatewayEventWithAuthorizer('my-wallet', { index: '999' });
+  result = await addressesGet(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(404);
+  expect(returnBody.success).toBe(false);
+  expect(returnBody.error).toBe(ApiError.ADDRESS_NOT_FOUND);
+});
+
+test('GET /address/info', async () => {
+  expect.hasAssertions();
+
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+
+  const addresses = [
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0, seqnum: 1 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0, seqnum: 2 },
+  ];
+
+  await addToAddressTable(mysql, addresses);
+
+  // 1. Send address 0 (should return the address info)
+  let event = makeGatewayEventWithAuthorizer('my-wallet', { address: ADDRESSES[0] });
+  let result = await addressInfoGet(event, null, null) as APIGatewayProxyResult;
+  let returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+  expect(returnBody.data).toEqual({
+    address: addresses[0].address,
+    index: addresses[0].index,
+    transactions: addresses[0].transactions,
+    seqnum: addresses[0].seqnum,
+  });
+
+  // 2. Send address 1 (should return the address info)
+  event = makeGatewayEventWithAuthorizer('my-wallet', { address: ADDRESSES[1] });
+  result = await addressInfoGet(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+  expect(returnBody.data).toEqual({
+    address: addresses[1].address,
+    index: addresses[1].index,
+    transactions: addresses[1].transactions,
+    seqnum: addresses[1].seqnum,
+  });
+
+  // 3. Send invalid address (should return error)
+  event = makeGatewayEventWithAuthorizer('my-wallet', { address: 'address' });
+  result = await addressInfoGet(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(400);
+  expect(returnBody.success).toBe(false);
+  expect(returnBody.error).toBe(ApiError.INVALID_PAYLOAD);
+  expect(returnBody.details[0].message).toBeDefined();
+
+  // 4. Do not send address (should return error)
+  event = makeGatewayEventWithAuthorizer('my-wallet', null);
+  result = await addressInfoGet(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(400);
+  expect(returnBody.success).toBe(false);
+  expect(returnBody.error).toBe(ApiError.INVALID_PAYLOAD);
+  expect(returnBody.details[0].message).toBeDefined();
 });

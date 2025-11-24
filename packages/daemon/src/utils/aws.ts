@@ -5,10 +5,11 @@ import { StringMap } from '../types';
 import getConfig from '../config';
 import logger from '../logger';
 import { addAlert, Transaction } from '@wallet-service/common';
+import { bigIntUtils } from '@hathor/wallet-lib';
 
 export function buildFunctionName(functionName: string): string {
-  const { STAGE } = getConfig();
-  return `hathor-wallet-service-${STAGE}-${functionName}`;
+  const { STAGE, SERVERLESS_DEPLOY_PREFIX } = getConfig();
+  return `${SERVERLESS_DEPLOY_PREFIX}-${STAGE}-${functionName}`;
 }
 
 /**
@@ -36,7 +37,7 @@ export const invokeOnTxPushNotificationRequestedLambda = async (walletBalanceVal
   const command = new InvokeCommand({
     FunctionName: ON_TX_PUSH_NOTIFICATION_REQUESTED_FUNCTION_NAME,
     InvocationType: 'Event',
-    Payload: JSON.stringify(walletBalanceValueMap),
+    Payload: bigIntUtils.JSONBigInt.stringify(walletBalanceValueMap),
   });
 
   const response: InvokeCommandOutput = await client.send(command);
@@ -69,7 +70,7 @@ export const sendRealtimeTx = async (wallets: string[], tx: Transaction): Promis
     throw new Error('Queue URL is invalid');
   }
 
-  await sendMessageSQS(JSON.stringify({
+  await sendMessageSQS(bigIntUtils.JSONBigInt.stringify({
     wallets,
     tx,
   }), NEW_TX_SQS);

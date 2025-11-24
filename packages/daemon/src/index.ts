@@ -9,6 +9,7 @@ import { interpret } from 'xstate';
 import { SyncMachine } from './machines';
 import logger from './logger';
 import { checkEnvVariables } from './config';
+import { bigIntUtils } from '@hathor/wallet-lib';
 
 const main = async () => {
   checkEnvVariables();
@@ -16,11 +17,11 @@ const main = async () => {
   const machine = interpret(SyncMachine);
 
   machine.onTransition((state) => {
-    logger.info(`Transitioned to ${JSON.stringify(state.value)}`);
+    logger.info(`Transitioned to ${bigIntUtils.JSONBigInt.stringify(state.value)}`);
   });
 
   machine.onEvent((event) => {
-    logger.info(`Processing event: ${JSON.stringify(event.type)}`);
+    logger.info(`Processing event: ${bigIntUtils.JSONBigInt.stringify(event.type)}`);
   });
 
   machine.start();

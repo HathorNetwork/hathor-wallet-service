@@ -1,4 +1,4 @@
-service: hathor-wallet-service
+service: ${env:SERVERLESS_DEPLOY_PREFIX, "hathor-wallet-service"}
 frameworkVersion: '3'
 
 useDotenv: true
@@ -132,7 +132,7 @@ resources:
 
 provider:
   name: aws
-  runtime: nodejs18.x
+  runtime: nodejs22.x
   region: ${opt:region, 'eu-central-1'}
   # In MB. This is the memory allocated for the Lambdas, they cannot use more than this
   # and will break if they try.
@@ -187,6 +187,7 @@ provider:
     REDIS_PASSWORD: ${env:REDIS_PASSWORD}
     SERVICE_NAME: ${self:service}
     STAGE: ${self:custom.stage}
+    SERVERLESS_DEPLOY_PREFIX: ${env:SERVERLESS_DEPLOY_PREFIX, "hathor-wallet-service"}
     EXPLORER_SERVICE_STAGE: ${self:custom.explorerServiceStage}
     NFT_AUTO_REVIEW_ENABLED: ${env:NFT_AUTO_REVIEW_ENABLED}
     VOIDED_TX_OFFSET: ${env:VOIDED_TX_OFFSET}
@@ -196,15 +197,15 @@ provider:
     WALLET_SERVICE_LAMBDA_ENDPOINT: ${env:WALLET_SERVICE_LAMBDA_ENDPOINT}
     PUSH_NOTIFICATION_ENABLED: ${env:PUSH_NOTIFICATION_ENABLED}
     PUSH_ALLOWED_PROVIDERS: ${env:PUSH_ALLOWED_PROVIDERS}
-    FIREBASE_PROJECT_ID: ${env:FIREBASE_PROJECT_ID, ''}
-    FIREBASE_PRIVATE_KEY_ID: ${env:FIREBASE_PRIVATE_KEY_ID, ''}
-    FIREBASE_PRIVATE_KEY: ${env:FIREBASE_PRIVATE_KEY, ''}
-    FIREBASE_CLIENT_EMAIL: ${env:FIREBASE_CLIENT_EMAIL, ''}
-    FIREBASE_CLIENT_ID: ${env:FIREBASE_CLIENT_ID, ''}
-    FIREBASE_AUTH_URI: ${env:FIREBASE_AUTH_URI, ''}
-    FIREBASE_TOKEN_URI: ${env:FIREBASE_TOKEN_URI, ''}
-    FIREBASE_AUTH_PROVIDER_X509_CERT_URL: ${env:FIREBASE_AUTH_PROVIDER_X509_CERT_URL, ''}
-    FIREBASE_CLIENT_X509_CERT_URL: ${env:FIREBASE_CLIENT_X509_CERT_URL, ''}
+    FIREBASE_PROJECT_ID: ${env:FIREBASE_PROJECT_ID, null}
+    FIREBASE_PRIVATE_KEY_ID: ${env:FIREBASE_PRIVATE_KEY_ID, null}
+    FIREBASE_PRIVATE_KEY: ${env:FIREBASE_PRIVATE_KEY, null}
+    FIREBASE_CLIENT_EMAIL: ${env:FIREBASE_CLIENT_EMAIL, null}
+    FIREBASE_CLIENT_ID: ${env:FIREBASE_CLIENT_ID, null}
+    FIREBASE_AUTH_URI: ${env:FIREBASE_AUTH_URI, null}
+    FIREBASE_TOKEN_URI: ${env:FIREBASE_TOKEN_URI, null}
+    FIREBASE_AUTH_PROVIDER_X509_CERT_URL: ${env:FIREBASE_AUTH_PROVIDER_X509_CERT_URL, null}
+    FIREBASE_CLIENT_X509_CERT_URL: ${env:FIREBASE_CLIENT_X509_CERT_URL, null}
     LOG_LEVEL: ${env:LOG_LEVEL}
     ALERT_MANAGER_REGION: ${env:ALERT_MANAGER_REGION}
     ALERT_MANAGER_TOPIC: ${env:ALERT_MANAGER_TOPIC}
@@ -324,15 +325,23 @@ functions:
           method: get
           cors: true
           authorizer: ${self:custom.authorizer.walletBearer}
-          request:
-            parameters:
-              paths:
-                index: false
+    warmup:
+      walletWarmer:
+        enabled: true
+  getAddressInfoApi:
+    handler: src/api/addressInfo.get
+    events:
+      - http:
+          path: wallet/address/info
+          method: get
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
     warmup:
       walletWarmer:
         enabled: true
   getNewAddresses:
     handler: src/api/newAddresses.get
+    memorySize: 1024
     events:
       - http:
           path: wallet/addresses/new
@@ -463,6 +472,39 @@ functions:
     warmup:
       walletWarmer:
         enabled: false
+  getStateNCProxyApi:
+    handler: src/api/nanoProxy.getState
+    events:
+      - http:
+          path: wallet/proxy/nano_contract/state
+          method: get
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+    warmup:
+      walletWarmer:
+        enabled: false
+  getHistoryNCProxyApi:
+    handler: src/api/nanoProxy.getHistory
+    events:
+      - http:
+          path: wallet/proxy/nano_contract/history
+          method: get
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+    warmup:
+      walletWarmer:
+        enabled: false
+  getBpInfoNCProxyApi:
+    handler: src/api/nanoProxy.getBlueprintInfo
+    events:
+      - http:
+          path: wallet/proxy/nano_contract/blueprint/info
+          method: get
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+    warmup:
+      walletWarmer:
+        enabled: false
   wsConnect:
     handler: src/ws/connection.connect
     timeout: 2
@@ -541,6 +583,7 @@ functions:
   authTokenApi:
     handler: src/api/auth.tokenHandler
     timeout: 6
+    memorySize: 1024
     events:
       - http:
           path: auth/token
@@ -548,12 +591,25 @@ functions:
           cors: true
     warmup:
       walletWarmer:
-        enabled: false
-  bearerAuthorizer:
-    handler: src/api/auth.bearerAuthorizer
+        enabled: true
+  authROTokenApi:
+    handler: src/api/auth.roTokenHandler
+    timeout: 6
+    memorySize: 1024
+    events:
+      - http:
+          path: auth/token/readonly
+          method: post
+          cors: true
     warmup:
       walletWarmer:
-        enabled: false
+        enabled: true
+  bearerAuthorizer:
+    handler: src/api/auth.bearerAuthorizer
+    memorySize: 1024
+    warmup:
+      walletWarmer:
+        enabled: true
   metrics:
     handler: src/metrics.getMetrics
     events:
@@ -685,14 +741,15 @@ functions:
           Fn::GetAtt: [ SendNotificationToDeviceLambdaFunction , Arn ]
   healthcheck:
     handler: src/api/healthcheck.getHealthcheck
+    timeout: 20 # seconds
     events:
       - http:
           private: true
           path: health
           method: get
           throttling:
-            maxRequestsPerSecond: 1
-            maxConcurrentRequests: 1
+            maxRequestsPerSecond: 2
+            maxConcurrentRequests: 2
   deleteStalePushDevices:
     handler: src/db/cronRoutines.cleanStalePushDevices
     events:

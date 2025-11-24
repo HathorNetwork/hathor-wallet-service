@@ -145,3 +145,19 @@ export interface MaxAddressIndexRow extends RowDataPacket {
   max_among_addresses: number,
   max_wallet_index: number
 }
+
+export interface AddressesWalletsRow extends RowDataPacket {
+  address: string,
+  wallet_id: string,
+  auth_xpubkey: string,
+  xpubkey: string,
+  maxGap: number,
+}
+
+export interface AddressRow extends RowDataPacket {
+  address: string,
+  index: number,
+  wallet_id: string,
+  transactions: number,
+  seqnum: number,
+}
