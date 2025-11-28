@@ -115,5 +115,15 @@ services:
     ports:
       - "8092:8080"
 
+  token_creation:
+    image: hathornetwork/hathor-core:latest
+    command: [
+      "events_simulator",
+      "--scenario", "TOKEN_CREATED",
+      "--seed", "1"
+    ]
+    ports:
+      - "8093:8080"
+
 networks:
   database:
