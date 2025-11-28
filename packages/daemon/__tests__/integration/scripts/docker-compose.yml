@@ -116,7 +116,8 @@ services:
       - "8092:8080"
 
   token_creation:
-    image: hathornetwork/hathor-core:latest
+    image: hathornetwork/hathor-core:tit
+    entrypoint: ["python", "-m", "hathor"]
     command: [
       "events_simulator",
       "--scenario", "TOKEN_CREATED",
@@ -124,6 +125,17 @@ services:
     ]
     ports:
       - "8093:8080"
+
+  token_created_hybrid_with_reorg:
+    image: hathornetwork/hathor-core:tit
+    entrypoint: ["python", "-m", "hathor"]
+    command: [
+      "events_simulator",
+      "--scenario", "TOKEN_CREATED_HYBRID_WITH_REORG",
+      "--seed", "1"
+    ]
+    ports:
+      - "8094:8080"
 
 networks:
   database:
