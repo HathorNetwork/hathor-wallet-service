@@ -189,6 +189,48 @@ export function isNanoContract(headers: EventTxHeader[]) {
   return false;
 }
 
+/**
+ * Handles a vertex (transaction or block) being accepted by the fullnode.
+ *
+ * This function processes VERTEX_METADATA_CHANGED and NEW_VERTEX_ACCEPTED events.
+ * It stores the transaction in the database, updates wallet balances, and handles
+ * various edge cases related to token creation and nano contract execution.
+ *
+ * Token Deletion Edge Cases:
+ *
+ * Tokens can be created in three different ways, each requiring different deletion rules:
+ *
+ * 1. **Pure CREATE_TOKEN_TX (no nano headers)**
+ *    - Token created immediately when transaction hits mempool
+ *    - Token deletion rule: Delete ONLY when transaction becomes voided
+ *    - Example: Standard custom token creation
+ *
+ * 2. **Pure Nano Contract Transaction**
+ *    - Token created via nano contract syscall when nc_execution = 'success'
+ *    - Token deletion rule: Delete when nc_execution changes from SUCCESS to any non-SUCCESS state
+ *      (PENDING, FAILURE, SKIPPED, or null)
+ *    - This happens during reorgs when the nano execution is invalidated
+ *    - Token can be re-created if nano executes successfully again after reorg
+ *
+ * 3. **Hybrid Transaction (CREATE_TOKEN_TX + Nano Contract)**
+ *    - Creates TWO sets of tokens:
+ *      a) CREATE_TOKEN_TX token: Received immediately when tx hits mempool (token_id = tx_id)
+ *      b) Nano-created tokens: Received when nano executes successfully (token_id ≠ tx_id)
+ *    - Token deletion rules:
+ *      - CREATE_TOKEN_TX token: Delete ONLY when transaction becomes voided
+ *      - Nano-created tokens: Delete when nc_execution becomes non-SUCCESS
+ *    - During reorg: Only nano-created tokens are deleted, CREATE_TOKEN_TX token remains
+ *    - When voided: BOTH sets of tokens are deleted
+ *
+ * Important Notes:
+ * - Voided and nc_execution are INDEPENDENT conditions
+ * - A voided transaction might still show nc_execution = 'success'
+ * - INSERT IGNORE ensures idempotency when tokens are re-created after reorg
+ * - Token deletion happens before storing the transaction to maintain consistency
+ *
+ * @param context - The context containing the event and other metadata
+ * @param _event - The event being processed (unused, context.event is used instead)
+ */
 export const handleVertexAccepted = async (context: Context, _event: Event) => {
   const mysql = await getDbConnection();
   await mysql.beginTransaction();
@@ -458,6 +500,62 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       }
     }
 
+    /**
+     * Nano Contract Token Deletion Logic
+     *
+     * Handle token deletion when nano contract execution state changes.
+     *
+     * Context:
+     * - Nano contracts can create tokens via syscalls when they execute successfully
+     * - These tokens are only valid when nc_execution = 'success'
+     * - During reorgs, nano execution can be invalidated (nc_execution becomes PENDING/FAILURE/SKIPPED/null)
+     * - When this happens, any tokens created by that nano execution must be deleted
+     *
+     * Why this is needed:
+     * - A transaction with nano headers can create tokens in TWO ways:
+     *   1. Via CREATE_TOKEN_TX (token_id = tx_id) - deleted only on void
+     *   2. Via nano syscall (token_id ≠ tx_id) - deleted when nc_execution becomes non-SUCCESS
+     *
+     * Edge case: Hybrid transactions
+     * - A hybrid transaction (CREATE_TOKEN_TX + nano headers) creates BOTH types of tokens
+     * - During reorg: We must delete ONLY the nano-created tokens, NOT the CREATE_TOKEN_TX token
+     * - The getTokensCreatedByTx query returns ALL tokens created by this tx_id
+     * - However, in practice:
+     *   - Pure nano contracts: All tokens in the result are nano-created (safe to delete all)
+     *   - Hybrid transactions: Both CREATE_TOKEN_TX and nano-created tokens are in the result
+     *     BUT the CREATE_TOKEN_TX token was already deleted by a previous VERTEX_METADATA_CHANGED
+     *     event that voided the transaction, so it won't be in the database anymore
+     *
+     * Flow example (hybrid transaction during reorg):
+     * 1. CREATE_TOKEN_TX arrives → TOKEN_CREATED event (CREATE_TOKEN_TX token stored)
+     * 2. Tx gets first_block → nano executes → TOKEN_CREATED event (nano token stored)
+     * 3. VERTEX_METADATA_CHANGED → nc_execution: SUCCESS (both tokens in DB)
+     * 4. REORG → VERTEX_METADATA_CHANGED → nc_execution: PENDING, first_block: null
+     *    → This code runs → Deletes nano token, CREATE_TOKEN_TX token remains
+     * 5. Tx executes again → TOKEN_CREATED → nano token re-created (INSERT IGNORE handles duplicates)
+     *
+     * Note: This logic is INDEPENDENT of transaction voiding:
+     * - Voiding deletes ALL tokens (handled by voidTx function)
+     * - This logic deletes ONLY nano-created tokens when execution state changes
+     * - A voided transaction might still have nc_execution = 'success'
+     */
+    const hasNanoHeaders = headers && headers.length > 0 && headers.some((h) => isNanoHeader(h));
+
+    if (hasNanoHeaders) {
+      const ncExecution = metadata?.nc_execution;
+
+      // If nc_execution is not 'success', delete any tokens created by this nano contract
+      if (ncExecution !== 'success') {
+        const tokensCreated = await getTokensCreatedByTx(mysql, hash);
+
+        if (tokensCreated.length > 0) {
+          logger.debug(`NC execution changed to ${ncExecution}, deleting ${tokensCreated.length} tokens created by tx ${hash}`);
+          await deleteTokens(mysql, tokensCreated);
+          await deleteTokenCreationMappings(mysql, tokensCreated);
+        }
+      }
+    }
+
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
 
     await mysql.commit();
@@ -522,6 +620,43 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
   }
 };
 
+/**
+ * Voids a transaction and all its associated data.
+ *
+ * This function handles the complete voiding process including:
+ * - Marking transaction as voided in database
+ * - Marking all UTXOs as voided
+ * - Unspending inputs that were spent by this transaction
+ * - Updating wallet and address balances
+ * - Clearing tx_proposal marks
+ * - Deleting ALL tokens created by this transaction
+ *
+ * Token Deletion Behavior:
+ *
+ * When a transaction is voided, ALL tokens created by that transaction are deleted,
+ * regardless of how they were created:
+ *
+ * 1. **Pure CREATE_TOKEN_TX**: Deletes the CREATE_TOKEN_TX token (token_id = tx_id)
+ *
+ * 2. **Pure Nano Contract**: Deletes all tokens created by nano syscalls
+ *
+ * 3. **Hybrid Transaction (CREATE_TOKEN_TX + Nano)**: Deletes BOTH:
+ *    - The CREATE_TOKEN_TX token (token_id = tx_id)
+ *    - All nano-created tokens (token_id ≠ tx_id)
+ *
+ * Important: This deletion is INDEPENDENT of nano contract execution state:
+ * - A voided transaction might still have nc_execution = 'success'
+ * - Voiding applies to the ENTIRE transaction, so all tokens are deleted
+ * - This is different from nano execution state changes, which only delete nano-created tokens
+ *
+ * @param mysql - Database connection (must be in transaction)
+ * @param hash - Transaction hash
+ * @param inputs - Transaction inputs
+ * @param outputs - Transaction outputs
+ * @param tokens - Token UIDs in the transaction
+ * @param headers - Transaction headers (for nano contracts)
+ * @param version - Transaction version
+ */
 export const voidTx = async (
   mysql: MysqlConnection,
   hash: string,
@@ -598,8 +733,27 @@ export const voidTx = async (
   // This ensures the UTXOs can be used in new transactions after the void
   await clearTxProposalForVoidedTx(mysql, txInputs);
 
-  // Delete any tokens created by this transaction
-  // This handles both regular CREATE_TOKEN_TX and nano contract transactions
+  /**
+   * Delete ALL tokens created by this voided transaction.
+   *
+   * This handles all three token creation scenarios:
+   *
+   * 1. Pure CREATE_TOKEN_TX (no nano):
+   *    - Deletes the single CREATE_TOKEN_TX token (token_id = tx_id)
+   *
+   * 2. Pure nano contract:
+   *    - Deletes all tokens created by nano syscalls (token_id ≠ tx_id)
+   *
+   * 3. Hybrid (CREATE_TOKEN_TX + nano):
+   *    - Deletes BOTH the CREATE_TOKEN_TX token AND all nano-created tokens
+   *
+   * Note: This is INDEPENDENT of nano execution state (nc_execution).
+   * Even if nc_execution = 'success', we delete all tokens because the
+   * ENTIRE transaction is being voided.
+   *
+   * See handleVertexAccepted for nano execution state change logic, which
+   * ONLY deletes nano-created tokens when nc_execution becomes non-SUCCESS.
+   */
   const tokensCreated = await getTokensCreatedByTx(mysql, hash);
   if (tokensCreated.length > 0) {
     logger.debug(`Voiding transaction ${hash} created ${tokensCreated.length} token(s), deleting them`);

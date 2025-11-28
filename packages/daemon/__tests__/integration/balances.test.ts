@@ -129,7 +129,7 @@ describe('unvoided transaction scenario', () => {
     await cleanDatabase(mysql);
   });
 
-  it('should do a full sync and the balances should match', async () => {
+  it.only('should do a full sync and the balances should match', async () => {
     // @ts-expect-error
     getConfig.mockReturnValue({
       NETWORK: 'testnet',
@@ -165,7 +165,7 @@ describe('reorg scenario', () => {
     await cleanDatabase(mysql);
   });
 
-  it('should do a full sync and the balances should match', async () => {
+  it.only('should do a full sync and the balances should match', async () => {
     // @ts-expect-error
     getConfig.mockReturnValue({
       NETWORK: 'testnet',
@@ -201,7 +201,7 @@ describe('single chain blocks and transactions scenario', () => {
     await cleanDatabase(mysql);
   });
 
-  it('should do a full sync and the balances should match', async () => {
+  it.only('should do a full sync and the balances should match', async () => {
     // @ts-expect-error
     getConfig.mockReturnValue({
       NETWORK: 'testnet',
@@ -237,7 +237,7 @@ describe('invalid mempool transactions scenario', () => {
     await cleanDatabase(mysql);
   });
 
-  it('should do a full sync and the balances should match', async () => {
+  it.only('should do a full sync and the balances should match', async () => {
     // @ts-expect-error
     getConfig.mockReturnValue({
       NETWORK: 'testnet',
@@ -273,7 +273,7 @@ describe('custom script scenario', () => {
     await cleanDatabase(mysql);
   });
 
-  it('should do a full sync and the balances should match', async () => {
+  it.only('should do a full sync and the balances should match', async () => {
     // @ts-expect-error
     getConfig.mockReturnValue({
       NETWORK: 'testnet',
@@ -309,7 +309,7 @@ describe('empty script scenario', () => {
     await cleanDatabase(mysql);
   });
 
-  it('should do a full sync and the balances should match', async () => {
+  it.only('should do a full sync and the balances should match', async () => {
     // @ts-expect-error
     getConfig.mockReturnValue({
       NETWORK: 'testnet',
@@ -346,7 +346,7 @@ describe('nc events scenario', () => {
     await cleanDatabase(mysql);
   });
 
-  it('should do a full sync and the balances should match', async () => {
+  it.only('should do a full sync and the balances should match', async () => {
     // @ts-ignore
     getConfig.mockReturnValue({
       NETWORK: 'testnet',
@@ -383,7 +383,7 @@ describe('transaction voiding chain scenario', () => {
     await cleanDatabase(mysql);
   });
 
-  it('should do a full sync and the balances should match after voiding chain', async () => {
+  it.only('should do a full sync and the balances should match after voiding chain', async () => {
     // @ts-ignore
     getConfig.mockReturnValue({
       NETWORK: 'testnet',
@@ -496,7 +496,7 @@ describe('voided token authority scenario', () => {
     await cleanDatabase(mysql);
   });
 
-  it('should do a full sync and the balances should match after voiding token authority', async () => {
+  it.only('should do a full sync and the balances should match after voiding token authority', async () => {
     // @ts-ignore
     getConfig.mockReturnValue({
       NETWORK: 'testnet',
@@ -590,7 +590,7 @@ describe('single voided create token transaction scenario', () => {
     await cleanDatabase(mysql);
   });
 
-  it('should do a full sync and the balances should match', async () => {
+  it.only('should do a full sync and the balances should match', async () => {
     // @ts-expect-error
     getConfig.mockReturnValue({
       NETWORK: 'testnet',
@@ -619,7 +619,7 @@ describe('single voided create token transaction scenario', () => {
     await expect(validateBalances(addressBalances, singleVoidedCreateTokenTransactionBalances.addressBalances)).resolves.not.toThrow();
   }, 30000);
 
-  it('addresses_balance and address_tx_history row length must match after a void transaction scenario', async () => {
+  it.only('addresses_balance and address_tx_history row length must match after a void transaction scenario', async () => {
     // @ts-expect-error
     getConfig.mockReturnValue({
       NETWORK: 'testnet',
@@ -744,7 +744,7 @@ describe('single voided regular transaction scenario', () => {
     await cleanDatabase(mysql);
   });
 
-  it('should do a full sync and the balances should match', async () => {
+  it.only('should do a full sync and the balances should match', async () => {
     // @ts-expect-error
     getConfig.mockReturnValue({
       NETWORK: 'testnet',
@@ -773,7 +773,7 @@ describe('single voided regular transaction scenario', () => {
     await expect(validateBalances(addressBalances, singleVoidedRegularTransactionBalances.addressBalances)).resolves.not.toThrow();
   }, 30000);
 
-  it('addresses_balance and address_tx_history row length must match after a void transaction scenario', async () => {
+  it.only('addresses_balance and address_tx_history row length must match after a void transaction scenario', async () => {
     // @ts-expect-error
     getConfig.mockReturnValue({
       NETWORK: 'testnet',
@@ -829,7 +829,7 @@ describe('single voided regular transaction scenario', () => {
     expect(addressRows.length).toEqual(txHistoryRows.length);
   }, 30000);
 
-  it('wallet_balance and wallet_tx_history row length must match after a void transaction scenario', async () => {
+  it.only('wallet_balance and wallet_tx_history row length must match after a void transaction scenario', async () => {
     // @ts-expect-error
     getConfig.mockReturnValue({
       NETWORK: 'testnet',
