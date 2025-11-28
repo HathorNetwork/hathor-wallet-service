@@ -1150,6 +1150,82 @@ export const storeTokenInformation = async (
 };
 
 /**
+ * Store the mapping between a token and the transaction that created it
+ *
+ * @param mysql - Database connection
+ * @param tokenId - The token UID
+ * @param txId - Transaction ID that created the token (regular or nano contract)
+ */
+export const insertTokenCreation = async (
+  mysql: MysqlConnection,
+  tokenId: string,
+  txId: string,
+): Promise<void> => {
+  const entry = {
+    token_id: tokenId,
+    tx_id: txId,
+  };
+  await mysql.query(
+    'INSERT INTO `token_creation` SET ?',
+    [entry],
+  );
+};
+
+/**
+ * Get all token IDs created by a specific transaction
+ *
+ * @param mysql - Database connection
+ * @param txId - The transaction ID (regular or nano contract)
+ * @returns Array of token IDs created by this transaction
+ */
+export const getTokensCreatedByTx = async (
+  mysql: MysqlConnection,
+  txId: string,
+): Promise<string[]> => {
+  const [rows] = await mysql.query<any[]>(
+    'SELECT `token_id` FROM `token_creation` WHERE `tx_id` = ?',
+    [txId],
+  );
+  return rows.map((row) => row.token_id);
+};
+
+/**
+ * Delete token creation mapping entries
+ *
+ * @param mysql - Database connection
+ * @param tokenIds - Array of token IDs to delete mappings for
+ */
+export const deleteTokenCreationMappings = async (
+  mysql: MysqlConnection,
+  tokenIds: string[],
+): Promise<void> => {
+  if (tokenIds.length === 0) return;
+
+  await mysql.query(
+    'DELETE FROM `token_creation` WHERE `token_id` IN (?)',
+    [tokenIds],
+  );
+};
+
+/**
+ * Delete tokens from the token table
+ *
+ * @param mysql - Database connection
+ * @param tokenIds - Array of token IDs to delete
+ */
+export const deleteTokens = async (
+  mysql: MysqlConnection,
+  tokenIds: string[],
+): Promise<void> => {
+  if (tokenIds.length === 0) return;
+
+  await mysql.query(
+    'DELETE FROM `token` WHERE `id` IN (?)',
+    [tokenIds],
+  );
+};
+
+/**
  * Get tx inputs that are still marked as locked.
  *
  * @remarks

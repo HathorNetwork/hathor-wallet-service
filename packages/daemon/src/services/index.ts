@@ -59,6 +59,10 @@ import {
   getUtxosLockedAtHeight,
   addMiner,
   storeTokenInformation,
+  insertTokenCreation,
+  getTokensCreatedByTx,
+  deleteTokenCreationMappings,
+  deleteTokens,
   getLockedUtxoFromInputs,
   incrementTokensTxCount,
   getAddressWalletInfo,
@@ -594,6 +598,15 @@ export const voidTx = async (
   // This ensures the UTXOs can be used in new transactions after the void
   await clearTxProposalForVoidedTx(mysql, txInputs);
 
+  // Delete any tokens created by this transaction
+  // This handles both regular CREATE_TOKEN_TX and nano contract transactions
+  const tokensCreated = await getTokensCreatedByTx(mysql, hash);
+  if (tokensCreated.length > 0) {
+    logger.debug(`Voiding transaction ${hash} created ${tokensCreated.length} token(s), deleting them`);
+    await deleteTokens(mysql, tokensCreated);
+    await deleteTokenCreationMappings(mysql, tokensCreated);
+  }
+
   const addresses = Object.keys(addressBalanceMap);
   await validateAddressBalances(mysql, addresses);
 };
@@ -826,15 +839,24 @@ export const handleTokenCreated = async (context: Context) => {
       token_uid,
       token_name,
       token_symbol,
+      nc_exec_info,
     } = fullNodeEvent.event.data;
 
     logger.debug(`Handling TOKEN_CREATED event for token ${token_uid}: ${token_name} (${token_symbol})`);
 
+    // Store the token information
     await storeTokenInformation(mysql, token_uid, token_name, token_symbol);
+
+    // Store the mapping between token and the transaction that created it
+    // nc_exec_info.nc_tx contains the transaction hash (nano contract or regular)
+    const txId = nc_exec_info.nc_tx;
+
+    await insertTokenCreation(mysql, token_uid, txId);
+
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
 
     await mysql.commit();
-    logger.debug(`Successfully stored token ${token_uid}`);
+    logger.debug(`Successfully stored token ${token_uid} created by tx ${txId}`);
   } catch (e) {
     logger.error('Error handling TOKEN_CREATED event', e);
     await mysql.rollback();
