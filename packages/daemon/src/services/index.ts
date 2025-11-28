@@ -284,13 +284,6 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       await unlockTimelockedUtxos(mysql, now);
     }
 
-    if (version === hathorLib.constants.CREATE_TOKEN_TX_VERSION) {
-      if (!token_name || !token_symbol) {
-        throw new Error('Processed a token creation event but it did not come with token name and symbol');
-      }
-      await storeTokenInformation(mysql, hash, token_name, token_symbol);
-    }
-
     // check if any of the inputs are still marked as locked and update tables accordingly.
     // See remarks on getLockedUtxoFromInputs for more explanation. It's important to perform this
     // before updating the balances
@@ -812,6 +805,42 @@ export const handleReorgStarted = async (context: Context): Promise<void> => {
       metadata,
       logger,
     );
+  }
+};
+
+export const handleTokenCreated = async (context: Context) => {
+  const mysql = await getDbConnection();
+  await mysql.beginTransaction();
+
+  try {
+    const fullNodeEvent = context.event;
+    if (!fullNodeEvent) {
+      throw new Error('No event in context');
+    }
+
+    if (fullNodeEvent.event.type !== FullNodeEventTypes.TOKEN_CREATED) {
+      throw new Error('Invalid event type for TOKEN_CREATED');
+    }
+
+    const {
+      token_uid,
+      token_name,
+      token_symbol,
+    } = fullNodeEvent.event.data;
+
+    logger.debug(`Handling TOKEN_CREATED event for token ${token_uid}: ${token_name} (${token_symbol})`);
+
+    await storeTokenInformation(mysql, token_uid, token_name, token_symbol);
+    await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
+
+    await mysql.commit();
+    logger.debug(`Successfully stored token ${token_uid}`);
+  } catch (e) {
+    logger.error('Error handling TOKEN_CREATED event', e);
+    await mysql.rollback();
+    throw e;
+  } finally {
+    mysql.destroy();
   }
 };
 

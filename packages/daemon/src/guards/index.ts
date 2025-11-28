@@ -264,3 +264,14 @@ export const hasNewEvents = (_context: Context, event: any) => {
 
   return event.data.hasNewEvents === true;
 };
+
+/*
+ * This guard is used to detect if the event is a TOKEN_CREATED event
+ */
+export const tokenCreated = (_context: Context, event: Event) => {
+  if (event.type !== EventTypes.FULLNODE_EVENT) {
+    throw new Error(`Invalid event type on tokenCreated guard: ${event.type}`);
+  }
+
+  return event.event.event.type === FullNodeEventTypes.TOKEN_CREATED;
+};
