@@ -240,10 +240,10 @@ export const TokenCreatedEventSchema = FullNodeEventBaseSchema.extend({
       nc_exec_info: z.object({
         nc_tx: z.string(),
         nc_block: z.string(),
-      }),
+      }).nullable(),
       token_name: z.string(),
       token_symbol: z.string(),
-      token_version: z.string(),
+      token_version: z.number(),
       initial_amount: z.number(),
     }),
     group_id: z.number().nullable(),

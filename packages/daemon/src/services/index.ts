@@ -848,8 +848,9 @@ export const handleTokenCreated = async (context: Context) => {
     await storeTokenInformation(mysql, token_uid, token_name, token_symbol);
 
     // Store the mapping between token and the transaction that created it
-    // nc_exec_info.nc_tx contains the transaction hash (nano contract or regular)
-    const txId = nc_exec_info.nc_tx;
+    // For regular CREATE_TOKEN_TX: nc_exec_info is null, token_uid equals tx_id
+    // For nano contract tokens: nc_exec_info.nc_tx contains the transaction hash
+    const txId = nc_exec_info?.nc_tx ?? token_uid;
 
     await insertTokenCreation(mysql, token_uid, txId);
 
