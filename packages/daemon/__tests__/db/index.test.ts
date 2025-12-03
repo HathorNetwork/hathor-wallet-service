@@ -1364,9 +1364,9 @@ describe('token creation mapping methods', () => {
 
     // First, add tokens to the token table
     await addToTokenTable(mysql, [
-      [tokenId1, 'Token 1', 'TK1'],
-      [tokenId2, 'Token 2', 'TK2'],
-      [tokenId3, 'Token 3', 'TK3'],
+      { id: tokenId1, name: 'Token 1', symbol: 'TK1', transactions: 0 },
+      { id: tokenId2, name: 'Token 2', symbol: 'TK2', transactions: 0 },
+      { id: tokenId3, name: 'Token 3', symbol: 'TK3', transactions: 0 },
     ]);
 
     // Insert token creation mappings
@@ -1402,9 +1402,9 @@ describe('token creation mapping methods', () => {
 
     // Add tokens to token table
     await addToTokenTable(mysql, [
-      [tokenId1, 'Token 1', 'TK1'],
-      [tokenId2, 'Token 2', 'TK2'],
-      [tokenId3, 'Token 3', 'TK3'],
+      { id: tokenId1, name: 'Token 1', symbol: 'TK1', transactions: 0 },
+      { id: tokenId2, name: 'Token 2', symbol: 'TK2', transactions: 0 },
+      { id: tokenId3, name: 'Token 3', symbol: 'TK3', transactions: 0 },
     ]);
 
     // Insert mappings
@@ -1437,9 +1437,9 @@ describe('token creation mapping methods', () => {
 
     // Add tokens to token table
     await addToTokenTable(mysql, [
-      [tokenId1, 'Token 1', 'TK1'],
-      [tokenId2, 'Token 2', 'TK2'],
-      [tokenId3, 'Token 3', 'TK3'],
+      { id: tokenId1, name: 'Token 1', symbol: 'TK1', transactions: 0 },
+      { id: tokenId2, name: 'Token 2', symbol: 'TK2', transactions: 0 },
+      { id: tokenId3, name: 'Token 3', symbol: 'TK3', transactions: 0 },
     ]);
 
     // Verify tokens exist
@@ -1475,8 +1475,8 @@ describe('token creation mapping methods', () => {
 
     // Add tokens
     await addToTokenTable(mysql, [
-      [tokenId1, 'Token 1', 'TK1'],
-      [tokenId2, 'Token 2', 'TK2'],
+      { id: tokenId1, name: 'Token 1', symbol: 'TK1', transactions: 0 },
+      { id: tokenId2, name: 'Token 2', symbol: 'TK2', transactions: 0 },
     ]);
 
     // Insert mappings
