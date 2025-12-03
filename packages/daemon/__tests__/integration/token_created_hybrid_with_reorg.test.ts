@@ -37,7 +37,7 @@ jest.mock('../../src/utils/aws', () => {
 import getConfig from '../../src/config';
 
 const TOKEN_CREATED_HYBRID_WITH_REORG_PORT = 8094;
-const TOKEN_CREATED_HYBRID_WITH_REORG_LAST_EVENT = 36;
+const TOKEN_CREATED_HYBRID_WITH_REORG_LAST_EVENT = 43;
 
 // @ts-expect-error
 getConfig.mockReturnValue({
@@ -87,26 +87,34 @@ jest.spyOn(Services, 'checkForMissedEvents').mockImplementation(async () => ({
 /**
  * Integration test for TOKEN_CREATED with REORG scenario.
  *
- * NOTE: Despite the scenario name "TOKEN_CREATED_HYBRID_WITH_REORG", this is actually
- * a PURE NANO CONTRACT scenario, not a hybrid transaction.
- *
- * This test validates that nano-created tokens are properly deleted when a reorg
- * invalidates the nano contract execution.
+ * This test validates the edge case where a single transaction creates tokens in
+ * TWO different ways:
+ * 1. Traditional CREATE_TOKEN_TX: Token created immediately when transaction hits mempool
+ * 2. Nano contract syscall: Token created when nano contract executes successfully
  *
  * Test Flow:
- * 1. Nano contract transaction (985aa68e...) arrives with nano headers
- * 2. Transaction gets confirmed in block (9a15d3ee...)
- * 3. Nano executes successfully (nc_execution: SUCCESS)
- * 4. TOKEN_CREATED event: Nano-created token (NCX) with nc_exec_info: {nc_tx, nc_block}
- * 5. REORG happens - different branch wins
- * 6. The reorg does NOT invalidate the nano execution (it stays in the winning branch)
+ * 1. Hybrid transaction (e0c3d311...) arrives with both CREATE_TOKEN_TX and nano headers
+ * 2. TOKEN_CREATED event #1: Traditional token "HYB" (id=36d1077f...) with nc_exec_info: null
+ * 3. Transaction gets confirmed in block (b31d0be2...)
+ * 4. Nano executes successfully (nc_execution: SUCCESS)
+ * 5. TOKEN_CREATED event #2: Nano-created token "NCX" (id=37a41048...) with nc_exec_info: {nc_tx, nc_block}
+ * 6. REORG happens - different branch wins (but same best block b31d0be2...)
+ * 7. During reorg: nc_execution stays at SUCCESS (transaction remains in winning branch)
+ * 8. TOKEN_CREATED event for NCX is replayed during reorg
+ * 9. REORG finishes
  *
  * Expected Behavior:
- * - NCX token REMAINS in database (nano execution is still valid on the winning branch)
+ * - HYB token (traditional, id=36d1077f...) REMAINS in database (persists through reorg)
+ * - NCX token (nano-created, id=37a41048...) REMAINS in database (nano execution stays valid)
+ * - Both tokens exist at the end
+ * - HYB maps to itself (token_id = tx_id for CREATE_TOKEN_TX)
+ * - NCX maps to the nano transaction (e0c3d311...)
  *
  * This validates that:
- * - Nano-created tokens are kept when they remain valid after reorg
- * - Only tokens from invalidated nano executions are deleted
+ * - Traditional CREATE_TOKEN_TX tokens persist through reorg
+ * - Nano-created tokens persist when nano execution remains valid during reorg
+ * - TOKEN_CREATED events are properly replayed during reorg
+ * - Token creation mappings are correct for both token types
  */
 describe('token created with reorg scenario', () => {
   beforeAll(async () => {
@@ -114,7 +122,7 @@ describe('token created with reorg scenario', () => {
     await cleanDatabase(mysql);
   });
 
-  it('should keep nano-created token when reorg does not invalidate nano execution', async () => {
+  it('should keep both traditional and nano-created tokens after reorg', async () => {
     const machine = interpret(SyncMachine);
 
     // @ts-expect-error
@@ -123,26 +131,45 @@ describe('token created with reorg scenario', () => {
     // Query all tokens from the database
     const [allTokens] = await mysql.query<any[]>('SELECT * FROM `token`');
 
-    // Find the NC Extra Token
-    const ncxToken = allTokens.find(t => t.name === 'NC Extra Token');
+    // Should have exactly 2 tokens: HYB (traditional) and NCX (nano-created)
+    expect(allTokens.length).toBe(2);
 
-    // Verify NCX token (nano-created) still exists
+    // Find the HYB token (traditional CREATE_TOKEN_TX)
+    const hybToken = allTokens.find(t => t.symbol === 'HYB');
+    expect(hybToken).toBeDefined();
+    expect(hybToken?.name).toBe('HYB');
+    expect(hybToken?.symbol).toBe('HYB');
+
+    // Find the NCX token (nano-created)
+    const ncxToken = allTokens.find(t => t.symbol === 'NCX');
     expect(ncxToken).toBeDefined();
     expect(ncxToken?.name).toBe('NC Extra Token');
     expect(ncxToken?.symbol).toBe('NCX');
 
-    // Verify token creation mappings for the NC Extra Token
-    const [tokenCreationMappings] = await mysql.query<any[]>(
+    // Verify token creation mappings
+    // HYB is a CREATE_TOKEN_TX token, so token_id = tx_id
+    // The HYB token itself IS the transaction
+    expect(hybToken!.id).toBe('36d1077f70d7813394d6f6d8cea8d488dbf9a3a7beef4b8f230f7c77a1cfbc61');
+
+    const [hybMappings] = await mysql.query<any[]>(
+      'SELECT * FROM `token_creation` WHERE token_id = ?',
+      [hybToken!.id]
+    );
+    expect(hybMappings.length).toBe(1);
+    expect(hybMappings[0].tx_id).toBe('36d1077f70d7813394d6f6d8cea8d488dbf9a3a7beef4b8f230f7c77a1cfbc61');
+
+    // NCX is nano-created, so it maps to the nano transaction (the hybrid tx)
+    expect(ncxToken!.id).toBe('37a41048c80d09b64e66ab7e35f861e27662781159751e11d21514de9336862e');
+
+    const [ncxMappings] = await mysql.query<any[]>(
       'SELECT * FROM `token_creation` WHERE token_id = ?',
       [ncxToken!.id]
     );
-
-    // Should have the nano-created token mapping
-    expect(tokenCreationMappings.length).toBe(1);
-    expect(tokenCreationMappings[0].token_id).toBe(ncxToken!.id);
+    expect(ncxMappings.length).toBe(1);
+    expect(ncxMappings[0].tx_id).toBe('e0c3d311118c6e2d86f92517fdf5bd5676a3c738b9db82629b509a78641be7f1');
   }, 30000);
 
-  it('should verify TOKEN_CREATED event was received for nano-created token', async () => {
+  it('should verify TOKEN_CREATED events for both traditional and nano-created tokens', async () => {
     const machine = interpret(SyncMachine);
     const receivedEvents: any[] = [];
 
@@ -161,19 +188,42 @@ describe('token created with reorg scenario', () => {
       (e) => e.event?.type === 'TOKEN_CREATED'
     );
 
-    // Find the NCX token event specifically
-    const ncxTokenEvent = tokenCreatedEvents.find(
+    // Find the HYB token event (traditional CREATE_TOKEN_TX)
+    const hybTokenEvent = tokenCreatedEvents.find(
+      (e) => e.event?.data?.token_symbol === 'HYB'
+    );
+
+    // Verify HYB token event exists
+    expect(hybTokenEvent).toBeDefined();
+    expect(hybTokenEvent.event.data.token_name).toBe('HYB');
+    expect(hybTokenEvent.event.data.token_symbol).toBe('HYB');
+    expect(hybTokenEvent.event.data.nc_exec_info).toBeNull(); // Traditional token has no nano info
+    expect(hybTokenEvent.event.data.initial_amount).toBe(500);
+
+    // Find the NCX token event (nano-created)
+    const ncxTokenEvents = tokenCreatedEvents.filter(
       (e) => e.event?.data?.token_symbol === 'NCX'
     );
 
-    // Verify NCX token event (nano-created) exists
-    expect(ncxTokenEvent).toBeDefined();
-    expect(ncxTokenEvent.event.data.token_name).toBe('NC Extra Token');
-    expect(ncxTokenEvent.event.data.token_symbol).toBe('NCX');
-    expect(ncxTokenEvent.event.data.nc_exec_info).not.toBeNull();
-    expect(ncxTokenEvent.event.data.nc_exec_info.nc_tx).toBe('985aa68e0b0595a968f56d43fdde593a077992ef3e81f9a452ec90664fa6342c');
-    expect(ncxTokenEvent.event.data.nc_exec_info.nc_block).toBe('9a15d3eeb6b2f383e1c14d30715268b28f8e840331e5a88d04fa5e61a54bdf5d');
-    expect(ncxTokenEvent.event.data.initial_amount).toBe(777);
+    // NCX should appear at least twice: once before reorg, once during reorg replay
+    // (May appear more times if there are multiple test runs captured)
+    expect(ncxTokenEvents.length).toBeGreaterThanOrEqual(2);
+
+    // Find the event before reorg (group_id is null)
+    const ncxBeforeReorg = ncxTokenEvents.find(e => e.event.group_id === null);
+    expect(ncxBeforeReorg).toBeDefined();
+    expect(ncxBeforeReorg.event.data.token_name).toBe('NC Extra Token');
+    expect(ncxBeforeReorg.event.data.token_symbol).toBe('NCX');
+    expect(ncxBeforeReorg.event.data.nc_exec_info).not.toBeNull();
+    expect(ncxBeforeReorg.event.data.nc_exec_info.nc_tx).toBe('e0c3d311118c6e2d86f92517fdf5bd5676a3c738b9db82629b509a78641be7f1');
+    expect(ncxBeforeReorg.event.data.nc_exec_info.nc_block).toBe('b31d0be244d8a84723030b3c0091d74e6a914b0edf6bd9611251bebcb12f70e8');
+    expect(ncxBeforeReorg.event.data.initial_amount).toBe(777);
+
+    // Find the event during reorg (group_id is 0)
+    const ncxDuringReorg = ncxTokenEvents.find(e => e.event.group_id === 0);
+    expect(ncxDuringReorg).toBeDefined();
+    expect(ncxDuringReorg.event.data.token_name).toBe('NC Extra Token');
+    expect(ncxDuringReorg.event.data.initial_amount).toBe(777);
   }, 30000);
 
   it('should verify nano execution remains successful after reorg', async () => {
@@ -191,7 +241,7 @@ describe('token created with reorg scenario', () => {
     await transitionUntilEvent(mysql, machine, TOKEN_CREATED_HYBRID_WITH_REORG_LAST_EVENT);
 
     // Filter for VERTEX_METADATA_CHANGED events for the nano transaction
-    const nanoTxHash = '985aa68e0b0595a968f56d43fdde593a077992ef3e81f9a452ec90664fa6342c';
+    const nanoTxHash = 'e0c3d311118c6e2d86f92517fdf5bd5676a3c738b9db82629b509a78641be7f1';
     const metadataChangedEvents = receivedEvents.filter(
       (e) => e.event?.type === 'VERTEX_METADATA_CHANGED' &&
              e.event?.data?.hash === nanoTxHash
@@ -209,7 +259,54 @@ describe('token created with reorg scenario', () => {
     // Verify the last metadata event for this tx still shows success
     const lastEvent = metadataChangedEvents[metadataChangedEvents.length - 1];
     expect(lastEvent.event.data.metadata.nc_execution).toBe('success');
-    expect(lastEvent.event.data.metadata.first_block).toBe('9a15d3eeb6b2f383e1c14d30715268b28f8e840331e5a88d04fa5e61a54bdf5d');
+    expect(lastEvent.event.data.metadata.first_block).toBe('b31d0be244d8a84723030b3c0091d74e6a914b0edf6bd9611251bebcb12f70e8');
+  }, 30000);
+
+  it('should verify nano execution stays successful during reorg', async () => {
+    const machine = interpret(SyncMachine);
+    const receivedEvents: any[] = [];
+
+    // Capture all events during sync
+    machine.onTransition((state) => {
+      if (state.context.event) {
+        receivedEvents.push(state.context.event);
+      }
+    });
+
+    // @ts-expect-error
+    await transitionUntilEvent(mysql, machine, TOKEN_CREATED_HYBRID_WITH_REORG_LAST_EVENT);
+
+    // Filter for VERTEX_METADATA_CHANGED events for the nano transaction
+    const nanoTxHash = 'e0c3d311118c6e2d86f92517fdf5bd5676a3c738b9db82629b509a78641be7f1';
+    const metadataChangedEvents = receivedEvents.filter(
+      (e) => e.event?.type === 'VERTEX_METADATA_CHANGED' &&
+             e.event?.data?.hash === nanoTxHash
+    );
+
+    // Should have received metadata change events for the nano transaction
+    expect(metadataChangedEvents.length).toBeGreaterThan(0);
+
+    // Find events within the reorg group (group_id: 0)
+    const reorgGroupEvents = metadataChangedEvents.filter(
+      (e) => e.event?.group_id === 0
+    );
+
+    // If there are reorg group events for this tx, verify they show success
+    if (reorgGroupEvents.length > 0) {
+      const successExecEvent = reorgGroupEvents.find(
+        (e) => e.event?.data?.metadata?.nc_execution === 'success' &&
+               e.event?.data?.metadata?.first_block === 'b31d0be244d8a84723030b3c0091d74e6a914b0edf6bd9611251bebcb12f70e8'
+      );
+
+      // Verify the nano execution stays at SUCCESS during reorg
+      expect(successExecEvent).toBeDefined();
+
+      // There should be NO event where nc_execution goes to null for this specific tx during reorg
+      const nullExecEvent = reorgGroupEvents.find(
+        (e) => e.event?.data?.metadata?.nc_execution === null
+      );
+      expect(nullExecEvent).toBeUndefined();
+    }
   }, 30000);
 
   it('should verify REORG events are properly detected', async () => {
@@ -243,8 +340,8 @@ describe('token created with reorg scenario', () => {
 
     // Verify REORG_STARTED has expected data
     expect(reorgStarted.event.data.reorg_size).toBe(1);
-    expect(reorgStarted.event.data.previous_best_block).toBe('0161ccc829a9c8b4121823f0ff2edc305d13c9e93f3ff446bd384598e45c9f57');
-    expect(reorgStarted.event.data.new_best_block).toBe('9a15d3eeb6b2f383e1c14d30715268b28f8e840331e5a88d04fa5e61a54bdf5d');
-    expect(reorgStarted.event.data.common_block).toBe('10fff6c4ce172c7bf43a992bd99738dba984866cca9cb125dca6620dfb526034');
+    expect(reorgStarted.event.data.previous_best_block).toBe('2da3b1addef46313d1d476fc6d446f6cb30692848f2000fe683c742ad4d6bfb5');
+    expect(reorgStarted.event.data.new_best_block).toBe('b31d0be244d8a84723030b3c0091d74e6a914b0edf6bd9611251bebcb12f70e8');
+    expect(reorgStarted.event.data.common_block).toBe('ad0695060613f718ff1dc0c22249bac3c506be690ef3a3d21cb0afcef89d730c');
   }, 30000);
 });

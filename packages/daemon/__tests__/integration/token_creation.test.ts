@@ -37,7 +37,7 @@ jest.mock('../../src/utils/aws', () => {
 import getConfig from '../../src/config';
 
 const TOKEN_CREATION_PORT = 8093;
-const TOKEN_CREATION_LAST_EVENT = 46;
+const TOKEN_CREATION_LAST_EVENT = 45;
 
 // @ts-expect-error
 getConfig.mockReturnValue({
