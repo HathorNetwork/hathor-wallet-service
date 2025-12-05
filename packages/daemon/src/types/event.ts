@@ -272,7 +272,7 @@ export const TokenCreatedEventSchema = FullNodeEventBaseSchema.extend({
       token_name: z.string(),
       token_symbol: z.string(),
       token_version: z.number(),
-      initial_amount: z.number(),
+      initial_amount: z.number().optional(),
     }),
     group_id: z.number().nullable(),
   }),
