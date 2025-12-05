@@ -6,7 +6,7 @@
  */
 
 import * as db from '../../src/db';
-import { handleVoidedTx, voidTx } from '../../src/services';
+import { handleVoidedTx, voidTx, handleTokenCreated } from '../../src/services';
 import { LRU } from '../../src/utils';
 import {
   addOrUpdateTx,
@@ -949,5 +949,434 @@ describe('wallet balance voiding bug', () => {
     expect(utxo2AfterVoid!.txProposalId).toBeNull();
     expect(utxo2AfterVoid!.txProposalIndex).toBeNull();
     expect(utxo2AfterVoid!.spentBy).toBeNull();
+  });
+
+  it('should delete tokens when voiding transaction that created them', async () => {
+    expect.hasAssertions();
+
+    const txId = 'nano-tx-001';
+    const tokenId1 = 'token001';
+    const tokenId2 = 'token002';
+    const tokenId3 = 'token003';
+
+    // Add tokens to database
+    await db.storeTokenInformation(mysql, tokenId1, 'Token 1', 'TK1');
+    await db.storeTokenInformation(mysql, tokenId2, 'Token 2', 'TK2');
+    await db.storeTokenInformation(mysql, tokenId3, 'Token 3', 'TK3');
+
+    // Create mappings (simulate nano contract creating multiple tokens)
+    await db.insertTokenCreation(mysql, tokenId1, txId);
+    await db.insertTokenCreation(mysql, tokenId2, txId);
+    await db.insertTokenCreation(mysql, tokenId3, txId);
+
+    // Verify tokens and mappings exist
+    let token1 = await db.getTokenInformation(mysql, tokenId1);
+    expect(token1).not.toBeNull();
+    let tokens = await db.getTokensCreatedByTx(mysql, txId);
+    expect(tokens).toHaveLength(3);
+
+    // Void the transaction with empty inputs/outputs/tokens
+    await voidTx(mysql, txId, [], [], [], [], 1);
+
+    // Verify all tokens created by this tx were deleted
+    token1 = await db.getTokenInformation(mysql, tokenId1);
+    expect(token1).toBeNull();
+
+    const token2 = await db.getTokenInformation(mysql, tokenId2);
+    expect(token2).toBeNull();
+
+    const token3 = await db.getTokenInformation(mysql, tokenId3);
+    expect(token3).toBeNull();
+
+    // Verify mappings were also deleted
+    tokens = await db.getTokensCreatedByTx(mysql, txId);
+    expect(tokens).toHaveLength(0);
+  });
+});
+
+describe('handleTokenCreated (db)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('should store token and create mapping', async () => {
+    expect.hasAssertions();
+
+    const tokenId = 'token-uid-001';
+    const txId = 'tx-001';
+    const tokenName = 'My Token';
+    const tokenSymbol = 'MTK';
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      event: {
+        stream_id: 'stream-id',
+        peer_id: 'peer-id',
+        network: 'testnet',
+        type: 'FULLNODE_EVENT',
+        latest_event_id: 10,
+        event: {
+          id: 11,
+          timestamp: 1234567890.123,
+          type: 'TOKEN_CREATED',
+          data: {
+            token_uid: tokenId,
+            nc_exec_info: {
+              nc_tx: txId,
+              nc_block: 'block-001',
+            },
+            token_name: tokenName,
+            token_symbol: tokenSymbol,
+            token_version: 'TOKEN_VERSION_1',
+            initial_amount: 1000000,
+          },
+          group_id: null,
+        },
+      },
+    };
+
+    await handleTokenCreated(context as any);
+
+    // Verify token was stored
+    const token = await db.getTokenInformation(mysql, tokenId);
+    expect(token).not.toBeNull();
+    expect(token?.name).toBe(tokenName);
+    expect(token?.symbol).toBe(tokenSymbol);
+
+    // Verify mapping was created
+    const tokensCreated = await db.getTokensCreatedByTx(mysql, txId);
+    expect(tokensCreated).toHaveLength(1);
+    expect(tokensCreated[0]).toBe(tokenId);
+
+    // Verify last synced event was updated
+    const lastEvent = await db.getLastSyncedEvent(mysql);
+    expect(lastEvent).not.toBeNull();
+    expect(lastEvent?.last_event_id).toBe(11);
+  });
+
+  it('should handle multiple tokens from same nano contract', async () => {
+    expect.hasAssertions();
+
+    const txId = 'nano-tx-001';
+    const tokenId1 = 'token-uid-001';
+    const tokenId2 = 'token-uid-002';
+
+    // Create first TOKEN_CREATED event
+    const context1 = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      event: {
+        stream_id: 'stream-id',
+        peer_id: 'peer-id',
+        network: 'testnet',
+        type: 'FULLNODE_EVENT',
+        latest_event_id: 10,
+        event: {
+          id: 11,
+          timestamp: 1234567890.123,
+          type: 'TOKEN_CREATED',
+          data: {
+            token_uid: tokenId1,
+            nc_exec_info: {
+              nc_tx: txId,
+              nc_block: 'block-001',
+            },
+            token_name: 'Token 1',
+            token_symbol: 'TK1',
+            token_version: 'TOKEN_VERSION_1',
+            initial_amount: 1000000,
+          },
+          group_id: null,
+        },
+      },
+    };
+
+    // Create second TOKEN_CREATED event
+    const context2 = {
+      ...context1,
+      event: {
+        ...context1.event,
+        event: {
+          ...context1.event.event,
+          id: 12,
+          data: {
+            token_uid: tokenId2,
+            nc_exec_info: {
+              nc_tx: txId,
+              nc_block: 'block-001',
+            },
+            token_name: 'Token 2',
+            token_symbol: 'TK2',
+            token_version: 'TOKEN_VERSION_1',
+            initial_amount: 2000000,
+          },
+        },
+      },
+    };
+
+    await handleTokenCreated(context1 as any);
+    await handleTokenCreated(context2 as any);
+
+    // Verify both tokens were stored
+    const token1 = await db.getTokenInformation(mysql, tokenId1);
+    expect(token1).not.toBeNull();
+    expect(token1?.name).toBe('Token 1');
+
+    const token2 = await db.getTokenInformation(mysql, tokenId2);
+    expect(token2).not.toBeNull();
+    expect(token2?.name).toBe('Token 2');
+
+    // Verify both mappings point to same tx
+    const tokensCreated = await db.getTokensCreatedByTx(mysql, txId);
+    expect(tokensCreated).toHaveLength(2);
+    expect(tokensCreated).toContain(tokenId1);
+    expect(tokensCreated).toContain(tokenId2);
+  });
+});
+
+describe('Nano contract token deletion on nc_execution change', () => {
+  beforeEach(async () => {
+    await cleanDatabase(mysql);
+    jest.clearAllMocks();
+  });
+
+  it('should delete nano-created tokens when nc_execution changes from success to pending', async () => {
+    const txId = 'nano-tx-001';
+    const tokenId = 'token-from-nano-001';
+
+    // First, create the token (simulating when nc_execution was SUCCESS)
+    await db.storeTokenInformation(mysql, tokenId, 'NC Token', 'NCT');
+    await db.insertTokenCreation(mysql, tokenId, txId);
+
+    // Verify token exists
+    let token = await db.getTokenInformation(mysql, tokenId);
+    expect(token).not.toBeNull();
+
+    // Verify mapping exists
+    let tokensCreated = await db.getTokensCreatedByTx(mysql, txId);
+    expect(tokensCreated).toHaveLength(1);
+    expect(tokensCreated[0]).toBe(tokenId);
+
+    // Now delete tokens (simulating nc_execution changing to PENDING)
+    await db.deleteTokens(mysql, [tokenId]);
+    await db.deleteTokenCreationMappings(mysql, [tokenId]);
+
+    // Verify token was deleted
+    token = await db.getTokenInformation(mysql, tokenId);
+    expect(token).toBeNull();
+
+    // Verify mapping was deleted
+    tokensCreated = await db.getTokensCreatedByTx(mysql, txId);
+    expect(tokensCreated).toHaveLength(0);
+  });
+
+  it('should delete multiple nano-created tokens when nc_execution changes', async () => {
+    const txId = 'nano-tx-002';
+    const tokenId1 = 'token-from-nano-002-1';
+    const tokenId2 = 'token-from-nano-002-2';
+
+    // Create two tokens from the same nano contract execution
+    await db.storeTokenInformation(mysql, tokenId1, 'NC Token 1', 'NCT1');
+    await db.insertTokenCreation(mysql, tokenId1, txId);
+
+    await db.storeTokenInformation(mysql, tokenId2, 'NC Token 2', 'NCT2');
+    await db.insertTokenCreation(mysql, tokenId2, txId);
+
+    // Verify both tokens exist
+    let token1 = await db.getTokenInformation(mysql, tokenId1);
+    let token2 = await db.getTokenInformation(mysql, tokenId2);
+    expect(token1).not.toBeNull();
+    expect(token2).not.toBeNull();
+
+    // Verify both mappings exist
+    let tokensCreated = await db.getTokensCreatedByTx(mysql, txId);
+    expect(tokensCreated).toHaveLength(2);
+
+    // Delete all tokens created by this nano contract
+    await db.deleteTokens(mysql, tokensCreated);
+    await db.deleteTokenCreationMappings(mysql, tokensCreated);
+
+    // Verify both tokens were deleted
+    token1 = await db.getTokenInformation(mysql, tokenId1);
+    token2 = await db.getTokenInformation(mysql, tokenId2);
+    expect(token1).toBeNull();
+    expect(token2).toBeNull();
+
+    // Verify both mappings were deleted
+    tokensCreated = await db.getTokensCreatedByTx(mysql, txId);
+    expect(tokensCreated).toHaveLength(0);
+  });
+
+  it('should allow token re-creation after deletion (idempotency test)', async () => {
+    const txId = 'nano-tx-003';
+    const tokenId = 'token-from-nano-003';
+    const tokenName = 'NC Token Recreated';
+    const tokenSymbol = 'NCTR';
+
+    // Create token first time
+    await db.storeTokenInformation(mysql, tokenId, tokenName, tokenSymbol);
+    await db.insertTokenCreation(mysql, tokenId, txId);
+
+    // Delete it (simulating nc_execution change to PENDING)
+    await db.deleteTokens(mysql, [tokenId]);
+    await db.deleteTokenCreationMappings(mysql, [tokenId]);
+
+    // Verify it's deleted
+    let token = await db.getTokenInformation(mysql, tokenId);
+    expect(token).toBeNull();
+
+    // Re-create it (simulating nano execution again after reorg)
+    await db.storeTokenInformation(mysql, tokenId, tokenName, tokenSymbol);
+    await db.insertTokenCreation(mysql, tokenId, txId);
+
+    // Verify token was re-created
+    token = await db.getTokenInformation(mysql, tokenId);
+    expect(token).not.toBeNull();
+    expect(token?.name).toBe(tokenName);
+    expect(token?.symbol).toBe(tokenSymbol);
+
+    // Verify mapping was re-created
+    const tokensCreated = await db.getTokensCreatedByTx(mysql, txId);
+    expect(tokensCreated).toHaveLength(1);
+    expect(tokensCreated[0]).toBe(tokenId);
+  });
+});
+
+describe('Hybrid transaction token deletion scenarios', () => {
+  beforeEach(async () => {
+    await cleanDatabase(mysql);
+    jest.clearAllMocks();
+  });
+
+  it('should handle hybrid transaction - keep CREATE_TOKEN_TX token when only nc_execution changes', async () => {
+    const txId = 'hybrid-tx-001';
+    const createTokenTxTokenId = txId; // CREATE_TOKEN_TX token has same ID as tx
+    const nanoTokenId = 'nano-created-token-001';
+
+    // Step 1: CREATE_TOKEN_TX token arrives (immediately when tx hits mempool)
+    await db.storeTokenInformation(mysql, createTokenTxTokenId, 'Hybrid Token', 'HYB');
+    await db.insertTokenCreation(mysql, createTokenTxTokenId, txId);
+
+    // Step 2: Nano executes successfully and creates additional token
+    await db.storeTokenInformation(mysql, nanoTokenId, 'NC Token', 'NCT');
+    await db.insertTokenCreation(mysql, nanoTokenId, txId);
+
+    // Verify both tokens exist
+    let createTokenTxToken = await db.getTokenInformation(mysql, createTokenTxTokenId);
+    let nanoToken = await db.getTokenInformation(mysql, nanoTokenId);
+    expect(createTokenTxToken).not.toBeNull();
+    expect(nanoToken).not.toBeNull();
+
+    // Verify both mappings exist
+    let tokensCreated = await db.getTokensCreatedByTx(mysql, txId);
+    expect(tokensCreated).toHaveLength(2);
+
+    // Step 3: Reorg happens - nc_execution changes to PENDING
+    // Only delete nano-created token, not the CREATE_TOKEN_TX token
+    await db.deleteTokens(mysql, [nanoTokenId]);
+    await db.deleteTokenCreationMappings(mysql, [nanoTokenId]);
+
+    // Verify: nano token deleted, CREATE_TOKEN_TX token remains
+    createTokenTxToken = await db.getTokenInformation(mysql, createTokenTxTokenId);
+    nanoToken = await db.getTokenInformation(mysql, nanoTokenId);
+    expect(createTokenTxToken).not.toBeNull();
+    expect(nanoToken).toBeNull();
+
+    // Verify only CREATE_TOKEN_TX token mapping remains
+    tokensCreated = await db.getTokensCreatedByTx(mysql, txId);
+    expect(tokensCreated).toHaveLength(1);
+    expect(tokensCreated[0]).toBe(createTokenTxTokenId);
+
+    // Step 4: Nano executes again - token re-created
+    await db.storeTokenInformation(mysql, nanoTokenId, 'NC Token', 'NCT');
+    await db.insertTokenCreation(mysql, nanoTokenId, txId);
+
+    // Verify both tokens exist again
+    createTokenTxToken = await db.getTokenInformation(mysql, createTokenTxTokenId);
+    nanoToken = await db.getTokenInformation(mysql, nanoTokenId);
+    expect(createTokenTxToken).not.toBeNull();
+    expect(nanoToken).not.toBeNull();
+
+    // Verify both mappings exist again
+    tokensCreated = await db.getTokensCreatedByTx(mysql, txId);
+    expect(tokensCreated).toHaveLength(2);
+  });
+
+  it('should handle hybrid transaction - delete all tokens when transaction is voided', async () => {
+    const txId = 'hybrid-tx-002';
+    const createTokenTxTokenId = txId;
+    const nanoTokenId = 'nano-created-token-002';
+
+    // Create both tokens (CREATE_TOKEN_TX token + nano-created token)
+    await db.storeTokenInformation(mysql, createTokenTxTokenId, 'Hybrid Token 2', 'HYB2');
+    await db.insertTokenCreation(mysql, createTokenTxTokenId, txId);
+
+    await db.storeTokenInformation(mysql, nanoTokenId, 'NC Token 2', 'NCT2');
+    await db.insertTokenCreation(mysql, nanoTokenId, txId);
+
+    // Verify both tokens exist
+    let createTokenTxToken = await db.getTokenInformation(mysql, createTokenTxTokenId);
+    let nanoToken = await db.getTokenInformation(mysql, nanoTokenId);
+    expect(createTokenTxToken).not.toBeNull();
+    expect(nanoToken).not.toBeNull();
+
+    // Transaction becomes voided - delete ALL tokens
+    const tokensCreated = await db.getTokensCreatedByTx(mysql, txId);
+    await db.deleteTokens(mysql, tokensCreated);
+    await db.deleteTokenCreationMappings(mysql, tokensCreated);
+
+    // Verify both tokens were deleted
+    createTokenTxToken = await db.getTokenInformation(mysql, createTokenTxTokenId);
+    nanoToken = await db.getTokenInformation(mysql, nanoTokenId);
+    expect(createTokenTxToken).toBeNull();
+    expect(nanoToken).toBeNull();
+
+    // Verify all mappings were deleted
+    const tokensAfterVoid = await db.getTokensCreatedByTx(mysql, txId);
+    expect(tokensAfterVoid).toHaveLength(0);
+  });
+
+  it('should handle complex scenario - reorg then void', async () => {
+    const txId = 'hybrid-tx-003';
+    const createTokenTxTokenId = txId;
+    const nanoTokenId = 'nano-created-token-003';
+
+    // Create both tokens
+    await db.storeTokenInformation(mysql, createTokenTxTokenId, 'Hybrid Token 3', 'HYB3');
+    await db.insertTokenCreation(mysql, createTokenTxTokenId, txId);
+
+    await db.storeTokenInformation(mysql, nanoTokenId, 'NC Token 3', 'NCT3');
+    await db.insertTokenCreation(mysql, nanoTokenId, txId);
+
+    // First: Reorg happens - nc_execution changes to PENDING
+    await db.deleteTokens(mysql, [nanoTokenId]);
+    await db.deleteTokenCreationMappings(mysql, [nanoTokenId]);
+
+    // Verify: only CREATE_TOKEN_TX token remains
+    let createTokenTxToken = await db.getTokenInformation(mysql, createTokenTxTokenId);
+    let nanoToken = await db.getTokenInformation(mysql, nanoTokenId);
+    expect(createTokenTxToken).not.toBeNull();
+    expect(nanoToken).toBeNull();
+
+    // Then: Transaction becomes voided
+    const remainingTokens = await db.getTokensCreatedByTx(mysql, txId);
+    await db.deleteTokens(mysql, remainingTokens);
+    await db.deleteTokenCreationMappings(mysql, remainingTokens);
+
+    // Verify: all tokens deleted
+    createTokenTxToken = await db.getTokenInformation(mysql, createTokenTxTokenId);
+    nanoToken = await db.getTokenInformation(mysql, nanoTokenId);
+    expect(createTokenTxToken).toBeNull();
+    expect(nanoToken).toBeNull();
+
+    const tokensAfterVoid = await db.getTokensCreatedByTx(mysql, txId);
+    expect(tokensAfterVoid).toHaveLength(0);
   });
 });
