@@ -54,12 +54,23 @@ const MAX_LOAD_WALLET_RETRIES: number = config.maxLoadWalletRetries;
  * This lambda is called by API Gateway on GET /wallet
  */
 export const get: APIGatewayProxyHandler = middy(walletIdProxyHandler(async (walletId) => {
+  const logger = createDefaultLogger();
+  const requestContext = {
+    walletId,
+    operation: 'walletGet',
+  };
+
+  logger.info('Fetching wallet status', requestContext);
+
   const status = await getWallet(mysql, walletId);
   if (!status) {
+    logger.error('Wallet not found', requestContext);
     return closeDbAndGetError(mysql, ApiError.WALLET_NOT_FOUND);
   }
 
   await closeDbConnection(mysql);
+
+  logger.info('Wallet status retrieved', { ...requestContext, status: status.status });
 
   return {
     statusCode: 200,
@@ -152,10 +163,19 @@ export const validateSignatures = (
  * This lambda is called by API Gateway on PUT /wallet/auth
  */
 export const changeAuthXpub: APIGatewayProxyHandler = middy(async (event) => {
+  const logger = createDefaultLogger();
+  const requestContext = {
+    requestId: event.requestContext?.requestId,
+    operation: 'changeAuthXpub',
+  };
+
+  logger.info('Processing auth xpub change request', requestContext);
+
   const eventBody = (function parseBody(body) {
     try {
       return JSON.parse(body);
     } catch (e) {
+      logger.error('Failed to parse request body', { ...requestContext, error: e.message });
       return null;
     }
   }(event.body));
@@ -172,6 +192,7 @@ export const changeAuthXpub: APIGatewayProxyHandler = middy(async (event) => {
       path: err.path,
     }));
 
+    logger.error('Request validation failed', { ...requestContext, details });
     return closeDbAndGetError(mysql, ApiError.INVALID_PAYLOAD, { details });
   }
 
@@ -182,9 +203,13 @@ export const changeAuthXpub: APIGatewayProxyHandler = middy(async (event) => {
   const xpubkeySignature = value.xpubkeySignature;
   const authXpubkeySignature = value.authXpubkeySignature;
 
+  const walletId = getWalletId(xpubkeyStr);
+  const opContext = { ...requestContext, walletId };
+
   const [validTimestamp, timestampShift] = validateAuthTimestamp(timestamp, Date.now() / 1000);
 
   if (!validTimestamp) {
+    logger.error('Invalid timestamp', { ...opContext, timestampShift });
     const details = [{
       message: `The timestamp is shifted ${timestampShift}(s). Limit is ${AUTH_MAX_TIMESTAMP_SHIFT_IN_SECONDS}(s).`,
     }];
@@ -200,10 +225,10 @@ export const changeAuthXpub: APIGatewayProxyHandler = middy(async (event) => {
   }
 
   // is wallet already loaded/loading?
-  const walletId = getWalletId(xpubkeyStr);
   const wallet = await getWallet(mysql, walletId);
 
   if (!wallet) {
+    logger.error('Wallet not found', opContext);
     return closeDbAndGetError(mysql, ApiError.WALLET_NOT_FOUND);
   }
 
@@ -212,6 +237,7 @@ export const changeAuthXpub: APIGatewayProxyHandler = middy(async (event) => {
     const [firstAddressEqual, firstAddress] = confirmFirstAddress(expectedFirstAddress, xpubkeyStr);
 
     if (!firstAddressEqual) {
+      logger.error('First address mismatch', { ...opContext, expected: expectedFirstAddress, actual: firstAddress });
       return closeDbAndGetError(mysql, ApiError.INVALID_PAYLOAD, {
         message: `Expected first address to be ${expectedFirstAddress} but it is ${firstAddress}`,
       });
@@ -223,6 +249,7 @@ export const changeAuthXpub: APIGatewayProxyHandler = middy(async (event) => {
   if (!signaturesValid) {
     await closeDbConnection(mysql);
 
+    logger.error('Invalid signatures', opContext);
     const details = [{
       message: 'Signatures are not valid',
     }];
@@ -233,11 +260,15 @@ export const changeAuthXpub: APIGatewayProxyHandler = middy(async (event) => {
     };
   }
 
+  logger.info('Updating wallet auth xpub', opContext);
+
   await updateWalletAuthXpub(mysql, walletId, authXpubkeyStr);
 
   const updatedWallet = await getWallet(mysql, walletId);
 
   await closeDbConnection(mysql);
+
+  logger.info('Auth xpub updated successfully', opContext);
 
   return {
     statusCode: 200,
