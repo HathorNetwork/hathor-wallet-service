@@ -635,6 +635,33 @@ test('GET /balances', async () => {
     lockExpires: null,
     tokenAuthorities: { unlocked: { mint: false, melt: false }, locked: { mint: false, melt: false } },
   });
+
+  // request balance for a token the wallet doesn't have - should return zero balance
+  const tokenNotOwned = { id: 'token-not-owned', name: 'NotOwnedToken', symbol: 'NOT' };
+  await addToTokenTable(mysql, [
+    { id: tokenNotOwned.id, name: tokenNotOwned.name, symbol: tokenNotOwned.symbol, transactions: 0 },
+  ]);
+  event = makeGatewayEventWithAuthorizer('my-wallet', { token_id: 'token-not-owned' });
+  result = await balancesGet(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+  expect(returnBody.balances).toHaveLength(1);
+  expect(returnBody.balances).toContainEqual({
+    token: tokenNotOwned,
+    transactions: 0,
+    balance: { unlocked: 0, locked: 0 },
+    lockExpires: null,
+    tokenAuthorities: { unlocked: { mint: false, melt: false }, locked: { mint: false, melt: false } },
+  });
+
+  // request balance for a token that doesn't exist - should return empty array
+  event = makeGatewayEventWithAuthorizer('my-wallet', { token_id: 'nonexistent-token' });
+  result = await balancesGet(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+  expect(returnBody.balances).toHaveLength(0);
 });
 
 test('GET /txhistory', async () => {

@@ -13,6 +13,7 @@ import { closeDbAndGetError, warmupMiddleware } from '@src/api/utils';
 import { getWalletBalances, walletIdProxyHandler } from '@src/commons';
 import {
   getWallet,
+  getTokenInformation,
 } from '@src/db';
 import {
   closeDbConnection,
@@ -24,6 +25,7 @@ import cors from '@middy/http-cors';
 import Joi from 'joi';
 import errorHandler from '@src/api/middlewares/errorHandler';
 import { bigIntUtils } from '@hathor/wallet-lib';
+import { WalletTokenBalance, Balance } from '@src/types';
 
 const mysql = getDbConnection();
 
@@ -74,7 +76,15 @@ export const get: APIGatewayProxyHandler = middy(walletIdProxyHandler(async (wal
     tokenIds.push(tokenId);
   }
 
-  const balances = await getWalletBalances(mysql, getUnixTimestamp(), walletId, tokenIds);
+  let balances = await getWalletBalances(mysql, getUnixTimestamp(), walletId, tokenIds);
+
+  // If a specific token was requested but wallet has no balance, return zero balance
+  if (value.token_id && balances.length === 0) {
+    const tokenInfo = await getTokenInformation(mysql, value.token_id);
+    if (tokenInfo) {
+      balances = [new WalletTokenBalance(tokenInfo, new Balance(), 0)];
+    }
+  }
 
   await closeDbConnection(mysql);
 
