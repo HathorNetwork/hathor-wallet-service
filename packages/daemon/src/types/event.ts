@@ -45,6 +45,7 @@ export enum FullNodeEventTypes {
   REORG_STARTED = 'REORG_STARTED',
   REORG_FINISHED = 'REORG_FINISHED',
   NC_EVENT = 'NC_EVENT',
+  TOKEN_CREATED = 'TOKEN_CREATED',
 }
 
 /**
@@ -229,12 +230,30 @@ export const NcEventSchema = FullNodeEventBaseSchema.extend({
 });
 export type NcEvent = z.infer<typeof NcEventSchema>;
 
+export const TokenCreatedEventSchema = FullNodeEventBaseSchema.extend({
+  event: z.object({
+    id: z.number(),
+    timestamp: z.number(),
+    type: z.literal('TOKEN_CREATED'),
+    data: z.object({
+      token_uid: z.string(),
+      nc_exec_info: z.unknown().nullable(),
+      token_name: z.string(),
+      token_symbol: z.string(),
+      token_version: z.number(),
+    }),
+    group_id: z.number().nullish(),
+  }),
+});
+export type TokenCreatedEvent = z.infer<typeof TokenCreatedEventSchema>;
+
 export const FullNodeEventSchema = z.union([
   TxDataWithoutMetaFullNodeEventSchema,
   StandardFullNodeEventSchema,
   ReorgFullNodeEventSchema,
   EmptyDataFullNodeEventSchema,
   NcEventSchema,
+  TokenCreatedEventSchema,
 ]);
 export type FullNodeEvent = z.infer<typeof FullNodeEventSchema>;
 
