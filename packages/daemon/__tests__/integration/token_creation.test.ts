@@ -8,7 +8,7 @@
 import * as Services from '../../src/services';
 import { SyncMachine } from '../../src/machines';
 import { interpret } from 'xstate';
-import { getDbConnection, getTokenInformation, getTokensCreatedByTx } from '../../src/db';
+import { getDbConnection, getTokensCreatedByTx } from '../../src/db';
 import { Connection } from 'mysql2/promise';
 import { cleanDatabase, transitionUntilEvent } from './utils';
 
@@ -37,7 +37,7 @@ jest.mock('../../src/utils/aws', () => {
 import getConfig from '../../src/config';
 
 const TOKEN_CREATION_PORT = 8093;
-const TOKEN_CREATION_LAST_EVENT = 45;
+const TOKEN_CREATION_LAST_EVENT = 47;
 
 // @ts-expect-error
 getConfig.mockReturnValue({
