@@ -116,7 +116,7 @@ services:
       - "8092:8080"
 
   token_creation:
-    image: hathornetwork/hathor-core:tit
+    image: hathornetwork/hathor-core:experimental-token-creation-scenario-python3.12
     entrypoint: ["python", "-m", "hathor"]
     command: [
       "events_simulator",
@@ -127,7 +127,7 @@ services:
       - "8093:8080"
 
   token_created_hybrid_with_reorg:
-    image: hathornetwork/hathor-core:tit
+    image: hathornetwork/hathor-core:experimental-token-creation-scenario-python3.12
     entrypoint: ["python", "-m", "hathor"]
     command: [
       "events_simulator",
