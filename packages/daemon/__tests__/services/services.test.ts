@@ -93,6 +93,10 @@ jest.mock('../../src/db', () => ({
   getMaxIndicesForWallets: jest.fn(() => new Map([
     ['wallet1', { maxAmongAddresses: 10, maxWalletIndex: 15 }]
   ])),
+  getTokensCreatedByTx: jest.fn(() => []),
+  deleteTokens: jest.fn(),
+  deleteTokenCreationMappings: jest.fn(),
+  insertTokenCreation: jest.fn(),
 }));
 
 jest.mock('../../src/utils', () => ({
@@ -629,7 +633,7 @@ describe('handleVertexAccepted', () => {
     expect(mockDb.destroy).toHaveBeenCalled();
   });
 
-  it('should handle add tokens to database on token creation tx', async () => {
+  it('should handle token creation tx without storing token info (tokens created via TOKEN_CREATED event)', async () => {
     const tokenName = 'TEST_TOKEN';
     const tokenSymbol = 'TST_TKN';
     const hash = '000013f562dc216890f247688028754a49d21dbb2b1f7731f840dc65585b1d57';
@@ -679,7 +683,7 @@ describe('handleVertexAccepted', () => {
 
     await handleVertexAccepted(context as any, {} as any);
 
-    expect(storeTokenInformation).toHaveBeenCalledWith(mockDb, hash, tokenName, tokenSymbol);
+    expect(storeTokenInformation).not.toHaveBeenCalled();
     expect(mockDb.commit).toHaveBeenCalled();
     expect(mockDb.destroy).toHaveBeenCalled();
   });

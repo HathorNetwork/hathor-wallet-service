@@ -953,6 +953,7 @@ describe('wallet balance voiding bug', () => {
 
   it('should delete tokens when voiding transaction that created them', async () => {
     expect.hasAssertions();
+    await cleanDatabase(mysql);
 
     const txId = 'nano-tx-001';
     const tokenId1 = 'token001';
@@ -995,7 +996,8 @@ describe('wallet balance voiding bug', () => {
 });
 
 describe('handleTokenCreated (db)', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await cleanDatabase(mysql);
     jest.clearAllMocks();
   });
 
