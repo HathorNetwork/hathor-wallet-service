@@ -173,6 +173,17 @@ export interface TokenBalance {
   transactions: number;
 }
 
+/**
+ * Token version used to identify the type of token during the token creation process.
+ */
+export enum TokenVersion {
+  NATIVE = 0,
+
+  DEPOSIT = 1,
+
+  FEE = 2,
+}
+
 export class TokenInfo {
   id: string;
 
@@ -180,12 +191,15 @@ export class TokenInfo {
 
   symbol: string;
 
+  version: TokenVersion;
+
   transactions: number;
 
   constructor(id: string, name: string, symbol: string, transactions?: number) {
     this.id = id;
     this.name = name;
     this.symbol = symbol;
+    this.version = TokenVersion.DEPOSIT; // Hardcoded for now, while the Fee Tokens implementation is not complete
     this.transactions = transactions || 0;
 
     const hathorConfig = hathorLib.constants.DEFAULT_NATIVE_TOKEN_CONFIG;
@@ -193,6 +207,7 @@ export class TokenInfo {
     if (this.id === hathorLib.constants.NATIVE_TOKEN_UID) {
       this.name = hathorConfig.name;
       this.symbol = hathorConfig.symbol;
+      this.version = TokenVersion.NATIVE;
     }
   }
 
@@ -201,6 +216,7 @@ export class TokenInfo {
       id: this.id,
       name: this.name,
       symbol: this.symbol,
+      version: this.version,
     };
   }
 }
