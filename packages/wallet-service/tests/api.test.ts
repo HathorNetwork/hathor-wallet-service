@@ -33,7 +33,7 @@ import * as Db from '@src/db';
 import { ApiError } from '@src/api/errors';
 import { closeDbConnection, getDbConnection, getUnixTimestamp, getWalletId } from '@src/utils';
 import { STATUS_CODE_TABLE } from '@src/api/utils';
-import { WalletStatus, FullNodeApiVersionResponse } from '@src/types';
+import { WalletStatus, FullNodeApiVersionResponse, TokenVersion } from '@src/types';
 import { walletUtils, addressUtils, constants, network, HathorWalletServiceWallet } from '@hathor/wallet-lib';
 import bitcore from 'bitcore-lib';
 import {
@@ -431,6 +431,14 @@ test('GET /balances', async () => {
   const token2 = { id: 'token2', name: 'MyToken2', symbol: 'MT2' };
   const token3 = { id: 'token3', name: 'MyToken3', symbol: 'MT3' };
   const token4 = { id: 'token4', name: 'MyToken4', symbol: 'MT4' };
+  /**
+   * Adds a version property to the token object, replicating the behavior of getTokenDetails
+   * It's a workaround while the full implementation of fee based tokens are completed
+   * @param token
+   */
+  const addVersionToToken = (token) => {
+    return { ...token, version: TokenVersion.DEPOSIT }
+  }
   await addToTokenTable(mysql, [
     { ...htrToken, transactions: 0 },
     { id: token1.id, name: token1.name, symbol: token1.symbol, transactions: 0 },
@@ -487,14 +495,14 @@ test('GET /balances', async () => {
   expect(returnBody.success).toBe(true);
   expect(returnBody.balances).toHaveLength(2);
   expect(returnBody.balances).toContainEqual({
-    token: token1,
+    token: addVersionToToken(token1),
     transactions: 3,
     balance: { unlocked: 10, locked: 0 },
     lockExpires: null,
     tokenAuthorities: { unlocked: { mint: true, melt: false }, locked: { mint: false, melt: true } },
   });
   expect(returnBody.balances).toContainEqual({
-    token: token2,
+    token: addVersionToToken(token2),
     transactions: 1,
     balance: { unlocked: 3, locked: 2 },
     lockExpires,
@@ -509,7 +517,7 @@ test('GET /balances', async () => {
   expect(returnBody.success).toBe(true);
   expect(returnBody.balances).toHaveLength(1);
   expect(returnBody.balances).toContainEqual({
-    token: token1,
+    token: addVersionToToken(token1),
     transactions: 3,
     balance: { unlocked: 10, locked: 0 },
     lockExpires: null,
@@ -554,7 +562,7 @@ test('GET /balances', async () => {
   expect(returnBody.success).toBe(true);
   expect(returnBody.balances).toHaveLength(1);
   expect(returnBody.balances).toContainEqual({
-    token: token3,
+    token: addVersionToToken(token3),
     transactions: 2,
     balance: { unlocked: 6, locked: 0 },
     lockExpires: null,
@@ -603,7 +611,7 @@ test('GET /balances', async () => {
   expect(returnBody.success).toBe(true);
   expect(returnBody.balances).toHaveLength(1);
   expect(returnBody.balances).toContainEqual({
-    token: token4,
+    token: addVersionToToken(token4),
     transactions: 3,
     balance: { unlocked: 13, locked: 2 },
     lockExpires,
@@ -629,7 +637,7 @@ test('GET /balances', async () => {
   expect(returnBody.success).toBe(true);
   expect(returnBody.balances).toHaveLength(1);
   expect(returnBody.balances).toContainEqual({
-    token: { id: '00', name: 'Hathor', symbol: 'HTR' },
+    token: { id: '00', name: 'Hathor', symbol: 'HTR', version: TokenVersion.NATIVE },
     transactions: 3,
     balance: { unlocked: 10, locked: 0 },
     lockExpires: null,
