@@ -14,7 +14,7 @@
     "build": "tsc -b",
     "start": "node dist/index.js",
     "watch": "tsc -w",
-    "test_images_up": "docker compose -f ./__tests__/integration/scripts/docker-compose.yml up -d",
+    "test_images_up": "docker compose -f ./__tests__/integration/scripts/docker-compose.yml up -d --pull always",
     "test_images_down": "docker compose -f ./__tests__/integration/scripts/docker-compose.yml down",
     "test_images_integration": "jest --config ./jest_integration.config.js --runInBand --forceExit",
     "test_images_migrate": "NODE_ENV=test DB_NAME=hathor DB_PORT=3380 DB_PASS=hathor DB_USER=hathor yarn run sequelize-cli --migrations-path ../../db/migrations --config ./__tests__/integration/scripts/sequelize-db-config.js db:migrate",
