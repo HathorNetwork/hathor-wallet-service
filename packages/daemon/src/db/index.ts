@@ -1144,7 +1144,7 @@ export const storeTokenInformation = async (
 ): Promise<void> => {
   const entry = { id: tokenId, name: tokenName, symbol: tokenSymbol };
   await mysql.query(
-    'INSERT IGNORE INTO `token` SET ?',
+    'INSERT INTO `token` SET ?',
     [entry],
   );
 };
@@ -1166,7 +1166,7 @@ export const insertTokenCreation = async (
     tx_id: txId,
   };
   await mysql.query(
-    'INSERT IGNORE INTO `token_creation` SET ?',
+    'INSERT INTO `token_creation` SET ?',
     [entry],
   );
 };
