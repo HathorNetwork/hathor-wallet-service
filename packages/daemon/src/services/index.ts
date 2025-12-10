@@ -173,7 +173,7 @@ export const metadataDiff = async (_context: Context, event: Event) => {
     logger.error('e', e);
     return Promise.reject(e);
   } finally {
-    mysql.destroy();
+    mysql.end();
   }
 };
 
@@ -568,7 +568,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
     throw e;
   } finally {
-    mysql.destroy();
+    mysql.end();
   }
 };
 
@@ -616,7 +616,7 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
 
     throw e;
   } finally {
-    mysql.destroy();
+    mysql.end();
   }
 };
 
@@ -800,7 +800,7 @@ export const handleVoidedTx = async (context: Context) => {
 
     throw e;
   } finally {
-    mysql.destroy();
+    mysql.end();
   }
 };
 
@@ -826,7 +826,7 @@ export const handleUnvoidedTx = async (context: Context) => {
 
     throw e;
   } finally {
-    mysql.destroy();
+    mysql.end();
   }
 };
 
@@ -861,7 +861,7 @@ export const handleTxFirstBlock = async (context: Context) => {
     await mysql.rollback();
     throw e;
   } finally {
-    mysql.destroy();
+    mysql.end();
   }
 };
 
@@ -882,12 +882,12 @@ export const updateLastSyncedEvent = async (context: Context) => {
       lastEventId,
       lastDbSyncedEvent: JSONBigInt.stringify(lastDbSyncedEvent),
     });
-    mysql.destroy();
+    mysql.end();
     throw new Error('Event lower than stored one.');
   }
   await dbUpdateLastSyncedEvent(mysql, lastEventId);
 
-  mysql.destroy();
+  mysql.end();
 };
 
 export const fetchMinRewardBlocks = async () => {
@@ -912,7 +912,7 @@ export const fetchInitialState = async () => {
   const lastEvent = await getLastSyncedEvent(mysql);
   const rewardMinBlocks = await fetchMinRewardBlocks();
 
-  mysql.destroy();
+  mysql.end();
 
   return {
     lastEventId: lastEvent?.last_event_id,
@@ -1017,7 +1017,7 @@ export const handleTokenCreated = async (context: Context) => {
     await mysql.rollback();
     throw e;
   } finally {
-    mysql.destroy();
+    mysql.end();
   }
 };
 
