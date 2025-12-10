@@ -1190,24 +1190,6 @@ export const getTokensCreatedByTx = async (
 };
 
 /**
- * Delete token creation mapping entries
- *
- * @param mysql - Database connection
- * @param tokenIds - Array of token IDs to delete mappings for
- */
-export const deleteTokenCreationMappings = async (
-  mysql: MysqlConnection,
-  tokenIds: string[],
-): Promise<void> => {
-  if (tokenIds.length === 0) return;
-
-  await mysql.query(
-    'DELETE FROM `token_creation` WHERE `token_id` IN (?)',
-    [tokenIds],
-  );
-};
-
-/**
  * Delete tokens from the token table
  *
  * @param mysql - Database connection

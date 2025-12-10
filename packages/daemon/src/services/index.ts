@@ -61,7 +61,6 @@ import {
   storeTokenInformation,
   insertTokenCreation,
   getTokensCreatedByTx,
-  deleteTokenCreationMappings,
   deleteTokens,
   getLockedUtxoFromInputs,
   incrementTokensTxCount,
@@ -551,7 +550,6 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         if (tokensCreated.length > 0) {
           logger.debug(`NC execution changed to ${ncExecution}, deleting ${tokensCreated.length} tokens created by tx ${hash}`);
           await deleteTokens(mysql, tokensCreated);
-          await deleteTokenCreationMappings(mysql, tokensCreated);
         }
       }
     }
@@ -758,7 +756,6 @@ export const voidTx = async (
   if (tokensCreated.length > 0) {
     logger.debug(`Voiding transaction ${hash} created ${tokensCreated.length} token(s), deleting them`);
     await deleteTokens(mysql, tokensCreated);
-    await deleteTokenCreationMappings(mysql, tokensCreated);
   }
 
   const addresses = Object.keys(addressBalanceMap);

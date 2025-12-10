@@ -34,7 +34,6 @@ import {
   storeTokenInformation,
   insertTokenCreation,
   getTokensCreatedByTx,
-  deleteTokenCreationMappings,
   deleteTokens,
   unlockUtxos,
   unspendUtxos,
@@ -1390,42 +1389,6 @@ describe('token creation mapping methods', () => {
     // Query non-existent transaction
     const tokensFromNonExistent = await getTokensCreatedByTx(mysql, 'nonexistent');
     expect(tokensFromNonExistent).toHaveLength(0);
-  });
-
-  test('deleteTokenCreationMappings', async () => {
-    expect.hasAssertions();
-
-    const tokenId1 = 'token001';
-    const tokenId2 = 'token002';
-    const tokenId3 = 'token003';
-    const txId1 = 'tx001';
-
-    // Add tokens to token table
-    await addToTokenTable(mysql, [
-      { id: tokenId1, name: 'Token 1', symbol: 'TK1', transactions: 0 },
-      { id: tokenId2, name: 'Token 2', symbol: 'TK2', transactions: 0 },
-      { id: tokenId3, name: 'Token 3', symbol: 'TK3', transactions: 0 },
-    ]);
-
-    // Insert mappings
-    await insertTokenCreation(mysql, tokenId1, txId1);
-    await insertTokenCreation(mysql, tokenId2, txId1);
-    await insertTokenCreation(mysql, tokenId3, txId1);
-
-    // Verify all mappings exist
-    let tokens = await getTokensCreatedByTx(mysql, txId1);
-    expect(tokens).toHaveLength(3);
-
-    // Delete mappings for token1 and token2
-    await deleteTokenCreationMappings(mysql, [tokenId1, tokenId2]);
-
-    // Verify only token3 mapping remains
-    tokens = await getTokensCreatedByTx(mysql, txId1);
-    expect(tokens).toHaveLength(1);
-    expect(tokens).toContain(tokenId3);
-
-    // Delete with empty array should not throw
-    await expect(deleteTokenCreationMappings(mysql, [])).resolves.not.toThrow();
   });
 
   test('deleteTokens', async () => {

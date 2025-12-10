@@ -95,7 +95,6 @@ jest.mock('../../src/db', () => ({
   ])),
   getTokensCreatedByTx: jest.fn(() => []),
   deleteTokens: jest.fn(),
-  deleteTokenCreationMappings: jest.fn(),
   insertTokenCreation: jest.fn(),
 }));
 

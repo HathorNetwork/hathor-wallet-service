@@ -1168,7 +1168,6 @@ describe('Nano contract token deletion on nc_execution change', () => {
 
     // Now delete tokens (simulating nc_execution changing to PENDING)
     await db.deleteTokens(mysql, [tokenId]);
-    await db.deleteTokenCreationMappings(mysql, [tokenId]);
 
     // Verify token was deleted
     token = await db.getTokenInformation(mysql, tokenId);
@@ -1202,8 +1201,8 @@ describe('Nano contract token deletion on nc_execution change', () => {
     expect(tokensCreated).toHaveLength(2);
 
     // Delete all tokens created by this nano contract
+    // Note: cascade handles token_creation cleanup
     await db.deleteTokens(mysql, tokensCreated);
-    await db.deleteTokenCreationMappings(mysql, tokensCreated);
 
     // Verify both tokens were deleted
     token1 = await db.getTokenInformation(mysql, tokenId1);
@@ -1228,7 +1227,6 @@ describe('Nano contract token deletion on nc_execution change', () => {
 
     // Delete it (simulating nc_execution change to PENDING)
     await db.deleteTokens(mysql, [tokenId]);
-    await db.deleteTokenCreationMappings(mysql, [tokenId]);
 
     // Verify it's deleted
     let token = await db.getTokenInformation(mysql, tokenId);
@@ -1283,7 +1281,6 @@ describe('Hybrid transaction token deletion scenarios', () => {
     // Step 3: Reorg happens - nc_execution changes to PENDING
     // Only delete nano-created token, not the CREATE_TOKEN_TX token
     await db.deleteTokens(mysql, [nanoTokenId]);
-    await db.deleteTokenCreationMappings(mysql, [nanoTokenId]);
 
     // Verify: nano token deleted, CREATE_TOKEN_TX token remains
     createTokenTxToken = await db.getTokenInformation(mysql, createTokenTxTokenId);
@@ -1332,7 +1329,6 @@ describe('Hybrid transaction token deletion scenarios', () => {
     // Transaction becomes voided - delete ALL tokens
     const tokensCreated = await db.getTokensCreatedByTx(mysql, txId);
     await db.deleteTokens(mysql, tokensCreated);
-    await db.deleteTokenCreationMappings(mysql, tokensCreated);
 
     // Verify both tokens were deleted
     createTokenTxToken = await db.getTokenInformation(mysql, createTokenTxTokenId);
@@ -1359,7 +1355,6 @@ describe('Hybrid transaction token deletion scenarios', () => {
 
     // First: Reorg happens - nc_execution changes to PENDING
     await db.deleteTokens(mysql, [nanoTokenId]);
-    await db.deleteTokenCreationMappings(mysql, [nanoTokenId]);
 
     // Verify: only CREATE_TOKEN_TX token remains
     let createTokenTxToken = await db.getTokenInformation(mysql, createTokenTxTokenId);
@@ -1370,7 +1365,6 @@ describe('Hybrid transaction token deletion scenarios', () => {
     // Then: Transaction becomes voided
     const remainingTokens = await db.getTokensCreatedByTx(mysql, txId);
     await db.deleteTokens(mysql, remainingTokens);
-    await db.deleteTokenCreationMappings(mysql, remainingTokens);
 
     // Verify: all tokens deleted
     createTokenTxToken = await db.getTokenInformation(mysql, createTokenTxTokenId);
