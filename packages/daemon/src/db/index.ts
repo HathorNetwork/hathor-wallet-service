@@ -1155,15 +1155,18 @@ export const storeTokenInformation = async (
  * @param mysql - Database connection
  * @param tokenId - The token UID
  * @param txId - Transaction ID that created the token (regular or nano contract)
+ * @param firstBlock - First block hash that confirmed the nano contract execution (null for traditional CREATE_TOKEN_TX)
  */
 export const insertTokenCreation = async (
   mysql: MysqlConnection,
   tokenId: string,
   txId: string,
+  firstBlock: string | null = null,
 ): Promise<void> => {
   const entry = {
     token_id: tokenId,
     tx_id: txId,
+    first_block: firstBlock,
   };
   await mysql.query(
     'INSERT INTO `token_creation` SET ?',
@@ -1185,6 +1188,24 @@ export const getTokensCreatedByTx = async (
   const [rows] = await mysql.query<any[]>(
     'SELECT `token_id` FROM `token_creation` WHERE `tx_id` = ?',
     [txId],
+  );
+  return rows.map((row) => row.token_id);
+};
+
+/**
+ * Get all token IDs created in a specific block (via nano contract execution)
+ *
+ * @param mysql - Database connection
+ * @param blockHash - The block hash that confirmed the nano execution
+ * @returns Array of token IDs that were created in this block
+ */
+export const getTokensCreatedInBlock = async (
+  mysql: MysqlConnection,
+  blockHash: string,
+): Promise<string[]> => {
+  const [rows] = await mysql.query<any[]>(
+    'SELECT `token_id` FROM `token_creation` WHERE `first_block` = ?',
+    [blockHash],
   );
   return rows.map((row) => row.token_id);
 };

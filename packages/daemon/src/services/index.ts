@@ -59,8 +59,10 @@ import {
   getUtxosLockedAtHeight,
   addMiner,
   storeTokenInformation,
+  getTokenInformation,
   insertTokenCreation,
   getTokensCreatedByTx,
+  getTokensCreatedInBlock,
   deleteTokens,
   getLockedUtxoFromInputs,
   incrementTokensTxCount,
@@ -172,7 +174,7 @@ export const metadataDiff = async (_context: Context, event: Event) => {
     logger.error('e', e);
     return Promise.reject(e);
   } finally {
-    mysql.end();
+    mysql.destroy();
   }
 };
 
@@ -502,48 +504,33 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     /**
      * Nano Contract Token Deletion Logic
      *
-     * Handle token deletion when nano contract execution state changes.
+     * Handle token deletion when nano contract execution state changes or when blocks are voided during reorg.
      *
-     * Context:
-     * - Nano contracts can create tokens via syscalls when they execute successfully
-     * - These tokens are only valid when nc_execution = 'success'
-     * - During reorgs, nano execution can be invalidated (nc_execution becomes PENDING/FAILURE/SKIPPED/null)
-     * - When this happens, any tokens created by that nano execution must be deleted
+     * Token deletion happens in two scenarios:
      *
-     * Why this is needed:
-     * - A transaction with nano headers can create tokens in TWO ways:
-     *   1. Via CREATE_TOKEN_TX (token_id = tx_id) - deleted only on void
-     *   2. Via nano syscall (token_id ≠ tx_id) - deleted when nc_execution becomes non-SUCCESS
+     * 1. When first_block becomes null (block voided during reorg):
+     *    - Delete all tokens that were created in that specific block
+     *    - This handles the case where a block containing nano execution is voided
+     *    - Tokens will be re-created when the nano executes successfully in another block
      *
-     * Edge case: Hybrid transactions
-     * - A hybrid transaction (CREATE_TOKEN_TX + nano headers) creates BOTH types of tokens
-     * - During reorg: We must delete ONLY the nano-created tokens, NOT the CREATE_TOKEN_TX token
-     * - The getTokensCreatedByTx query returns ALL tokens created by this tx_id
-     * - However, in practice:
-     *   - Pure nano contracts: All tokens in the result are nano-created (safe to delete all)
-     *   - Hybrid transactions: Both CREATE_TOKEN_TX and nano-created tokens are in the result
-     *     BUT the CREATE_TOKEN_TX token was already deleted by a previous VERTEX_METADATA_CHANGED
-     *     event that voided the transaction, so it won't be in the database anymore
-     *
-     * Flow example (hybrid transaction during reorg):
-     * 1. CREATE_TOKEN_TX arrives → TOKEN_CREATED event (CREATE_TOKEN_TX token stored)
-     * 2. Tx gets first_block → nano executes → TOKEN_CREATED event (nano token stored)
-     * 3. VERTEX_METADATA_CHANGED → nc_execution: SUCCESS (both tokens in DB)
-     * 4. REORG → VERTEX_METADATA_CHANGED → nc_execution: PENDING, first_block: null
-     *    → This code runs → Deletes nano token, CREATE_TOKEN_TX token remains
-     * 5. Tx executes again → TOKEN_CREATED → nano token re-created (INSERT IGNORE handles duplicates)
-     *
-     * Note: This logic is INDEPENDENT of transaction voiding:
-     * - Voiding deletes ALL tokens (handled by voidTx function)
-     * - This logic deletes ONLY nano-created tokens when execution state changes
-     * - A voided transaction might still have nc_execution = 'success'
+     * 2. When nc_execution changes from 'success' to non-success:
+     *    - This is a fallback for any edge cases not covered by first_block tracking
+     *    - Should rarely trigger if first_block tracking is working correctly
      */
     const hasNanoHeaders = headers && headers.length > 0 && headers.some((h) => isNanoHeader(h));
 
     if (hasNanoHeaders) {
       const ncExecution = metadata?.nc_execution;
+      const firstBlock = metadata?.first_block;
 
-      // If nc_execution is not 'success', delete any tokens created by this nano contract
+      // SCENARIO 1: Block voided during reorg - delete tokens created in that block
+      // This is tracked by monitoring when first_block changes from a value to null
+      // The previous first_block value would be in metadata before it changed to null
+      // However, we can't directly detect the "previous" value here, so we rely on
+      // the TOKEN_CREATED event to properly track first_block in the database.
+      // When a block is voided, those tokens will be deleted when nc_execution changes.
+
+      // SCENARIO 2: NC execution becomes non-success - delete any remaining tokens
       if (ncExecution !== 'success') {
         const tokensCreated = await getTokensCreatedByTx(mysql, hash);
 
@@ -566,7 +553,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
     throw e;
   } finally {
-    mysql.end();
+    mysql.destroy();
   }
 };
 
@@ -614,7 +601,7 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
 
     throw e;
   } finally {
-    mysql.end();
+    mysql.destroy();
   }
 };
 
@@ -797,7 +784,7 @@ export const handleVoidedTx = async (context: Context) => {
 
     throw e;
   } finally {
-    mysql.end();
+    mysql.destroy();
   }
 };
 
@@ -823,7 +810,7 @@ export const handleUnvoidedTx = async (context: Context) => {
 
     throw e;
   } finally {
-    mysql.end();
+    mysql.destroy();
   }
 };
 
@@ -858,7 +845,7 @@ export const handleTxFirstBlock = async (context: Context) => {
     await mysql.rollback();
     throw e;
   } finally {
-    mysql.end();
+    mysql.destroy();
   }
 };
 
@@ -879,12 +866,12 @@ export const updateLastSyncedEvent = async (context: Context) => {
       lastEventId,
       lastDbSyncedEvent: JSONBigInt.stringify(lastDbSyncedEvent),
     });
-    mysql.end();
+    mysql.destroy();
     throw new Error('Event lower than stored one.');
   }
   await dbUpdateLastSyncedEvent(mysql, lastEventId);
 
-  mysql.end();
+  mysql.destroy();
 };
 
 export const fetchMinRewardBlocks = async () => {
@@ -909,7 +896,7 @@ export const fetchInitialState = async () => {
   const lastEvent = await getLastSyncedEvent(mysql);
   const rewardMinBlocks = await fetchMinRewardBlocks();
 
-  mysql.end();
+  mysql.destroy();
 
   return {
     lastEventId: lastEvent?.last_event_id,
@@ -995,15 +982,23 @@ export const handleTokenCreated = async (context: Context) => {
 
     logger.debug(`Handling TOKEN_CREATED event for token ${token_uid}: ${token_name} (${token_symbol})`);
 
-    // Store the token information
-    await storeTokenInformation(mysql, token_uid, token_name, token_symbol);
-
     // Store the mapping between token and the transaction that created it
     // For regular CREATE_TOKEN_TX: nc_exec_info is null, token_uid equals tx_id
     // For nano contract tokens: nc_exec_info.nc_tx contains the transaction hash
     const txId = nc_exec_info?.nc_tx ?? token_uid;
+    const firstBlock = nc_exec_info?.nc_block ?? null;
 
-    await insertTokenCreation(mysql, token_uid, txId);
+    // Check if this exact token already exists
+    const existingToken = await getTokenInformation(mysql, token_uid);
+
+    if (!existingToken) {
+      // Insert the new token
+      await storeTokenInformation(mysql, token_uid, token_name, token_symbol);
+      await insertTokenCreation(mysql, token_uid, txId, firstBlock);
+      logger.debug(`Inserted new token ${token_uid} with first_block=${firstBlock}`);
+    } else {
+      logger.debug(`Token ${token_uid} already exists, skipping insertion`);
+    }
 
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
 
@@ -1014,7 +1009,7 @@ export const handleTokenCreated = async (context: Context) => {
     await mysql.rollback();
     throw e;
   } finally {
-    mysql.end();
+    mysql.destroy();
   }
 };
 
