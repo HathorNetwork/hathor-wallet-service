@@ -229,12 +229,26 @@ export const NcEventSchema = FullNodeEventBaseSchema.extend({
 });
 export type NcEvent = z.infer<typeof NcEventSchema>;
 
+// Short-term solution: Allow TOKEN_CREATED events to pass validation
+// They will be handled as unhandled events and ACKed
+export const TokenCreatedEventSchema = FullNodeEventBaseSchema.extend({
+  event: z.object({
+    id: z.number(),
+    timestamp: z.number(),
+    type: z.literal('TOKEN_CREATED'),
+    data: z.any(), // Permissive schema - we don't process these events yet
+    group_id: z.number().nullish(),
+  }),
+});
+export type TokenCreatedEvent = z.infer<typeof TokenCreatedEventSchema>;
+
 export const FullNodeEventSchema = z.union([
   TxDataWithoutMetaFullNodeEventSchema,
   StandardFullNodeEventSchema,
   ReorgFullNodeEventSchema,
   EmptyDataFullNodeEventSchema,
   NcEventSchema,
+  TokenCreatedEventSchema,
 ]);
 export type FullNodeEvent = z.infer<typeof FullNodeEventSchema>;
 
