@@ -96,9 +96,11 @@ export const METADATA_DIFF_EVENT_TYPES = {
 const DUPLICATE_TX_ALERT_GRACE_PERIOD = 10; // seconds
 
 export const metadataDiff = async (_context: Context, event: Event) => {
-  const mysql = await getDbConnection();
+  let mysql;
 
   try {
+    mysql = await getDbConnection();
+
     const fullNodeEvent = event.event as StandardFullNodeEvent;
     const {
       hash,
@@ -166,10 +168,12 @@ export const metadataDiff = async (_context: Context, event: Event) => {
       originalEvent: event,
     };
   } catch (e) {
-    logger.error('e', e);
+    logger.error('metadataDiff error', e);
     return Promise.reject(e);
   } finally {
-    mysql.destroy();
+    if (mysql) {
+      mysql.destroy();
+    }
   }
 };
 
