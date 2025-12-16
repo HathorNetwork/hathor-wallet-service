@@ -1142,7 +1142,7 @@ describe('handleTokenCreated (db)', () => {
     expect(tokensCreated).toContain(tokenId2);
   });
 
-  it('should delete existing tokens before inserting new token with different token_id', async () => {
+  it('should add new token alongside existing token with different token_id from same tx', async () => {
     expect.hasAssertions();
 
     const txId = 'nano-tx-reorg';
@@ -1200,9 +1200,9 @@ describe('handleTokenCreated (db)', () => {
 
     await handleTokenCreated(context as any);
 
-    // Verify old token was deleted
+    // Old token still exists (handleTokenCreated doesn't delete old tokens)
     oldToken = await db.getTokenInformation(mysql, oldTokenId);
-    expect(oldToken).toBeNull();
+    expect(oldToken).not.toBeNull();
 
     // Verify new token was created
     const newToken = await db.getTokenInformation(mysql, newTokenId);
@@ -1210,10 +1210,11 @@ describe('handleTokenCreated (db)', () => {
     expect(newToken?.name).toBe(tokenName);
     expect(newToken?.symbol).toBe(tokenSymbol);
 
-    // Verify mapping now points to new token
+    // Both tokens now mapped to the same tx
     tokensCreated = await db.getTokensCreatedByTx(mysql, txId);
-    expect(tokensCreated).toHaveLength(1);
-    expect(tokensCreated[0]).toBe(newTokenId);
+    expect(tokensCreated).toHaveLength(2);
+    expect(tokensCreated).toContain(oldTokenId);
+    expect(tokensCreated).toContain(newTokenId);
 
     // Verify last synced event was updated
     const lastEvent = await db.getLastSyncedEvent(mysql);
@@ -1221,7 +1222,7 @@ describe('handleTokenCreated (db)', () => {
     expect(lastEvent?.last_event_id).toBe(21);
   });
 
-  it('should delete multiple existing tokens before inserting new token', async () => {
+  it('should add new token alongside multiple existing tokens from same tx', async () => {
     expect.hasAssertions();
 
     const txId = 'nano-tx-multiple-reorg';
@@ -1283,11 +1284,11 @@ describe('handleTokenCreated (db)', () => {
 
     await handleTokenCreated(context as any);
 
-    // Verify both old tokens were deleted
+    // Old tokens still exist (handleTokenCreated doesn't delete old tokens)
     oldToken1 = await db.getTokenInformation(mysql, oldTokenId1);
     oldToken2 = await db.getTokenInformation(mysql, oldTokenId2);
-    expect(oldToken1).toBeNull();
-    expect(oldToken2).toBeNull();
+    expect(oldToken1).not.toBeNull();
+    expect(oldToken2).not.toBeNull();
 
     // Verify new token was created
     const newToken = await db.getTokenInformation(mysql, newTokenId);
@@ -1295,10 +1296,12 @@ describe('handleTokenCreated (db)', () => {
     expect(newToken?.name).toBe('New Token');
     expect(newToken?.symbol).toBe('NT');
 
-    // Verify mapping now points to only the new token
+    // All three tokens now mapped to the same tx
     tokensCreated = await db.getTokensCreatedByTx(mysql, txId);
-    expect(tokensCreated).toHaveLength(1);
-    expect(tokensCreated[0]).toBe(newTokenId);
+    expect(tokensCreated).toHaveLength(3);
+    expect(tokensCreated).toContain(oldTokenId1);
+    expect(tokensCreated).toContain(oldTokenId2);
+    expect(tokensCreated).toContain(newTokenId);
   });
 
   it('should handle TOKEN_CREATED when no existing tokens exist', async () => {
