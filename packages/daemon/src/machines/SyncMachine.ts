@@ -214,6 +214,7 @@ export const SyncMachine = Machine<Context, any, Event>({
               invoke: {
                 src: 'metadataDiff',
                 onDone: { actions: ['metadataDecided'] },
+                onError: `#${SYNC_MACHINE_STATES.ERROR}`,
               },
               on: {
                 METADATA_DECIDED: [
