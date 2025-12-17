@@ -1371,10 +1371,10 @@ describe('token creation mapping methods', () => {
 
     // Insert token creation mappings
     // tx001 creates token1 and token2 (like a nano contract creating multiple tokens)
-    await insertTokenCreation(mysql, tokenId1, txId1);
-    await insertTokenCreation(mysql, tokenId2, txId1);
+    await insertTokenCreation(mysql, tokenId1, txId1, 'block001');
+    await insertTokenCreation(mysql, tokenId2, txId1, 'block001');
     // tx002 creates token3
-    await insertTokenCreation(mysql, tokenId3, txId2);
+    await insertTokenCreation(mysql, tokenId3, txId2, 'block002');
 
     // Get tokens created by tx001
     const tokensFromTx1 = await getTokensCreatedByTx(mysql, txId1);
@@ -1444,8 +1444,8 @@ describe('token creation mapping methods', () => {
     ]);
 
     // Insert mappings
-    await insertTokenCreation(mysql, tokenId1, txId1);
-    await insertTokenCreation(mysql, tokenId2, txId1);
+    await insertTokenCreation(mysql, tokenId1, txId1, 'block001');
+    await insertTokenCreation(mysql, tokenId2, txId1, 'block001');
 
     // Verify mappings exist
     let tokens = await getTokensCreatedByTx(mysql, txId1);

@@ -966,9 +966,9 @@ describe('wallet balance voiding bug', () => {
     await db.storeTokenInformation(mysql, tokenId3, 'Token 3', 'TK3');
 
     // Create mappings (simulate nano contract creating multiple tokens)
-    await db.insertTokenCreation(mysql, tokenId1, txId);
-    await db.insertTokenCreation(mysql, tokenId2, txId);
-    await db.insertTokenCreation(mysql, tokenId3, txId);
+    await db.insertTokenCreation(mysql, tokenId1, txId, 'block-001');
+    await db.insertTokenCreation(mysql, tokenId2, txId, 'block-001');
+    await db.insertTokenCreation(mysql, tokenId3, txId, 'block-001');
 
     // Verify tokens and mappings exist
     let token1 = await db.getTokenInformation(mysql, tokenId1);
@@ -1153,7 +1153,7 @@ describe('handleTokenCreated (db)', () => {
 
     // First, create an existing token (simulating previous nano execution)
     await db.storeTokenInformation(mysql, oldTokenId, tokenName, tokenSymbol);
-    await db.insertTokenCreation(mysql, oldTokenId, txId);
+    await db.insertTokenCreation(mysql, oldTokenId, txId, 'block-001');
 
     // Verify old token exists
     let oldToken = await db.getTokenInformation(mysql, oldTokenId);
@@ -1232,10 +1232,10 @@ describe('handleTokenCreated (db)', () => {
 
     // Create two existing tokens from previous nano execution
     await db.storeTokenInformation(mysql, oldTokenId1, 'Old Token 1', 'OT1');
-    await db.insertTokenCreation(mysql, oldTokenId1, txId);
+    await db.insertTokenCreation(mysql, oldTokenId1, txId, 'block-001');
 
     await db.storeTokenInformation(mysql, oldTokenId2, 'Old Token 2', 'OT2');
-    await db.insertTokenCreation(mysql, oldTokenId2, txId);
+    await db.insertTokenCreation(mysql, oldTokenId2, txId, 'block-001');
 
     // Verify both old tokens exist
     let oldToken1 = await db.getTokenInformation(mysql, oldTokenId1);
@@ -1562,7 +1562,7 @@ describe('Nano contract token deletion on nc_execution change', () => {
 
     // First, create the token (simulating when nc_execution was SUCCESS)
     await db.storeTokenInformation(mysql, tokenId, 'NC Token', 'NCT');
-    await db.insertTokenCreation(mysql, tokenId, txId);
+    await db.insertTokenCreation(mysql, tokenId, txId, 'block-001');
 
     // Verify token exists
     let token = await db.getTokenInformation(mysql, tokenId);
@@ -1592,10 +1592,10 @@ describe('Nano contract token deletion on nc_execution change', () => {
 
     // Create two tokens from the same nano contract execution
     await db.storeTokenInformation(mysql, tokenId1, 'NC Token 1', 'NCT1');
-    await db.insertTokenCreation(mysql, tokenId1, txId);
+    await db.insertTokenCreation(mysql, tokenId1, txId, 'block-001');
 
     await db.storeTokenInformation(mysql, tokenId2, 'NC Token 2', 'NCT2');
-    await db.insertTokenCreation(mysql, tokenId2, txId);
+    await db.insertTokenCreation(mysql, tokenId2, txId, 'block-001');
 
     // Verify both tokens exist
     let token1 = await db.getTokenInformation(mysql, tokenId1);
@@ -1630,7 +1630,7 @@ describe('Nano contract token deletion on nc_execution change', () => {
 
     // Create token first time
     await db.storeTokenInformation(mysql, tokenId, tokenName, tokenSymbol);
-    await db.insertTokenCreation(mysql, tokenId, txId);
+    await db.insertTokenCreation(mysql, tokenId, txId, 'block-001');
 
     // Delete it (simulating nc_execution change to PENDING)
     await db.deleteTokens(mysql, [tokenId]);
@@ -1641,7 +1641,7 @@ describe('Nano contract token deletion on nc_execution change', () => {
 
     // Re-create it (simulating nano execution again after reorg)
     await db.storeTokenInformation(mysql, tokenId, tokenName, tokenSymbol);
-    await db.insertTokenCreation(mysql, tokenId, txId);
+    await db.insertTokenCreation(mysql, tokenId, txId, 'block-002');
 
     // Verify token was re-created
     token = await db.getTokenInformation(mysql, tokenId);
@@ -1669,11 +1669,11 @@ describe('Hybrid transaction token deletion scenarios', () => {
 
     // Step 1: CREATE_TOKEN_TX token arrives (immediately when tx hits mempool)
     await db.storeTokenInformation(mysql, createTokenTxTokenId, 'Hybrid Token', 'HYB');
-    await db.insertTokenCreation(mysql, createTokenTxTokenId, txId);
+    await db.insertTokenCreation(mysql, createTokenTxTokenId, txId, null);
 
     // Step 2: Nano executes successfully and creates additional token
     await db.storeTokenInformation(mysql, nanoTokenId, 'NC Token', 'NCT');
-    await db.insertTokenCreation(mysql, nanoTokenId, txId);
+    await db.insertTokenCreation(mysql, nanoTokenId, txId, 'block-001');
 
     // Verify both tokens exist
     let createTokenTxToken = await db.getTokenInformation(mysql, createTokenTxTokenId);
@@ -1702,7 +1702,7 @@ describe('Hybrid transaction token deletion scenarios', () => {
 
     // Step 4: Nano executes again - token re-created
     await db.storeTokenInformation(mysql, nanoTokenId, 'NC Token', 'NCT');
-    await db.insertTokenCreation(mysql, nanoTokenId, txId);
+    await db.insertTokenCreation(mysql, nanoTokenId, txId, 'block-002');
 
     // Verify both tokens exist again
     createTokenTxToken = await db.getTokenInformation(mysql, createTokenTxTokenId);
@@ -1722,10 +1722,10 @@ describe('Hybrid transaction token deletion scenarios', () => {
 
     // Create both tokens (CREATE_TOKEN_TX token + nano-created token)
     await db.storeTokenInformation(mysql, createTokenTxTokenId, 'Hybrid Token 2', 'HYB2');
-    await db.insertTokenCreation(mysql, createTokenTxTokenId, txId);
+    await db.insertTokenCreation(mysql, createTokenTxTokenId, txId, null);
 
     await db.storeTokenInformation(mysql, nanoTokenId, 'NC Token 2', 'NCT2');
-    await db.insertTokenCreation(mysql, nanoTokenId, txId);
+    await db.insertTokenCreation(mysql, nanoTokenId, txId, 'block-001');
 
     // Verify both tokens exist
     let createTokenTxToken = await db.getTokenInformation(mysql, createTokenTxTokenId);
@@ -1755,10 +1755,10 @@ describe('Hybrid transaction token deletion scenarios', () => {
 
     // Create both tokens
     await db.storeTokenInformation(mysql, createTokenTxTokenId, 'Hybrid Token 3', 'HYB3');
-    await db.insertTokenCreation(mysql, createTokenTxTokenId, txId);
+    await db.insertTokenCreation(mysql, createTokenTxTokenId, txId, null);
 
     await db.storeTokenInformation(mysql, nanoTokenId, 'NC Token 3', 'NCT3');
-    await db.insertTokenCreation(mysql, nanoTokenId, txId);
+    await db.insertTokenCreation(mysql, nanoTokenId, txId, 'block-001');
 
     // First: Reorg happens - nc_execution changes to PENDING
     await db.deleteTokens(mysql, [nanoTokenId]);
