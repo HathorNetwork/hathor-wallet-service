@@ -842,11 +842,31 @@ describe('metadataDiff', () => {
         },
       },
     };
-    const mockDbTransaction = { height: 1, voided: false };
+    // height: null means the tx was never confirmed, so no NC_EXEC_VOIDED
+    const mockDbTransaction = { height: null, voided: false };
     (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
 
     const result = await metadataDiff({} as any, event as any);
     expect(result.type).toBe('IGNORE');
+  });
+
+  it('should return NC_EXEC_VOIDED when confirmed tx loses first_block', async () => {
+    const event = {
+      event: {
+        event: {
+          data: {
+            hash: 'mockHash',
+            metadata: { voided_by: [], first_block: [] },
+          },
+        },
+      },
+    };
+    // height: 1 means the tx was confirmed but now first_block is empty (went back to mempool)
+    const mockDbTransaction = { height: 1, voided: false };
+    (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
+
+    const result = await metadataDiff({} as any, event as any);
+    expect(result.type).toBe('NC_EXEC_VOIDED');
   });
 
   it('should handle errors and destroy the database connection', async () => {

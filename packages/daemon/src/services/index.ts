@@ -96,6 +96,7 @@ export const METADATA_DIFF_EVENT_TYPES = {
   TX_UNVOIDED: 'TX_UNVOIDED',
   TX_NEW: 'TX_NEW',
   TX_FIRST_BLOCK: 'TX_FIRST_BLOCK',
+  NC_EXEC_VOIDED: 'NC_EXEC_VOIDED',
 };
 
 const DUPLICATE_TX_ALERT_GRACE_PERIOD = 10; // seconds
@@ -168,6 +169,16 @@ export const metadataDiff = async (_context: Context, event: Event) => {
       };
     }
 
+    // Tx was confirmed (has height) but now lost its first_block (went back to mempool)
+    // This happens during reorgs and means nc_execution became null for nano contracts.
+    // We need to delete any nano-created tokens for this tx.
+    if (dbTx.height && (!first_block || first_block.length === 0)) {
+      return {
+        type: METADATA_DIFF_EVENT_TYPES.NC_EXEC_VOIDED,
+        originalEvent: event,
+      };
+    }
+
     return {
       type: METADATA_DIFF_EVENT_TYPES.IGNORE,
       originalEvent: event,
@@ -216,7 +227,8 @@ export function isNanoContract(headers: EventTxHeader[]) {
  *      a) Delete when first_block changes (handled in handleTokenCreated)
  *         - The token_id might change between reorgs even though tx_id stays the same
  *         - handleTokenCreated deletes old tokens before inserting new ones
- *      b) Delete when nc_execution becomes non-SUCCESS (handled here)
+ *      b) Delete when nc_execution becomes null (handled in handleNcExecVoided)
+ *         - This occurs when the tx loses its first_block (goes back to mempool)
  *    - Token can be re-created if nano executes successfully again after reorg
  *
  * 3. **Hybrid Transaction (CREATE_TOKEN_TX + Nano Contract)**
@@ -226,7 +238,7 @@ export function isNanoContract(headers: EventTxHeader[]) {
  *    - Token deletion rules:
  *      - CREATE_TOKEN_TX token: Delete ONLY when transaction becomes voided
  *      - Nano-created tokens: Delete when first_block changes (in handleTokenCreated) OR
- *        nc_execution becomes non-SUCCESS (here)
+ *        nc_execution becomes null (in handleNcExecVoided)
  *    - During reorg: Only nano-created tokens are deleted, CREATE_TOKEN_TX token remains
  *    - When voided: BOTH sets of tokens are deleted
  *
@@ -498,30 +510,6 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         if (txseqnum > cachedSeqnum) {
           // The tx seqnum is higher than the cached one so we need to save the tx deqnum
           await setAddressSeqnum(mysql, header.nc_address, header.nc_seqnum);
-        }
-      }
-    }
-
-    /**
-     * Nano Contract Token Deletion Logic
-     *
-     * When nc_execution becomes non-success (PENDING, FAILURE, SKIPPED, or null),
-     * delete all tokens created by this nano contract transaction.
-     *
-     * Note: first_block changes are handled in handleTokenCreated, which deletes
-     * old tokens before inserting the new ones when a TOKEN_CREATED event arrives.
-     */
-    const hasNanoHeaders = headers && headers.length > 0 && headers.some((h) => isNanoHeader(h));
-
-    if (hasNanoHeaders) {
-      const ncExecution = metadata?.nc_execution;
-
-      if (ncExecution !== 'success') {
-        const tokensCreated = await getTokensCreatedByTx(mysql, hash);
-
-        if (tokensCreated.length > 0) {
-          logger.debug(`NC execution is ${ncExecution}, deleting ${tokensCreated.length} tokens created by tx ${hash}`);
-          await deleteTokens(mysql, tokensCreated);
         }
       }
     }
@@ -827,6 +815,51 @@ export const handleTxFirstBlock = async (context: Context) => {
     await mysql.commit();
   } catch (e) {
     logger.error('E: ', e);
+    await mysql.rollback();
+    throw e;
+  } finally {
+    mysql.destroy();
+  }
+};
+
+/**
+ * Handle NC_EXEC_VOIDED event - a confirmed nano contract transaction went back to mempool.
+ *
+ * This happens during reorgs when a transaction loses its first_block confirmation.
+ * When this occurs, nc_execution becomes null for nano contracts, meaning any tokens
+ * created by the nano contract execution are no longer valid.
+ *
+ * This handler deletes all nano-created tokens for the transaction. Traditional
+ * CREATE_TOKEN_TX tokens (token_id = tx_id) are NOT affected - they remain valid
+ * because the token creation is inherent to the transaction itself, not dependent
+ * on nano contract execution.
+ */
+export const handleNcExecVoided = async (context: Context) => {
+  const mysql = await getDbConnection();
+  await mysql.beginTransaction();
+
+  try {
+    const fullNodeEvent = context.event as StandardFullNodeEvent;
+    const { hash } = fullNodeEvent.event.data;
+
+    // Get all tokens created by this transaction
+    const tokensCreated = await getTokensCreatedByTx(mysql, hash);
+
+    if (tokensCreated.length > 0) {
+      // Filter out traditional CREATE_TOKEN_TX tokens (where token_id = tx_id)
+      // These should NOT be deleted because they're inherent to the transaction
+      const nanoTokens = tokensCreated.filter(tokenId => tokenId !== hash);
+
+      if (nanoTokens.length > 0) {
+        logger.debug(`NC execution voided for tx ${hash}, deleting ${nanoTokens.length} nano-created tokens`);
+        await deleteTokens(mysql, nanoTokens);
+      }
+    }
+
+    await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
+    await mysql.commit();
+  } catch (e) {
+    logger.error('handleNcExecVoided error: ', e);
     await mysql.rollback();
     throw e;
   } finally {
