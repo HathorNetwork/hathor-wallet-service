@@ -93,6 +93,9 @@ jest.mock('../../src/db', () => ({
   getMaxIndicesForWallets: jest.fn(() => new Map([
     ['wallet1', { maxAmongAddresses: 10, maxWalletIndex: 15 }]
   ])),
+  getTokensCreatedByTx: jest.fn(() => []),
+  deleteTokens: jest.fn(),
+  insertTokenCreation: jest.fn(),
 }));
 
 jest.mock('../../src/utils', () => ({
@@ -629,7 +632,7 @@ describe('handleVertexAccepted', () => {
     expect(mockDb.destroy).toHaveBeenCalled();
   });
 
-  it('should handle add tokens to database on token creation tx', async () => {
+  it('should handle token creation tx without storing token info (tokens created via TOKEN_CREATED event)', async () => {
     const tokenName = 'TEST_TOKEN';
     const tokenSymbol = 'TST_TKN';
     const hash = '000013f562dc216890f247688028754a49d21dbb2b1f7731f840dc65585b1d57';
@@ -679,7 +682,7 @@ describe('handleVertexAccepted', () => {
 
     await handleVertexAccepted(context as any, {} as any);
 
-    expect(storeTokenInformation).toHaveBeenCalledWith(mockDb, hash, tokenName, tokenSymbol);
+    expect(storeTokenInformation).not.toHaveBeenCalled();
     expect(mockDb.commit).toHaveBeenCalled();
     expect(mockDb.destroy).toHaveBeenCalled();
   });
@@ -839,11 +842,31 @@ describe('metadataDiff', () => {
         },
       },
     };
-    const mockDbTransaction = { height: 1, voided: false };
+    // height: null means the tx was never confirmed, so no NC_EXEC_VOIDED
+    const mockDbTransaction = { height: null, voided: false };
     (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
 
     const result = await metadataDiff({} as any, event as any);
     expect(result.type).toBe('IGNORE');
+  });
+
+  it('should return NC_EXEC_VOIDED when confirmed tx loses first_block', async () => {
+    const event = {
+      event: {
+        event: {
+          data: {
+            hash: 'mockHash',
+            metadata: { voided_by: [], first_block: [] },
+          },
+        },
+      },
+    };
+    // height: 1 means the tx was confirmed but now first_block is empty (went back to mempool)
+    const mockDbTransaction = { height: 1, voided: false };
+    (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
+
+    const result = await metadataDiff({} as any, event as any);
+    expect(result.type).toBe('NC_EXEC_VOIDED');
   });
 
   it('should handle errors and destroy the database connection', async () => {
@@ -861,7 +884,7 @@ describe('metadataDiff', () => {
 
     await expect(metadataDiff({} as any, event as any)).rejects.toThrow('Mock Error');
     expect(mockDb.destroy).toHaveBeenCalled();
-    expect(logger.error).toHaveBeenCalledWith('e', new Error('Mock Error'));
+    expect(logger.error).toHaveBeenCalledWith('metadataDiff error', new Error('Mock Error'));
   });
 
   it('should handle transaction transactions that are not voided anymore', async () => {

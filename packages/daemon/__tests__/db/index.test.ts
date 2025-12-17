@@ -32,6 +32,10 @@ import {
   incrementTokensTxCount,
   markUtxosAsVoided,
   storeTokenInformation,
+  insertTokenCreation,
+  getTokensCreatedByTx,
+  getReexecNanoTokens,
+  deleteTokens,
   unlockUtxos,
   unspendUtxos,
   updateAddressLockedBalance,
@@ -1345,5 +1349,212 @@ describe('address generation and index methods', () => {
     expect(subsetWallet1).toBeDefined();
     expect(subsetWallet1?.maxAmongAddresses).toBe(10);
     expect(subsetWallet1?.maxWalletIndex).toBe(15);
+  });
+});
+
+describe('token creation mapping methods', () => {
+  test('insertTokenCreation and getTokensCreatedByTx', async () => {
+    expect.hasAssertions();
+
+    const tokenId1 = 'token001';
+    const tokenId2 = 'token002';
+    const tokenId3 = 'token003';
+    const txId1 = 'tx001';
+    const txId2 = 'tx002';
+
+    // First, add tokens to the token table
+    await addToTokenTable(mysql, [
+      { id: tokenId1, name: 'Token 1', symbol: 'TK1', transactions: 0 },
+      { id: tokenId2, name: 'Token 2', symbol: 'TK2', transactions: 0 },
+      { id: tokenId3, name: 'Token 3', symbol: 'TK3', transactions: 0 },
+    ]);
+
+    // Insert token creation mappings
+    // tx001 creates token1 and token2 (like a nano contract creating multiple tokens)
+    await insertTokenCreation(mysql, tokenId1, txId1, 'block001');
+    await insertTokenCreation(mysql, tokenId2, txId1, 'block001');
+    // tx002 creates token3
+    await insertTokenCreation(mysql, tokenId3, txId2, 'block002');
+
+    // Get tokens created by tx001
+    const tokensFromTx1 = await getTokensCreatedByTx(mysql, txId1);
+    expect(tokensFromTx1).toHaveLength(2);
+    expect(tokensFromTx1).toContain(tokenId1);
+    expect(tokensFromTx1).toContain(tokenId2);
+
+    // Get tokens created by tx002
+    const tokensFromTx2 = await getTokensCreatedByTx(mysql, txId2);
+    expect(tokensFromTx2).toHaveLength(1);
+    expect(tokensFromTx2).toContain(tokenId3);
+
+    // Query non-existent transaction
+    const tokensFromNonExistent = await getTokensCreatedByTx(mysql, 'nonexistent');
+    expect(tokensFromNonExistent).toHaveLength(0);
+  });
+
+  test('deleteTokens', async () => {
+    expect.hasAssertions();
+
+    const tokenId1 = 'token001';
+    const tokenId2 = 'token002';
+    const tokenId3 = 'token003';
+
+    // Add tokens to token table
+    await addToTokenTable(mysql, [
+      { id: tokenId1, name: 'Token 1', symbol: 'TK1', transactions: 0 },
+      { id: tokenId2, name: 'Token 2', symbol: 'TK2', transactions: 0 },
+      { id: tokenId3, name: 'Token 3', symbol: 'TK3', transactions: 0 },
+    ]);
+
+    // Verify tokens exist
+    let token1 = await getTokenInformation(mysql, tokenId1);
+    expect(token1).toBeDefined();
+    expect(token1?.name).toBe('Token 1');
+
+    // Delete token1 and token2
+    await deleteTokens(mysql, [tokenId1, tokenId2]);
+
+    // Verify token1 and token2 are gone
+    token1 = await getTokenInformation(mysql, tokenId1);
+    expect(token1).toBeNull();
+
+    const token2 = await getTokenInformation(mysql, tokenId2);
+    expect(token2).toBeNull();
+
+    // Verify token3 still exists
+    const token3 = await getTokenInformation(mysql, tokenId3);
+    expect(token3).toBeDefined();
+    expect(token3?.name).toBe('Token 3');
+
+    // Delete with empty array should not throw
+    await expect(deleteTokens(mysql, [])).resolves.not.toThrow();
+  });
+
+  test('token deletion cascade with token_creation table', async () => {
+    expect.hasAssertions();
+
+    const tokenId1 = 'token001';
+    const tokenId2 = 'token002';
+    const txId1 = 'tx001';
+
+    // Add tokens
+    await addToTokenTable(mysql, [
+      { id: tokenId1, name: 'Token 1', symbol: 'TK1', transactions: 0 },
+      { id: tokenId2, name: 'Token 2', symbol: 'TK2', transactions: 0 },
+    ]);
+
+    // Insert mappings
+    await insertTokenCreation(mysql, tokenId1, txId1, 'block001');
+    await insertTokenCreation(mysql, tokenId2, txId1, 'block001');
+
+    // Verify mappings exist
+    let tokens = await getTokensCreatedByTx(mysql, txId1);
+    expect(tokens).toHaveLength(2);
+
+    // Delete the tokens (should cascade to token_creation due to FK)
+    await deleteTokens(mysql, [tokenId1, tokenId2]);
+
+    // Verify mappings are also deleted
+    tokens = await getTokensCreatedByTx(mysql, txId1);
+    expect(tokens).toHaveLength(0);
+  });
+
+  test('getReexecNanoTokens should only return nano-created tokens', async () => {
+    expect.hasAssertions();
+
+    const txId = 'hybrid-tx-001';
+    // Traditional CREATE_TOKEN_TX token: token_id = tx_id
+    const traditionalTokenId = txId;
+    // Nano-created tokens: token_id != tx_id
+    const nanoTokenId1 = 'nano-token-001';
+    const nanoTokenId2 = 'nano-token-002';
+
+    const blockA = 'block-A';
+    const blockB = 'block-B';
+
+    // Add tokens to token table
+    await addToTokenTable(mysql, [
+      { id: traditionalTokenId, name: 'Hybrid Token', symbol: 'HYB', transactions: 0 },
+      { id: nanoTokenId1, name: 'Nano Token 1', symbol: 'NC1', transactions: 0 },
+      { id: nanoTokenId2, name: 'Nano Token 2', symbol: 'NC2', transactions: 0 },
+    ]);
+
+    // Insert token creation mappings:
+    // - Traditional token has first_block = null (created in mempool)
+    // - Nano tokens have first_block = blockA
+    await insertTokenCreation(mysql, traditionalTokenId, txId, null);
+    await insertTokenCreation(mysql, nanoTokenId1, txId, blockA);
+    await insertTokenCreation(mysql, nanoTokenId2, txId, blockA);
+
+    // Query for tokens with different first_block than blockB
+    // Should return nano tokens (blockA != blockB) but NOT traditional token (token_id = tx_id)
+    const tokensWithDifferentBlock = await getReexecNanoTokens(mysql, txId, blockB);
+
+    expect(tokensWithDifferentBlock).toHaveLength(2);
+    expect(tokensWithDifferentBlock).toContain(nanoTokenId1);
+    expect(tokensWithDifferentBlock).toContain(nanoTokenId2);
+    expect(tokensWithDifferentBlock).not.toContain(traditionalTokenId);
+  });
+
+  test('getReexecNanoTokens should not return tokens with same first_block', async () => {
+    expect.hasAssertions();
+
+    const txId = 'nano-tx-001';
+    const nanoTokenId = 'nano-token-001';
+    const blockA = 'block-A';
+
+    // Add token
+    await addToTokenTable(mysql, [
+      { id: nanoTokenId, name: 'Nano Token', symbol: 'NCT', transactions: 0 },
+    ]);
+
+    // Insert mapping with first_block = blockA
+    await insertTokenCreation(mysql, nanoTokenId, txId, blockA);
+
+    // Query with same first_block - should return empty
+    const tokens = await getReexecNanoTokens(mysql, txId, blockA);
+    expect(tokens).toHaveLength(0);
+  });
+
+  test('getReexecNanoTokens should handle null first_block queries', async () => {
+    expect.hasAssertions();
+
+    const txId = 'nano-tx-001';
+    const nanoTokenId = 'nano-token-001';
+    const blockA = 'block-A';
+
+    // Add token
+    await addToTokenTable(mysql, [
+      { id: nanoTokenId, name: 'Nano Token', symbol: 'NCT', transactions: 0 },
+    ]);
+
+    // Insert mapping with first_block = blockA
+    await insertTokenCreation(mysql, nanoTokenId, txId, blockA);
+
+    // Query with null first_block - should return the token since blockA != null
+    const tokens = await getReexecNanoTokens(mysql, txId, null);
+    expect(tokens).toHaveLength(1);
+    expect(tokens).toContain(nanoTokenId);
+  });
+
+  test('getReexecNanoTokens should not return traditional tokens even with different first_block', async () => {
+    expect.hasAssertions();
+
+    const txId = 'create-token-tx-001';
+    // Traditional CREATE_TOKEN_TX: token_id = tx_id
+    const traditionalTokenId = txId;
+
+    // Add token
+    await addToTokenTable(mysql, [
+      { id: traditionalTokenId, name: 'My Token', symbol: 'MTK', transactions: 0 },
+    ]);
+
+    // Insert mapping with first_block = null (traditional token)
+    await insertTokenCreation(mysql, traditionalTokenId, txId, null);
+
+    // Query with a block hash - should NOT return the traditional token
+    // even though null != 'some-block' because token_id = tx_id
+    const tokens = await getReexecNanoTokens(mysql, txId, 'some-block');
+    expect(tokens).toHaveLength(0);
   });
 });

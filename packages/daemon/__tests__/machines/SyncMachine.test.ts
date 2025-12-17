@@ -590,3 +590,83 @@ describe('Event handling', () => {
     expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.handlingReorgStarted}`)).toBeTruthy();
   });
 });
+
+describe('Error handling', () => {
+  it('should transition to ERROR state when metadataDiff invoke errors', () => {
+    const MockedFetchMachine = SyncMachine.withConfig({
+      actions: {
+        startStream: () => {},
+        storeEvent: () => {},
+        logEventError: () => {},
+        stopHealthcheckPing: () => {},
+      },
+      guards: {
+        invalidPeerId: () => false,
+        invalidStreamId: () => false,
+        invalidNetwork: () => false,
+      },
+    });
+
+    let currentState = untilIdle(MockedFetchMachine);
+
+    // Transition to detectingDiff state
+    currentState = MockedFetchMachine.transition(currentState, {
+      type: EventTypes.FULLNODE_EVENT,
+      event: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
+    });
+
+    expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.handlingMetadataChanged}.detectingDiff`)).toBeTruthy();
+
+    // Simulate metadataDiff service error by sending error.platform event
+    // This is what xstate sends internally when an invoked service rejects
+    currentState = MockedFetchMachine.transition(currentState, {
+      type: 'error.platform.SyncMachine.CONNECTED.handlingMetadataChanged.detectingDiff:invocation[0]',
+      data: new Error('Database connection failed'),
+    } as any);
+
+    // Should have transitioned to ERROR state due to metadataDiff failure
+    expect(currentState.matches(SYNC_MACHINE_STATES.ERROR)).toBeTruthy();
+  });
+
+  it('should NOT get stuck in detectingDiff when metadataDiff errors (regression test for COE)', () => {
+    // This test ensures the fix for the COE is in place:
+    // Previously, without onError handler, the machine would get stuck in detectingDiff
+    // Now it should transition to ERROR state
+
+    const MockedFetchMachine = SyncMachine.withConfig({
+      actions: {
+        startStream: () => {},
+        storeEvent: () => {},
+        logEventError: () => {},
+        stopHealthcheckPing: () => {},
+      },
+      guards: {
+        invalidPeerId: () => false,
+        invalidStreamId: () => false,
+        invalidNetwork: () => false,
+      },
+    });
+
+    let currentState = untilIdle(MockedFetchMachine);
+
+    // Transition to detectingDiff state
+    currentState = MockedFetchMachine.transition(currentState, {
+      type: EventTypes.FULLNODE_EVENT,
+      event: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
+    });
+
+    expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.handlingMetadataChanged}.detectingDiff`)).toBeTruthy();
+
+    // Send error event - this should trigger the onError handler
+    currentState = MockedFetchMachine.transition(currentState, {
+      type: 'error.platform.SyncMachine.CONNECTED.handlingMetadataChanged.detectingDiff:invocation[0]',
+      data: new Error('Connection pool exhausted'),
+    } as any);
+
+    // The machine should NOT be stuck in detectingDiff anymore
+    expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.handlingMetadataChanged}.detectingDiff`)).toBeFalsy();
+
+    // It should be in ERROR state
+    expect(currentState.matches(SYNC_MACHINE_STATES.ERROR)).toBeTruthy();
+  });
+});
