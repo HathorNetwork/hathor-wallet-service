@@ -9,7 +9,6 @@ module.exports = {
       comment: 'First block hash that confirmed the nano contract execution that created this token',
     });
 
-    // Add index on first_block for efficient lookups during reorg
     await queryInterface.addIndex('token_creation', ['first_block'], {
       name: 'token_creation_first_block_idx',
     });

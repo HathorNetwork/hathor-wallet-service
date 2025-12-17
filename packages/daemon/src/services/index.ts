@@ -62,7 +62,7 @@ import {
   getTokenInformation,
   insertTokenCreation,
   getTokensCreatedByTx,
-  getTokensCreatedInBlock,
+  getReexecNanoTokens,
   deleteTokens,
   getLockedUtxoFromInputs,
   incrementTokensTxCount,
@@ -212,9 +212,11 @@ export function isNanoContract(headers: EventTxHeader[]) {
  *
  * 2. **Pure Nano Contract Transaction**
  *    - Token created via nano contract syscall when nc_execution = 'success'
- *    - Token deletion rule: Delete when nc_execution changes from SUCCESS to any non-SUCCESS state
- *      (PENDING, FAILURE, SKIPPED, or null)
- *    - This happens during reorgs when the nano execution is invalidated
+ *    - Token deletion rules:
+ *      a) Delete when first_block changes (handled in handleTokenCreated)
+ *         - The token_id might change between reorgs even though tx_id stays the same
+ *         - handleTokenCreated deletes old tokens before inserting new ones
+ *      b) Delete when nc_execution becomes non-SUCCESS (handled here)
  *    - Token can be re-created if nano executes successfully again after reorg
  *
  * 3. **Hybrid Transaction (CREATE_TOKEN_TX + Nano Contract)**
@@ -223,15 +225,10 @@ export function isNanoContract(headers: EventTxHeader[]) {
  *      b) Nano-created tokens: Received when nano executes successfully (token_id ≠ tx_id)
  *    - Token deletion rules:
  *      - CREATE_TOKEN_TX token: Delete ONLY when transaction becomes voided
- *      - Nano-created tokens: Delete when nc_execution becomes non-SUCCESS
+ *      - Nano-created tokens: Delete when first_block changes (in handleTokenCreated) OR
+ *        nc_execution becomes non-SUCCESS (here)
  *    - During reorg: Only nano-created tokens are deleted, CREATE_TOKEN_TX token remains
  *    - When voided: BOTH sets of tokens are deleted
- *
- * Important Notes:
- * - Voided and nc_execution are INDEPENDENT conditions
- * - A voided transaction might still show nc_execution = 'success'
- * - INSERT IGNORE ensures idempotency when tokens are re-created after reorg
- * - Token deletion happens before storing the transaction to maintain consistency
  *
  * @param context - The context containing the event and other metadata
  * @param _event - The event being processed (unused, context.event is used instead)
@@ -508,38 +505,22 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     /**
      * Nano Contract Token Deletion Logic
      *
-     * Handle token deletion when nano contract execution state changes or when blocks are voided during reorg.
+     * When nc_execution becomes non-success (PENDING, FAILURE, SKIPPED, or null),
+     * delete all tokens created by this nano contract transaction.
      *
-     * Token deletion happens in two scenarios:
-     *
-     * 1. When first_block becomes null (block voided during reorg):
-     *    - Delete all tokens that were created in that specific block
-     *    - This handles the case where a block containing nano execution is voided
-     *    - Tokens will be re-created when the nano executes successfully in another block
-     *
-     * 2. When nc_execution changes from 'success' to non-success:
-     *    - This is a fallback for any edge cases not covered by first_block tracking
-     *    - Should rarely trigger if first_block tracking is working correctly
+     * Note: first_block changes are handled in handleTokenCreated, which deletes
+     * old tokens before inserting the new ones when a TOKEN_CREATED event arrives.
      */
     const hasNanoHeaders = headers && headers.length > 0 && headers.some((h) => isNanoHeader(h));
 
     if (hasNanoHeaders) {
       const ncExecution = metadata?.nc_execution;
-      const firstBlock = metadata?.first_block;
 
-      // SCENARIO 1: Block voided during reorg - delete tokens created in that block
-      // This is tracked by monitoring when first_block changes from a value to null
-      // The previous first_block value would be in metadata before it changed to null
-      // However, we can't directly detect the "previous" value here, so we rely on
-      // the TOKEN_CREATED event to properly track first_block in the database.
-      // When a block is voided, those tokens will be deleted when nc_execution changes.
-
-      // SCENARIO 2: NC execution becomes non-success - delete any remaining tokens
       if (ncExecution !== 'success') {
         const tokensCreated = await getTokensCreatedByTx(mysql, hash);
 
         if (tokensCreated.length > 0) {
-          logger.debug(`NC execution changed to ${ncExecution}, deleting ${tokensCreated.length} tokens created by tx ${hash}`);
+          logger.debug(`NC execution is ${ncExecution}, deleting ${tokensCreated.length} tokens created by tx ${hash}`);
           await deleteTokens(mysql, tokensCreated);
         }
       }
@@ -991,6 +972,19 @@ export const handleTokenCreated = async (context: Context) => {
     // For nano contract tokens: nc_exec_info.nc_tx contains the transaction hash
     const txId = nc_exec_info?.nc_tx ?? token_uid;
     const firstBlock = nc_exec_info?.nc_block ?? null;
+
+    /**
+     * Handle reorg scenario: first_block changed
+     *
+     * When a nano contract re-executes in a different block during a reorg,
+     * the token_id might change even though tx_id stays the same.
+     * Delete tokens with old first_block before inserting the new one.
+     */
+    const tokensWithOldBlock = await getReexecNanoTokens(mysql, txId, firstBlock);
+    if (tokensWithOldBlock.length > 0) {
+      logger.debug(`First block changed for tx ${txId}, deleting ${tokensWithOldBlock.length} tokens with old first_block`);
+      await deleteTokens(mysql, tokensWithOldBlock);
+    }
 
     // Check if this exact token already exists
     const existingToken = await getTokenInformation(mysql, token_uid);

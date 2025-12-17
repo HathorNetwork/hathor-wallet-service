@@ -1193,19 +1193,28 @@ export const getTokensCreatedByTx = async (
 };
 
 /**
- * Get all token IDs created in a specific block (via nano contract execution)
+ * Get all token IDs created by a transaction that have a different first_block than expected.
+ *
+ * This is used to detect nano-created tokens that need to be deleted during a reorg.
+ * When the first_block changes, the token_id might also change (even though tx_id stays the same),
+ * so we need to delete tokens with the old first_block and let new TOKEN_CREATED events create new ones.
+ *
+ * IMPORTANT: Excludes tokens where token_id = tx_id. These are traditional CREATE_TOKEN_TX tokens
+ * which should not be affected by nano reorg logic.
  *
  * @param mysql - Database connection
- * @param blockHash - The block hash that confirmed the nano execution
- * @returns Array of token IDs that were created in this block
+ * @param txId - The transaction ID
+ * @param currentFirstBlock - The current first_block from the TOKEN_CREATED event
+ * @returns Array of nano-created token IDs that have a different first_block
  */
-export const getTokensCreatedInBlock = async (
+export const getReexecNanoTokens = async (
   mysql: MysqlConnection,
-  blockHash: string,
+  txId: string,
+  currentFirstBlock: string | null,
 ): Promise<string[]> => {
   const [rows] = await mysql.query<any[]>(
-    'SELECT `token_id` FROM `token_creation` WHERE `first_block` = ?',
-    [blockHash],
+    'SELECT `token_id` FROM `token_creation` WHERE `tx_id` = ? AND `token_id` != `tx_id` AND NOT (`first_block` <=> ?)',
+    [txId, currentFirstBlock],
   );
   return rows.map((row) => row.token_id);
 };
