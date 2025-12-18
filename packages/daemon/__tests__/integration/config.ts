@@ -16,7 +16,7 @@ export const UNVOIDED_SCENARIO_LAST_EVENT = 39;
 // reorg
 export const REORG_SCENARIO_PORT = 8082;
 // Same as the comment on the unvoided scenario last event
-export const REORG_SCENARIO_LAST_EVENT = 19;
+export const REORG_SCENARIO_LAST_EVENT = 18;
 
 
 // single chain blocks and transactions port
