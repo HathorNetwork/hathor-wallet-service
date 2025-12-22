@@ -470,10 +470,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     await mysql.commit();
   } catch (e) {
     await mysql.rollback();
-    console.error('Error handling vertex accepted', {
-      error: (e as Error).message,
-      stack: (e as Error).stack,
-    });
+    logger.error('Error handling vertex accepted', e);
 
     throw e;
   } finally {
