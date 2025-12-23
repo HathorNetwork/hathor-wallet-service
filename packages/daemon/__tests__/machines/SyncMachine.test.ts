@@ -571,6 +571,42 @@ describe('Event handling', () => {
     expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.handlingUnhandledEvent}`)).toBeTruthy();
   });
 
+  it('should handle TOKEN_CREATED events', () => {
+    const MockedFetchMachine = SyncMachine.withConfig({
+      guards: {
+        invalidPeerId: () => false,
+        invalidStreamId: () => false,
+        invalidNetwork: () => false,
+      },
+    });
+
+    let currentState = untilIdle(MockedFetchMachine);
+
+    currentState = MockedFetchMachine.transition(currentState, {
+      type: EventTypes.FULLNODE_EVENT,
+      event: {
+        type: 'EVENT',
+        stream_id: 'test-stream',
+        peer_id: 'test-peer',
+        network: 'testnet',
+        latest_event_id: 100,
+        event: {
+          id: 42,
+          timestamp: 1764886556.4163492,
+          type: 'TOKEN_CREATED',
+          data: {
+            token_uid: '00001eed7f8e446fed2147911656a659df8f3482aecd7a7dcb8f342d930107f7',
+            token_name: 'Test Token',
+            token_symbol: 'TST',
+          },
+          group_id: null,
+        },
+      } as unknown as FullNodeEvent,
+    });
+
+    expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.handlingUnhandledEvent}`)).toBeTruthy();
+  });
+
   it('should handle REORG_STARTED event', () => {
     const MockedFetchMachine = SyncMachine.withConfig({
       guards: {
