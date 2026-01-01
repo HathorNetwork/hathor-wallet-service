@@ -22,6 +22,11 @@ import {
   updateWalletStatus,
   updateWalletAuthXpub,
 } from '@src/db';
+import {
+  beginTransaction,
+  commitTransaction,
+  rollbackTransaction,
+} from '@src/db/utils';
 import { WalletStatus } from '@src/types';
 import {
   closeDbConnection,
@@ -485,20 +490,30 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
   try {
     const { addresses, existingAddresses, newAddresses, lastUsedAddressIndex } = await generateAddresses(mysql, xpubkey, maxGap);
 
-    // update address table with new addresses
-    await addNewAddresses(mysql, walletId, newAddresses, lastUsedAddressIndex);
+    // Wrap all wallet initialization operations in a transaction to prevent partial wallet state
+    try {
+      await beginTransaction(mysql);
 
-    // update existing addresses' walletId and index
-    await updateExistingAddresses(mysql, walletId, existingAddresses);
+      // update address table with new addresses
+      await addNewAddresses(mysql, walletId, newAddresses, lastUsedAddressIndex);
 
-    // from address_tx_history, update wallet_tx_history
-    await initWalletTxHistory(mysql, walletId, addresses);
+      // update existing addresses' walletId and index
+      await updateExistingAddresses(mysql, walletId, existingAddresses);
 
-    // from address_balance table, update balance table
-    await initWalletBalance(mysql, walletId, addresses);
+      // from address_tx_history, update wallet_tx_history
+      await initWalletTxHistory(mysql, walletId, addresses);
 
-    // update wallet status to 'ready'
-    await updateWalletStatus(mysql, walletId, WalletStatus.READY);
+      // from address_balance table, update balance table
+      await initWalletBalance(mysql, walletId, addresses);
+
+      // update wallet status to 'ready'
+      await updateWalletStatus(mysql, walletId, WalletStatus.READY);
+
+      await commitTransaction(mysql);
+    } catch (txError) {
+      await rollbackTransaction(mysql);
+      throw txError;
+    }
 
     await closeDbConnection(mysql);
 
