@@ -81,7 +81,7 @@ import {
 } from '../db';
 import getConfig from '../config';
 import logger from '../logger';
-import { invokeOnTxPushNotificationRequestedLambda, getDaemonUptime } from '../utils';
+import { invokeOnTxPushNotificationRequestedLambda, getDaemonUptime, retryWithBackoff } from '../utils';
 import { addAlert, Severity } from '@wallet-service/common';
 import { JSONBigInt } from '@hathor/wallet-lib/lib/utils/bigint';
 
@@ -96,9 +96,11 @@ export const METADATA_DIFF_EVENT_TYPES = {
 const DUPLICATE_TX_ALERT_GRACE_PERIOD = 10; // seconds
 
 export const metadataDiff = async (_context: Context, event: Event) => {
-  const mysql = await getDbConnection();
+  let mysql;
 
   try {
+    mysql = await getDbConnection();
+
     const fullNodeEvent = event.event as StandardFullNodeEvent;
     const {
       hash,
@@ -166,10 +168,12 @@ export const metadataDiff = async (_context: Context, event: Event) => {
       originalEvent: event,
     };
   } catch (e) {
-    logger.error('e', e);
+    logger.error('metadataDiff error', e);
     return Promise.reject(e);
   } finally {
-    mysql.destroy();
+    if (mysql) {
+      mysql.destroy();
+    }
   }
 };
 
@@ -191,6 +195,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
   const {
     NETWORK,
     STAGE,
+    SERVERLESS_DEPLOY_PREFIX,
     PUSH_NOTIFICATION_ENABLED,
   } = getConfig();
 
@@ -444,7 +449,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
       // Call to process the data for NFT handling (if applicable)
       // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
-      NftUtils.processNftEvent(fullNodeData, STAGE, network, logger)
+      NftUtils.processNftEvent(fullNodeData, STAGE, SERVERLESS_DEPLOY_PREFIX, network, logger)
         .catch((err: unknown) => logger.error('[ALERT] Error processing NFT event', err));
     }
 
@@ -465,10 +470,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     await mysql.commit();
   } catch (e) {
     await mysql.rollback();
-    console.error('Error handling vertex accepted', {
-      error: (e as Error).message,
-      stack: (e as Error).stack,
-    });
+    logger.error('Error handling vertex accepted', e);
 
     throw e;
   } finally {
@@ -828,18 +830,53 @@ export const checkForMissedEvents = async (context: Context): Promise<{ hasNewEv
 
   logger.debug(`Checking for missed events after event ID ${lastAckEventId}`);
 
-  const response = await axios.get(`${fullnodeUrl}/event`, {
-    params: {
-      last_ack_event_id: lastAckEventId,
-      size: 1,
-    },
-  });
+  let response;
+  try {
+    response = await retryWithBackoff(
+      async () => {
+        const res = await axios.get(`${fullnodeUrl}/event`, {
+          params: {
+            last_ack_event_id: lastAckEventId,
+            size: 1,
+          },
+        });
 
-  if (response.status !== 200) {
-    throw new Error(`Failed to check for missed events: HTTP ${response.status}`);
+        // Validate response status
+        if (res.status !== 200) {
+          logger.error(
+            `Failed to check for missed events after ACK ${lastAckEventId}: HTTP ${res.status}. URL: ${fullnodeUrl}/event`
+          );
+          throw new Error(`Failed to check for missed events: HTTP ${res.status}`);
+        }
+
+        // Validate response structure
+        if (!res.data || typeof res.data !== 'object') {
+          logger.error(
+            `Failed to check for missed events after ACK ${lastAckEventId}: Invalid response data structure. Response: ${JSONBigInt.stringify(res.data)}`
+          );
+          throw new Error('Failed to check for missed events: Invalid response structure');
+        }
+
+        return res;
+      },
+      {
+        // It's possible that the fullnode is under high load or having intermittent issues,
+        // so we use a higher number of retries to give it a chance to recover
+        maxRetries: 10,
+        initialDelayMs: 1000,
+        maxDelayMs: 10000,
+        backoffMultiplier: 2,
+      }
+    );
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error(
+      `Failed to check for missed events after ACK ${lastAckEventId}: Network error - ${errorMessage}. URL: ${fullnodeUrl}/event`
+    );
+    throw new Error(`Failed to check for missed events: Network error - ${errorMessage}`);
   }
 
-  const events = response.data;
+  const { events } = response.data;
   const hasNewEvents = Array.isArray(events) && events.length > 0;
 
   if (hasNewEvents) {

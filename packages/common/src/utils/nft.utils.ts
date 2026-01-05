@@ -92,7 +92,7 @@ export class NftUtils {
       region: process.env.AWS_REGION,
     });
     const command = new InvokeCommand({
-      FunctionName: `hathor-explorer-service-${process.env.EXPLORER_SERVICE_STAGE}-create_or_update_dag_metadata`,
+      FunctionName: `${process.env.EXPLORER_SERVICE_PREFIX}-${process.env.EXPLORER_SERVICE_STAGE}-create_or_update_dag_metadata`,
       InvocationType: 'Event',
       Payload: JSON.stringify({
         id: nftUid,
@@ -145,7 +145,7 @@ export class NftUtils {
    * Invokes this application's own intermediary lambda `onNewNftEvent`.
    * This is to improve the failure tolerance on this non-critical step of the sync loop.
    */
-  static async invokeNftHandlerLambda(txId: string, stage: string, logger: Logger): Promise<void> {
+  static async invokeNftHandlerLambda(txId: string, stage: string, deployPrefix: string, logger: Logger): Promise<void> {
     // Check for required environment variables
     if (!process.env.WALLET_SERVICE_LAMBDA_ENDPOINT || !process.env.AWS_REGION) {
       throw new Error('Environment variables WALLET_SERVICE_LAMBDA_ENDPOINT and AWS_REGION are not set.');
@@ -163,7 +163,7 @@ export class NftUtils {
     });
     // invoke lambda asynchronously to metadata update
     const command = new InvokeCommand({
-      FunctionName: `hathor-wallet-service-${stage}-onNewNftEvent`,
+      FunctionName: `${deployPrefix}-${stage}-onNewNftEvent`,
       InvocationType: 'Event',
       Payload: JSON.stringify({ nftUid: txId }),
     });
@@ -190,6 +190,7 @@ export class NftUtils {
   static async processNftEvent(
     eventData: FullNodeTransaction,
     stage: string,
+    deployPrefix: string,
     network: Network,
     logger: Logger
   ): Promise<boolean> {
@@ -215,7 +216,7 @@ export class NftUtils {
         const txId = eventData.hash;
 
         // Invoke the lambda function
-        await NftUtils.invokeNftHandlerLambda(txId, stage, logger);
+        await NftUtils.invokeNftHandlerLambda(txId, stage, deployPrefix, logger);
         return true;
       }
 

@@ -41,6 +41,7 @@ export const FullnodeVersionSchema = Joi.object<FullNodeApiVersionResponse>({
 export const EnvironmentConfigSchema = Joi.object<EnvironmentConfig>({
   defaultServer: Joi.string().required(),
   stage: Joi.string().required(),
+  serverlessDeployPrefix: Joi.string().required(),
   network: Joi.string().required(),
   serviceName: Joi.string().required(),
   maxAddressGap: Joi.number().required(),

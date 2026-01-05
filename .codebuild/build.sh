@@ -105,6 +105,25 @@ deploy_hathor_network_account() {
 
         send_slack_message "New version deployed to testnet-hotel: ${GIT_REF_TO_DEPLOY}"
 
+        # --- Testnet India ---
+        # Gets all env vars with `testnetindia_` prefix and re-exports them without the prefix
+        for var in "${!testnetindia_@}"; do
+            export ${var#testnetindia_}="${!var}"
+        done
+
+        make migrate;
+        make build-daemon;
+        make deploy-lambdas-testnet-india;
+        # The idea here is that if the lambdas deploy fail, the built image won't be pushed:
+        make push-daemon;
+
+        # Unsets all the testnet env vars so we make sure they don't leak to other deploys
+        for var in "${!testnetindia_@}"; do
+            unset ${var#testnetindia_}
+        done
+
+        send_slack_message "New version deployed to testnet-india: ${GIT_REF_TO_DEPLOY}"
+
         # --- Mainnet ---
         # Gets all env vars with `mainnet_` prefix and re-exports them without the prefix
         for var in "${!mainnet_@}"; do
@@ -132,93 +151,6 @@ deploy_hathor_network_account() {
         make deploy-lambdas-dev-testnet;
         # The idea here is that if the lambdas deploy fail, the built image won't be pushed:
         make push-daemon;
-    fi;
-}
-
-deploy_nano_testnet() {
-    # Deploys the releases and release-candidates to our nano-testnet environment
-
-    # We deploy only the Lambdas here, because the daemon used in nano-testnet is the same as
-    # the one built in the hathor-network account, since it runs there as well
-
-    echo "Building git ref ${GIT_REF_TO_DEPLOY}..."
-
-    # This will match both releases and release-candidates
-    if expr "${GIT_REF_TO_DEPLOY}" : "v.*" >/dev/null; then
-        make migrate;
-        make deploy-lambdas-nano-testnet;
-
-        send_slack_message "New version deployed to nano-testnet-alpha: ${GIT_REF_TO_DEPLOY}"
-    elif expr "${MANUAL_DEPLOY}" : "true" >/dev/null; then
-        make migrate;
-        make deploy-lambdas-nano-testnet;
-
-        send_slack_message "Branch manually deployed to nano-testnet-alpha: ${GIT_REF_TO_DEPLOY}"
-    elif expr "${ROLLBACK}" : "true" >/dev/null; then
-        make migrate;
-        make deploy-lambdas-nano-testnet;
-
-        send_slack_message "Rollback performed on nano-tesnet-alpha to: ${GIT_REF_TO_DEPLOY}";
-    else
-        echo "We don't deploy ${GIT_REF_TO_DEPLOY} to nano-testnet-alpha. Nothing to do.";
-    fi;
-}
-
-deploy_nano_testnet_bravo() {
-    # Deploys the releases and release-candidates to our nano-testnet-bravo environment
-
-    # We deploy only the Lambdas here, because the image for the daemon used in nano-testnet is
-    # the same as the one built in the hathor-network account, since it runs there as well
-
-    echo "Building git ref ${GIT_REF_TO_DEPLOY}..."
-
-    # This will match both releases and release-candidates
-    if expr "${GIT_REF_TO_DEPLOY}" : "v.*" >/dev/null; then
-        make migrate;
-        make deploy-lambdas-nano-testnet-bravo;
-
-        send_slack_message "New version deployed to nano-testnet-bravo: ${GIT_REF_TO_DEPLOY}"
-    elif expr "${MANUAL_DEPLOY}" : "true" >/dev/null; then
-        make migrate;
-        make deploy-lambdas-nano-testnet-bravo;
-
-        send_slack_message "Branch manually deployed to nano-testnet-bravo: ${GIT_REF_TO_DEPLOY}"
-    elif expr "${ROLLBACK}" : "true" >/dev/null; then
-        make migrate;
-        make deploy-lambdas-nano-testnet-bravo;
-
-        send_slack_message "Rollback performed on nano-tesnet-bravo to: ${GIT_REF_TO_DEPLOY}";
-    else
-        echo "We don't deploy ${GIT_REF_TO_DEPLOY} to nano-testnet-bravo. Nothing to do.";
-    fi;
-}
-
-deploy_nano_testnet_hackaton() {
-    # Deploys the releases and release-candidates to our nano-testnet-hackaton environment
-
-    # We deploy only the Lambdas here, because the daemon used in nano-testnet-hackaton is the same as
-    # the one built in the hathor-network account, since it runs there as well
-
-    echo "Building git ref ${GIT_REF_TO_DEPLOY}..."
-
-    # This will match both releases and release-candidates
-    if expr "${GIT_REF_TO_DEPLOY}" : "v.*" >/dev/null; then
-        make migrate;
-        make deploy-lambdas-nano-testnet-hackaton;
-
-        send_slack_message "New version deployed to nano-testnet-hackaton: ${GIT_REF_TO_DEPLOY}"
-    elif expr "${MANUAL_DEPLOY}" : "true" >/dev/null; then
-        make migrate;
-        make deploy-lambdas-nano-testnet-hackaton;
-
-        send_slack_message "Branch manually deployed to nano-testnet-hackaton: ${GIT_REF_TO_DEPLOY}"
-    elif expr "${ROLLBACK}" : "true" >/dev/null; then
-        make migrate;
-        make deploy-lambdas-nano-testnet-hackaton;
-
-        send_slack_message "Rollback performed on nano-tesnet-hackaton to: ${GIT_REF_TO_DEPLOY}";
-    else
-        echo "We don't deploy ${GIT_REF_TO_DEPLOY} to nano-testnet-hackaton. Nothing to do.";
     fi;
 }
 
@@ -284,6 +216,35 @@ deploy_ekvilibro_testnet() {
     fi;
 }
 
+deploy_testnet_playground() {
+    # Deploys the release-candidates and releases to our testnet-playground environment
+
+    # We deploy only the Lambdas here, because the daemon used in testnet-playground is the same as
+    # the one built in the hathor-network account, since it runs there as well
+
+    echo "Building git ref ${GIT_REF_TO_DEPLOY}..."
+
+    # This will match release-candidates or releases
+    if expr "${GIT_REF_TO_DEPLOY}" : "v.*" >/dev/null; then
+        make migrate;
+        make deploy-lambdas-testnet-playground;
+
+        send_slack_message "New version deployed to testnet-playground: ${GIT_REF_TO_DEPLOY}"
+    elif expr "${MANUAL_DEPLOY}" : "true" >/dev/null; then
+        make migrate;
+        make deploy-lambdas-testnet-playground;
+
+        send_slack_message "Branch manually deployed to testnet-playground: ${GIT_REF_TO_DEPLOY}"
+    elif expr "${ROLLBACK}" : "true" >/dev/null; then
+        make migrate;
+        make deploy-lambdas-testnet-playground;
+
+        send_slack_message "Rollback performed on testnet-playground to: ${GIT_REF_TO_DEPLOY}";
+    else
+        echo "We don't deploy ${GIT_REF_TO_DEPLOY} to testnet-playground. Nothing to do.";
+    fi;
+}
+
 
 # Check the first argument for the desired deploy
 option=$1
@@ -293,20 +254,14 @@ case $option in
     hathor-network)
         deploy_hathor_network_account
         ;;
-    nano-testnet)
-        deploy_nano_testnet
-        ;;
-    nano-testnet-bravo)
-        deploy_nano_testnet_bravo
-        ;;
-    nano-testnet-hackaton)
-        deploy_nano_testnet_hackaton
-        ;;
     ekvilibro-testnet)
         deploy_ekvilibro_testnet
         ;;
     ekvilibro-mainnet)
         deploy_ekvilibro_mainnet
+        ;;
+    testnet-playground)
+        deploy_testnet_playground
         ;;
     *)
         echo "Invalid option: $option"

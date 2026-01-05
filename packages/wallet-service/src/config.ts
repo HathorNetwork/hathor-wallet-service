@@ -13,6 +13,7 @@ export function loadEnvConfig(): EnvironmentConfig {
   const config: EnvironmentConfig = {
     defaultServer: process.env.DEFAULT_SERVER ?? 'https://node1.mainnet.hathor.network/v1a/',
     stage: process.env.STAGE,
+    serverlessDeployPrefix: process.env.SERVERLESS_DEPLOY_PREFIX ?? 'hathor-wallet-service',
     network: process.env.NETWORK,
     serviceName: process.env.SERVICE_NAME,
     maxAddressGap: Number.parseInt(process.env.MAX_ADDRESS_GAP, 10),
