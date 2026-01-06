@@ -4,6 +4,7 @@ import {
   metadataVoided,
   metadataNewTx,
   metadataFirstBlock,
+  metadataNcExecVoided,
   metadataChanged,
   vertexAccepted,
   invalidPeerId,
@@ -13,6 +14,7 @@ import {
   unchanged,
   invalidNetwork,
   reorgStarted,
+  tokenCreated,
   hasNewEvents,
 } from '../../src/guards';
 import { EventTypes } from '../../src/types';
@@ -97,7 +99,7 @@ const generateFullNodeEvent = (type: FullNodeEventTypes, data = {} as any): Even
   return generateStandardFullNodeEvent(type, data);
 };
 
-const generateMetadataDecidedEvent = (type: 'TX_VOIDED' | 'TX_UNVOIDED' | 'TX_NEW' | 'TX_FIRST_BLOCK' | 'IGNORE'): Event => {
+const generateMetadataDecidedEvent = (type: 'TX_VOIDED' | 'TX_UNVOIDED' | 'TX_NEW' | 'TX_FIRST_BLOCK' | 'IGNORE' | 'NC_EXEC_VOIDED'): Event => {
   const fullNodeEvent: StandardFullNodeEvent = {
     stream_id: '',
     peer_id: '',
@@ -180,6 +182,17 @@ describe('metadata decided tests', () => {
     // Any event other than METADATA_DECIDED should return false:
     expect(() => metadataIgnore(mockContext, generateFullNodeEvent(FullNodeEventTypes.VERTEX_METADATA_CHANGED))).toThrow('Invalid event type on metadataIgnore guard: FULLNODE_EVENT');
   });
+
+  test('metadataNcExecVoided', () => {
+    expect(metadataNcExecVoided(mockContext, generateMetadataDecidedEvent('NC_EXEC_VOIDED'))).toBe(true);
+    expect(metadataNcExecVoided(mockContext, generateMetadataDecidedEvent('TX_VOIDED'))).toBe(false);
+    expect(metadataNcExecVoided(mockContext, generateMetadataDecidedEvent('IGNORE'))).toBe(false);
+    expect(metadataNcExecVoided(mockContext, generateMetadataDecidedEvent('TX_NEW'))).toBe(false);
+    expect(metadataNcExecVoided(mockContext, generateMetadataDecidedEvent('TX_FIRST_BLOCK'))).toBe(false);
+
+    // Any event other than METADATA_DECIDED should throw:
+    expect(() => metadataNcExecVoided(mockContext, generateFullNodeEvent(FullNodeEventTypes.VERTEX_METADATA_CHANGED))).toThrow('Invalid event type on metadataNcExecVoided guard: FULLNODE_EVENT');
+  });
 });
 
 describe('fullnode event guards', () => {
@@ -247,6 +260,16 @@ describe('fullnode event guards', () => {
 
     // Any event other than FULLNODE_EVENT should throw
     expect(() => reorgStarted(mockContext, generateMetadataDecidedEvent('TX_NEW'))).toThrow('Invalid event type on reorgStarted guard: METADATA_DECIDED');
+  });
+
+  test('tokenCreated', () => {
+    expect(tokenCreated(mockContext, generateFullNodeEvent(FullNodeEventTypes.TOKEN_CREATED))).toBe(true);
+    expect(tokenCreated(mockContext, generateFullNodeEvent(FullNodeEventTypes.NEW_VERTEX_ACCEPTED))).toBe(false);
+    expect(tokenCreated(mockContext, generateFullNodeEvent(FullNodeEventTypes.VERTEX_METADATA_CHANGED))).toBe(false);
+    expect(tokenCreated(mockContext, generateFullNodeEvent(FullNodeEventTypes.REORG_STARTED))).toBe(false);
+
+    // Any event other than FULLNODE_EVENT should throw
+    expect(() => tokenCreated(mockContext, generateMetadataDecidedEvent('TX_NEW'))).toThrow('Invalid event type on tokenCreated guard: METADATA_DECIDED');
   });
 });
 

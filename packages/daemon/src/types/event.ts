@@ -68,7 +68,7 @@ const EmptyDataFullNodeEvents = z.union([
 export const FullNodeEventTypesSchema = z.nativeEnum(FullNodeEventTypes);
 
 export type MetadataDecidedEvent = {
-  type: 'TX_VOIDED' | 'TX_UNVOIDED' | 'TX_NEW' | 'TX_FIRST_BLOCK' | 'IGNORE';
+  type: 'TX_VOIDED' | 'TX_UNVOIDED' | 'TX_NEW' | 'TX_FIRST_BLOCK' | 'IGNORE' | 'NC_EXEC_VOIDED';
   originalEvent: FullNodeEvent;
 }
 

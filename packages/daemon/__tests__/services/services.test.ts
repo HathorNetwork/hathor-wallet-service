@@ -22,6 +22,8 @@ import {
   getAddressWalletInfo,
   storeTokenInformation,
   getMaxIndicesForWallets,
+  getTokensCreatedByTx,
+  deleteTokens,
 } from '../../src/db';
 import {
   fetchInitialState,
@@ -32,6 +34,7 @@ import {
   metadataDiff,
   handleReorgStarted,
   checkForMissedEvents,
+  handleNcExecVoided,
 } from '../../src/services';
 import logger from '../../src/logger';
 import {
@@ -831,39 +834,124 @@ describe('metadataDiff', () => {
     expect(result.type).toBe('IGNORE');
   });
 
-  it('should return IGNORE for other scenarios', async () => {
+  it('should return IGNORE when nc_execution is not success but no nano tokens exist', async () => {
     const event = {
       event: {
         event: {
           data: {
             hash: 'mockHash',
-            metadata: { voided_by: [], first_block: [] },
+            metadata: { voided_by: [], first_block: [], nc_execution: 'pending' },
           },
         },
       },
     };
-    // height: null means the tx was never confirmed, so no NC_EXEC_VOIDED
     const mockDbTransaction = { height: null, voided: false };
     (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
+    (getTokensCreatedByTx as jest.Mock).mockResolvedValue([]); // No tokens
 
     const result = await metadataDiff({} as any, event as any);
     expect(result.type).toBe('IGNORE');
   });
 
-  it('should return NC_EXEC_VOIDED when confirmed tx loses first_block', async () => {
+  it('should return IGNORE when nc_execution is success', async () => {
     const event = {
       event: {
         event: {
           data: {
             hash: 'mockHash',
-            metadata: { voided_by: [], first_block: [] },
+            metadata: { voided_by: [], first_block: [], nc_execution: 'success' },
           },
         },
       },
     };
-    // height: 1 means the tx was confirmed but now first_block is empty (went back to mempool)
+    const mockDbTransaction = { height: null, voided: false };
+    (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
+
+    const result = await metadataDiff({} as any, event as any);
+    expect(result.type).toBe('IGNORE');
+    // Should not call getTokensCreatedByTx when nc_execution is success
+    expect(getTokensCreatedByTx).not.toHaveBeenCalled();
+  });
+
+  it('should return NC_EXEC_VOIDED when nc_execution changes from success and nano tokens exist', async () => {
+    const txHash = 'nano-tx-hash';
+    const event = {
+      event: {
+        event: {
+          data: {
+            hash: txHash,
+            metadata: { voided_by: [], first_block: [], nc_execution: 'pending' },
+          },
+        },
+      },
+    };
     const mockDbTransaction = { height: 1, voided: false };
     (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
+    // Return nano-created tokens (token_id != tx_id)
+    (getTokensCreatedByTx as jest.Mock).mockResolvedValue(['nano-token-001', 'nano-token-002']);
+
+    const result = await metadataDiff({} as any, event as any);
+    expect(result.type).toBe('NC_EXEC_VOIDED');
+    expect(getTokensCreatedByTx).toHaveBeenCalledWith(expect.anything(), txHash);
+  });
+
+  it('should return IGNORE when nc_execution is not success but only traditional tokens exist', async () => {
+    const txHash = 'create-token-tx-hash';
+    const event = {
+      event: {
+        event: {
+          data: {
+            hash: txHash,
+            metadata: { voided_by: [], first_block: [], nc_execution: 'pending' },
+          },
+        },
+      },
+    };
+    const mockDbTransaction = { height: 1, voided: false };
+    (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
+    // Return only traditional token (token_id = tx_id)
+    (getTokensCreatedByTx as jest.Mock).mockResolvedValue([txHash]);
+
+    const result = await metadataDiff({} as any, event as any);
+    expect(result.type).toBe('IGNORE');
+  });
+
+  it('should return NC_EXEC_VOIDED for hybrid tx with both traditional and nano tokens', async () => {
+    const txHash = 'hybrid-tx-hash';
+    const event = {
+      event: {
+        event: {
+          data: {
+            hash: txHash,
+            metadata: { voided_by: [], first_block: [], nc_execution: 'pending' },
+          },
+        },
+      },
+    };
+    const mockDbTransaction = { height: 1, voided: false };
+    (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
+    // Return both traditional (token_id = tx_id) and nano tokens
+    (getTokensCreatedByTx as jest.Mock).mockResolvedValue([txHash, 'nano-token-001']);
+
+    const result = await metadataDiff({} as any, event as any);
+    expect(result.type).toBe('NC_EXEC_VOIDED');
+  });
+
+  it('should return NC_EXEC_VOIDED when nc_execution is null and nano tokens exist', async () => {
+    const txHash = 'nano-tx-hash';
+    const event = {
+      event: {
+        event: {
+          data: {
+            hash: txHash,
+            metadata: { voided_by: [], first_block: [], nc_execution: null },
+          },
+        },
+      },
+    };
+    const mockDbTransaction = { height: 1, voided: false };
+    (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
+    (getTokensCreatedByTx as jest.Mock).mockResolvedValue(['nano-token-001']);
 
     const result = await metadataDiff({} as any, event as any);
     expect(result.type).toBe('NC_EXEC_VOIDED');
@@ -1250,5 +1338,137 @@ describe('checkForMissedEvents', () => {
     expect(logger.error).toHaveBeenCalledWith(
       expect.stringContaining('Invalid response data structure')
     );
+  });
+});
+
+describe('handleNcExecVoided', () => {
+  const mockDb = {
+    beginTransaction: jest.fn(),
+    commit: jest.fn(),
+    rollback: jest.fn(),
+    destroy: jest.fn(),
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (getDbConnection as jest.Mock).mockResolvedValue(mockDb);
+  });
+
+  it('should not delete any tokens when no tokens exist for the transaction', async () => {
+    const txHash = 'tx-without-tokens';
+    const context = {
+      event: {
+        event: {
+          id: 100,
+          data: {
+            hash: txHash,
+          },
+        },
+      },
+    };
+
+    (getTokensCreatedByTx as jest.Mock).mockResolvedValue([]);
+
+    await handleNcExecVoided(context as any);
+
+    expect(getTokensCreatedByTx).toHaveBeenCalledWith(mockDb, txHash);
+    expect(deleteTokens).not.toHaveBeenCalled();
+    expect(mockDb.commit).toHaveBeenCalled();
+  });
+
+  it('should delete only nano-created tokens when tokens exist', async () => {
+    const txHash = 'nano-tx-hash';
+    const nanoToken1 = 'nano-token-001';
+    const nanoToken2 = 'nano-token-002';
+    const context = {
+      event: {
+        event: {
+          id: 100,
+          data: {
+            hash: txHash,
+          },
+        },
+      },
+    };
+
+    // Nano tokens have token_id != tx_id
+    (getTokensCreatedByTx as jest.Mock).mockResolvedValue([nanoToken1, nanoToken2]);
+
+    await handleNcExecVoided(context as any);
+
+    expect(getTokensCreatedByTx).toHaveBeenCalledWith(mockDb, txHash);
+    expect(deleteTokens).toHaveBeenCalledWith(mockDb, [nanoToken1, nanoToken2]);
+    expect(mockDb.commit).toHaveBeenCalled();
+  });
+
+  it('should NOT delete traditional CREATE_TOKEN_TX tokens (where token_id = tx_id)', async () => {
+    const txHash = 'create-token-tx-hash';
+    const context = {
+      event: {
+        event: {
+          id: 100,
+          data: {
+            hash: txHash,
+          },
+        },
+      },
+    };
+
+    // Traditional CREATE_TOKEN_TX has token_id = tx_id
+    (getTokensCreatedByTx as jest.Mock).mockResolvedValue([txHash]);
+
+    await handleNcExecVoided(context as any);
+
+    expect(getTokensCreatedByTx).toHaveBeenCalledWith(mockDb, txHash);
+    expect(deleteTokens).not.toHaveBeenCalled(); // Should NOT delete traditional token
+    expect(mockDb.commit).toHaveBeenCalled();
+  });
+
+  it('should delete nano tokens but keep traditional token in hybrid transaction', async () => {
+    const txHash = 'hybrid-tx-hash';
+    const nanoToken = 'nano-created-token';
+    const context = {
+      event: {
+        event: {
+          id: 100,
+          data: {
+            hash: txHash,
+          },
+        },
+      },
+    };
+
+    // Hybrid tx has both: traditional (token_id = tx_id) and nano (token_id != tx_id)
+    (getTokensCreatedByTx as jest.Mock).mockResolvedValue([txHash, nanoToken]);
+
+    await handleNcExecVoided(context as any);
+
+    expect(getTokensCreatedByTx).toHaveBeenCalledWith(mockDb, txHash);
+    // Should only delete nano token, not the traditional one
+    expect(deleteTokens).toHaveBeenCalledWith(mockDb, [nanoToken]);
+    expect(mockDb.commit).toHaveBeenCalled();
+  });
+
+  it('should rollback on error and rethrow', async () => {
+    const txHash = 'error-tx-hash';
+    const context = {
+      event: {
+        event: {
+          id: 100,
+          data: {
+            hash: txHash,
+          },
+        },
+      },
+    };
+
+    const error = new Error('Database error');
+    (getTokensCreatedByTx as jest.Mock).mockRejectedValue(error);
+
+    await expect(handleNcExecVoided(context as any)).rejects.toThrow('Database error');
+
+    expect(mockDb.rollback).toHaveBeenCalled();
+    expect(mockDb.commit).not.toHaveBeenCalled();
+    expect(logger.error).toHaveBeenCalledWith('handleNcExecVoided error: ', error);
   });
 });
