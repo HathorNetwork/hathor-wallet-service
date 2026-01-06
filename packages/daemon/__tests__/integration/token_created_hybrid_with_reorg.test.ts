@@ -109,7 +109,7 @@ jest.spyOn(Services, 'checkForMissedEvents').mockImplementation(async () => ({
  * - Both tokens exist at the end
  * - HYB maps to the hybrid transaction (token_id = tx_id for CREATE_TOKEN_TX)
  * - NCX maps to the hybrid transaction (created by nano contract syscall)
- * - NCX TOKEN_CREATED fires TWICE: once before reorg, once during reorg
+ * - NCX TOKEN_CREATED fires TWICE: once before reorg (nc_block: 124ccc...), once after reorg (nc_block: 5ffca1...)
  *
  * This validates that:
  * - Traditional CREATE_TOKEN_TX tokens persist through reorg (not affected by nc_execution changes)
@@ -170,56 +170,52 @@ describe('token created with reorg scenario', () => {
     expect(ncxMappings[0].tx_id).toBeDefined();
   }, 30000);
 
-  it('should verify TOKEN_CREATED events for both traditional and nano-created tokens', async () => {
-    const machine = interpret(SyncMachine);
-    const receivedEvents: any[] = [];
+  it('should create NCX token, delete it during reorg, and re-create it after reorg', async () => {
+    const ncxTokenId = '82d79eb32061fc69b55dad901b6daba7ce1496b7c40bf3c2709c0a14192265ee';
 
-    // Capture all events during sync
-    machine.onTransition((state) => {
-      if (state.context.event) {
-        receivedEvents.push(state.context.event);
-      }
-    });
+    // Helper to check if NCX token exists in DB
+    const getNcxToken = async () => {
+      const [tokens] = await mysql.query<any[]>(
+        'SELECT * FROM `token` WHERE id = ?',
+        [ncxTokenId]
+      );
+      return tokens.length > 0 ? tokens[0] : null;
+    };
 
+    // Step 1: Run until event 28 (first TOKEN_CREATED for NCX)
+    // NCX should be created when nc_execution = success
+    await cleanDatabase(mysql);
+    const machine1 = interpret(SyncMachine);
     // @ts-expect-error
-    await transitionUntilEvent(mysql, machine, TOKEN_CREATED_HYBRID_WITH_REORG_LAST_EVENT);
+    await transitionUntilEvent(mysql, machine1, 28);
 
-    // Filter for TOKEN_CREATED events
-    const tokenCreatedEvents = receivedEvents.filter(
-      (e) => e.event?.type === 'TOKEN_CREATED'
-    );
+    const ncxAfterCreation = await getNcxToken();
+    expect(ncxAfterCreation).not.toBeNull();
+    expect(ncxAfterCreation?.symbol).toBe('NCX');
+    expect(ncxAfterCreation?.name).toBe('NC Extra Token');
 
-    // Find the HYB token event (traditional CREATE_TOKEN_TX)
-    const hybTokenEvent = tokenCreatedEvents.find(
-      (e) => e.event?.data?.token_symbol === 'HYB'
-    );
+    // Step 2: Run until event 34 (VERTEX_METADATA_CHANGED with nc_execution = pending)
+    // NCX should be deleted when nc_execution changes from success to pending
+    await cleanDatabase(mysql);
+    const machine2 = interpret(SyncMachine);
+    // @ts-expect-error
+    await transitionUntilEvent(mysql, machine2, 34);
 
-    // Verify HYB token event exists
-    expect(hybTokenEvent).toBeDefined();
-    expect(hybTokenEvent.event.data.token_name).toBe('HYB');
-    expect(hybTokenEvent.event.data.token_symbol).toBe('HYB');
-    expect(hybTokenEvent.event.data.nc_exec_info).toBeNull(); // Traditional token has no nano info
+    const ncxAfterReorg = await getNcxToken();
+    expect(ncxAfterReorg).toBeNull(); // Token should be deleted
 
-    // Find the NCX token event (nano-created)
-    const ncxTokenEvents = tokenCreatedEvents.filter(
-      (e) => e.event?.data?.token_symbol === 'NCX'
-    );
+    // Step 3: Run until event 47 (second TOKEN_CREATED for NCX)
+    // NCX should be re-created when nc_execution = success again
+    await cleanDatabase(mysql);
+    const machine3 = interpret(SyncMachine);
+    // @ts-expect-error
+    await transitionUntilEvent(mysql, machine3, 47);
 
-    // In this simulator output, NCX appears multiple times but all with group_id: null
-    // The simulator sends duplicate TOKEN_CREATED events for the same token
-    expect(ncxTokenEvents.length).toBeGreaterThanOrEqual(2);
-
-    // All NCX events should have the same data
-    const firstNcxBlock = ncxTokenEvents[0].event.data.nc_exec_info.nc_block;
-    ncxTokenEvents.forEach(ncxEvent => {
-      expect(ncxEvent.event.data.token_name).toBe('NC Extra Token');
-      expect(ncxEvent.event.data.token_symbol).toBe('NCX');
-      expect(ncxEvent.event.data.nc_exec_info).not.toBeNull();
-      expect(ncxEvent.event.data.nc_exec_info.nc_tx).toBe('0a0166cf0d73e3aaf85678f63ae4c0c87c6ca9cef138bf945837dbe7197b8b75');
-      // All NCX events should reference the same nc_block
-      expect(ncxEvent.event.data.nc_exec_info.nc_block).toBe(firstNcxBlock);
-    });
-  }, 30000);
+    const ncxAfterRecreation = await getNcxToken();
+    expect(ncxAfterRecreation).not.toBeNull();
+    expect(ncxAfterRecreation?.symbol).toBe('NCX');
+    expect(ncxAfterRecreation?.name).toBe('NC Extra Token');
+  }, 60000);
 
   it('should verify nano execution remains successful after reorg', async () => {
     const machine = interpret(SyncMachine);

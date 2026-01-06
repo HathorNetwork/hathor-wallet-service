@@ -76,8 +76,8 @@ export const metadataFirstBlock = (_context: Context, event: Event) => {
 
 /*
  * This guard is used during the `handlingMetadataChanged` to check if
- * the result was a NC_EXEC_VOIDED event, which means a confirmed nano
- * contract transaction went back to mempool (lost its first_block).
+ * the result was a NC_EXEC_VOIDED event, which means nc_execution changed
+ * from 'success' to something else (pending, null, etc.) during a reorg.
  * We need to delete any nano-created tokens for this transaction.
  */
 export const metadataNcExecVoided = (_context: Context, event: Event) => {

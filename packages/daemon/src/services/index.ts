@@ -110,7 +110,7 @@ export const metadataDiff = async (_context: Context, event: Event) => {
     const fullNodeEvent = event.event as StandardFullNodeEvent;
     const {
       hash,
-      metadata: { voided_by, first_block },
+      metadata: { voided_by, first_block, nc_execution },
     } = fullNodeEvent.event.data;
     const dbTx: DbTransaction | null = await getTransactionById(mysql, hash);
 
@@ -169,14 +169,20 @@ export const metadataDiff = async (_context: Context, event: Event) => {
       };
     }
 
-    // Tx was confirmed (has height) but now lost its first_block (went back to mempool)
-    // This happens during reorgs and means nc_execution became null for nano contracts.
-    // We need to delete any nano-created tokens for this tx.
-    if (dbTx.height && (!first_block || first_block.length === 0)) {
-      return {
-        type: METADATA_DIFF_EVENT_TYPES.NC_EXEC_VOIDED,
-        originalEvent: event,
-      };
+    // Check if nc_execution changed from 'success' to something else.
+    // If the tx has nano-created tokens in the database (tokens where token_id != tx_id),
+    // those tokens were created when nc_execution was 'success'.
+    // If nc_execution is now NOT 'success', we should delete those tokens.
+    if (nc_execution !== 'success') {
+      const tokensCreated = await getTokensCreatedByTx(mysql, hash);
+      const nanoTokens = tokensCreated.filter(tokenId => tokenId !== hash);
+
+      if (nanoTokens.length > 0) {
+        return {
+          type: METADATA_DIFF_EVENT_TYPES.NC_EXEC_VOIDED,
+          originalEvent: event,
+        };
+      }
     }
 
     return {
@@ -227,8 +233,8 @@ export function isNanoContract(headers: EventTxHeader[]) {
  *      a) Delete when first_block changes (handled in handleTokenCreated)
  *         - The token_id might change between reorgs even though tx_id stays the same
  *         - handleTokenCreated deletes old tokens before inserting new ones
- *      b) Delete when nc_execution becomes null (handled in handleNcExecVoided)
- *         - This occurs when the tx loses its first_block (goes back to mempool)
+ *      b) Delete when nc_execution changes from 'success' to something else
+ *         (handled in handleNcExecVoided) - this occurs during reorgs
  *    - Token can be re-created if nano executes successfully again after reorg
  *
  * 3. **Hybrid Transaction (CREATE_TOKEN_TX + Nano Contract)**
@@ -238,7 +244,7 @@ export function isNanoContract(headers: EventTxHeader[]) {
  *    - Token deletion rules:
  *      - CREATE_TOKEN_TX token: Delete ONLY when transaction becomes voided
  *      - Nano-created tokens: Delete when first_block changes (in handleTokenCreated) OR
- *        nc_execution becomes null (in handleNcExecVoided)
+ *        nc_execution changes from 'success' to something else (in handleNcExecVoided)
  *    - During reorg: Only nano-created tokens are deleted, CREATE_TOKEN_TX token remains
  *    - When voided: BOTH sets of tokens are deleted
  *
@@ -823,11 +829,11 @@ export const handleTxFirstBlock = async (context: Context) => {
 };
 
 /**
- * Handle NC_EXEC_VOIDED event - a confirmed nano contract transaction went back to mempool.
+ * Handle NC_EXEC_VOIDED event - nc_execution changed from 'success' to something else.
  *
- * This happens during reorgs when a transaction loses its first_block confirmation.
- * When this occurs, nc_execution becomes null for nano contracts, meaning any tokens
- * created by the nano contract execution are no longer valid.
+ * This happens during reorgs when a transaction goes back to mempool and nc_execution
+ * changes from 'success' to 'pending' or null. When this occurs, any tokens created
+ * by the nano contract execution are no longer valid.
  *
  * This handler deletes all nano-created tokens for the transaction. Traditional
  * CREATE_TOKEN_TX tokens (token_id = tx_id) are NOT affected - they remain valid
