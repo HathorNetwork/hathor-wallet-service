@@ -174,7 +174,8 @@ export const metadataDiff = async (_context: Context, event: Event) => {
 };
 
 export const isBlock = (version: number): boolean => version === hathorLib.constants.BLOCK_VERSION
-  || version === hathorLib.constants.MERGED_MINED_BLOCK_VERSION;
+  || version === hathorLib.constants.MERGED_MINED_BLOCK_VERSION
+  || version === hathorLib.constants.POA_BLOCK_VERSION;
 
 export function isNanoContract(headers: EventTxHeader[]) {
   for (const header of headers) {
