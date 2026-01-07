@@ -1,5 +1,7 @@
 'use strict';
 
+const { TokenVersion } = require('@hathor/wallet-lib');
+
 module.exports = {
   up: async (queryInterface) => {
     // Count unique transactions for HTR
@@ -14,6 +16,7 @@ module.exports = {
       name: 'Hathor',
       symbol: 'HTR',
       transactions: htrTxCount,
+      version: TokenVersion.NATIVE,
     }]);
   },
 

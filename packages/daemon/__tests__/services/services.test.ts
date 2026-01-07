@@ -8,6 +8,7 @@
 /**
  * @jest-environment node
  */
+import { TokenVersion } from '@hathor/wallet-lib';
 import axios from 'axios';
 import {
   getDbConnection,
@@ -629,6 +630,7 @@ describe('handleVertexAccepted', () => {
     expect(mockDb.destroy).toHaveBeenCalled();
   });
 
+  // TODO-RAUL: add test for token creation tx with version 1 and version 2
   it('should handle add tokens to database on token creation tx', async () => {
     const tokenName = 'TEST_TOKEN';
     const tokenSymbol = 'TST_TKN';
@@ -679,7 +681,7 @@ describe('handleVertexAccepted', () => {
 
     await handleVertexAccepted(context as any, {} as any);
 
-    expect(storeTokenInformation).toHaveBeenCalledWith(mockDb, hash, tokenName, tokenSymbol);
+    expect(storeTokenInformation).toHaveBeenCalledWith(mockDb, hash, tokenName, tokenSymbol, TokenVersion.DEPOSIT);
     expect(mockDb.commit).toHaveBeenCalled();
     expect(mockDb.destroy).toHaveBeenCalled();
   });

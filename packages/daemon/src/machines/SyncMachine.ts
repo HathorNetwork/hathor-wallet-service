@@ -27,6 +27,7 @@ import {
   handleUnvoidedTx,
   handleReorgStarted,
   checkForMissedEvents,
+  handleTokenCreated,
 } from '../services';
 import {
   metadataIgnore,
@@ -45,6 +46,7 @@ import {
   vertexRemoved,
   reorgStarted,
   hasNewEvents,
+  tokenCreated,
 } from '../guards';
 import {
   storeInitialState,
@@ -81,6 +83,7 @@ export const CONNECTED_STATES = {
   handlingUnvoidedTx: 'handlingUnvoidedTx',
   handlingFirstBlock: 'handlingFirstBlock',
   handlingReorgStarted: 'handlingReorgStarted',
+  handlingTokenCreated: 'handlingTokenCreated',
   checkingForMissedEvents: 'checkingForMissedEvents',
 };
 
@@ -182,6 +185,10 @@ export const SyncMachine = Machine<Context, any, Event>({
               actions: ['storeEvent'],
               cond: 'reorgStarted',
               target: CONNECTED_STATES.handlingReorgStarted,
+            }, {
+              actions: ['storeEvent'],
+              cond: 'tokenCreated',
+              target: CONNECTED_STATES.handlingTokenCreated,
             }, {
               actions: ['storeEvent'],
               target: CONNECTED_STATES.handlingUnhandledEvent,
@@ -297,6 +304,18 @@ export const SyncMachine = Machine<Context, any, Event>({
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
         },
+        [CONNECTED_STATES.handlingTokenCreated]: {
+          id: CONNECTED_STATES.handlingTokenCreated,
+          invoke: {
+            src: 'handleTokenCreated',
+            data: (_context: Context, event: Event) => event,
+            onDone: {
+              target: 'idle',
+              actions: ['sendAck', 'storeEvent'],
+            },
+            onError: `#${SYNC_MACHINE_STATES.ERROR}`,
+          },
+        },
         [CONNECTED_STATES.checkingForMissedEvents]: {
           id: CONNECTED_STATES.checkingForMissedEvents,
           invoke: {
@@ -335,6 +354,7 @@ export const SyncMachine = Machine<Context, any, Event>({
     handleTxFirstBlock,
     handleUnvoidedTx,
     handleReorgStarted,
+    handleTokenCreated,
     fetchInitialState,
     metadataDiff,
     updateLastSyncedEvent,
@@ -357,6 +377,7 @@ export const SyncMachine = Machine<Context, any, Event>({
     vertexRemoved,
     reorgStarted,
     hasNewEvents,
+    tokenCreated,
   },
   delays: { BACKOFF_DELAYED_RECONNECT, ACK_TIMEOUT },
   actions: {

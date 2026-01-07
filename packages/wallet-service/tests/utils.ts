@@ -744,10 +744,11 @@ export const addToTokenTable = async (
     entry.name,
     entry.symbol,
     entry.transactions,
+    entry.version ?? 1, // Default to DEPOSIT (1)
   ]));
 
   await mysql.query(
-    'INSERT INTO `token`(`id`, `name`, `symbol`, `transactions`) VALUES ?',
+    'INSERT INTO `token`(`id`, `name`, `symbol`, `transactions`, `version`) VALUES ?',
     [payload],
   );
 };

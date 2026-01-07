@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import hathorLib from '@hathor/wallet-lib';
+import hathorLib, { TokenVersion } from '@hathor/wallet-lib';
 import { Connection as MysqlConnection } from 'mysql2/promise';
 import axios from 'axios';
 import { get } from 'lodash';
@@ -23,6 +23,7 @@ import {
   WalletStatus,
   FullNodeEventTypes,
   StandardFullNodeEvent,
+  TokenCreatedEvent,
   EventTxHeader,
   isNanoHeader,
 } from '../types';
@@ -59,6 +60,7 @@ import {
   getUtxosLockedAtHeight,
   addMiner,
   storeTokenInformation,
+  updateTokenVersion,
   getLockedUtxoFromInputs,
   incrementTokensTxCount,
   getAddressWalletInfo,
@@ -292,7 +294,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       if (!token_name || !token_symbol) {
         throw new Error('Processed a token creation event but it did not come with token name and symbol');
       }
-      await storeTokenInformation(mysql, hash, token_name, token_symbol);
+      await storeTokenInformation(mysql, hash, token_name, token_symbol, TokenVersion.DEPOSIT);
     }
 
     // check if any of the inputs are still marked as locked and update tables accordingly.
@@ -886,4 +888,43 @@ export const checkForMissedEvents = async (context: Context): Promise<{ hasNewEv
   }
 
   return { hasNewEvents, events };
+};
+
+/**
+ * Handles TOKEN_CREATED events from the fullnode.
+ * Updates the token version in the database based on the event data.
+ *
+ * @param context - The state machine context containing the event
+ */
+export const handleTokenCreated = async (context: Context): Promise<void> => {
+  if (!context.event) {
+    throw new Error('No event in context');
+  }
+
+  const mysql = await getDbConnection();
+
+  try {
+    await mysql.beginTransaction();
+
+    const fullNodeEvent = context.event as TokenCreatedEvent;
+    const { token_uid, token_version } = fullNodeEvent.event.data;
+
+    logger.debug(`Processing TOKEN_CREATED event for token ${token_uid} with version ${token_version}`);
+
+    await updateTokenVersion(mysql, token_uid, token_version);
+
+    // Update last synced event
+    const lastEventId = context.event.event.id;
+    await dbUpdateLastSyncedEvent(mysql, lastEventId);
+
+    await mysql.commit();
+
+    logger.info(`Successfully updated token ${token_uid} with version ${token_version}`);
+  } catch (e) {
+    logger.error('Error handling TOKEN_CREATED event:', e);
+    await mysql.rollback();
+    throw e;
+  } finally {
+    mysql.destroy();
+  }
 };

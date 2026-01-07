@@ -51,7 +51,7 @@ import {
   storeTokenInformation,
 } from '@src/db';
 import * as Utils from '@src/utils';
-import hathorLib from '@hathor/wallet-lib';
+import hathorLib, { TokenVersion } from '@hathor/wallet-lib';
 import { convertApiVersionData, getFullnodeData } from '@src/nodeConfig';
 
 const mysql = getDbConnection();
@@ -652,7 +652,7 @@ describe('getWalletBalancesForTx', () => {
       name: 'Token 1',
       symbol: 'T1',
     };
-    await storeTokenInformation(mysql, token1.id, token1.name, token1.symbol);
+    await storeTokenInformation(mysql, token1.id, token1.name, token1.symbol, TokenVersion.DEPOSIT);
 
     // transaction base
     const utxos = [
@@ -736,7 +736,7 @@ describe('getWalletBalancesForTx', () => {
       name: 'Token 1',
       symbol: 'T1',
     };
-    await storeTokenInformation(mysql, token1.id, token1.name, token1.symbol);
+    await storeTokenInformation(mysql, token1.id, token1.name, token1.symbol, TokenVersion.DEPOSIT);
 
     // instantiate token balance
     const balanceToken1 = {
@@ -865,13 +865,13 @@ describe('getWalletBalancesForTx', () => {
         name: 'Token 1',
         symbol: 'T1',
       };
-      await storeTokenInformation(mysql, token1.id, token1.name, token1.symbol);
+      await storeTokenInformation(mysql, token1.id, token1.name, token1.symbol, TokenVersion.DEPOSIT);
       const token2 = {
         id: 'token2',
         name: 'Token 2',
         symbol: 'T2',
       };
-      await storeTokenInformation(mysql, token2.id, token2.name, token2.symbol);
+      await storeTokenInformation(mysql, token2.id, token2.name, token2.symbol, TokenVersion.DEPOSIT);
 
       // instantiate token balance
       const balanceToken1 = {
@@ -1035,13 +1035,13 @@ describe('getWalletBalancesForTx', () => {
         name: 'Token 1',
         symbol: 'T1',
       };
-      await storeTokenInformation(mysql, token1.id, token1.name, token1.symbol);
+      await storeTokenInformation(mysql, token1.id, token1.name, token1.symbol, TokenVersion.DEPOSIT);
       const token2 = {
         id: 'token2',
         name: 'Token 2',
         symbol: 'T2',
       };
-      await storeTokenInformation(mysql, token2.id, token2.name, token2.symbol);
+      await storeTokenInformation(mysql, token2.id, token2.name, token2.symbol, TokenVersion.DEPOSIT);
 
       // instantiate token balance
       const balanceToken1 = {
