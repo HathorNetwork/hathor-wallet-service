@@ -270,12 +270,13 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       // set heightlock
       heightlock = height + blockRewardLock;
 
-      // get the first output address
-      const blockRewardOutput = outputs[0];
-
-      // add miner to the miners table
-      if (isDecodedValid(blockRewardOutput.decoded, ['address'])) {
-        await addMiner(mysql, blockRewardOutput.decoded!.address, hash);
+      // get the first output address and add miner to the miners table
+      // PoA blocks may not have outputs, so we need to check first
+      if (outputs.length > 0) {
+        const blockRewardOutput = outputs[0];
+        if (isDecodedValid(blockRewardOutput.decoded, ['address'])) {
+          await addMiner(mysql, blockRewardOutput.decoded!.address, hash);
+        }
       }
 
       // here we check if we have any utxos on our database that is locked but
