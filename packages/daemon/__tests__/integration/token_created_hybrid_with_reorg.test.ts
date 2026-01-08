@@ -98,14 +98,14 @@ jest.spyOn(Services, 'checkForMissedEvents').mockImplementation(async () => ({
  * 4. Nano executes successfully (nc_execution: SUCCESS)
  * 5. TOKEN_CREATED event #2: Nano-created token "NCX" with nc_exec_info: {nc_tx, nc_block}
  * 6. REORG happens - a-chain (a2 → a3 → a4 → a5) becomes longer than b-chain (b1 → b2)
- * 7. Block b2 gets orphaned, nc_execution goes to null temporarily
- * 8. Transaction gets re-confirmed in block a3, nc_execution goes back to SUCCESS
+ * 7. Block b2 gets orphaned, nc_execution changes from 'success' to 'pending'
+ * 8. Transaction gets re-confirmed in block a3, nc_execution goes back to 'success'
  * 9. TOKEN_CREATED event #3: NCX is re-created during reorg (group_id: 0)
  * 10. REORG finishes
  *
  * Expected Behavior:
  * - HYB token (traditional) REMAINS in database throughout reorg (never deleted)
- * - NCX token (nano-created) gets deleted when nc_execution → null, then re-created when nc_execution → success
+ * - NCX token (nano-created) gets deleted when nc_execution is no longer 'success', then re-created when nc_execution → 'success'
  * - Both tokens exist at the end
  * - HYB maps to the hybrid transaction (token_id = tx_id for CREATE_TOKEN_TX)
  * - NCX maps to the hybrid transaction (created by nano contract syscall)
@@ -113,8 +113,8 @@ jest.spyOn(Services, 'checkForMissedEvents').mockImplementation(async () => ({
  *
  * This validates that:
  * - Traditional CREATE_TOKEN_TX tokens persist through reorg (not affected by nc_execution changes)
- * - Nano-created tokens are deleted when nc_execution changes to non-success
- * - Nano-created tokens are re-created when nc_execution goes back to success
+ * - Nano-created tokens are deleted when nc_execution is no longer 'success'
+ * - Nano-created tokens are re-created when nc_execution goes back to 'success'
  * - TOKEN_CREATED events are properly fired during reorg for nano-created tokens
  * - Token creation mappings are correct for both token types
  */
