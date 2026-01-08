@@ -1,3 +1,4 @@
+import { TokenVersion } from '@hathor/wallet-lib';
 import { mockedAddAlert } from '@tests/utils/alerting.utils.mock';
 import { initFirebaseAdminMock } from '@tests/utils/firebase-admin.mock';
 import eventTemplate from '@events/eventTemplate.json';
@@ -81,7 +82,7 @@ block4.outputs = [createOutput(0, blockReward, 'HJPcaSncHGhzasvbbWP5yfZ6XSixwLHd
 const txEvent = JSON.parse(JSON.stringify(eventTemplate));
 const tx: Transaction = txEvent.Records[0].body;
 const txId3 = 'txId3';
-tx.version = 1;
+tx.version = TokenVersion.DEPOSIT;
 tx.tx_id = txId3;
 tx.timestamp += 20;
 tx.inputs = [createInput(blockReward, ADDRESSES[0], txId1, 0)];
@@ -94,7 +95,7 @@ tx.outputs = [
 const txEvent2 = JSON.parse(JSON.stringify(eventTemplate));
 const tx2: Transaction = txEvent2.Records[0].body;
 const timelock = now + 90000;
-tx2.version = 1;
+tx2.version = TokenVersion.DEPOSIT;
 const txId4 = 'txId4';
 tx2.tx_id = txId4;
 tx2.timestamp += 20;

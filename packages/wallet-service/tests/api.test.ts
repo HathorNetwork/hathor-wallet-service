@@ -1,4 +1,5 @@
 import { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
+import { TokenVersion } from '@hathor/wallet-lib';
 
 import { mockedAddAlert } from '@tests/utils/alerting.utils.mock';
 import { get as addressInfoGet } from '@src/api/addressInfo';
@@ -425,18 +426,19 @@ test('GET /balances', async () => {
   }]);
 
   // add the hathor token as it will be deleted by the beforeAll
-  const htrToken = { id: '00', name: 'Hathor', symbol: 'HTR' };
+  const htrToken = { id: '00', name: 'Hathor', symbol: 'HTR', version: TokenVersion.NATIVE };
   // add tokens
-  const token1 = { id: 'token1', name: 'MyToken1', symbol: 'MT1' };
-  const token2 = { id: 'token2', name: 'MyToken2', symbol: 'MT2' };
-  const token3 = { id: 'token3', name: 'MyToken3', symbol: 'MT3' };
-  const token4 = { id: 'token4', name: 'MyToken4', symbol: 'MT4' };
+  // TODO-RAUL: add test for token version 2
+  const token1 = { id: 'token1', name: 'MyToken1', symbol: 'MT1', version: TokenVersion.DEPOSIT };
+  const token2 = { id: 'token2', name: 'MyToken2', symbol: 'MT2', version: TokenVersion.DEPOSIT };
+  const token3 = { id: 'token3', name: 'MyToken3', symbol: 'MT3', version: TokenVersion.DEPOSIT };
+  const token4 = { id: 'token4', name: 'MyToken4', symbol: 'MT4', version: TokenVersion.DEPOSIT };
   await addToTokenTable(mysql, [
     { ...htrToken, transactions: 0 },
-    { id: token1.id, name: token1.name, symbol: token1.symbol, transactions: 0 },
-    { id: token2.id, name: token2.name, symbol: token2.symbol, transactions: 0 },
-    { id: token3.id, name: token3.name, symbol: token3.symbol, transactions: 0 },
-    { id: token4.id, name: token4.name, symbol: token4.symbol, transactions: 0 },
+    { id: token1.id, name: token1.name, symbol: token1.symbol, transactions: 0, version: token1.version },
+    { id: token2.id, name: token2.name, symbol: token2.symbol, transactions: 0, version: token2.version },
+    { id: token3.id, name: token3.name, symbol: token3.symbol, transactions: 0, version: token3.version },
+    { id: token4.id, name: token4.name, symbol: token4.symbol, transactions: 0, version: token4.version },
   ]);
 
   // missing wallet
@@ -629,7 +631,7 @@ test('GET /balances', async () => {
   expect(returnBody.success).toBe(true);
   expect(returnBody.balances).toHaveLength(1);
   expect(returnBody.balances).toContainEqual({
-    token: { id: '00', name: 'Hathor', symbol: 'HTR' },
+    token: { id: '00', name: 'Hathor', symbol: 'HTR', version: TokenVersion.NATIVE },
     transactions: 3,
     balance: { unlocked: 10, locked: 0 },
     lockExpires: null,
@@ -637,9 +639,9 @@ test('GET /balances', async () => {
   });
 
   // request balance for a token the wallet doesn't have - should return zero balance
-  const tokenNotOwned = { id: 'tokennotowned', name: 'NotOwnedToken', symbol: 'NOT' };
+  const tokenNotOwned = { id: 'tokennotowned', name: 'NotOwnedToken', symbol: 'NOT', version: TokenVersion.DEPOSIT };
   await addToTokenTable(mysql, [
-    { id: tokenNotOwned.id, name: tokenNotOwned.name, symbol: tokenNotOwned.symbol, transactions: 0 },
+    { id: tokenNotOwned.id, name: tokenNotOwned.name, symbol: tokenNotOwned.symbol, transactions: 0, version: tokenNotOwned.version },
   ]);
   event = makeGatewayEventWithAuthorizer('my-wallet', { token_id: 'tokennotowned' });
   result = await balancesGet(event, null, null) as APIGatewayProxyResult;
@@ -1496,12 +1498,12 @@ test('GET /wallet/tokens/token_id/details', async () => {
   expect(returnBody.details[0]).toStrictEqual({ message: '"token_id" is required', path: ['token_id'] });
 
   // add tokens
-  const token1 = { id: TX_IDS[1], name: 'MyToken1', symbol: 'MT1' };
-  const token2 = { id: TX_IDS[2], name: 'MyToken2', symbol: 'MT2' };
+  const token1 = { id: TX_IDS[1], name: 'MyToken1', symbol: 'MT1', version: TokenVersion.DEPOSIT };
+  const token2 = { id: TX_IDS[2], name: 'MyToken2', symbol: 'MT2', version: TokenVersion.DEPOSIT };
 
   await addToTokenTable(mysql, [
-    { id: token1.id, name: token1.name, symbol: token1.symbol, transactions: 0 },
-    { id: token2.id, name: token2.name, symbol: token2.symbol, transactions: 0 },
+    { id: token1.id, name: token1.name, symbol: token1.symbol, transactions: 0, version: token1.version },
+    { id: token2.id, name: token2.name, symbol: token2.symbol, transactions: 0, version: token2.version },
   ]);
 
   await addToUtxoTable(mysql, [{

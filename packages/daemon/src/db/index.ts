@@ -40,7 +40,7 @@ import {
   TxOutputRow,
 } from '../types';
 import getConfig from '../config';
-import { constants } from '@hathor/wallet-lib';
+import { constants, TokenVersion } from '@hathor/wallet-lib';
 
 let pool: Pool;
 
@@ -1135,17 +1135,37 @@ export const mapDbResultToDbTxOutput = (result: TxOutputRow): DbTxOutput => ({
  * @param tokenId - The token's id
  * @param tokenName - The token's name
  * @param tokenSymbol - The token's symbol
+ * @param tokenVersion - The token's version
  */
 export const storeTokenInformation = async (
   mysql: MysqlConnection,
   tokenId: string,
   tokenName: string,
   tokenSymbol: string,
+  tokenVersion: TokenVersion,
 ): Promise<void> => {
-  const entry = { id: tokenId, name: tokenName, symbol: tokenSymbol };
+  const entry = { id: tokenId, name: tokenName, symbol: tokenSymbol, version: tokenVersion };
   await mysql.query(
     'INSERT INTO `token` SET ?',
     [entry],
+  );
+};
+
+/**
+ * Update the token version.
+ *
+ * @param mysql - Database connection
+ * @param tokenId - The token's id
+ * @param tokenVersion - The token's version
+ */
+export const updateTokenVersion = async (
+  mysql: MysqlConnection,
+  tokenId: string,
+  tokenVersion: TokenVersion,
+): Promise<void> => {
+  await mysql.query(
+    'UPDATE `token` SET `version` = ? WHERE `id` = ?',
+    [tokenVersion, tokenId],
   );
 };
 
@@ -1644,7 +1664,12 @@ export const getTokenInformation = async (
 
   if (results.length === 0) return null;
 
-  return new TokenInfo(tokenId, results[0].name as string, results[0].symbol as string);
+  return new TokenInfo(
+    tokenId,
+    results[0].name as string,
+    results[0].symbol as string,
+    results[0].version as TokenVersion,
+  );
 };
 
 /**

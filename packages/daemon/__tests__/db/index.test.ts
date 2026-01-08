@@ -72,7 +72,7 @@ import {
 import { isAuthority } from '@wallet-service/common';
 import { DbTxOutput, StringMap, TokenInfo, WalletStatus } from '../../src/types';
 import { Authorities, TokenBalanceMap } from '@wallet-service/common';
-import { constants } from '@hathor/wallet-lib';
+import { constants, TokenVersion } from '@hathor/wallet-lib';
 import { generateAddresses } from '../../src/utils';
 
 // Use a single mysql connection for all tests
@@ -1062,8 +1062,8 @@ describe('token methods', () => {
 
     expect(await getTokenInformation(mysql, 'invalid')).toBeNull();
 
-    const info = new TokenInfo('tokenId', 'tokenName', 'TKNS');
-    storeTokenInformation(mysql, info.id, info.name, info.symbol);
+    const info = new TokenInfo('tokenId', 'tokenName', 'TKNS', TokenVersion.DEPOSIT);
+    storeTokenInformation(mysql, info.id, info.name, info.symbol, TokenVersion.DEPOSIT);
 
     expect(info).toStrictEqual(await getTokenInformation(mysql, info.id));
   });
@@ -1071,9 +1071,9 @@ describe('token methods', () => {
   test('incrementTokensTxCount', async () => {
     expect.hasAssertions();
 
-    const htr = new TokenInfo('00', 'Hathor', 'HTR', 5);
-    const token1 = new TokenInfo('token1', 'MyToken1', 'MT1', 10);
-    const token2 = new TokenInfo('token2', 'MyToken2', 'MT2', 15);
+    const htr = new TokenInfo('00', 'Hathor', 'HTR', TokenVersion.NATIVE, 5);
+    const token1 = new TokenInfo('token1', 'MyToken1', 'MT1', TokenVersion.DEPOSIT, 10);
+    const token2 = new TokenInfo('token2', 'MyToken2', 'MT2', TokenVersion.DEPOSIT, 15);
 
     await addToTokenTable(mysql, [
       { id: htr.id, name: htr.name, symbol: htr.symbol, transactions: htr.transactions },
@@ -1119,16 +1119,16 @@ describe('getTokenSymbols', () => {
     expect.hasAssertions();
 
     const tokensToPersist = [
-      new TokenInfo('token1', 'tokenName1', 'TKN1'),
-      new TokenInfo('token2', 'tokenName2', 'TKN2'),
-      new TokenInfo('token3', 'tokenName3', 'TKN3'),
-      new TokenInfo('token4', 'tokenName4', 'TKN4'),
-      new TokenInfo('token5', 'tokenName5', 'TKN5'),
+      new TokenInfo('token1', 'tokenName1', 'TKN1', TokenVersion.DEPOSIT),
+      new TokenInfo('token2', 'tokenName2', 'TKN2', TokenVersion.DEPOSIT),
+      new TokenInfo('token3', 'tokenName3', 'TKN3', TokenVersion.DEPOSIT),
+      new TokenInfo('token4', 'tokenName4', 'TKN4', TokenVersion.DEPOSIT),
+      new TokenInfo('token5', 'tokenName5', 'TKN5', TokenVersion.DEPOSIT),
     ];
 
     // persist tokens
     for (const eachToken of tokensToPersist) {
-      await storeTokenInformation(mysql, eachToken.id, eachToken.name, eachToken.symbol);
+      await storeTokenInformation(mysql, eachToken.id, eachToken.name, eachToken.symbol, eachToken.version);
     }
 
     const tokenIdList = tokensToPersist.map((each: TokenInfo) => each.id);
@@ -1147,11 +1147,11 @@ describe('getTokenSymbols', () => {
     expect.hasAssertions();
 
     const tokensToPersist = [
-      new TokenInfo('token1', 'tokenName1', 'TKN1'),
-      new TokenInfo('token2', 'tokenName2', 'TKN2'),
-      new TokenInfo('token3', 'tokenName3', 'TKN3'),
-      new TokenInfo('token4', 'tokenName4', 'TKN4'),
-      new TokenInfo('token5', 'tokenName5', 'TKN5'),
+      new TokenInfo('token1', 'tokenName1', 'TKN1', TokenVersion.DEPOSIT),
+      new TokenInfo('token2', 'tokenName2', 'TKN2', TokenVersion.DEPOSIT),
+      new TokenInfo('token3', 'tokenName3', 'TKN3', TokenVersion.DEPOSIT),
+      new TokenInfo('token4', 'tokenName4', 'TKN4', TokenVersion.DEPOSIT),
+      new TokenInfo('token5', 'tokenName5', 'TKN5', TokenVersion.DEPOSIT),
     ];
 
     // no token persistence

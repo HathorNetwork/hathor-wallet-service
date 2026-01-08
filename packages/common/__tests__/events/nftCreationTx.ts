@@ -22,7 +22,7 @@ import { HistoryTransaction } from '@hathor/wallet-lib/lib/models/types';
 export const nftCreationTx = {
   tx_id: '0025a6488045d7466639ead179a7f6beb188320f41cdb6df3a971db2ee86dbc3',
   signal_bits: 0,
-  version: 2,
+  version: 1,
   weight: 8.000001,
   timestamp: 1656543561,
   is_voided: false,
