@@ -113,6 +113,8 @@ function calculateBatches(latestEventId: number, batchSize: number): BatchInfo[]
 
 /**
  * Merge calculated batches with existing progress from database.
+ * Handles the case where a batch was completed with a smaller boundary
+ * (e.g., latestEventId was lower during a previous run).
  */
 function mergeBatchesWithProgress(
   batches: BatchInfo[],
@@ -125,12 +127,25 @@ function mergeBatchesWithProgress(
 
   return batches.map((batch) => {
     const existing = progressMap.get(batch.start);
-    if (existing && existing.status === 'completed') {
-      return { ...batch, lastDownloaded: batch.end }; // Mark as complete
+    if (!existing) {
+      return batch;
     }
-    if (existing && existing.last_downloaded !== null) {
+
+    // Only consider fully complete if the stored batch_end covers the calculated batch_end
+    if (existing.status === 'completed' && existing.batch_end >= batch.end) {
+      return { ...batch, lastDownloaded: batch.end };
+    }
+
+    // Batch was "completed" but with a smaller boundary - resume from where it ended
+    if (existing.status === 'completed') {
+      return { ...batch, lastDownloaded: existing.batch_end };
+    }
+
+    // For in-progress or failed batches, resume from last_downloaded
+    if (existing.last_downloaded !== null) {
       return { ...batch, lastDownloaded: existing.last_downloaded };
     }
+
     return batch;
   }).filter((batch) => {
     // Filter out completed batches
