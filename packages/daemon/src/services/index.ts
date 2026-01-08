@@ -96,9 +96,11 @@ export const METADATA_DIFF_EVENT_TYPES = {
 const DUPLICATE_TX_ALERT_GRACE_PERIOD = 10; // seconds
 
 export const metadataDiff = async (_context: Context, event: Event) => {
-  const mysql = await getDbConnection();
+  let mysql;
 
   try {
+    mysql = await getDbConnection();
+
     const fullNodeEvent = event.event as StandardFullNodeEvent;
     const {
       hash,
@@ -166,15 +168,18 @@ export const metadataDiff = async (_context: Context, event: Event) => {
       originalEvent: event,
     };
   } catch (e) {
-    logger.error('e', e);
+    logger.error('metadataDiff error', e);
     return Promise.reject(e);
   } finally {
-    mysql.destroy();
+    if (mysql) {
+      mysql.destroy();
+    }
   }
 };
 
 export const isBlock = (version: number): boolean => version === hathorLib.constants.BLOCK_VERSION
-  || version === hathorLib.constants.MERGED_MINED_BLOCK_VERSION;
+  || version === hathorLib.constants.MERGED_MINED_BLOCK_VERSION
+  || version === hathorLib.constants.POA_BLOCK_VERSION;
 
 export function isNanoContract(headers: EventTxHeader[]) {
   for (const header of headers) {
@@ -466,10 +471,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     await mysql.commit();
   } catch (e) {
     await mysql.rollback();
-    console.error('Error handling vertex accepted', {
-      error: (e as Error).message,
-      stack: (e as Error).stack,
-    });
+    logger.error('Error handling vertex accepted', e);
 
     throw e;
   } finally {

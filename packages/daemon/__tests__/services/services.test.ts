@@ -861,7 +861,7 @@ describe('metadataDiff', () => {
 
     await expect(metadataDiff({} as any, event as any)).rejects.toThrow('Mock Error');
     expect(mockDb.destroy).toHaveBeenCalled();
-    expect(logger.error).toHaveBeenCalledWith('e', new Error('Mock Error'));
+    expect(logger.error).toHaveBeenCalledWith('metadataDiff error', new Error('Mock Error'));
   });
 
   it('should handle transaction transactions that are not voided anymore', async () => {

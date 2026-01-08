@@ -45,6 +45,7 @@ export enum FullNodeEventTypes {
   REORG_STARTED = 'REORG_STARTED',
   REORG_FINISHED = 'REORG_FINISHED',
   NC_EVENT = 'NC_EVENT',
+  FULL_NODE_CRASHED = 'FULL_NODE_CRASHED',
 }
 
 /**
@@ -62,6 +63,7 @@ const EmptyDataFullNodeEvents = z.union([
   z.literal('LOAD_STARTED'),
   z.literal('LOAD_FINISHED'),
   z.literal('REORG_FINISHED'),
+  z.literal('FULL_NODE_CRASHED'),
 ]);
 
 export const FullNodeEventTypesSchema = z.nativeEnum(FullNodeEventTypes);
