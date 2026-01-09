@@ -22,10 +22,12 @@ import {
   metadataDiff,
   handleVoidedTx,
   handleTxFirstBlock,
+  handleNcExecVoided,
   updateLastSyncedEvent,
   fetchInitialState,
   handleUnvoidedTx,
   handleReorgStarted,
+  handleTokenCreated,
   checkForMissedEvents,
 } from '../services';
 import {
@@ -34,6 +36,7 @@ import {
   metadataUnvoided,
   metadataNewTx,
   metadataFirstBlock,
+  metadataNcExecVoided,
   metadataChanged,
   vertexAccepted,
   invalidPeerId,
@@ -44,6 +47,7 @@ import {
   unchanged,
   vertexRemoved,
   reorgStarted,
+  tokenCreated,
   hasNewEvents,
 } from '../guards';
 import {
@@ -80,7 +84,9 @@ export const CONNECTED_STATES = {
   handlingVoidedTx: 'handlingVoidedTx',
   handlingUnvoidedTx: 'handlingUnvoidedTx',
   handlingFirstBlock: 'handlingFirstBlock',
+  handlingNcExecVoided: 'handlingNcExecVoided',
   handlingReorgStarted: 'handlingReorgStarted',
+  handlingTokenCreated: 'handlingTokenCreated',
   checkingForMissedEvents: 'checkingForMissedEvents',
 };
 
@@ -184,6 +190,10 @@ export const SyncMachine = Machine<Context, any, Event>({
               target: CONNECTED_STATES.handlingReorgStarted,
             }, {
               actions: ['storeEvent'],
+              cond: 'tokenCreated',
+              target: CONNECTED_STATES.handlingTokenCreated,
+            }, {
+              actions: ['storeEvent'],
               target: CONNECTED_STATES.handlingUnhandledEvent,
             }],
           },
@@ -215,6 +225,7 @@ export const SyncMachine = Machine<Context, any, Event>({
                   { target: `#${CONNECTED_STATES.handlingUnvoidedTx}`, cond: 'metadataUnvoided', actions: ['unwrapEvent'] },
                   { target: `#${CONNECTED_STATES.handlingVertexAccepted}`, cond: 'metadataNewTx', actions: ['unwrapEvent'] },
                   { target: `#${CONNECTED_STATES.handlingFirstBlock}`, cond: 'metadataFirstBlock', actions: ['unwrapEvent'] },
+                  { target: `#${CONNECTED_STATES.handlingNcExecVoided}`, cond: 'metadataNcExecVoided', actions: ['unwrapEvent'] },
                   { target: `#${CONNECTED_STATES.handlingUnhandledEvent}`, cond: 'metadataIgnore' },
                 ],
               },
@@ -285,10 +296,34 @@ export const SyncMachine = Machine<Context, any, Event>({
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
         },
+        [CONNECTED_STATES.handlingNcExecVoided]: {
+          id: CONNECTED_STATES.handlingNcExecVoided,
+          invoke: {
+            src: 'handleNcExecVoided',
+            data: (_context: Context, event: Event) => event,
+            onDone: {
+              target: 'idle',
+              actions: ['storeEvent', 'sendAck'],
+            },
+            onError: `#${SYNC_MACHINE_STATES.ERROR}`,
+          },
+        },
         [CONNECTED_STATES.handlingReorgStarted]: {
           id: CONNECTED_STATES.handlingReorgStarted,
           invoke: {
             src: 'handleReorgStarted',
+            data: (_context: Context, event: Event) => event,
+            onDone: {
+              target: 'idle',
+              actions: ['sendAck', 'storeEvent'],
+            },
+            onError: `#${SYNC_MACHINE_STATES.ERROR}`,
+          },
+        },
+        [CONNECTED_STATES.handlingTokenCreated]: {
+          id: CONNECTED_STATES.handlingTokenCreated,
+          invoke: {
+            src: 'handleTokenCreated',
             data: (_context: Context, event: Event) => event,
             onDone: {
               target: 'idle',
@@ -333,8 +368,10 @@ export const SyncMachine = Machine<Context, any, Event>({
     handleVertexRemoved,
     handleVoidedTx,
     handleTxFirstBlock,
+    handleNcExecVoided,
     handleUnvoidedTx,
     handleReorgStarted,
+    handleTokenCreated,
     fetchInitialState,
     metadataDiff,
     updateLastSyncedEvent,
@@ -346,6 +383,7 @@ export const SyncMachine = Machine<Context, any, Event>({
     metadataUnvoided,
     metadataNewTx,
     metadataFirstBlock,
+    metadataNcExecVoided,
     metadataChanged,
     vertexAccepted,
     invalidPeerId,
@@ -356,6 +394,7 @@ export const SyncMachine = Machine<Context, any, Event>({
     unchanged,
     vertexRemoved,
     reorgStarted,
+    tokenCreated,
     hasNewEvents,
   },
   delays: { BACKOFF_DELAYED_RECONNECT, ACK_TIMEOUT },

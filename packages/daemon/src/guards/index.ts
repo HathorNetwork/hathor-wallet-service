@@ -75,6 +75,20 @@ export const metadataFirstBlock = (_context: Context, event: Event) => {
 };
 
 /*
+ * This guard is used during the `handlingMetadataChanged` to check if
+ * the result was a NC_EXEC_VOIDED event, which means nc_execution changed
+ * from 'success' to something else (pending, null, etc.) during a reorg.
+ * We need to delete any nano-created tokens for this transaction.
+ */
+export const metadataNcExecVoided = (_context: Context, event: Event) => {
+  if (event.type !== EventTypes.METADATA_DECIDED) {
+    throw new Error(`Invalid event type on metadataNcExecVoided guard: ${event.type}`);
+  }
+
+  return event.event.type === METADATA_DIFF_EVENT_TYPES.NC_EXEC_VOIDED;
+};
+
+/*
  * This guard is used on the `idle` state when an event is received
  * from the fullnode to detect if this event is a VERTEX_METADATA_CHANGED
  * event
@@ -263,4 +277,15 @@ export const hasNewEvents = (_context: Context, event: any) => {
   }
 
   return event.data.hasNewEvents === true;
+};
+
+/*
+ * This guard is used to detect if the event is a TOKEN_CREATED event
+ */
+export const tokenCreated = (_context: Context, event: Event) => {
+  if (event.type !== EventTypes.FULLNODE_EVENT) {
+    throw new Error(`Invalid event type on tokenCreated guard: ${event.type}`);
+  }
+
+  return event.event.event.type === FullNodeEventTypes.TOKEN_CREATED;
 };
