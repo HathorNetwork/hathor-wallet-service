@@ -9,6 +9,11 @@ import { APIGatewayProxyHandler } from 'aws-lambda';
 import { ApiError } from '@src/api/errors';
 import { closeDbAndGetError, warmupMiddleware, pushProviderRegexPattern } from '@src/api/utils';
 import { removeAllPushDevicesByDeviceId, registerPushDevice, existsWallet } from '@src/db';
+import {
+  beginTransaction,
+  commitTransaction,
+  rollbackTransaction,
+} from '@src/db/utils';
 import { getDbConnection } from '@src/utils';
 import { walletIdProxyHandler } from '@src/commons';
 import middy from '@middy/core';
@@ -65,15 +70,25 @@ export const register: APIGatewayProxyHandler = middy(walletIdProxyHandler(async
     return closeDbAndGetError(mysql, ApiError.WALLET_NOT_FOUND);
   }
 
-  await removeAllPushDevicesByDeviceId(mysql, body.deviceId);
+  // Remove and register device atomically
+  try {
+    await beginTransaction(mysql);
 
-  await registerPushDevice(mysql, {
-    walletId,
-    deviceId: body.deviceId,
-    pushProvider: body.pushProvider,
-    enablePush: body.enablePush,
-    enableShowAmounts: body.enableShowAmounts,
-  });
+    await removeAllPushDevicesByDeviceId(mysql, body.deviceId);
+
+    await registerPushDevice(mysql, {
+      walletId,
+      deviceId: body.deviceId,
+      pushProvider: body.pushProvider,
+      enablePush: body.enablePush,
+      enableShowAmounts: body.enableShowAmounts,
+    });
+
+    await commitTransaction(mysql);
+  } catch (e) {
+    await rollbackTransaction(mysql);
+    return closeDbAndGetError(mysql, ApiError.UNKNOWN_ERROR, { message: e.message });
+  }
 
   return {
     statusCode: 200,
