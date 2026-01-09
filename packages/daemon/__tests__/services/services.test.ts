@@ -9,6 +9,7 @@
  * @jest-environment node
  */
 import axios from 'axios';
+import hathorLib from '@hathor/wallet-lib';
 import {
   getDbConnection,
   getLastSyncedEvent,
@@ -22,6 +23,8 @@ import {
   getAddressWalletInfo,
   storeTokenInformation,
   getMaxIndicesForWallets,
+  addMiner,
+  getLockedUtxoFromInputs,
   getTokensCreatedByTx,
   deleteTokens,
 } from '../../src/db';
@@ -711,6 +714,70 @@ describe('handleVertexAccepted', () => {
     await expect(handleVertexAccepted(context as any, {} as any)).rejects.toThrow('Test error');
     expect(mockDb.beginTransaction).toHaveBeenCalled();
     expect(mockDb.rollback).toHaveBeenCalled();
+    expect(mockDb.destroy).toHaveBeenCalled();
+  });
+
+  it('should handle PoA blocks with empty outputs without crashing', async () => {
+    // Mock hathorLib constants to recognize PoA block version
+    const POA_BLOCK_VERSION = 5;
+    (hathorLib as any).constants = {
+      BLOCK_VERSION: 0,
+      MERGED_MINED_BLOCK_VERSION: 3,
+      POA_BLOCK_VERSION: POA_BLOCK_VERSION,
+      CREATE_TOKEN_TX_VERSION: 2,
+    };
+
+    const context = {
+      event: {
+        event: {
+          data: {
+            hash: 'poaBlockHash',
+            metadata: {
+              height: 1,
+              first_block: null,
+              voided_by: [],
+            },
+            timestamp: 1762200490,
+            version: POA_BLOCK_VERSION,
+            weight: 2,
+            outputs: [], // PoA blocks may have no outputs
+            inputs: [],
+            tokens: [],
+            token_name: null,
+            token_symbol: null,
+            nonce: 0,
+            parents: ['parent1', 'parent2', 'parent3'],
+          },
+          id: 5,
+        },
+      },
+      rewardMinBlocks: 300,
+    };
+
+    (addOrUpdateTx as jest.Mock).mockReturnValue(Promise.resolve());
+    (getTransactionById as jest.Mock).mockResolvedValue(null);
+    (prepareOutputs as jest.Mock).mockReturnValue([]);
+    (prepareInputs as jest.Mock).mockReturnValue([]);
+    (getAddressBalanceMap as jest.Mock).mockReturnValue({});
+    (getUtxosLockedAtHeight as jest.Mock).mockResolvedValue([]);
+    (getLockedUtxoFromInputs as jest.Mock).mockResolvedValue([]);
+    (getAddressWalletInfo as jest.Mock).mockResolvedValue({});
+
+    await handleVertexAccepted(context as any, {} as any);
+
+    // Verify addMiner was NOT called since there are no outputs
+    expect(addMiner).not.toHaveBeenCalled();
+
+    // Verify the transaction was still processed successfully
+    expect(addOrUpdateTx).toHaveBeenCalledWith(
+      mockDb,
+      'poaBlockHash',
+      1, // height
+      1762200490, // timestamp
+      POA_BLOCK_VERSION,
+      2, // weight
+    );
+    expect(mockDb.commit).toHaveBeenCalled();
     expect(mockDb.destroy).toHaveBeenCalled();
   });
 });
