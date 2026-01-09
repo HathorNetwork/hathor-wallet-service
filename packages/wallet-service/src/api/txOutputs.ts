@@ -45,11 +45,13 @@ const bodySchema = Joi.object({
   // @ts-ignore
   smallerThan: positiveBigInt.default(constants.MAX_OUTPUT_VALUE + 1n),
   totalAmount: positiveBigInt.optional(),
+  maxAmount: positiveBigInt.optional(),
   maxOutputs: Joi.number().integer().positive().default(constants.MAX_OUTPUTS),
   skipSpent: Joi.boolean().optional().default(true),
   txId: Joi.string().optional(),
   index: Joi.number().optional().min(0),
-}).and('txId', 'index');
+}).and('txId', 'index')
+  .nand('totalAmount', 'maxAmount');
 
 /*
  * Filter utxos
@@ -76,6 +78,7 @@ export const getFilteredUtxos = middy(walletIdProxyHandler(async (walletId, even
     txId: queryString.txId,
     index: queryString.index,
     totalAmount: queryString.totalAmount,
+    maxAmount: queryString.maxAmount,
     maxOutputs: queryString.maxOutputs,
   };
 
@@ -130,6 +133,7 @@ export const getFilteredTxOutputs = middy(walletIdProxyHandler(async (walletId, 
     txId: queryString.txId,
     index: queryString.index,
     totalAmount: queryString.totalAmount,
+    maxAmount: queryString.maxAmount,
     maxOutputs: queryString.maxOutputs,
   };
 
@@ -197,7 +201,7 @@ const _getFilteredTxOutputs = async (walletId: string, filters: IFilterTxOutput)
   const txOutputs: DbTxOutput[] = await filterTxOutputs(mysql, newFilters);
   let finalTxOutputs: DbTxOutput[] = txOutputs;
 
-  // Apply totalAmount filter if specified
+  // Apply totalAmount filter if specified (returns UTXOs summing to at least totalAmount)
   if (filters.totalAmount) {
     try {
       const minimalUtxos = txOutputs.map(tx => ({
@@ -219,6 +223,24 @@ const _getFilteredTxOutputs = async (walletId: string, filters: IFilterTxOutput)
         throw error;
       }
     }
+  }
+
+  // Apply maxAmount filter if specified (returns UTXOs summing to at most maxAmount)
+  if (filters.maxAmount) {
+    let accumulatedAmount = 0n;
+    const selectedTxOutputs: DbTxOutput[] = [];
+
+    // txOutputs are sorted by value DESC from the database, so we iterate
+    // from smallest to largest to maximize the number of UTXOs within the limit
+    for (let i = finalTxOutputs.length - 1; i >= 0; i--) {
+      const txOutput = finalTxOutputs[i];
+      if (accumulatedAmount + txOutput.value <= filters.maxAmount) {
+        selectedTxOutputs.push(txOutput);
+        accumulatedAmount += txOutput.value;
+      }
+    }
+
+    finalTxOutputs = selectedTxOutputs;
   }
 
   const txOutputsWithPath: DbTxOutputWithPath[] = mapTxOutputsWithPath(walletAddresses, finalTxOutputs);
