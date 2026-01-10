@@ -352,6 +352,17 @@ functions:
     warmup:
       walletWarmer:
         enabled: true
+  hasNonFirstAddressTransactions:
+    handler: src/api/hasNonFirstAddressTransactions.get
+    events:
+      - http:
+          path: wallet/addresses/has-transactions
+          method: get
+          cors: true
+          authorizer: ${self:custom.authorizer.walletBearer}
+    warmup:
+      walletWarmer:
+        enabled: false
   getUtxos:
     handler: src/api/txOutputs.getFilteredUtxos
     events:
