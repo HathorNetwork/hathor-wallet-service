@@ -1150,6 +1150,94 @@ export const storeTokenInformation = async (
 };
 
 /**
+ * Store the mapping between a token and the transaction that created it
+ *
+ * @param mysql - Database connection
+ * @param tokenId - The token UID
+ * @param txId - Transaction ID that created the token (regular or nano contract)
+ * @param firstBlock - First block hash that confirmed the nano contract execution (null for traditional CREATE_TOKEN_TX)
+ */
+export const insertTokenCreation = async (
+  mysql: MysqlConnection,
+  tokenId: string,
+  txId: string,
+  firstBlock: string | null = null,
+): Promise<void> => {
+  const entry = {
+    token_id: tokenId,
+    tx_id: txId,
+    first_block: firstBlock,
+  };
+  await mysql.query(
+    'INSERT INTO `token_creation` SET ?',
+    [entry],
+  );
+};
+
+/**
+ * Get all token IDs created by a specific transaction
+ *
+ * @param mysql - Database connection
+ * @param txId - The transaction ID (regular or nano contract)
+ * @returns Array of token IDs created by this transaction
+ */
+export const getTokensCreatedByTx = async (
+  mysql: MysqlConnection,
+  txId: string,
+): Promise<string[]> => {
+  const [rows] = await mysql.query<any[]>(
+    'SELECT `token_id` FROM `token_creation` WHERE `tx_id` = ?',
+    [txId],
+  );
+  return rows.map((row) => row.token_id);
+};
+
+/**
+ * Get all token IDs created by a transaction that have a different first_block than expected.
+ *
+ * This is used to detect nano-created tokens that need to be deleted during a reorg.
+ * When the first_block changes, the token_id might also change (even though tx_id stays the same),
+ * so we need to delete tokens with the old first_block and let new TOKEN_CREATED events create new ones.
+ *
+ * IMPORTANT: Excludes tokens where token_id = tx_id. These are traditional CREATE_TOKEN_TX tokens
+ * which should not be affected by nano reorg logic.
+ *
+ * @param mysql - Database connection
+ * @param txId - The transaction ID
+ * @param currentFirstBlock - The current first_block from the TOKEN_CREATED event
+ * @returns Array of nano-created token IDs that have a different first_block
+ */
+export const getReexecNanoTokens = async (
+  mysql: MysqlConnection,
+  txId: string,
+  currentFirstBlock: string | null,
+): Promise<string[]> => {
+  const [rows] = await mysql.query<any[]>(
+    'SELECT `token_id` FROM `token_creation` WHERE `tx_id` = ? AND `token_id` != `tx_id` AND NOT (`first_block` <=> ?)',
+    [txId, currentFirstBlock],
+  );
+  return rows.map((row) => row.token_id);
+};
+
+/**
+ * Delete tokens from the token table
+ *
+ * @param mysql - Database connection
+ * @param tokenIds - Array of token IDs to delete
+ */
+export const deleteTokens = async (
+  mysql: MysqlConnection,
+  tokenIds: string[],
+): Promise<void> => {
+  if (tokenIds.length === 0) return;
+
+  await mysql.query(
+    'DELETE FROM `token` WHERE `id` IN (?)',
+    [tokenIds],
+  );
+};
+
+/**
  * Get tx inputs that are still marked as locked.
  *
  * @remarks
