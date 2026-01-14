@@ -60,6 +60,14 @@ function parseBody(body) {
 const mysql = getDbConnection();
 
 export const tokenHandler: APIGatewayProxyHandler = middy(async (event) => {
+  const logger = createDefaultLogger();
+  const requestContext = {
+    requestId: event.requestContext?.requestId,
+    operation: 'tokenHandler',
+  };
+
+  logger.info('Processing token authentication request', requestContext);
+
   const eventBody = parseBody(event.body);
 
   const { value, error } = bodySchema.validate(eventBody, {
@@ -75,6 +83,8 @@ export const tokenHandler: APIGatewayProxyHandler = middy(async (event) => {
       path: err.path,
     }));
 
+    logger.error('Request validation failed', { ...requestContext, details });
+
     return {
       statusCode: 400,
       body: JSON.stringify({
@@ -88,10 +98,14 @@ export const tokenHandler: APIGatewayProxyHandler = middy(async (event) => {
   const signature = value.sign;
   const timestamp = value.ts;
   const authXpubStr = value.xpub;
-  const wallet: Wallet = await getWallet(mysql, value.walletId);
+  const walletId = value.walletId;
+  const opContext = { ...requestContext, walletId };
+
+  const wallet: Wallet = await getWallet(mysql, walletId);
 
   if (!wallet) {
     await closeDbConnection(mysql);
+    logger.error('Wallet not found', opContext);
     return {
       statusCode: 400,
       body: JSON.stringify({
@@ -104,6 +118,7 @@ export const tokenHandler: APIGatewayProxyHandler = middy(async (event) => {
   const [validTimestamp, timestampShift] = validateAuthTimestamp(timestamp, Date.now() / 1000);
 
   if (!validTimestamp) {
+    logger.error('Invalid timestamp', { ...opContext, timestampShift });
     const details = [{
       message: `The timestamp is shifted ${timestampShift}(s). Limit is ${AUTH_MAX_TIMESTAMP_SHIFT_IN_SECONDS}(s).`,
     }];
@@ -119,6 +134,7 @@ export const tokenHandler: APIGatewayProxyHandler = middy(async (event) => {
   }
 
   if (wallet.authXpubkey !== authXpubStr) {
+    logger.error('Auth xpubkey mismatch', { ...opContext, providedXpub: authXpubStr });
     const details = [{
       message: 'Provided auth_xpubkey does not match the stored auth_xpubkey',
     }];
@@ -134,10 +150,11 @@ export const tokenHandler: APIGatewayProxyHandler = middy(async (event) => {
   }
 
   const address = getAddressFromXpub(authXpubStr);
-  const walletId = wallet.walletId;
 
   if (!verifySignature(signature, timestamp, address, walletId)) {
     await closeDbConnection(mysql);
+
+    logger.error('Invalid signature', opContext);
 
     const details = {
       message: `The signature ${signature} does not match with the auth xpubkey ${authXpubStr} and the timestamp ${timestamp}`,
@@ -152,6 +169,8 @@ export const tokenHandler: APIGatewayProxyHandler = middy(async (event) => {
       }),
     };
   }
+
+  logger.info('Token generated successfully', opContext);
 
   // To understand the other options to the sign method: https://github.com/auth0/node-jsonwebtoken#readme
   const token = jwt.sign(
@@ -178,6 +197,14 @@ export const tokenHandler: APIGatewayProxyHandler = middy(async (event) => {
   .use(errorHandler());
 
 export const roTokenHandler: APIGatewayProxyHandler = middy(async (event) => {
+  const logger = createDefaultLogger();
+  const requestContext = {
+    requestId: event.requestContext?.requestId,
+    operation: 'roTokenHandler',
+  };
+
+  logger.info('Processing read-only token request', requestContext);
+
   const eventBody = parseBody(event.body);
 
   const { value, error } = readOnlyBodySchema.validate(eventBody, {
@@ -193,6 +220,8 @@ export const roTokenHandler: APIGatewayProxyHandler = middy(async (event) => {
       path: err.path,
     }));
 
+    logger.error('Request validation failed', { ...requestContext, details });
+
     return {
       statusCode: 400,
       body: JSON.stringify({
@@ -205,12 +234,14 @@ export const roTokenHandler: APIGatewayProxyHandler = middy(async (event) => {
 
   const xpubkey = value.xpubkey;
   const walletId = getWalletId(xpubkey);
+  const opContext = { ...requestContext, walletId };
 
   // Check if wallet exists and is ready
   const wallet: Wallet = await getWallet(mysql, walletId);
 
   if (!wallet) {
     await closeDbConnection(mysql);
+    logger.error('Wallet not found', opContext);
     return {
       statusCode: 400,
       body: JSON.stringify({
@@ -222,6 +253,7 @@ export const roTokenHandler: APIGatewayProxyHandler = middy(async (event) => {
 
   if (wallet.status !== WalletStatus.READY) {
     await closeDbConnection(mysql);
+    logger.error('Wallet not ready', { ...opContext, status: wallet.status });
     return {
       statusCode: 400,
       body: JSON.stringify({
@@ -230,6 +262,8 @@ export const roTokenHandler: APIGatewayProxyHandler = middy(async (event) => {
       }),
     };
   }
+
+  logger.info('Read-only token generated successfully', opContext);
 
   // Generate JWT with read-only mode
   // NOTE: JWT does NOT contain xpubkey, only walletId hash
