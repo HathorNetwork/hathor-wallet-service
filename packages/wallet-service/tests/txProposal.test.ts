@@ -1917,3 +1917,183 @@ test('POST /txproposals with empty inputs array should succeed', async () => {
   const txProposal = await getTxProposal(mysql, returnBody.txProposalId);
   expect(txProposal).not.toBeNull();
 });
+
+test('POST /txproposals should create tx_proposal BEFORE marking UTXOs (transaction atomicity)', async () => {
+  expect.hasAssertions();
+
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+  await addToAddressTable(mysql, [{
+    address: ADDRESSES[0],
+    index: 0,
+    walletId: 'my-wallet',
+    transactions: 2,
+  }]);
+
+  const token1 = '004d75c1edd4294379e7e5b7ab6c118c53c8b07a506728feb5688c8d26a97e50';
+
+  const utxos = [{
+    txId: '00000000000000001650cd208a2bcff09dce8af88d1b07097ef0efdba4aacbaa',
+    index: 0,
+    tokenId: token1,
+    address: ADDRESSES[0],
+    value: 400n,
+    authorities: 0,
+    timelock: null,
+    heightlock: null,
+    locked: false,
+    spentBy: null,
+  }];
+
+  await addToUtxoTable(mysql, utxos);
+
+  const outputs = [
+    new hathorLib.Output(
+      400n,
+      new hathorLib.P2PKH(new hathorLib.Address(
+        ADDRESSES[0], {
+        network: new hathorLib.Network(process.env.NETWORK),
+      },
+      )).createScript(), {
+      tokenData: 1,
+    },
+    ),
+  ];
+  const inputs = [new hathorLib.Input(utxos[0].txId, utxos[0].index)];
+  const transaction = new hathorLib.Transaction(inputs, outputs, { tokens: [token1] });
+
+  const txHex = transaction.toHex();
+  const event = makeGatewayEventWithAuthorizer('my-wallet', null, JSON.stringify({ txHex }));
+  const result = await txProposalCreate(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+  const txProposalId = returnBody.txProposalId;
+
+  expect(result.statusCode).toBe(201);
+  expect(returnBody.success).toBe(true);
+
+  // Verify tx_proposal was created
+  const txProposal = await getTxProposal(mysql, txProposalId);
+  expect(txProposal).not.toBeNull();
+  expect(txProposal.status).toBe(TxProposalStatus.OPEN);
+
+  // Verify UTXOs were marked with the proposal ID
+  const checkInputs: IWalletInput[] = [{ txId: utxos[0].txId, index: utxos[0].index }];
+  const markedUtxos = await getUtxos(mysql, checkInputs);
+  expect(markedUtxos[0].txProposalId).toBe(txProposalId);
+  expect(markedUtxos[0].txProposalIndex).toBe(0);
+});
+
+test('DELETE /txproposals should update status and release UTXOs atomically', async () => {
+  expect.hasAssertions();
+
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+  await addToAddressTable(mysql, [{
+    address: ADDRESSES[0],
+    index: 0,
+    walletId: 'my-wallet',
+    transactions: 2,
+  }]);
+
+  const token1 = '004d75c1edd4294379e7e5b7ab6c118c53c8b07a506728feb5688c8d26a97e50';
+
+  const utxos = [{
+    txId: '00000000000000001650cd208a2bcff09dce8af88d1b07097ef0efdba4aacbaa',
+    index: 0,
+    tokenId: token1,
+    address: ADDRESSES[0],
+    value: 400n,
+    authorities: 0,
+    timelock: null,
+    heightlock: null,
+    locked: false,
+    spentBy: null,
+  }];
+
+  await addToUtxoTable(mysql, utxos);
+
+  const outputs = [
+    new hathorLib.Output(
+      400n,
+      new hathorLib.P2PKH(new hathorLib.Address(
+        ADDRESSES[0], {
+        network: new hathorLib.Network(process.env.NETWORK),
+      },
+      )).createScript(), {
+      tokenData: 1,
+    },
+    ),
+  ];
+  const inputs = [new hathorLib.Input(utxos[0].txId, utxos[0].index)];
+  const transaction = new hathorLib.Transaction(inputs, outputs, { tokens: [token1] });
+
+  const txHex = transaction.toHex();
+  const createEvent = makeGatewayEventWithAuthorizer('my-wallet', null, JSON.stringify({ txHex }));
+  const createResult = await txProposalCreate(createEvent, null, null) as APIGatewayProxyResult;
+  const createBody = JSON.parse(createResult.body as string);
+  const txProposalId = createBody.txProposalId;
+
+  // Now delete the proposal
+  const deleteEvent = makeGatewayEventWithAuthorizer('my-wallet', { txProposalId }, null);
+  const deleteResult = await txProposalDestroy(deleteEvent, null, null) as APIGatewayProxyResult;
+
+  expect(deleteResult.statusCode).toBe(200);
+  expect(JSON.parse(deleteResult.body).success).toBe(true);
+
+  // Verify tx_proposal status was updated to CANCELLED
+  const txProposal = await getTxProposal(mysql, txProposalId);
+  expect(txProposal.status).toBe(TxProposalStatus.CANCELLED);
+
+  // Verify UTXOs were released (tx_proposal and tx_proposal_index set to NULL)
+  const checkInputs: IWalletInput[] = [{ txId: utxos[0].txId, index: utxos[0].index }];
+  const releasedUtxos = await getUtxos(mysql, checkInputs);
+  expect(releasedUtxos[0].txProposalId).toBeNull();
+  expect(releasedUtxos[0].txProposalIndex).toBeNull();
+});
+
+test('markUtxosWithProposalId should handle empty utxos array', async () => {
+  expect.hasAssertions();
+
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+
+  // Create a transaction with no inputs (e.g., for nano contracts)
+  const outputs = [];
+  const inputs = [];
+  const transaction = new hathorLib.Transaction(inputs, outputs);
+
+  const txHex = transaction.toHex();
+  const event = makeGatewayEventWithAuthorizer('my-wallet', null, JSON.stringify({ txHex }));
+
+  const result = await txProposalCreate(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+
+  expect(result.statusCode).toBe(201);
+  expect(returnBody.success).toBe(true);
+
+  // Verify tx_proposal was still created even with no inputs
+  const txProposal = await getTxProposal(mysql, returnBody.txProposalId);
+  expect(txProposal).not.toBeNull();
+  expect(txProposal.status).toBe(TxProposalStatus.OPEN);
+});
