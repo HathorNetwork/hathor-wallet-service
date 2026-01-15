@@ -3694,3 +3694,111 @@ describe('getAddressByIndex', () => {
       .toBeNull();
   });
 });
+
+describe('markUtxosWithProposalId - improved query performance', () => {
+  it('should handle empty utxos array without error', async () => {
+    expect.hasAssertions();
+
+    const txProposalId = 'txProposalId';
+
+    // Should not throw error when called with empty array
+    await expect(markUtxosWithProposalId(mysql, txProposalId, []))
+      .resolves
+      .toBeUndefined();
+  });
+
+  it('should correctly mark multiple UTXOs with proposal ID and indexes', async () => {
+    expect.hasAssertions();
+
+    const txId = 'testTxId';
+    const tokenId = 'testTokenId';
+    const address = 'testAddress';
+    const txProposalId = 'testProposalId';
+
+    // Create 5 UTXOs
+    const utxos = Array.from({ length: 5 }, (_, index) => ({
+      txId,
+      index,
+      tokenId,
+      address,
+      value: BigInt((index + 1) * 10),
+      authorities: 0,
+      timelock: null,
+      heightlock: null,
+      locked: false,
+      txProposalId: null,
+      txProposalIndex: null,
+      spentBy: null,
+    }));
+
+    // Add to database
+    const outputs = utxos.map((utxo, index) => createOutput(
+      index,
+      utxo.value,
+      utxo.address,
+      utxo.tokenId,
+      utxo.timelock,
+      utxo.locked
+    ));
+    await addUtxos(mysql, txId, outputs);
+
+    // Mark all UTXOs with the proposal ID
+    await markUtxosWithProposalId(mysql, txProposalId, utxos);
+
+    // Verify all UTXOs were marked correctly
+    const markedUtxos = await getUtxos(mysql, utxos.map((utxo) => ({ txId, index: utxo.index })));
+
+    markedUtxos.forEach((utxo, index) => {
+      expect(utxo.txProposalId).toBe(txProposalId);
+      expect(utxo.txProposalIndex).toBe(index);
+    });
+  });
+
+  it('should update existing tx_proposal markers when called multiple times', async () => {
+    expect.hasAssertions();
+
+    const txId = 'testTxId2';
+    const tokenId = 'testTokenId2';
+    const address = 'testAddress2';
+    const firstProposalId = 'firstProposalId';
+    const secondProposalId = 'secondProposalId';
+
+    const utxos = [{
+      txId,
+      index: 0,
+      tokenId,
+      address,
+      value: 100n,
+      authorities: 0,
+      timelock: null,
+      heightlock: null,
+      locked: false,
+      txProposalId: null,
+      txProposalIndex: null,
+      spentBy: null,
+    }];
+
+    // Add to database
+    const outputs = utxos.map((utxo, index) => createOutput(
+      index,
+      utxo.value,
+      utxo.address,
+      utxo.tokenId,
+      utxo.timelock,
+      utxo.locked
+    ));
+    await addUtxos(mysql, txId, outputs);
+
+    // Mark with first proposal ID
+    await markUtxosWithProposalId(mysql, firstProposalId, utxos);
+    let markedUtxos = await getUtxos(mysql, [{ txId, index: 0 }]);
+    expect(markedUtxos[0].txProposalId).toBe(firstProposalId);
+    expect(markedUtxos[0].txProposalIndex).toBe(0);
+
+    // Mark with second proposal ID (should update)
+    await markUtxosWithProposalId(mysql, secondProposalId, utxos);
+    markedUtxos = await getUtxos(mysql, [{ txId, index: 0 }]);
+    expect(markedUtxos[0].txProposalId).toBe(secondProposalId);
+    expect(markedUtxos[0].txProposalIndex).toBe(0);
+  });
+});

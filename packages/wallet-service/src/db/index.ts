@@ -1788,14 +1788,24 @@ export const getUnusedAddresses = async (mysql: ServerlessMysql, walletId: strin
  * @param utxos - The UTXOs to be marked with the proposal id
  */
 export const markUtxosWithProposalId = async (mysql: ServerlessMysql, txProposalId: string, utxos: DbTxOutput[]): Promise<void> => {
-  const entries = utxos.map((utxo, index) => ([utxo.txId, utxo.index, '', '', 0, 0, null, null, false, txProposalId, index, null, 0]));
+  if (utxos.length === 0) return;
+
+  // Use direct UPDATE instead of INSERT...ON DUPLICATE KEY UPDATE for better performance
+  // Build WHEN clauses for setting tx_proposal_index based on matching tx_id and index
+  const whenClauses = utxos.map((utxo, index) =>
+    `WHEN \`tx_id\` = ${mysql.escape(utxo.txId)} AND \`index\` = ${utxo.index} THEN ${index}`
+  ).join(' ');
+
+  // Build WHERE clause with all (tx_id, index) pairs
+  const whereConditions = utxos.map((utxo) =>
+    `(\`tx_id\` = ${mysql.escape(utxo.txId)} AND \`index\` = ${utxo.index})`
+  ).join(' OR ');
+
   await mysql.query(
-    `INSERT INTO \`tx_output\`
-          VALUES ?
-              ON DUPLICATE KEY\
-          UPDATE \`tx_proposal\` = VALUES(\`tx_proposal\`),
-                 \`tx_proposal_index\` = VALUES(\`tx_proposal_index\`)`,
-    [entries],
+    `UPDATE \`tx_output\`
+        SET \`tx_proposal\` = ${mysql.escape(txProposalId)},
+            \`tx_proposal_index\` = CASE ${whenClauses} END
+      WHERE ${whereConditions}`
   );
 };
 
