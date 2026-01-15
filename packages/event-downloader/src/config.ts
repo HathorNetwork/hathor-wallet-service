@@ -27,6 +27,7 @@ export const USE_SSL = process.env.USE_SSL === 'true';
 export const BATCH_SIZE = parseInt(process.env.BATCH_SIZE ?? '5000', 10);
 export const PARALLEL_CONNECTIONS = parseInt(process.env.PARALLEL_CONNECTIONS ?? '5', 10);
 export const WINDOW_SIZE = parseInt(process.env.WINDOW_SIZE ?? '100', 10);
+export const CONNECTION_TIMEOUT_MS = parseInt(process.env.CONNECTION_TIMEOUT_MS ?? '60000', 10);
 
 // Database configuration
 export const DB_PATH = process.env.DB_PATH ?? './events.sqlite';
@@ -41,6 +42,7 @@ export const getConfig = () => {
     PARALLEL_CONNECTIONS,
     WINDOW_SIZE,
     DB_PATH,
+    CONNECTION_TIMEOUT_MS,
   };
 };
 

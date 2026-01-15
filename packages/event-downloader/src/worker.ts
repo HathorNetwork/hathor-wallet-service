@@ -8,7 +8,7 @@
 import { WebSocket, MessageEvent, ErrorEvent } from 'ws';
 import { bigIntUtils } from '@hathor/wallet-lib';
 import { FullNodeEvent, FullNodeEventSchema, WebSocketSendEvent } from './types';
-import { FULLNODE_HOST, USE_SSL, WINDOW_SIZE } from './config';
+import { FULLNODE_HOST, USE_SSL, WINDOW_SIZE, CONNECTION_TIMEOUT_MS } from './config';
 
 export interface BatchConfig {
   batchStart: number;
@@ -43,6 +43,28 @@ export function createWorker(config: BatchConfig, callbacks: WorkerCallbacks): W
   let isRunning = false;
   let eventsSinceLastAck = 0;
   let lastReceivedEventId = 0;
+  let activityTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  const resetActivityTimeout = (): void => {
+    if (activityTimeout) {
+      clearTimeout(activityTimeout);
+    }
+    if (isRunning && CONNECTION_TIMEOUT_MS > 0) {
+      activityTimeout = setTimeout(() => {
+        if (isRunning) {
+          onError(new Error(`Connection timeout: no activity for ${CONNECTION_TIMEOUT_MS}ms`));
+          stop();
+        }
+      }, CONNECTION_TIMEOUT_MS);
+    }
+  };
+
+  const clearActivityTimeout = (): void => {
+    if (activityTimeout) {
+      clearTimeout(activityTimeout);
+      activityTimeout = null;
+    }
+  };
 
   const getWsUrl = (): string => {
     const protocol = USE_SSL ? 'wss://' : 'ws://';
@@ -74,9 +96,11 @@ export function createWorker(config: BatchConfig, callbacks: WorkerCallbacks): W
         ...(lastAckEventId !== undefined && { last_ack_event_id: lastAckEventId }),
       };
       sendMessage(startMessage);
+      resetActivityTimeout();
     };
 
     socket.onmessage = (socketEvent: MessageEvent) => {
+      resetActivityTimeout();
       try {
         const rawData = bigIntUtils.JSONBigInt.parse(socketEvent.data.toString());
         const parseResult = FullNodeEventSchema.safeParse(rawData);
@@ -140,6 +164,7 @@ export function createWorker(config: BatchConfig, callbacks: WorkerCallbacks): W
 
   const stop = (): void => {
     isRunning = false;
+    clearActivityTimeout();
     if (socket) {
       socket.close();
       socket = null;
