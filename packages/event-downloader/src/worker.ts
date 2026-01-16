@@ -7,7 +7,7 @@
 
 import { WebSocket, MessageEvent, ErrorEvent } from 'ws';
 import { bigIntUtils } from '@hathor/wallet-lib';
-import { FullNodeEvent, FullNodeEventSchema, WebSocketSendEvent } from './types';
+import { FullNodeEvent, WebSocketSendEvent } from './types';
 import { FULLNODE_HOST, USE_SSL, WINDOW_SIZE, CONNECTION_TIMEOUT_MS } from './config';
 
 export interface BatchConfig {
@@ -103,16 +103,18 @@ export function createWorker(config: BatchConfig, callbacks: WorkerCallbacks): W
       resetActivityTimeout();
       try {
         const rawData = bigIntUtils.JSONBigInt.parse(socketEvent.data.toString());
-        const parseResult = FullNodeEventSchema.safeParse(rawData);
 
-        if (!parseResult.success) {
-          // Skip messages that don't conform to event schema (e.g., handshake messages)
-          // These are expected at the start of a connection
+        // Check if this is an event message (not a handshake or control message)
+        // Event messages have: event.id, event.type, event.timestamp
+        if (!rawData.event || typeof rawData.event.id !== 'number' || typeof rawData.event.type !== 'string') {
+          // Skip non-event messages (handshake, control messages, etc.)
           console.log(`Skipping non-event message: ${JSON.stringify(rawData).substring(0, 100)}...`);
           return;
         }
 
-        const event = parseResult.data;
+        // Accept ALL events regardless of type - store them as-is
+        // TypeScript requires us to cast, but we're intentionally accepting any event structure
+        const event = rawData as any;
         const eventId = event.event.id;
 
         // Call the event callback
