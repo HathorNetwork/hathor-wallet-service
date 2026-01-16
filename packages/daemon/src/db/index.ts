@@ -27,7 +27,7 @@ import {
   TokenBalanceMap,
   TxOutputWithIndex,
 } from '@wallet-service/common';
-import { isAuthority } from '@wallet-service/common';
+import { isAuthority, toTokenVersion } from '@wallet-service/common';
 import { getWalletBalanceMap } from '../utils/wallet';
 import {
   AddressBalanceRow,
@@ -1135,14 +1135,21 @@ export const mapDbResultToDbTxOutput = (result: TxOutputRow): DbTxOutput => ({
  * @param tokenId - The token's id
  * @param tokenName - The token's name
  * @param tokenSymbol - The token's symbol
+ * @param tokenVersion - The token's version
  */
 export const storeTokenInformation = async (
   mysql: MysqlConnection,
   tokenId: string,
   tokenName: string,
   tokenSymbol: string,
+  tokenVersion: number,
 ): Promise<void> => {
-  const entry = { id: tokenId, name: tokenName, symbol: tokenSymbol };
+  const entry = {
+    id: tokenId,
+    name: tokenName,
+    symbol: tokenSymbol,
+    version: tokenVersion,
+  };
   await mysql.query(
     'INSERT INTO `token` SET ?',
     [entry],
@@ -1732,7 +1739,13 @@ export const getTokenInformation = async (
 
   if (results.length === 0) return null;
 
-  return new TokenInfo(tokenId, results[0].name as string, results[0].symbol as string);
+  return new TokenInfo(
+    tokenId,
+    results[0].name as string,
+    results[0].symbol as string,
+    toTokenVersion(results[0].version as number),
+    results[0].transactions,
+  );
 };
 
 /**

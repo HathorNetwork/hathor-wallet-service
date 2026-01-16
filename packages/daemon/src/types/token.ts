@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { constants } from '@hathor/wallet-lib';
+import { constants, TokenVersion } from '@hathor/wallet-lib';
 
 export class TokenInfo {
   id: string;
@@ -16,11 +16,14 @@ export class TokenInfo {
 
   transactions: number;
 
-  constructor(id: string, name: string, symbol: string, transactions?: number) {
+  version: TokenVersion;
+
+  constructor(id: string, name: string, symbol: string, version: TokenVersion, transactions?: number) {
     this.id = id;
     this.name = name;
     this.symbol = symbol;
     this.transactions = transactions || 0;
+    this.version = version;
 
     // XXX: currently we only support Hathor/HTR as the default token
     const hathorConfig = constants.DEFAULT_NATIVE_TOKEN_CONFIG;
@@ -28,6 +31,7 @@ export class TokenInfo {
     if (this.id === constants.NATIVE_TOKEN_UID) {
       this.name = hathorConfig.name;
       this.symbol = hathorConfig.symbol;
+      this.version = hathorConfig.version;
     }
   }
 
@@ -36,6 +40,7 @@ export class TokenInfo {
       id: this.id,
       name: this.name,
       symbol: this.symbol,
+      version: this.version,
     };
   }
 }
