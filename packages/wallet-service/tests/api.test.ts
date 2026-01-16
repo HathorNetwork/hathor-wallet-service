@@ -1,4 +1,5 @@
 import { APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
+import { TokenVersion } from '@hathor/wallet-lib';
 
 import { mockedAddAlert } from '@tests/utils/alerting.utils.mock';
 import { get as addressInfoGet } from '@src/api/addressInfo';
@@ -425,18 +426,20 @@ test('GET /balances', async () => {
   }]);
 
   // add the hathor token as it will be deleted by the beforeAll
-  const htrToken = { id: '00', name: 'Hathor', symbol: 'HTR' };
+  const htrToken = { id: '00', name: 'Hathor', symbol: 'HTR', version: TokenVersion.NATIVE };
   // add tokens
-  const token1 = { id: 'token1', name: 'MyToken1', symbol: 'MT1' };
-  const token2 = { id: 'token2', name: 'MyToken2', symbol: 'MT2' };
-  const token3 = { id: 'token3', name: 'MyToken3', symbol: 'MT3' };
-  const token4 = { id: 'token4', name: 'MyToken4', symbol: 'MT4' };
+  const token1 = { id: 'token1', name: 'MyToken1', symbol: 'MT1', version: TokenVersion.DEPOSIT };
+  const token2 = { id: 'token2', name: 'MyToken2', symbol: 'MT2', version: TokenVersion.DEPOSIT };
+  const token3 = { id: 'token3', name: 'MyToken3', symbol: 'MT3', version: TokenVersion.DEPOSIT };
+  const token4 = { id: 'token4', name: 'MyToken4', symbol: 'MT4', version: TokenVersion.DEPOSIT };
+  const feeToken = { id: 'feetoken1', name: 'FeeToken1', symbol: 'FEE1', version: TokenVersion.FEE };
   await addToTokenTable(mysql, [
-    { ...htrToken, transactions: 0 },
-    { id: token1.id, name: token1.name, symbol: token1.symbol, transactions: 0 },
-    { id: token2.id, name: token2.name, symbol: token2.symbol, transactions: 0 },
-    { id: token3.id, name: token3.name, symbol: token3.symbol, transactions: 0 },
-    { id: token4.id, name: token4.name, symbol: token4.symbol, transactions: 0 },
+    { ...htrToken, version: TokenVersion.NATIVE, transactions: 0 },
+    { id: token1.id, name: token1.name, symbol: token1.symbol, version: TokenVersion.DEPOSIT, transactions: 0 },
+    { id: token2.id, name: token2.name, symbol: token2.symbol, version: TokenVersion.DEPOSIT, transactions: 0 },
+    { id: token3.id, name: token3.name, symbol: token3.symbol, version: TokenVersion.DEPOSIT, transactions: 0 },
+    { id: token4.id, name: token4.name, symbol: token4.symbol, version: TokenVersion.DEPOSIT, transactions: 0 },
+    { id: feeToken.id, name: feeToken.name, symbol: feeToken.symbol, version: TokenVersion.FEE, transactions: 0 },
   ]);
 
   // missing wallet
@@ -457,7 +460,7 @@ test('GET /balances', async () => {
   expect(returnBody.success).toBe(true);
   expect(returnBody.balances).toHaveLength(0);
 
-  // add 2 balances
+  // add 3 balances (including FEE token)
   const lockExpires = getUnixTimestamp() + 200;
   await addToWalletBalanceTable(mysql, [{
     walletId: 'my-wallet',
@@ -477,6 +480,15 @@ test('GET /balances', async () => {
     lockedAuthorities: 0b11,
     timelockExpires: lockExpires,
     transactions: 1,
+  }, {
+    walletId: 'my-wallet',
+    tokenId: 'feetoken1',
+    unlockedBalance: 50n,
+    lockedBalance: 10n,
+    unlockedAuthorities: 0b00,
+    lockedAuthorities: 0b00,
+    timelockExpires: null,
+    transactions: 5,
   }]);
 
   // get all balances
@@ -485,7 +497,7 @@ test('GET /balances', async () => {
   returnBody = JSON.parse(result.body as string);
   expect(result.statusCode).toBe(200);
   expect(returnBody.success).toBe(true);
-  expect(returnBody.balances).toHaveLength(2);
+  expect(returnBody.balances).toHaveLength(3);
   expect(returnBody.balances).toContainEqual({
     token: token1,
     transactions: 3,
@@ -499,6 +511,14 @@ test('GET /balances', async () => {
     balance: { unlocked: 3, locked: 2 },
     lockExpires,
     tokenAuthorities: { unlocked: { mint: false, melt: false }, locked: { mint: true, melt: true } },
+  });
+  // Verify FEE token is returned with correct version
+  expect(returnBody.balances).toContainEqual({
+    token: feeToken,
+    transactions: 5,
+    balance: { unlocked: 50, locked: 10 },
+    lockExpires: null,
+    tokenAuthorities: { unlocked: { mint: false, melt: false }, locked: { mint: false, melt: false } },
   });
 
   // get token1 balance
@@ -629,7 +649,7 @@ test('GET /balances', async () => {
   expect(returnBody.success).toBe(true);
   expect(returnBody.balances).toHaveLength(1);
   expect(returnBody.balances).toContainEqual({
-    token: { id: '00', name: 'Hathor', symbol: 'HTR' },
+    token: { id: '00', name: 'Hathor', symbol: 'HTR', version: TokenVersion.NATIVE },
     transactions: 3,
     balance: { unlocked: 10, locked: 0 },
     lockExpires: null,
@@ -637,9 +657,9 @@ test('GET /balances', async () => {
   });
 
   // request balance for a token the wallet doesn't have - should return zero balance
-  const tokenNotOwned = { id: 'tokennotowned', name: 'NotOwnedToken', symbol: 'NOT' };
+  const tokenNotOwned = { id: 'tokennotowned', name: 'NotOwnedToken', symbol: 'NOT', version: TokenVersion.DEPOSIT };
   await addToTokenTable(mysql, [
-    { id: tokenNotOwned.id, name: tokenNotOwned.name, symbol: tokenNotOwned.symbol, transactions: 0 },
+    { id: tokenNotOwned.id, name: tokenNotOwned.name, symbol: tokenNotOwned.symbol, version: TokenVersion.DEPOSIT, transactions: 0 },
   ]);
   event = makeGatewayEventWithAuthorizer('my-wallet', { token_id: 'tokennotowned' });
   result = await balancesGet(event, null, null) as APIGatewayProxyResult;
@@ -1496,12 +1516,12 @@ test('GET /wallet/tokens/token_id/details', async () => {
   expect(returnBody.details[0]).toStrictEqual({ message: '"token_id" is required', path: ['token_id'] });
 
   // add tokens
-  const token1 = { id: TX_IDS[1], name: 'MyToken1', symbol: 'MT1' };
-  const token2 = { id: TX_IDS[2], name: 'MyToken2', symbol: 'MT2' };
+  const token1 = { id: TX_IDS[1], name: 'MyToken1', symbol: 'MT1', version: TokenVersion.DEPOSIT };
+  const token2 = { id: TX_IDS[2], name: 'MyToken2', symbol: 'MT2', version: TokenVersion.DEPOSIT };
 
   await addToTokenTable(mysql, [
-    { id: token1.id, name: token1.name, symbol: token1.symbol, transactions: 0 },
-    { id: token2.id, name: token2.name, symbol: token2.symbol, transactions: 0 },
+    { id: token1.id, name: token1.name, symbol: token1.symbol, version: TokenVersion.DEPOSIT, transactions: 0 },
+    { id: token2.id, name: token2.name, symbol: token2.symbol, version: TokenVersion.DEPOSIT, transactions: 0 },
   ]);
 
   await addToUtxoTable(mysql, [{

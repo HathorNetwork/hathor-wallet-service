@@ -1,4 +1,5 @@
 import eventTemplate from '@events/eventTemplate.json';
+import { TokenVersion } from '@hathor/wallet-lib';
 import {
   getAddressBalanceMap,
   getWalletBalanceMap,
@@ -652,7 +653,7 @@ describe('getWalletBalancesForTx', () => {
       name: 'Token 1',
       symbol: 'T1',
     };
-    await storeTokenInformation(mysql, token1.id, token1.name, token1.symbol);
+    await storeTokenInformation(mysql, token1.id, token1.name, token1.symbol, TokenVersion.DEPOSIT);
 
     // transaction base
     const utxos = [
@@ -736,7 +737,7 @@ describe('getWalletBalancesForTx', () => {
       name: 'Token 1',
       symbol: 'T1',
     };
-    await storeTokenInformation(mysql, token1.id, token1.name, token1.symbol);
+    await storeTokenInformation(mysql, token1.id, token1.name, token1.symbol, TokenVersion.DEPOSIT);
 
     // instantiate token balance
     const balanceToken1 = {
@@ -865,13 +866,13 @@ describe('getWalletBalancesForTx', () => {
         name: 'Token 1',
         symbol: 'T1',
       };
-      await storeTokenInformation(mysql, token1.id, token1.name, token1.symbol);
+      await storeTokenInformation(mysql, token1.id, token1.name, token1.symbol, TokenVersion.DEPOSIT);
       const token2 = {
         id: 'token2',
         name: 'Token 2',
         symbol: 'T2',
       };
-      await storeTokenInformation(mysql, token2.id, token2.name, token2.symbol);
+      await storeTokenInformation(mysql, token2.id, token2.name, token2.symbol, TokenVersion.DEPOSIT);
 
       // instantiate token balance
       const balanceToken1 = {
@@ -1029,19 +1030,20 @@ describe('getWalletBalancesForTx', () => {
       // The persistence is not necessary, but used for state consistency
       await addOrUpdateTx(mysql, tx1.id, tx1.height, tx1.timestamp, tx1.version, tx1.weight);
 
-      // instantiate a token
+      // instantiate a token (DEPOSIT)
       const token1 = {
         id: 'token1',
         name: 'Token 1',
         symbol: 'T1',
       };
-      await storeTokenInformation(mysql, token1.id, token1.name, token1.symbol);
+      await storeTokenInformation(mysql, token1.id, token1.name, token1.symbol, TokenVersion.DEPOSIT);
+      // instantiate a FEE token
       const token2 = {
         id: 'token2',
         name: 'Token 2',
         symbol: 'T2',
       };
-      await storeTokenInformation(mysql, token2.id, token2.name, token2.symbol);
+      await storeTokenInformation(mysql, token2.id, token2.name, token2.symbol, TokenVersion.FEE);
 
       // instantiate token balance
       const balanceToken1 = {
@@ -1070,7 +1072,7 @@ describe('getWalletBalancesForTx', () => {
       };
       await updateWalletTablesWithTx(mysql, tx1.id, tx1.timestamp, wallet1BalanceMap);
 
-      // transaction base
+      // transaction base (token1 is DEPOSIT, token2 is FEE)
       const utxos = [
         { index: 0, value: 5n, address: addr1, tokenId: token1.id, locked: false, timelock: null, tokenData: 0, spentBy: null },
         { index: 1, value: 5n, address: addr2, tokenId: token1.id, locked: false, timelock: null, tokenData: 0, spentBy: null },
