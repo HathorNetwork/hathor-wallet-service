@@ -46,7 +46,7 @@
     "typescript": "4.9.5"
   },
   "peerDependencies": {
-    "@hathor/wallet-lib": "2.8.3",
+    "@hathor/wallet-lib": "2.12.0",
     "@wallet-service/common": "1.5.0"
   },
   "dependencies": {

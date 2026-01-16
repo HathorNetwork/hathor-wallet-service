@@ -1,3 +1,5 @@
+import { TokenVersion } from '@hathor/wallet-lib';
+
 export interface AddressTableEntry {
   address: string;
   index?: number | null;
@@ -39,6 +41,7 @@ export interface TokenTableEntry {
   id: string;
   name: string;
   symbol: string;
+  version: TokenVersion;
   transactions: number;
 }
 
