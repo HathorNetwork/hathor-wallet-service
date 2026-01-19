@@ -1,6 +1,6 @@
 import { APIGatewayProxyResult } from 'aws-lambda';
 
-import { get } from '@src/api/hasNonFirstAddressTransactions';
+import { get } from '@src/api/hasTxOutsideFirstAddr';
 import { ApiError } from '@src/api/errors';
 import { closeDbConnection, getDbConnection } from '@src/utils';
 import {
@@ -23,7 +23,7 @@ afterAll(async () => {
   await closeDbConnection(mysql);
 });
 
-describe('GET /wallet/addresses/has-transactions', () => {
+describe('GET /wallet/addresses/has-transactions-outside-first-address', () => {
   it('should return 404 when wallet is not found', async () => {
     expect.hasAssertions();
 

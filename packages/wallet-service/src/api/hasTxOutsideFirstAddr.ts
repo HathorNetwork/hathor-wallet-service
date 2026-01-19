@@ -27,7 +27,7 @@ const mysql = getDbConnection();
 /*
  * Check if the wallet has any transactions on addresses with index > 0
  *
- * This lambda is called by API Gateway on GET /wallet/addresses/has-transactions
+ * This lambda is called by API Gateway on GET /wallet/addresses/has-transactions-outside-first-address
  */
 export const get = middy(walletIdProxyHandler(async (walletId) => {
   const status = await getWallet(mysql, walletId);

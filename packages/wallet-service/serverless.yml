@@ -352,11 +352,11 @@ functions:
     warmup:
       walletWarmer:
         enabled: true
-  hasNonFirstAddressTransactions:
-    handler: src/api/hasNonFirstAddressTransactions.get
+  hasTxOutsideFirstAddr:
+    handler: src/api/hasTxOutsideFirstAddr.get
     events:
       - http:
-          path: wallet/addresses/has-transactions
+          path: wallet/addresses/has-transactions-outside-first-address
           method: get
           cors: true
           authorizer: ${self:custom.authorizer.walletBearer}
