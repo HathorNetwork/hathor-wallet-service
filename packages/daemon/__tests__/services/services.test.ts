@@ -1028,6 +1028,7 @@ describe('metadataDiff', () => {
     const event = {
       event: {
         event: {
+          id: 123,
           data: {
             hash: 'mockHash',
             metadata: { voided_by: [], first_block: [] },
@@ -1039,7 +1040,7 @@ describe('metadataDiff', () => {
 
     await expect(metadataDiff({} as any, event as any)).rejects.toThrow('Mock Error');
     expect(mockDb.destroy).toHaveBeenCalled();
-    expect(logger.error).toHaveBeenCalledWith('metadataDiff error', new Error('Mock Error'));
+    expect(logger.error).toHaveBeenCalledWith('metadataDiff error', { eventId: 123, error: new Error('Mock Error') });
   });
 
   it('should handle transaction transactions that are not voided anymore', async () => {
