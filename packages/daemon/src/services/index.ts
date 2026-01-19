@@ -214,7 +214,7 @@ export const metadataDiff = async (_context: Context, event: Event) => {
       },
     );
   } catch (e) {
-    logger.error('metadataDiff error', { hash, error: e });
+    logger.error('metadataDiff error', { eventId: fullNodeEvent.event.id, error: e });
     return Promise.reject(e);
   }
 };
