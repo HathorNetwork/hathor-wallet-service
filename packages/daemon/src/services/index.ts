@@ -96,84 +96,120 @@ export const METADATA_DIFF_EVENT_TYPES = {
 const DUPLICATE_TX_ALERT_GRACE_PERIOD = 10; // seconds
 
 export const metadataDiff = async (_context: Context, event: Event) => {
-  let mysql;
+  const fullNodeEvent = event.event as StandardFullNodeEvent;
+  const {
+    hash,
+    metadata: { voided_by, first_block, nc_execution },
+  } = fullNodeEvent.event.data;
+
+  const isRetryableError = (error: any): boolean => {
+    const code = error?.code;
+    return code === 'ETIMEDOUT'
+      || code === 'ECONNREFUSED'
+      || code === 'ECONNRESET'
+      || code === 'PROTOCOL_CONNECTION_LOST';
+  };
 
   try {
-    mysql = await getDbConnection();
+    return await retryWithBackoff(
+      async () => {
+        let mysql;
+        try {
+          mysql = await getDbConnection();
+          const dbTx: DbTransaction | null = await getTransactionById(mysql, hash);
 
-    const fullNodeEvent = event.event as StandardFullNodeEvent;
-    const {
-      hash,
-      metadata: { voided_by, first_block },
-    } = fullNodeEvent.event.data;
-    const dbTx: DbTransaction | null = await getTransactionById(mysql, hash);
+          if (!dbTx) {
+            if (voided_by.length > 0) {
+              // No need to add voided transactions
+              return {
+                type: METADATA_DIFF_EVENT_TYPES.IGNORE,
+                originalEvent: event,
+              };
+            }
 
-    if (!dbTx) {
-      if (voided_by.length > 0) {
-        // No need to add voided transactions
-        return {
-          type: METADATA_DIFF_EVENT_TYPES.IGNORE,
-          originalEvent: event,
-        };
-      }
+            return {
+              type: METADATA_DIFF_EVENT_TYPES.TX_NEW,
+              originalEvent: event,
+            };
+          }
 
-      return {
-        type: METADATA_DIFF_EVENT_TYPES.TX_NEW,
-        originalEvent: event,
-      };
-    }
+          // Tx is voided
+          if (voided_by.length > 0) {
+            // Was it voided on the database?
+            if (!dbTx.voided) {
+              return {
+                type: METADATA_DIFF_EVENT_TYPES.TX_VOIDED,
+                originalEvent: event,
+              };
+            }
 
-    // Tx is voided
-    if (voided_by.length > 0) {
-      // Was it voided on the database?
-      if (!dbTx.voided) {
-        return {
-          type: METADATA_DIFF_EVENT_TYPES.TX_VOIDED,
-          originalEvent: event,
-        };
-      }
+            return {
+              type: METADATA_DIFF_EVENT_TYPES.IGNORE,
+              originalEvent: event,
+            };
+          }
 
-      return {
-        type: METADATA_DIFF_EVENT_TYPES.IGNORE,
-        originalEvent: event,
-      };
-    }
+          // Tx was voided in the database but is not anymore
+          if (dbTx.voided && voided_by.length <= 0) {
+            return {
+              type: METADATA_DIFF_EVENT_TYPES.TX_UNVOIDED,
+              originalEvent: event,
+            };
+          }
 
-    // Tx was voided in the database but is not anymore
-    if (dbTx.voided && voided_by.length <= 0) {
-      return {
-        type: METADATA_DIFF_EVENT_TYPES.TX_UNVOIDED,
-        originalEvent: event,
-      };
-    }
+          if (first_block
+            && first_block.length
+            && first_block.length > 0) {
+            if (!dbTx.height) {
+              return {
+                type: METADATA_DIFF_EVENT_TYPES.TX_FIRST_BLOCK,
+                originalEvent: event,
+              };
+            }
 
-    if (first_block
-      && first_block.length
-      && first_block.length > 0) {
-      if (!dbTx.height) {
-        return {
-          type: METADATA_DIFF_EVENT_TYPES.TX_FIRST_BLOCK,
-          originalEvent: event,
-        };
-      }
+            return {
+              type: METADATA_DIFF_EVENT_TYPES.IGNORE,
+              originalEvent: event,
+            };
+          }
 
-      return {
-        type: METADATA_DIFF_EVENT_TYPES.IGNORE,
-        originalEvent: event,
-      };
-    }
+          // Check if nc_execution changed from 'success' to something else.
+          // If the tx has nano-created tokens in the database (tokens where token_id != tx_id),
+          // those tokens were created when nc_execution was 'success'.
+          // If nc_execution is now NOT 'success', we should delete those tokens.
+          if (nc_execution !== 'success') {
+            const tokensCreated = await getTokensCreatedByTx(mysql, hash);
+            const nanoTokens = tokensCreated.filter(tokenId => tokenId !== hash);
 
-    return {
-      type: METADATA_DIFF_EVENT_TYPES.IGNORE,
-      originalEvent: event,
-    };
+            if (nanoTokens.length > 0) {
+              return {
+                type: METADATA_DIFF_EVENT_TYPES.NC_EXEC_VOIDED,
+                originalEvent: event,
+              };
+            }
+          }
+
+          return {
+            type: METADATA_DIFF_EVENT_TYPES.IGNORE,
+            originalEvent: event,
+          };
+        } finally {
+          if (mysql) {
+            mysql.destroy();
+          }
+        }
+      },
+      {
+        maxRetries: 5,
+        initialDelayMs: 1000,
+        maxDelayMs: 10000,
+        backoffMultiplier: 2,
+        retryableErrors: isRetryableError,
+      },
+    );
   } catch (e) {
-    logger.error('metadataDiff error', e);
+    logger.error('metadataDiff error', { hash, error: e });
     return Promise.reject(e);
-  } finally {
-    if (mysql) {
-      mysql.destroy();
-    }
   }
 };
 
