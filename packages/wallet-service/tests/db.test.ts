@@ -3872,3 +3872,81 @@ describe('markUtxosWithProposalId - improved query performance', () => {
     expect(markedUtxos[0].txProposalIndex).toBe(0);
   });
 });
+
+describe('hasTransactionsOnNonFirstAddress', () => {
+  it('should return false when wallet has no addresses', async () => {
+    expect.hasAssertions();
+
+    const walletId = 'test-wallet';
+    await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5);
+
+    const result = await Db.hasTransactionsOnNonFirstAddress(mysql, walletId);
+
+    expect(result).toBe(false);
+  });
+
+  it('should return false when wallet only has address at index 0', async () => {
+    expect.hasAssertions();
+
+    const walletId = 'test-wallet';
+    await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5);
+    await addToAddressTable(mysql, [
+      { address: ADDRESSES[0], index: 0, walletId, transactions: 5 },
+    ]);
+
+    const result = await Db.hasTransactionsOnNonFirstAddress(mysql, walletId);
+
+    expect(result).toBe(false);
+  });
+
+  it('should return false when non-first addresses have no transactions', async () => {
+    expect.hasAssertions();
+
+    const walletId = 'test-wallet';
+    await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5);
+    await addToAddressTable(mysql, [
+      { address: ADDRESSES[0], index: 0, walletId, transactions: 5 },
+      { address: ADDRESSES[1], index: 1, walletId, transactions: 0 },
+      { address: ADDRESSES[2], index: 2, walletId, transactions: 0 },
+    ]);
+
+    const result = await Db.hasTransactionsOnNonFirstAddress(mysql, walletId);
+
+    expect(result).toBe(false);
+  });
+
+  it('should return true when an address with index > 0 has transactions', async () => {
+    expect.hasAssertions();
+
+    const walletId = 'test-wallet';
+    await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5);
+    await addToAddressTable(mysql, [
+      { address: ADDRESSES[0], index: 0, walletId, transactions: 5 },
+      { address: ADDRESSES[1], index: 1, walletId, transactions: 3 },
+    ]);
+
+    const result = await Db.hasTransactionsOnNonFirstAddress(mysql, walletId);
+
+    expect(result).toBe(true);
+  });
+
+  it('should only consider addresses belonging to the specified wallet', async () => {
+    expect.hasAssertions();
+
+    const walletId1 = 'wallet-1';
+    const walletId2 = 'wallet-2';
+    await createWallet(mysql, walletId1, XPUBKEY, AUTH_XPUBKEY, 5);
+    await createWallet(mysql, walletId2, XPUBKEY, AUTH_XPUBKEY, 5);
+
+    await addToAddressTable(mysql, [
+      { address: ADDRESSES[0], index: 0, walletId: walletId1, transactions: 5 },
+      { address: ADDRESSES[1], index: 1, walletId: walletId2, transactions: 10 },
+    ]);
+
+    const result1 = await Db.hasTransactionsOnNonFirstAddress(mysql, walletId1);
+    const result2 = await Db.hasTransactionsOnNonFirstAddress(mysql, walletId2);
+
+    expect(result1).toBe(false);
+    expect(result2).toBe(true);
+  });
+});

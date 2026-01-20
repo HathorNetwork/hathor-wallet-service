@@ -3225,3 +3225,28 @@ export const getAddressAtIndex = async (
     seqnum: addresses[0].seqnum,
   }
 };
+
+/**
+ * Check if a wallet has any transactions on addresses with index > 0
+ *
+ * @param mysql - Database connection
+ * @param walletId - The wallet id to search for
+ *
+ * @returns True if there are transactions on addresses with index > 0, false otherwise
+ */
+export const hasTransactionsOnNonFirstAddress = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+): Promise<boolean> => {
+  const results: DbSelectResult = await mysql.query(
+    `SELECT 1
+       FROM \`address\`
+      WHERE \`wallet_id\` = ?
+        AND \`index\` > 0
+        AND \`transactions\` > 0
+      LIMIT 1`,
+    [walletId],
+  );
+
+  return results.length > 0;
+};
