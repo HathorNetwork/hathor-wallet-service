@@ -6,7 +6,6 @@
  */
 
 import { RowDataPacket } from 'mysql2/promise';
-import { TokenVersion } from '@hathor/wallet-lib';
 
 export interface TxOutputRow extends RowDataPacket {
   tx_id: string;
