@@ -48,6 +48,7 @@ import {
 } from '@src/utils';
 import {
   isAuthority,
+  toTokenVersion,
 } from '@wallet-service/common/src/utils/wallet.utils';
 import {
   getWalletFromDbEntry,
@@ -1380,7 +1381,8 @@ export const getWalletBalances = async (mysql: ServerlessMysql, walletId: string
            w.transactions AS transactions,
            w.token_id AS token_id,
            token.name AS name,
-           token.symbol AS symbol
+           token.symbol AS symbol,
+           token.version AS token_version
       FROM (${subquery}) w
 INNER JOIN token ON w.token_id = token.id
   `;
@@ -1395,7 +1397,12 @@ INNER JOIN token ON w.token_id = token.id
     const timelockExpires = result.timelock_expires as number;
 
     const balance = new WalletTokenBalance(
-      new TokenInfo(result.token_id as string, result.name as string, result.symbol as string),
+      new TokenInfo(
+        result.token_id as string,
+        result.name as string,
+        result.symbol as string,
+        toTokenVersion(result.token_version as number),
+      ),
       new Balance(totalAmount, unlockedBalance, lockedBalance, timelockExpires, unlockedAuthorities, lockedAuthorities),
       result.transactions as number,
     );
@@ -1723,14 +1730,21 @@ export const getBlockByHeight = async (mysql: ServerlessMysql, height: number): 
  * @param tokenId - The token's id
  * @param tokenName - The token's name
  * @param tokenSymbol - The token's symbol
+ * @param tokenVersion - The token version
  */
 export const storeTokenInformation = async (
   mysql: ServerlessMysql,
   tokenId: string,
   tokenName: string,
   tokenSymbol: string,
+  tokenVersion: number,
 ): Promise<void> => {
-  const entry = { id: tokenId, name: tokenName, symbol: tokenSymbol };
+  const entry = {
+    id: tokenId,
+    name: tokenName,
+    symbol: tokenSymbol,
+    version: tokenVersion,
+  };
   await mysql.query(
     'INSERT INTO `token` SET ?',
     [entry],
@@ -1753,7 +1767,13 @@ export const getTokenInformation = async (
     [tokenId],
   );
   if (results.length === 0) return null;
-  return new TokenInfo(tokenId, results[0].name as string, results[0].symbol as string);
+  return new TokenInfo(
+    tokenId,
+    results[0].name as string,
+    results[0].symbol as string,
+    toTokenVersion(results[0].version as number),
+    results[0].transactions as number,
+  );
 };
 
 /**

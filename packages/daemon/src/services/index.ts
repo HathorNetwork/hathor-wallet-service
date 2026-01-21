@@ -1020,10 +1020,11 @@ export const handleTokenCreated = async (context: Context) => {
       token_uid,
       token_name,
       token_symbol,
+      token_version,
       nc_exec_info,
     } = fullNodeEvent.event.data;
 
-    logger.debug(`Handling TOKEN_CREATED event for token ${token_uid}: ${token_name} (${token_symbol})`);
+    logger.debug(`Handling TOKEN_CREATED event for token ${token_uid}: ${token_name} (${token_symbol}) v${token_version}`);
 
     // Store the mapping between token and the transaction that created it
     // For regular CREATE_TOKEN_TX: nc_exec_info is null, token_uid equals tx_id
@@ -1049,9 +1050,9 @@ export const handleTokenCreated = async (context: Context) => {
 
     if (!existingToken) {
       // Insert the new token
-      await storeTokenInformation(mysql, token_uid, token_name, token_symbol);
+      await storeTokenInformation(mysql, token_uid, token_name, token_symbol, token_version);
       await insertTokenCreation(mysql, token_uid, txId, firstBlock);
-      logger.debug(`Inserted new token ${token_uid} with first_block=${firstBlock}`);
+      logger.debug(`Inserted new token ${token_uid} with first_block=${firstBlock}, version=${token_version}`);
     } else {
       logger.debug(`Token ${token_uid} already exists, skipping insertion`);
     }

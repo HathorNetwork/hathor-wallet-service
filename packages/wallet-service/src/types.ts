@@ -9,7 +9,7 @@
 
 import { TxInput, TxOutput } from '@wallet-service/common/src/types';
 
-import hathorLib from '@hathor/wallet-lib';
+import hathorLib, { TokenVersion } from '@hathor/wallet-lib';
 import { isAuthority } from '@wallet-service/common/src/utils/wallet.utils';
 
 import {
@@ -180,12 +180,15 @@ export class TokenInfo {
 
   symbol: string;
 
+  version: TokenVersion;
+
   transactions: number;
 
-  constructor(id: string, name: string, symbol: string, transactions?: number) {
+  constructor(id: string, name: string, symbol: string, version: TokenVersion, transactions?: number) {
     this.id = id;
     this.name = name;
     this.symbol = symbol;
+    this.version = version;
     this.transactions = transactions || 0;
 
     const hathorConfig = hathorLib.constants.DEFAULT_NATIVE_TOKEN_CONFIG;
@@ -201,6 +204,7 @@ export class TokenInfo {
       id: this.id,
       name: this.name,
       symbol: this.symbol,
+      version: this.version,
     };
   }
 }
