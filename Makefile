@@ -78,3 +78,8 @@ migrate:
 .PHONY: new-migration
 new-migration:
 	npx sequelize migration:generate --name "$(NAME)"
+
+.PHONY: dev-migrate
+dev-migrate:
+	@echo "Migrating dev db..."
+	nix develop . -c yarn run dev:db:migrate
