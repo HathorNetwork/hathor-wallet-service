@@ -349,7 +349,7 @@ describe('handleTxFirstBlock', () => {
             hash: 'hashValue',
             metadata: {
               height: 123,
-              first_block: ['hash2'],
+              first_block: 'blockHash123',
             },
             timestamp: 'timestampValue',
             version: 'versionValue',
@@ -362,9 +362,67 @@ describe('handleTxFirstBlock', () => {
 
     await handleTxFirstBlock(context as any);
 
-    expect(addOrUpdateTx).toHaveBeenCalledWith(mockDb, 'hashValue', 123, 'timestampValue', 'versionValue', 'weightValue');
+    expect(addOrUpdateTx).toHaveBeenCalledWith(mockDb, 'hashValue', 123, 'timestampValue', 'versionValue', 'weightValue', 'blockHash123');
     expect(dbUpdateLastSyncedEvent).toHaveBeenCalledWith(mockDb, 'idValue');
-    expect(logger.debug).toHaveBeenCalledWith('Confirmed tx hashValue: idValue');
+    expect(logger.debug).toHaveBeenCalledWith('Confirmed tx hashValue in block blockHash123: idValue');
+    expect(mockDb.commit).toHaveBeenCalled();
+    expect(mockDb.destroy).toHaveBeenCalled();
+  });
+
+  it('should handle tx going back to mempool (first_block is null)', async () => {
+    const context = {
+      event: {
+        event: {
+          data: {
+            hash: 'hashValue',
+            metadata: {
+              height: 123, // This should be ignored when first_block is null
+              first_block: null,
+            },
+            timestamp: 'timestampValue',
+            version: 'versionValue',
+            weight: 'weightValue',
+          },
+          id: 'idValue',
+        },
+      },
+    };
+
+    await handleTxFirstBlock(context as any);
+
+    // When first_block is null, height should also be null
+    expect(addOrUpdateTx).toHaveBeenCalledWith(mockDb, 'hashValue', null, 'timestampValue', 'versionValue', 'weightValue', null);
+    expect(dbUpdateLastSyncedEvent).toHaveBeenCalledWith(mockDb, 'idValue');
+    expect(logger.debug).toHaveBeenCalledWith('Tx hashValue back to mempool (first_block=null): idValue');
+    expect(mockDb.commit).toHaveBeenCalled();
+    expect(mockDb.destroy).toHaveBeenCalled();
+  });
+
+  it('should handle tx going back to mempool (first_block is undefined)', async () => {
+    const context = {
+      event: {
+        event: {
+          data: {
+            hash: 'hashValue',
+            metadata: {
+              height: 123,
+              // first_block is undefined
+            },
+            timestamp: 'timestampValue',
+            version: 'versionValue',
+            weight: 'weightValue',
+          },
+          id: 'idValue',
+        },
+      },
+    };
+
+    await handleTxFirstBlock(context as any);
+
+    // When first_block is undefined (null), height should also be null
+    expect(addOrUpdateTx).toHaveBeenCalledWith(mockDb, 'hashValue', null, 'timestampValue', 'versionValue', 'weightValue', null);
+    expect(dbUpdateLastSyncedEvent).toHaveBeenCalledWith(mockDb, 'idValue');
+    expect(logger.debug).toHaveBeenCalledWith('Tx hashValue back to mempool (first_block=null): idValue');
     expect(mockDb.commit).toHaveBeenCalled();
     expect(mockDb.destroy).toHaveBeenCalled();
   });
@@ -379,7 +437,7 @@ describe('handleTxFirstBlock', () => {
             hash: 'hashValue',
             metadata: {
               height: 123,
-              first_block: ['hash2'],
+              first_block: 'blockHash123',
             },
             timestamp: 'timestampValue',
             version: 'versionValue',
@@ -768,7 +826,7 @@ describe('handleVertexAccepted', () => {
     // Verify addMiner was NOT called since there are no outputs
     expect(addMiner).not.toHaveBeenCalled();
 
-    // Verify the transaction was still processed successfully
+    // Verify the transaction was still processed successfully (with firstBlock = null for PoA block)
     expect(addOrUpdateTx).toHaveBeenCalledWith(
       mockDb,
       'poaBlockHash',
@@ -776,9 +834,62 @@ describe('handleVertexAccepted', () => {
       1762200490, // timestamp
       POA_BLOCK_VERSION,
       2, // weight
+      null, // firstBlock
     );
     expect(mockDb.commit).toHaveBeenCalled();
     expect(mockDb.destroy).toHaveBeenCalled();
+  });
+
+  it('should pass first_block when inserting transaction', async () => {
+    const context = {
+      event: {
+        event: {
+          data: {
+            hash: 'txHash123',
+            metadata: {
+              height: 50,
+              first_block: 'blockHash456',
+              voided_by: [],
+            },
+            timestamp: 1234567890,
+            version: 1,
+            weight: 17.5,
+            outputs: [],
+            inputs: [],
+            tokens: [],
+          },
+          id: 'eventId123',
+        },
+      },
+      rewardMinBlocks: 300,
+      txCache: {
+        get: jest.fn(),
+        set: jest.fn(),
+      },
+    };
+
+    (addOrUpdateTx as jest.Mock).mockReturnValue(Promise.resolve());
+    (getTransactionById as jest.Mock).mockResolvedValue(null);
+    (prepareOutputs as jest.Mock).mockReturnValue([]);
+    (prepareInputs as jest.Mock).mockReturnValue([]);
+    (getAddressBalanceMap as jest.Mock).mockReturnValue({});
+    (getUtxosLockedAtHeight as jest.Mock).mockResolvedValue([]);
+    (hashTxData as jest.Mock).mockReturnValue('hashedData');
+    (getAddressWalletInfo as jest.Mock).mockResolvedValue({});
+
+    await handleVertexAccepted(context as any, {} as any);
+
+    // Verify firstBlock is passed to addOrUpdateTx
+    expect(addOrUpdateTx).toHaveBeenCalledWith(
+      mockDb,
+      'txHash123',
+      50,
+      1234567890,
+      1,
+      17.5,
+      'blockHash456', // firstBlock should be passed
+    );
+    expect(mockDb.commit).toHaveBeenCalled();
   });
 });
 
@@ -883,18 +994,75 @@ describe('metadataDiff', () => {
     expect(result.type).toBe('TX_FIRST_BLOCK');
   });
 
-  it('should ignore transaction with first_block and height in database', async () => {
+  it('should ignore transaction with first_block and same first_block in database', async () => {
     const event = {
       event: {
         event: {
           data: {
             hash: 'mockHash',
-            metadata: { voided_by: [], first_block: ['mockFirstBlock'] },
+            metadata: { voided_by: [], first_block: 'mockFirstBlock' },
           },
         },
       },
     };
-    const mockDbTransaction = { height: 1 };
+    const mockDbTransaction = { height: 1, first_block: 'mockFirstBlock' };
+    (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
+
+    const result = await metadataDiff({} as any, event as any);
+    expect(result.type).toBe('IGNORE');
+  });
+
+  it('should return TX_FIRST_BLOCK when transaction goes back to mempool (first_block changes to null)', async () => {
+    const event = {
+      event: {
+        event: {
+          data: {
+            hash: 'mockHash',
+            metadata: { voided_by: [], first_block: '' }, // Empty string means null
+          },
+        },
+      },
+    };
+    // Transaction was confirmed but now first_block is null
+    const mockDbTransaction = { height: 10, first_block: 'originalBlock' };
+    (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
+
+    const result = await metadataDiff({} as any, event as any);
+    expect(result.type).toBe('TX_FIRST_BLOCK');
+  });
+
+  it('should return TX_FIRST_BLOCK when first_block changes to different block (reorg)', async () => {
+    const event = {
+      event: {
+        event: {
+          data: {
+            hash: 'mockHash',
+            metadata: { voided_by: [], first_block: 'newBlock' },
+          },
+        },
+      },
+    };
+    // Transaction was in one block, now it's in a different block
+    const mockDbTransaction = { height: 10, first_block: 'oldBlock' };
+    (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
+
+    const result = await metadataDiff({} as any, event as any);
+    expect(result.type).toBe('TX_FIRST_BLOCK');
+  });
+
+  it('should ignore transaction with null first_block in both event and database', async () => {
+    const event = {
+      event: {
+        event: {
+          data: {
+            hash: 'mockHash',
+            metadata: { voided_by: [], first_block: null },
+          },
+        },
+      },
+    };
+    // Transaction is in mempool in both
+    const mockDbTransaction = { height: null, first_block: null };
     (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
 
     const result = await metadataDiff({} as any, event as any);

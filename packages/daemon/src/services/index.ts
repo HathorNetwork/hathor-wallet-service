@@ -163,18 +163,15 @@ export const metadataDiff = async (_context: Context, event: Event) => {
             };
           }
 
-          if (first_block
-            && first_block.length
-            && first_block.length > 0) {
-            if (!dbTx.height) {
-              return {
-                type: METADATA_DIFF_EVENT_TYPES.TX_FIRST_BLOCK,
-                originalEvent: event,
-              };
-            }
+          // Handle first_block changes (NULL -> value OR value -> NULL)
+          const eventFirstBlock: string | null = (first_block && first_block.length > 0)
+            ? first_block
+            : null;
+          const dbFirstBlock: string | null = dbTx.first_block ?? null;
 
+          if (eventFirstBlock !== dbFirstBlock) {
             return {
-              type: METADATA_DIFF_EVENT_TYPES.IGNORE,
+              type: METADATA_DIFF_EVENT_TYPES.TX_FIRST_BLOCK,
               originalEvent: event,
             };
           }
@@ -382,6 +379,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     markLockedOutputs(txOutputs, now, heightlock !== null);
 
     // Add the transaction
+    const firstBlock = metadata.first_block ?? null;
     logger.debug('Will add the tx with height', height);
     // TODO: add is_nanocontract to transaction table?
     await addOrUpdateTx(
@@ -391,6 +389,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       timestamp,
       version,
       weight,
+      firstBlock,
     );
 
     // Add utxos
@@ -827,15 +826,18 @@ export const handleTxFirstBlock = async (context: Context) => {
       weight,
     } = fullNodeEvent.event.data;
 
-    const height: number | null = metadata.height;
+    const firstBlock: string | null = metadata.first_block ?? null;
+    // When first_block is null, height should also be null (tx back in mempool)
+    const height: number | null = firstBlock ? metadata.height : null;
 
-    if (!metadata.first_block) {
-      throw new Error('HandleTxFirstBlock called but no first block on metadata');
-    }
-
-    await addOrUpdateTx(mysql, hash, height, timestamp, version, weight);
+    await addOrUpdateTx(mysql, hash, height, timestamp, version, weight, firstBlock);
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
-    logger.debug(`Confirmed tx ${hash}: ${fullNodeEvent.event.id}`);
+
+    if (firstBlock) {
+      logger.debug(`Confirmed tx ${hash} in block ${firstBlock}: ${fullNodeEvent.event.id}`);
+    } else {
+      logger.debug(`Tx ${hash} back to mempool (first_block=null): ${fullNodeEvent.event.id}`);
+    }
 
     await mysql.commit();
   } catch (e) {
