@@ -86,25 +86,6 @@ deploy_hathor_network_account() {
 
         send_slack_message "New version deployed to testnet-production: ${GIT_REF_TO_DEPLOY}"
 
-        # --- Testnet Hotel ---
-        # Gets all env vars with `testnethotel_` prefix and re-exports them without the prefix
-        for var in "${!testnethotel_@}"; do
-            export ${var#testnethotel_}="${!var}"
-        done
-
-        make migrate;
-        make build-daemon;
-        make deploy-lambdas-testnet-hotel;
-        # The idea here is that if the lambdas deploy fail, the built image won't be pushed:
-        make push-daemon;
-
-        # Unsets all the testnet env vars so we make sure they don't leak to other deploys
-        for var in "${!testnethotel_@}"; do
-            unset ${var#testnethotel_}
-        done
-
-        send_slack_message "New version deployed to testnet-hotel: ${GIT_REF_TO_DEPLOY}"
-
         # --- Testnet India ---
         # Gets all env vars with `testnetindia_` prefix and re-exports them without the prefix
         for var in "${!testnetindia_@}"; do
