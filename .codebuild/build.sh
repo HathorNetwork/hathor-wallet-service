@@ -23,17 +23,6 @@ deploy_hathor_network_account() {
         exit=true;
     fi;
 
-    # Checks whether there is a file called "rollback_testnet_production", which is used by our other CodeBuild to indicate that this is a testnet-production rollback
-    if [ -f "rollback_testnet_production" ]; then
-        # Gets all env vars with `testnet_` prefix and re-exports them without the prefix
-        for var in "${!testnet_@}"; do
-            export ${var#testnet_}="${!var}"
-        done
-        make deploy-lambdas-testnet;
-        send_slack_message "Rollback performed on testnet-production to: ${GIT_REF_TO_DEPLOY}";
-        exit=true;
-    fi;
-
     if [ "$exit" = true ]; then
     echo "Rollbacks performed successfully. Exiting now.";
     exit 0;
@@ -66,25 +55,6 @@ deploy_hathor_network_account() {
         send_slack_message "New version deployed to mainnet-staging: ${GIT_REF_TO_DEPLOY}"
     elif expr "${GIT_REF_TO_DEPLOY}" : "v.*" >/dev/null; then
         echo $GIT_REF_TO_DEPLOY > /tmp/docker_image_tag
-
-        # --- Testnet ---
-        # Gets all env vars with `testnet_` prefix and re-exports them without the prefix
-        for var in "${!testnet_@}"; do
-            export ${var#testnet_}="${!var}"
-        done
-
-        make migrate;
-        make build-daemon;
-        make deploy-lambdas-testnet;
-        # The idea here is that if the lambdas deploy fail, the built image won't be pushed:
-        make push-daemon;
-
-        # Unsets all the testnet env vars so we make sure they don't leak to other deploys
-        for var in "${!testnet_@}"; do
-            unset ${var#testnet_}
-        done
-
-        send_slack_message "New version deployed to testnet-production: ${GIT_REF_TO_DEPLOY}"
 
         # --- Testnet India ---
         # Gets all env vars with `testnetindia_` prefix and re-exports them without the prefix
