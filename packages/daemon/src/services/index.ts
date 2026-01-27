@@ -854,8 +854,10 @@ export const handleTxFirstBlock = async (context: Context) => {
  * changes from 'success' to 'pending' or null. When this occurs, any tokens created
  * by the nano contract execution are no longer valid.
  *
- * This handler deletes nano-created tokens. Traditional CREATE_TOKEN_TX tokens
- * (token_id = tx_id) are NOT affected.
+ * This handler deletes all nano-created tokens for the transaction. Traditional
+ * CREATE_TOKEN_TX tokens (token_id = tx_id) are NOT affected — they remain valid
+ * because the token creation is inherent to the transaction itself, not dependent
+ * on nano contract execution.
  */
 export const handleNcExecVoided = async (context: Context) => {
   const mysql = await getDbConnection();
