@@ -280,6 +280,14 @@ export const hasNewEvents = (_context: Context, event: any) => {
 };
 
 /*
+ * This guard checks if handleNcExecVoided detected that first_block also changed.
+ * Used on the onDone transition to conditionally chain to handleTxFirstBlock.
+ */
+export const ncExecVoidedFirstBlockChanged = (_context: Context, event: any) => {
+  return event.data?.firstBlockChanged === true;
+};
+
+/*
  * This guard is used to detect if the event is a TOKEN_CREATED event
  */
 export const tokenCreated = (_context: Context, event: Event) => {

@@ -99,6 +99,7 @@ export const METADATA_DIFF_EVENT_TYPES = {
   NC_EXEC_VOIDED: 'NC_EXEC_VOIDED',
 };
 
+
 const DUPLICATE_TX_ALERT_GRACE_PERIOD = 10; // seconds
 
 export const metadataDiff = async (_context: Context, event: Event) => {
@@ -163,23 +164,13 @@ export const metadataDiff = async (_context: Context, event: Event) => {
             };
           }
 
-          // Handle first_block changes (NULL -> value OR value -> NULL)
-          const eventFirstBlock: string | null = (first_block && first_block.length > 0)
-            ? first_block
-            : null;
-          const dbFirstBlock: string | null = dbTx.first_block ?? null;
-
-          if (eventFirstBlock !== dbFirstBlock) {
-            return {
-              type: METADATA_DIFF_EVENT_TYPES.TX_FIRST_BLOCK,
-              originalEvent: event,
-            };
-          }
-
           // Check if nc_execution changed from 'success' to something else.
           // If the tx has nano-created tokens in the database (tokens where token_id != tx_id),
           // those tokens were created when nc_execution was 'success'.
           // If nc_execution is now NOT 'success', we should delete those tokens.
+          // IMPORTANT: This check must come BEFORE the first_block check because during reorg,
+          // both first_block and nc_execution may change, and we need to prioritize deleting
+          // nano-created tokens when nc_execution is no longer 'success'.
           if (nc_execution !== 'success') {
             const tokensCreated = await getTokensCreatedByTx(mysql, hash);
             const nanoTokens = tokensCreated.filter(tokenId => tokenId !== hash);
@@ -190,6 +181,17 @@ export const metadataDiff = async (_context: Context, event: Event) => {
                 originalEvent: event,
               };
             }
+          }
+
+          // Handle first_block changes (NULL -> value OR value -> NULL)
+          const eventFirstBlock: string | null = first_block ?? null;
+          const dbFirstBlock: string | null = dbTx.first_block ?? null;
+
+          if (eventFirstBlock !== dbFirstBlock) {
+            return {
+              type: METADATA_DIFF_EVENT_TYPES.TX_FIRST_BLOCK,
+              originalEvent: event,
+            };
           }
 
           return {
@@ -379,7 +381,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     markLockedOutputs(txOutputs, now, heightlock !== null);
 
     // Add the transaction
-    const firstBlock = metadata.first_block ?? null;
+    const firstBlock: string | null = metadata.first_block ?? null;
     logger.debug('Will add the tx with height', height);
     // TODO: add is_nanocontract to transaction table?
     await addOrUpdateTx(
@@ -856,10 +858,14 @@ export const handleTxFirstBlock = async (context: Context) => {
  * changes from 'success' to 'pending' or null. When this occurs, any tokens created
  * by the nano contract execution are no longer valid.
  *
- * This handler deletes all nano-created tokens for the transaction. Traditional
- * CREATE_TOKEN_TX tokens (token_id = tx_id) are NOT affected - they remain valid
- * because the token creation is inherent to the transaction itself, not dependent
- * on nano contract execution.
+ * This handler deletes nano-created tokens. Traditional CREATE_TOKEN_TX tokens
+ * (token_id = tx_id) are NOT affected.
+ *
+ * Returns { firstBlockChanged: boolean } so the state machine can conditionally
+ * chain to handleTxFirstBlock if first_block also changed in this event.
+ *
+ * When first_block also changed, this handler does NOT call dbUpdateLastSyncedEvent
+ * because the chained handleTxFirstBlock will do that.
  */
 export const handleNcExecVoided = async (context: Context) => {
   const mysql = await getDbConnection();
@@ -867,7 +873,7 @@ export const handleNcExecVoided = async (context: Context) => {
 
   try {
     const fullNodeEvent = context.event as StandardFullNodeEvent;
-    const { hash } = fullNodeEvent.event.data;
+    const { hash, metadata } = fullNodeEvent.event.data;
 
     // Get all tokens created by this transaction
     const tokensCreated = await getTokensCreatedByTx(mysql, hash);
@@ -883,8 +889,19 @@ export const handleNcExecVoided = async (context: Context) => {
       }
     }
 
-    await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
+    // Check if first_block also changed
+    const dbTx = await getTransactionById(mysql, hash);
+    const eventFirstBlock: string | null = metadata.first_block ?? null;
+    const dbFirstBlock: string | null = dbTx?.first_block ?? null;
+    const firstBlockChanged = eventFirstBlock !== dbFirstBlock;
+
+    if (!firstBlockChanged) {
+      // No first_block change, so we handle last_synced_event here
+      await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
+    }
+
     await mysql.commit();
+    return { firstBlockChanged };
   } catch (e) {
     logger.error('handleNcExecVoided error: ', e);
     await mysql.rollback();

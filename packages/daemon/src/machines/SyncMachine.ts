@@ -49,6 +49,7 @@ import {
   reorgStarted,
   tokenCreated,
   hasNewEvents,
+  ncExecVoidedFirstBlockChanged,
 } from '../guards';
 import {
   storeInitialState,
@@ -301,10 +302,16 @@ export const SyncMachine = Machine<Context, any, Event>({
           invoke: {
             src: 'handleNcExecVoided',
             data: (_context: Context, event: Event) => event,
-            onDone: {
+            onDone: [{
+              // If first_block also changed, chain to handleTxFirstBlock
+              target: `#${CONNECTED_STATES.handlingFirstBlock}`,
+              cond: 'ncExecVoidedFirstBlockChanged',
+              actions: ['storeEvent'],
+            }, {
+              // Otherwise, we're done
               target: 'idle',
-              actions: ['storeEvent', 'sendAck'],
-            },
+              actions: ['storeEvent', 'sendAck', 'updateCache'],
+            }],
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
         },
@@ -396,6 +403,7 @@ export const SyncMachine = Machine<Context, any, Event>({
     reorgStarted,
     tokenCreated,
     hasNewEvents,
+    ncExecVoidedFirstBlockChanged,
   },
   delays: { BACKOFF_DELAYED_RECONNECT, ACK_TIMEOUT },
   actions: {
