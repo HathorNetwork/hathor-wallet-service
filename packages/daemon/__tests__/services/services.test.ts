@@ -919,7 +919,7 @@ describe('metadataDiff', () => {
 
     const result = await metadataDiff({} as any, event as any);
 
-    expect(result.type).toBe('IGNORE');
+    expect(result.types).toEqual(['IGNORE']);
   });
 
   it('should handle new transactions', async () => {
@@ -937,7 +937,7 @@ describe('metadataDiff', () => {
     (getTransactionById as jest.Mock).mockResolvedValue(null);
 
     const result = await metadataDiff({} as any, event as any);
-    expect(result.type).toBe('TX_NEW');
+    expect(result.types).toEqual(['TX_NEW']);
   });
 
   it('should handle transaction voided but not voided in database', async () => {
@@ -955,7 +955,7 @@ describe('metadataDiff', () => {
     (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
 
     const result = await metadataDiff({} as any, event as any);
-    expect(result.type).toBe('TX_VOIDED');
+    expect(result.types).toEqual(['TX_VOIDED']);
   });
 
   it('should ignore transaction voided and also voided in database', async () => {
@@ -973,7 +973,7 @@ describe('metadataDiff', () => {
     (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
 
     const result = await metadataDiff({} as any, event as any);
-    expect(result.type).toBe('IGNORE');
+    expect(result.types).toEqual(['IGNORE']);
   });
 
   it('should handle transaction with first_block but no first_block in database', async () => {
@@ -991,7 +991,7 @@ describe('metadataDiff', () => {
     (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
 
     const result = await metadataDiff({} as any, event as any);
-    expect(result.type).toBe('TX_FIRST_BLOCK');
+    expect(result.types).toEqual(['TX_FIRST_BLOCK']);
   });
 
   it('should ignore transaction with first_block and same first_block in database', async () => {
@@ -1009,7 +1009,7 @@ describe('metadataDiff', () => {
     (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
 
     const result = await metadataDiff({} as any, event as any);
-    expect(result.type).toBe('IGNORE');
+    expect(result.types).toEqual(['IGNORE']);
   });
 
   it('should return TX_FIRST_BLOCK when transaction goes back to mempool (first_block changes to null)', async () => {
@@ -1029,7 +1029,7 @@ describe('metadataDiff', () => {
     (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
 
     const result = await metadataDiff({} as any, event as any);
-    expect(result.type).toBe('TX_FIRST_BLOCK');
+    expect(result.types).toEqual(['TX_FIRST_BLOCK']);
   });
 
   it('should return TX_FIRST_BLOCK when first_block changes to different block (reorg)', async () => {
@@ -1049,7 +1049,7 @@ describe('metadataDiff', () => {
     (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
 
     const result = await metadataDiff({} as any, event as any);
-    expect(result.type).toBe('TX_FIRST_BLOCK');
+    expect(result.types).toEqual(['TX_FIRST_BLOCK']);
   });
 
   it('should ignore transaction with null first_block in both event and database', async () => {
@@ -1068,7 +1068,7 @@ describe('metadataDiff', () => {
     (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
 
     const result = await metadataDiff({} as any, event as any);
-    expect(result.type).toBe('IGNORE');
+    expect(result.types).toEqual(['IGNORE']);
   });
 
   it('should return IGNORE when nc_execution is not success but no nano tokens exist', async () => {
@@ -1087,7 +1087,7 @@ describe('metadataDiff', () => {
     (getTokensCreatedByTx as jest.Mock).mockResolvedValue([]); // No tokens
 
     const result = await metadataDiff({} as any, event as any);
-    expect(result.type).toBe('IGNORE');
+    expect(result.types).toEqual(['IGNORE']);
   });
 
   it('should return IGNORE when nc_execution is success', async () => {
@@ -1105,7 +1105,7 @@ describe('metadataDiff', () => {
     (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
 
     const result = await metadataDiff({} as any, event as any);
-    expect(result.type).toBe('IGNORE');
+    expect(result.types).toEqual(['IGNORE']);
     // Should not call getTokensCreatedByTx when nc_execution is success
     expect(getTokensCreatedByTx).not.toHaveBeenCalled();
   });
@@ -1128,7 +1128,7 @@ describe('metadataDiff', () => {
     (getTokensCreatedByTx as jest.Mock).mockResolvedValue(['nano-token-001', 'nano-token-002']);
 
     const result = await metadataDiff({} as any, event as any);
-    expect(result.type).toBe('NC_EXEC_VOIDED');
+    expect(result.types).toEqual(['NC_EXEC_VOIDED']);
     expect(getTokensCreatedByTx).toHaveBeenCalledWith(expect.anything(), txHash);
   });
 
@@ -1150,7 +1150,7 @@ describe('metadataDiff', () => {
     (getTokensCreatedByTx as jest.Mock).mockResolvedValue([txHash]);
 
     const result = await metadataDiff({} as any, event as any);
-    expect(result.type).toBe('IGNORE');
+    expect(result.types).toEqual(['IGNORE']);
   });
 
   it('should return NC_EXEC_VOIDED for hybrid tx with both traditional and nano tokens', async () => {
@@ -1171,7 +1171,7 @@ describe('metadataDiff', () => {
     (getTokensCreatedByTx as jest.Mock).mockResolvedValue([txHash, 'nano-token-001']);
 
     const result = await metadataDiff({} as any, event as any);
-    expect(result.type).toBe('NC_EXEC_VOIDED');
+    expect(result.types).toEqual(['NC_EXEC_VOIDED']);
   });
 
   it('should return NC_EXEC_VOIDED when nc_execution is null and nano tokens exist', async () => {
@@ -1191,7 +1191,34 @@ describe('metadataDiff', () => {
     (getTokensCreatedByTx as jest.Mock).mockResolvedValue(['nano-token-001']);
 
     const result = await metadataDiff({} as any, event as any);
-    expect(result.type).toBe('NC_EXEC_VOIDED');
+    expect(result.types).toEqual(['NC_EXEC_VOIDED']);
+  });
+
+  it('should return both NC_EXEC_VOIDED and TX_FIRST_BLOCK when both changed in the same event', async () => {
+    // During a reorg, a single VERTEX_METADATA_CHANGED event can carry BOTH:
+    //   1. nc_execution changing from 'success' to 'pending' (nano tokens must be deleted)
+    //   2. first_block changing (tx moved to different block or back to mempool)
+    // metadataDiff must detect all independent changes, not just the first one.
+    const txHash = 'reorg-tx-hash';
+    const event = {
+      event: {
+        event: {
+          data: {
+            hash: txHash,
+            metadata: { voided_by: [], first_block: null, nc_execution: 'pending' },
+          },
+        },
+      },
+    };
+    // DB has first_block set, event has null → first_block changed
+    const mockDbTransaction = { height: 1, voided: false, first_block: 'old-block' };
+    (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
+    (getTokensCreatedByTx as jest.Mock).mockResolvedValue(['nano-token-001']);
+
+    const result = await metadataDiff({} as any, event as any);
+    // Both changes must be detected — not just the first one
+    expect(result.types).toEqual(['NC_EXEC_VOIDED', 'TX_FIRST_BLOCK']);
+    expect(result.types).toHaveLength(2);
   });
 
   it('should handle errors and destroy the database connection', async () => {
@@ -1228,7 +1255,7 @@ describe('metadataDiff', () => {
     (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
 
     const result = await metadataDiff({} as any, event as any);
-    expect(result.type).toBe('TX_UNVOIDED');
+    expect(result.types).toEqual(['TX_UNVOIDED']);
   });
 });
 
@@ -1609,14 +1636,12 @@ describe('handleNcExecVoided', () => {
     const context = createContext(txHash);
 
     (getTokensCreatedByTx as jest.Mock).mockResolvedValue([]);
-    (getTransactionById as jest.Mock).mockResolvedValue({ first_block: null });
 
-    const result = await handleNcExecVoided(context as any);
+    await handleNcExecVoided(context as any);
 
     expect(getTokensCreatedByTx).toHaveBeenCalledWith(mockDb, txHash);
     expect(deleteTokens).not.toHaveBeenCalled();
     expect(addOrUpdateTx).not.toHaveBeenCalled();
-    expect(result).toEqual({ firstBlockChanged: false });
     expect(mockDb.commit).toHaveBeenCalled();
   });
 
@@ -1627,13 +1652,11 @@ describe('handleNcExecVoided', () => {
     const context = createContext(txHash);
 
     (getTokensCreatedByTx as jest.Mock).mockResolvedValue([nanoToken1, nanoToken2]);
-    (getTransactionById as jest.Mock).mockResolvedValue({ first_block: null });
 
-    const result = await handleNcExecVoided(context as any);
+    await handleNcExecVoided(context as any);
 
     expect(deleteTokens).toHaveBeenCalledWith(mockDb, [nanoToken1, nanoToken2]);
     expect(addOrUpdateTx).not.toHaveBeenCalled();
-    expect(result).toEqual({ firstBlockChanged: false });
     expect(mockDb.commit).toHaveBeenCalled();
   });
 
@@ -1642,7 +1665,6 @@ describe('handleNcExecVoided', () => {
     const context = createContext(txHash);
 
     (getTokensCreatedByTx as jest.Mock).mockResolvedValue([txHash]);
-    (getTransactionById as jest.Mock).mockResolvedValue({ first_block: null });
 
     await handleNcExecVoided(context as any);
 
@@ -1656,40 +1678,10 @@ describe('handleNcExecVoided', () => {
     const context = createContext(txHash);
 
     (getTokensCreatedByTx as jest.Mock).mockResolvedValue([txHash, nanoToken]);
-    (getTransactionById as jest.Mock).mockResolvedValue({ first_block: null });
 
     await handleNcExecVoided(context as any);
 
     expect(deleteTokens).toHaveBeenCalledWith(mockDb, [nanoToken]);
-    expect(mockDb.commit).toHaveBeenCalled();
-  });
-
-  it('should return firstBlockChanged=true when first_block changed', async () => {
-    const txHash = 'reorg-tx-hash';
-    // Event says first_block is null (back to mempool)
-    const context = createContext(txHash, null);
-
-    (getTokensCreatedByTx as jest.Mock).mockResolvedValue([]);
-    // DB has a first_block value
-    (getTransactionById as jest.Mock).mockResolvedValue({ first_block: 'old-block-hash' });
-
-    const result = await handleNcExecVoided(context as any);
-
-    expect(result).toEqual({ firstBlockChanged: true });
-    // Should NOT call dbUpdateLastSyncedEvent since handleTxFirstBlock will
-    expect(mockDb.commit).toHaveBeenCalled();
-  });
-
-  it('should return firstBlockChanged=false and update last_synced_event when first_block did not change', async () => {
-    const txHash = 'same-block-tx-hash';
-    const context = createContext(txHash, 'block-hash');
-
-    (getTokensCreatedByTx as jest.Mock).mockResolvedValue([]);
-    (getTransactionById as jest.Mock).mockResolvedValue({ first_block: 'block-hash' });
-
-    const result = await handleNcExecVoided(context as any);
-
-    expect(result).toEqual({ firstBlockChanged: false });
     expect(mockDb.commit).toHaveBeenCalled();
   });
 

@@ -12,80 +12,27 @@ import getConfig from '../config';
 import logger from '../logger';
 
 /*
- * This guard is used during the `handlingMetadataChanged` to check if
- * the result was an IGNORE event
+ * Guards for the metadata change dispatch queue.
+ * These check context.pendingMetadataChanges[0] to route to the correct handler.
  */
-export const metadataIgnore = (_context: Context, event: Event) => {
-  if (event.type !== EventTypes.METADATA_DECIDED) {
-    throw new Error(`Invalid event type on metadataIgnore guard: ${event.type}`);
-  }
-
-  return event.event.type === METADATA_DIFF_EVENT_TYPES.IGNORE;
+export const nextChangeIsVoided = (context: Context) => {
+  return context.pendingMetadataChanges?.[0] === METADATA_DIFF_EVENT_TYPES.TX_VOIDED;
 };
 
-/*
- * This guard is used during the `handlingMetadataChanged` to check if
- * the result was a TX_VOIDED event
- */
-export const metadataVoided = (_context: Context, event: Event) => {
-  if (event.type !== EventTypes.METADATA_DECIDED) {
-    throw new Error(`Invalid event type on metadataVoided guard: ${event.type}`);
-  }
-
-  return event.event.type === METADATA_DIFF_EVENT_TYPES.TX_VOIDED;
+export const nextChangeIsUnvoided = (context: Context) => {
+  return context.pendingMetadataChanges?.[0] === METADATA_DIFF_EVENT_TYPES.TX_UNVOIDED;
 };
 
-/*
- * This guard is used during the `handlingMetadataChanged` to check if
- * the result was a TX_UNVOIDED event, which means the tx was voided
- * and then got unvoided
- */
-export const metadataUnvoided = (_context: Context, event: Event) => {
-  if (event.type !== EventTypes.METADATA_DECIDED) {
-    throw new Error(`Invalid event type on metadataUnvoided guard: ${event.type}`);
-  }
-
-  return event.event.type === METADATA_DIFF_EVENT_TYPES.TX_UNVOIDED;
+export const nextChangeIsNewTx = (context: Context) => {
+  return context.pendingMetadataChanges?.[0] === METADATA_DIFF_EVENT_TYPES.TX_NEW;
 };
 
-/*
- * This guard is used during the `handlingMetadataChanged` to check if
- * the result was a TX_NEW event, which means that we should insert
- * this transaction on the database
- */
-export const metadataNewTx = (_context: Context, event: Event) => {
-  if (event.type !== EventTypes.METADATA_DECIDED) {
-    throw new Error(`Invalid event type on metadataNewTx guard: ${event.type}`);
-  }
-
-  return event.event.type === METADATA_DIFF_EVENT_TYPES.TX_NEW;
+export const nextChangeIsFirstBlock = (context: Context) => {
+  return context.pendingMetadataChanges?.[0] === METADATA_DIFF_EVENT_TYPES.TX_FIRST_BLOCK;
 };
 
-/*
- * This guard is used during the `handlingMetadataChanged` to check if
- * the result was a TX_FIRST_BLOCK event, which means that we should insert
- * the height of this transaction to the database
- */
-export const metadataFirstBlock = (_context: Context, event: Event) => {
-  if (event.type !== EventTypes.METADATA_DECIDED) {
-    throw new Error(`Invalid event type on metadataFirstBlock guard: ${event.type}`);
-  }
-
-  return event.event.type === METADATA_DIFF_EVENT_TYPES.TX_FIRST_BLOCK;
-};
-
-/*
- * This guard is used during the `handlingMetadataChanged` to check if
- * the result was a NC_EXEC_VOIDED event, which means nc_execution changed
- * from 'success' to something else (pending, null, etc.) during a reorg.
- * We need to delete any nano-created tokens for this transaction.
- */
-export const metadataNcExecVoided = (_context: Context, event: Event) => {
-  if (event.type !== EventTypes.METADATA_DECIDED) {
-    throw new Error(`Invalid event type on metadataNcExecVoided guard: ${event.type}`);
-  }
-
-  return event.event.type === METADATA_DIFF_EVENT_TYPES.NC_EXEC_VOIDED;
+export const nextChangeIsNcExecVoided = (context: Context) => {
+  return context.pendingMetadataChanges?.[0] === METADATA_DIFF_EVENT_TYPES.NC_EXEC_VOIDED;
 };
 
 /*
@@ -277,14 +224,6 @@ export const hasNewEvents = (_context: Context, event: any) => {
   }
 
   return event.data.hasNewEvents === true;
-};
-
-/*
- * This guard checks if handleNcExecVoided detected that first_block also changed.
- * Used on the onDone transition to conditionally chain to handleTxFirstBlock.
- */
-export const ncExecVoidedFirstBlockChanged = (_context: Context, event: any) => {
-  return event.data?.firstBlockChanged === true;
 };
 
 /*

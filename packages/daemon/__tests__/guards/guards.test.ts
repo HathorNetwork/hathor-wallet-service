@@ -1,10 +1,10 @@
-import { Context, Event, FullNodeEventTypes, StandardFullNodeEvent } from '../../src/types';
+import { Context, Event, FullNodeEventTypes } from '../../src/types';
 import {
-  metadataIgnore,
-  metadataVoided,
-  metadataNewTx,
-  metadataFirstBlock,
-  metadataNcExecVoided,
+  nextChangeIsVoided,
+  nextChangeIsUnvoided,
+  nextChangeIsNewTx,
+  nextChangeIsFirstBlock,
+  nextChangeIsNcExecVoided,
   metadataChanged,
   vertexAccepted,
   invalidPeerId,
@@ -99,99 +99,54 @@ const generateFullNodeEvent = (type: FullNodeEventTypes, data = {} as any): Even
   return generateStandardFullNodeEvent(type, data);
 };
 
-const generateMetadataDecidedEvent = (type: 'TX_VOIDED' | 'TX_UNVOIDED' | 'TX_NEW' | 'TX_FIRST_BLOCK' | 'IGNORE' | 'NC_EXEC_VOIDED'): Event => {
-  const fullNodeEvent: StandardFullNodeEvent = {
-    stream_id: '',
-    peer_id: '',
-    network: 'mainnet',
-    type: 'EVENT',
-    latest_event_id: 0,
-    event: {
-      id: 0,
-      timestamp: 0,
-      type: FullNodeEventTypes.VERTEX_METADATA_CHANGED,
-      data: {
-        hash: 'hash',
-        timestamp: 0,
-        version: 1,
-        weight: 1,
-        nonce: 1n,
-        inputs: [],
-        outputs: [],
-        parents: [],
-        tokens: [],
-        token_name: null,
-        token_symbol: null,
-        signal_bits: 1,
-        metadata: {
-          hash: 'hash',
-          voided_by: [],
-          first_block: null,
-          height: 1,
-        },
-      },
-    },
+describe('metadata dispatch queue guards', () => {
+  const contextWithChange = (changeType: string): Context => ({
+    ...mockContext,
+    pendingMetadataChanges: [changeType],
+  });
+
+  const emptyContext: Context = {
+    ...mockContext,
+    pendingMetadataChanges: [],
   };
 
-  return {
-    type: EventTypes.METADATA_DECIDED,
-    event: {
-      type,
-      originalEvent: fullNodeEvent,
-    },
-  };
-};
-
-describe('metadata decided tests', () => {
-  test('metadataIgnore', async () => {
-    expect(metadataIgnore(mockContext, generateMetadataDecidedEvent('IGNORE'))).toBe(true);
-    expect(metadataIgnore(mockContext, generateMetadataDecidedEvent('TX_NEW'))).toBe(false);
-    expect(metadataIgnore(mockContext, generateMetadataDecidedEvent('TX_VOIDED'))).toBe(false);
-    expect(metadataIgnore(mockContext, generateMetadataDecidedEvent('TX_FIRST_BLOCK'))).toBe(false);
-
-    // Any event other than METADATA_DECIDED should throw an error:
-    expect(() => metadataIgnore(mockContext, generateFullNodeEvent(FullNodeEventTypes.VERTEX_METADATA_CHANGED))).toThrow('Invalid event type on metadataIgnore guard: FULLNODE_EVENT');
+  test('nextChangeIsVoided', () => {
+    expect(nextChangeIsVoided(contextWithChange('TX_VOIDED'))).toBe(true);
+    expect(nextChangeIsVoided(contextWithChange('TX_NEW'))).toBe(false);
+    expect(nextChangeIsVoided(emptyContext)).toBe(false);
   });
 
-  test('metadataVoided', () => {
-    expect(metadataVoided(mockContext, generateMetadataDecidedEvent('TX_VOIDED'))).toBe(true);
-    expect(metadataVoided(mockContext, generateMetadataDecidedEvent('IGNORE'))).toBe(false);
-    expect(metadataVoided(mockContext, generateMetadataDecidedEvent('TX_NEW'))).toBe(false);
-    expect(metadataVoided(mockContext, generateMetadataDecidedEvent('TX_FIRST_BLOCK'))).toBe(false);
-
-    // Any event other than METADATA_DECIDED should return false:
-    expect(() => metadataIgnore(mockContext, generateFullNodeEvent(FullNodeEventTypes.VERTEX_METADATA_CHANGED))).toThrow('Invalid event type on metadataIgnore guard: FULLNODE_EVENT');
+  test('nextChangeIsUnvoided', () => {
+    expect(nextChangeIsUnvoided(contextWithChange('TX_UNVOIDED'))).toBe(true);
+    expect(nextChangeIsUnvoided(contextWithChange('TX_VOIDED'))).toBe(false);
+    expect(nextChangeIsUnvoided(emptyContext)).toBe(false);
   });
 
-  test('metadataNewTx', () => {
-    expect(metadataNewTx(mockContext, generateMetadataDecidedEvent('TX_NEW'))).toBe(true);
-    expect(metadataNewTx(mockContext, generateMetadataDecidedEvent('TX_FIRST_BLOCK'))).toBe(false);
-    expect(metadataNewTx(mockContext, generateMetadataDecidedEvent('TX_VOIDED'))).toBe(false);
-    expect(metadataNewTx(mockContext, generateMetadataDecidedEvent('IGNORE'))).toBe(false);
-
-    // Any event other than METADATA_DECIDED should return false:
-    expect(() => metadataIgnore(mockContext, generateFullNodeEvent(FullNodeEventTypes.VERTEX_METADATA_CHANGED))).toThrow('Invalid event type on metadataIgnore guard: FULLNODE_EVENT');
+  test('nextChangeIsNewTx', () => {
+    expect(nextChangeIsNewTx(contextWithChange('TX_NEW'))).toBe(true);
+    expect(nextChangeIsNewTx(contextWithChange('TX_VOIDED'))).toBe(false);
+    expect(nextChangeIsNewTx(emptyContext)).toBe(false);
   });
 
-  test('metadataFirstBlock', () => {
-    expect(metadataFirstBlock(mockContext, generateMetadataDecidedEvent('TX_FIRST_BLOCK'))).toBe(true);
-    expect(metadataFirstBlock(mockContext, generateMetadataDecidedEvent('TX_VOIDED'))).toBe(false);
-    expect(metadataFirstBlock(mockContext, generateMetadataDecidedEvent('IGNORE'))).toBe(false);
-    expect(metadataFirstBlock(mockContext, generateMetadataDecidedEvent('TX_NEW'))).toBe(false);
-
-    // Any event other than METADATA_DECIDED should return false:
-    expect(() => metadataIgnore(mockContext, generateFullNodeEvent(FullNodeEventTypes.VERTEX_METADATA_CHANGED))).toThrow('Invalid event type on metadataIgnore guard: FULLNODE_EVENT');
+  test('nextChangeIsFirstBlock', () => {
+    expect(nextChangeIsFirstBlock(contextWithChange('TX_FIRST_BLOCK'))).toBe(true);
+    expect(nextChangeIsFirstBlock(contextWithChange('TX_VOIDED'))).toBe(false);
+    expect(nextChangeIsFirstBlock(emptyContext)).toBe(false);
   });
 
-  test('metadataNcExecVoided', () => {
-    expect(metadataNcExecVoided(mockContext, generateMetadataDecidedEvent('NC_EXEC_VOIDED'))).toBe(true);
-    expect(metadataNcExecVoided(mockContext, generateMetadataDecidedEvent('TX_VOIDED'))).toBe(false);
-    expect(metadataNcExecVoided(mockContext, generateMetadataDecidedEvent('IGNORE'))).toBe(false);
-    expect(metadataNcExecVoided(mockContext, generateMetadataDecidedEvent('TX_NEW'))).toBe(false);
-    expect(metadataNcExecVoided(mockContext, generateMetadataDecidedEvent('TX_FIRST_BLOCK'))).toBe(false);
+  test('nextChangeIsNcExecVoided', () => {
+    expect(nextChangeIsNcExecVoided(contextWithChange('NC_EXEC_VOIDED'))).toBe(true);
+    expect(nextChangeIsNcExecVoided(contextWithChange('TX_VOIDED'))).toBe(false);
+    expect(nextChangeIsNcExecVoided(emptyContext)).toBe(false);
+  });
 
-    // Any event other than METADATA_DECIDED should throw:
-    expect(() => metadataNcExecVoided(mockContext, generateFullNodeEvent(FullNodeEventTypes.VERTEX_METADATA_CHANGED))).toThrow('Invalid event type on metadataNcExecVoided guard: FULLNODE_EVENT');
+  test('guards return false when pendingMetadataChanges is undefined', () => {
+    const ctx = { ...mockContext, pendingMetadataChanges: undefined };
+    expect(nextChangeIsVoided(ctx)).toBe(false);
+    expect(nextChangeIsUnvoided(ctx)).toBe(false);
+    expect(nextChangeIsNewTx(ctx)).toBe(false);
+    expect(nextChangeIsFirstBlock(ctx)).toBe(false);
+    expect(nextChangeIsNcExecVoided(ctx)).toBe(false);
   });
 });
 
@@ -201,7 +156,7 @@ describe('fullnode event guards', () => {
     expect(vertexAccepted(mockContext, generateFullNodeEvent(FullNodeEventTypes.VERTEX_METADATA_CHANGED))).toBe(false);
 
     // Any event other than FULLNODE_EVENT should return false
-    expect(() => vertexAccepted(mockContext, generateMetadataDecidedEvent('TX_NEW'))).toThrow('Invalid event type on vertexAccepted guard: METADATA_DECIDED');
+    expect(() => vertexAccepted(mockContext, { type: EventTypes.WEBSOCKET_EVENT, event: { type: 'CONNECTED' } } as Event)).toThrow('Invalid event type on vertexAccepted guard: WEBSOCKET_EVENT');
   });
 
   test('metadataChanged', () => {
@@ -209,7 +164,7 @@ describe('fullnode event guards', () => {
     expect(metadataChanged(mockContext, generateFullNodeEvent(FullNodeEventTypes.NEW_VERTEX_ACCEPTED))).toBe(false);
 
     // Any event other than FULLNODE_EVENT should return false
-    expect(() => metadataChanged(mockContext, generateMetadataDecidedEvent('IGNORE'))).toThrow('Invalid event type on metadataChanged guard: METADATA_DECIDED');
+    expect(() => metadataChanged(mockContext, { type: EventTypes.WEBSOCKET_EVENT, event: { type: 'CONNECTED' } } as Event)).toThrow('Invalid event type on metadataChanged guard: WEBSOCKET_EVENT');
   });
 
   test('voided', () => {
@@ -230,7 +185,7 @@ describe('fullnode event guards', () => {
     expect(voided(mockContext, fullNodeNotVoidedEvent)).toBe(false);
 
     // Any event other than FULLNODE_EVENT should return false
-    expect(() => voided(mockContext, generateMetadataDecidedEvent('TX_NEW'))).toThrow('Invalid event type on voided guard: METADATA_DECIDED');
+    expect(() => voided(mockContext, { type: EventTypes.WEBSOCKET_EVENT, event: { type: 'CONNECTED' } } as Event)).toThrow('Invalid event type on voided guard: WEBSOCKET_EVENT');
 
     // Any fullndode event other VERTEX_METADATA_CHANGED and NEW_VERTEX_ACCEPTED
     // should return false
@@ -251,7 +206,7 @@ describe('fullnode event guards', () => {
     expect(unchanged(mockContext, fullNodeEvent)).toBe(false);
 
     // Any event other than FULLNODE_EVENT should return false
-    expect(() => unchanged(mockContext, generateMetadataDecidedEvent('TX_NEW'))).toThrow('Invalid event type on unchanged guard: METADATA_DECIDED');
+    expect(() => unchanged(mockContext, { type: EventTypes.WEBSOCKET_EVENT, event: { type: 'CONNECTED' } } as Event)).toThrow('Invalid event type on unchanged guard: WEBSOCKET_EVENT');
   });
 
   test('reorgStarted', () => {
@@ -259,7 +214,7 @@ describe('fullnode event guards', () => {
     expect(reorgStarted(mockContext, generateFullNodeEvent(FullNodeEventTypes.VERTEX_METADATA_CHANGED))).toBe(false);
 
     // Any event other than FULLNODE_EVENT should throw
-    expect(() => reorgStarted(mockContext, generateMetadataDecidedEvent('TX_NEW'))).toThrow('Invalid event type on reorgStarted guard: METADATA_DECIDED');
+    expect(() => reorgStarted(mockContext, { type: EventTypes.WEBSOCKET_EVENT, event: { type: 'CONNECTED' } } as Event)).toThrow('Invalid event type on reorgStarted guard: WEBSOCKET_EVENT');
   });
 
   test('tokenCreated', () => {
@@ -269,7 +224,7 @@ describe('fullnode event guards', () => {
     expect(tokenCreated(mockContext, generateFullNodeEvent(FullNodeEventTypes.REORG_STARTED))).toBe(false);
 
     // Any event other than FULLNODE_EVENT should throw
-    expect(() => tokenCreated(mockContext, generateMetadataDecidedEvent('TX_NEW'))).toThrow('Invalid event type on tokenCreated guard: METADATA_DECIDED');
+    expect(() => tokenCreated(mockContext, { type: EventTypes.WEBSOCKET_EVENT, event: { type: 'CONNECTED' } } as Event)).toThrow('Invalid event type on tokenCreated guard: WEBSOCKET_EVENT');
   });
 });
 

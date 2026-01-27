@@ -129,29 +129,30 @@ export const metadataDiff = async (_context: Context, event: Event) => {
             if (voided_by.length > 0) {
               // No need to add voided transactions
               return {
-                type: METADATA_DIFF_EVENT_TYPES.IGNORE,
+                types: [METADATA_DIFF_EVENT_TYPES.IGNORE],
                 originalEvent: event,
               };
             }
 
             return {
-              type: METADATA_DIFF_EVENT_TYPES.TX_NEW,
+              types: [METADATA_DIFF_EVENT_TYPES.TX_NEW],
               originalEvent: event,
             };
           }
 
+          // Mutually exclusive: voided/unvoided/new take priority
           // Tx is voided
           if (voided_by.length > 0) {
             // Was it voided on the database?
             if (!dbTx.voided) {
               return {
-                type: METADATA_DIFF_EVENT_TYPES.TX_VOIDED,
+                types: [METADATA_DIFF_EVENT_TYPES.TX_VOIDED],
                 originalEvent: event,
               };
             }
 
             return {
-              type: METADATA_DIFF_EVENT_TYPES.IGNORE,
+              types: [METADATA_DIFF_EVENT_TYPES.IGNORE],
               originalEvent: event,
             };
           }
@@ -159,27 +160,21 @@ export const metadataDiff = async (_context: Context, event: Event) => {
           // Tx was voided in the database but is not anymore
           if (dbTx.voided && voided_by.length <= 0) {
             return {
-              type: METADATA_DIFF_EVENT_TYPES.TX_UNVOIDED,
+              types: [METADATA_DIFF_EVENT_TYPES.TX_UNVOIDED],
               originalEvent: event,
             };
           }
 
+          // Independent changes: collect all into array
+          const types: string[] = [];
+
           // Check if nc_execution changed from 'success' to something else.
-          // If the tx has nano-created tokens in the database (tokens where token_id != tx_id),
-          // those tokens were created when nc_execution was 'success'.
-          // If nc_execution is now NOT 'success', we should delete those tokens.
-          // IMPORTANT: This check must come BEFORE the first_block check because during reorg,
-          // both first_block and nc_execution may change, and we need to prioritize deleting
-          // nano-created tokens when nc_execution is no longer 'success'.
           if (nc_execution !== 'success') {
             const tokensCreated = await getTokensCreatedByTx(mysql, hash);
             const nanoTokens = tokensCreated.filter(tokenId => tokenId !== hash);
 
             if (nanoTokens.length > 0) {
-              return {
-                type: METADATA_DIFF_EVENT_TYPES.NC_EXEC_VOIDED,
-                originalEvent: event,
-              };
+              types.push(METADATA_DIFF_EVENT_TYPES.NC_EXEC_VOIDED);
             }
           }
 
@@ -188,14 +183,15 @@ export const metadataDiff = async (_context: Context, event: Event) => {
           const dbFirstBlock: string | null = dbTx.first_block ?? null;
 
           if (eventFirstBlock !== dbFirstBlock) {
-            return {
-              type: METADATA_DIFF_EVENT_TYPES.TX_FIRST_BLOCK,
-              originalEvent: event,
-            };
+            types.push(METADATA_DIFF_EVENT_TYPES.TX_FIRST_BLOCK);
+          }
+
+          if (types.length === 0) {
+            types.push(METADATA_DIFF_EVENT_TYPES.IGNORE);
           }
 
           return {
-            type: METADATA_DIFF_EVENT_TYPES.IGNORE,
+            types,
             originalEvent: event,
           };
         } finally {
@@ -860,12 +856,6 @@ export const handleTxFirstBlock = async (context: Context) => {
  *
  * This handler deletes nano-created tokens. Traditional CREATE_TOKEN_TX tokens
  * (token_id = tx_id) are NOT affected.
- *
- * Returns { firstBlockChanged: boolean } so the state machine can conditionally
- * chain to handleTxFirstBlock if first_block also changed in this event.
- *
- * When first_block also changed, this handler does NOT call dbUpdateLastSyncedEvent
- * because the chained handleTxFirstBlock will do that.
  */
 export const handleNcExecVoided = async (context: Context) => {
   const mysql = await getDbConnection();
@@ -873,7 +863,7 @@ export const handleNcExecVoided = async (context: Context) => {
 
   try {
     const fullNodeEvent = context.event as StandardFullNodeEvent;
-    const { hash, metadata } = fullNodeEvent.event.data;
+    const { hash } = fullNodeEvent.event.data;
 
     // Get all tokens created by this transaction
     const tokensCreated = await getTokensCreatedByTx(mysql, hash);
@@ -889,19 +879,8 @@ export const handleNcExecVoided = async (context: Context) => {
       }
     }
 
-    // Check if first_block also changed
-    const dbTx = await getTransactionById(mysql, hash);
-    const eventFirstBlock: string | null = metadata.first_block ?? null;
-    const dbFirstBlock: string | null = dbTx?.first_block ?? null;
-    const firstBlockChanged = eventFirstBlock !== dbFirstBlock;
-
-    if (!firstBlockChanged) {
-      // No first_block change, so we handle last_synced_event here
-      await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
-    }
-
+    await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
     await mysql.commit();
-    return { firstBlockChanged };
   } catch (e) {
     logger.error('handleNcExecVoided error: ', e);
     await mysql.rollback();
