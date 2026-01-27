@@ -1320,6 +1320,68 @@ describe('metadataDiff', () => {
     // Both changes detected: nano tokens must be deleted AND first_block must be updated
     expect(result2.types).toEqual(['NC_EXEC_VOIDED', 'TX_FIRST_BLOCK']);
   });
+
+  it('should detect voided tx becoming unvoided', async () => {
+    const txHash = 'unvoided-lifecycle-tx';
+
+    // Event 0: tx enters the mempool
+    // DB has no record → TX_NEW
+    const event0 = {
+      event: {
+        event: {
+          data: {
+            hash: txHash,
+            metadata: { voided_by: [], first_block: null, nc_execution: null },
+          },
+        },
+      },
+    };
+    (getTransactionById as jest.Mock).mockResolvedValue(null);
+
+    const result0 = await metadataDiff({} as any, event0 as any);
+    expect(result0.types).toEqual(['TX_NEW']);
+
+    // Event 1: tx gets voided (conflict)
+    // DB has the tx from event 0, not voided
+    const event1 = {
+      event: {
+        event: {
+          data: {
+            hash: txHash,
+            metadata: { voided_by: ['conflicting-tx'], first_block: null, nc_execution: null },
+          },
+        },
+      },
+    };
+    (getTransactionById as jest.Mock).mockResolvedValue({
+      voided: false,
+      first_block: null,
+    });
+
+    const result1 = await metadataDiff({} as any, event1 as any);
+    expect(result1.types).toEqual(['TX_VOIDED']);
+
+    // Event 2: tx gets unvoided (conflict resolved)
+    // DB has the tx marked as voided
+    const event2 = {
+      event: {
+        event: {
+          data: {
+            hash: txHash,
+            metadata: { voided_by: [], first_block: null, nc_execution: null },
+          },
+        },
+      },
+    };
+    (getTransactionById as jest.Mock).mockResolvedValue({
+      voided: true,
+      first_block: null,
+    });
+
+    const result2 = await metadataDiff({} as any, event2 as any);
+    // TX_UNVOIDED is mutually exclusive — the machine chains into handlingVertexAccepted to re-add the tx
+    expect(result2.types).toEqual(['TX_UNVOIDED']);
+  });
 });
 
 describe('handleReorgStarted', () => {
