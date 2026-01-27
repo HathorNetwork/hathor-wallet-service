@@ -1257,6 +1257,69 @@ describe('metadataDiff', () => {
     const result = await metadataDiff({} as any, event as any);
     expect(result.types).toEqual(['TX_UNVOIDED']);
   });
+
+  it('should detect full nano contract tx lifecycle: mempool → confirmed → reorg', async () => {
+    const txHash = 'nc-lifecycle-tx';
+
+    // Event 0: tx enters the mempool (nc_execution and first_block are null)
+    // DB has no record → TX_NEW
+    const event0 = {
+      event: {
+        event: {
+          data: {
+            hash: txHash,
+            metadata: { voided_by: [], first_block: null, nc_execution: null },
+          },
+        },
+      },
+    };
+    (getTransactionById as jest.Mock).mockResolvedValue(null);
+
+    const result0 = await metadataDiff({} as any, event0 as any);
+    expect(result0.types).toEqual(['TX_NEW']);
+
+    // Event 1: tx gets confirmed (first_block set, nc_execution goes to 'success')
+    // DB has the tx from event 0: first_block = null
+    const event1 = {
+      event: {
+        event: {
+          data: {
+            hash: txHash,
+            metadata: { voided_by: [], first_block: 'block-1', nc_execution: 'success' },
+          },
+        },
+      },
+    };
+    (getTransactionById as jest.Mock).mockResolvedValue({
+      voided: false,
+      first_block: null,
+    });
+
+    const result1 = await metadataDiff({} as any, event1 as any);
+    expect(result1.types).toEqual(['TX_FIRST_BLOCK']);
+
+    // Event 2: reorg — tx loses first_block and nc_execution reverts to null
+    // DB reflects the state after event 1: confirmed with first_block
+    const event2 = {
+      event: {
+        event: {
+          data: {
+            hash: txHash,
+            metadata: { voided_by: [], first_block: null, nc_execution: null },
+          },
+        },
+      },
+    };
+    (getTransactionById as jest.Mock).mockResolvedValue({
+      voided: false,
+      first_block: 'block-1',
+    });
+    (getTokensCreatedByTx as jest.Mock).mockResolvedValue(['nano-token-1']);
+
+    const result2 = await metadataDiff({} as any, event2 as any);
+    // Both changes detected: nano tokens must be deleted AND first_block must be updated
+    expect(result2.types).toEqual(['NC_EXEC_VOIDED', 'TX_FIRST_BLOCK']);
+  });
 });
 
 describe('handleReorgStarted', () => {
