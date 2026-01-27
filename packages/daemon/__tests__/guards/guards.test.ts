@@ -85,6 +85,8 @@ const generateReorgStartedEvent = (data = {
   },
 });
 
+const nonFullNodeEvent = { type: EventTypes.WEBSOCKET_EVENT, event: { type: 'CONNECTED' } } as Event;
+
 const generateFullNodeEvent = (type: FullNodeEventTypes, data = {} as any): Event => {
   if (type === FullNodeEventTypes.REORG_STARTED) {
     return generateReorgStartedEvent(data);
@@ -138,7 +140,7 @@ describe('fullnode event guards', () => {
     expect(vertexAccepted(mockContext, generateFullNodeEvent(FullNodeEventTypes.VERTEX_METADATA_CHANGED))).toBe(false);
 
     // Any event other than FULLNODE_EVENT should return false
-    expect(() => vertexAccepted(mockContext, { type: EventTypes.WEBSOCKET_EVENT, event: { type: 'CONNECTED' } } as Event)).toThrow('Invalid event type on vertexAccepted guard: WEBSOCKET_EVENT');
+    expect(() => vertexAccepted(mockContext, nonFullNodeEvent)).toThrow('Invalid event type on vertexAccepted guard: WEBSOCKET_EVENT');
   });
 
   test('metadataChanged', () => {
@@ -146,7 +148,7 @@ describe('fullnode event guards', () => {
     expect(metadataChanged(mockContext, generateFullNodeEvent(FullNodeEventTypes.NEW_VERTEX_ACCEPTED))).toBe(false);
 
     // Any event other than FULLNODE_EVENT should return false
-    expect(() => metadataChanged(mockContext, { type: EventTypes.WEBSOCKET_EVENT, event: { type: 'CONNECTED' } } as Event)).toThrow('Invalid event type on metadataChanged guard: WEBSOCKET_EVENT');
+    expect(() => metadataChanged(mockContext, nonFullNodeEvent)).toThrow('Invalid event type on metadataChanged guard: WEBSOCKET_EVENT');
   });
 
   test('voided', () => {
@@ -167,7 +169,7 @@ describe('fullnode event guards', () => {
     expect(voided(mockContext, fullNodeNotVoidedEvent)).toBe(false);
 
     // Any event other than FULLNODE_EVENT should return false
-    expect(() => voided(mockContext, { type: EventTypes.WEBSOCKET_EVENT, event: { type: 'CONNECTED' } } as Event)).toThrow('Invalid event type on voided guard: WEBSOCKET_EVENT');
+    expect(() => voided(mockContext, nonFullNodeEvent)).toThrow('Invalid event type on voided guard: WEBSOCKET_EVENT');
 
     // Any fullndode event other VERTEX_METADATA_CHANGED and NEW_VERTEX_ACCEPTED
     // should return false
@@ -188,7 +190,7 @@ describe('fullnode event guards', () => {
     expect(unchanged(mockContext, fullNodeEvent)).toBe(false);
 
     // Any event other than FULLNODE_EVENT should return false
-    expect(() => unchanged(mockContext, { type: EventTypes.WEBSOCKET_EVENT, event: { type: 'CONNECTED' } } as Event)).toThrow('Invalid event type on unchanged guard: WEBSOCKET_EVENT');
+    expect(() => unchanged(mockContext, nonFullNodeEvent)).toThrow('Invalid event type on unchanged guard: WEBSOCKET_EVENT');
   });
 
   test('reorgStarted', () => {
@@ -196,7 +198,7 @@ describe('fullnode event guards', () => {
     expect(reorgStarted(mockContext, generateFullNodeEvent(FullNodeEventTypes.VERTEX_METADATA_CHANGED))).toBe(false);
 
     // Any event other than FULLNODE_EVENT should throw
-    expect(() => reorgStarted(mockContext, { type: EventTypes.WEBSOCKET_EVENT, event: { type: 'CONNECTED' } } as Event)).toThrow('Invalid event type on reorgStarted guard: WEBSOCKET_EVENT');
+    expect(() => reorgStarted(mockContext, nonFullNodeEvent)).toThrow('Invalid event type on reorgStarted guard: WEBSOCKET_EVENT');
   });
 
   test('tokenCreated', () => {
@@ -206,7 +208,7 @@ describe('fullnode event guards', () => {
     expect(tokenCreated(mockContext, generateFullNodeEvent(FullNodeEventTypes.REORG_STARTED))).toBe(false);
 
     // Any event other than FULLNODE_EVENT should throw
-    expect(() => tokenCreated(mockContext, { type: EventTypes.WEBSOCKET_EVENT, event: { type: 'CONNECTED' } } as Event)).toThrow('Invalid event type on tokenCreated guard: WEBSOCKET_EVENT');
+    expect(() => tokenCreated(mockContext, nonFullNodeEvent)).toThrow('Invalid event type on tokenCreated guard: WEBSOCKET_EVENT');
   });
 });
 
