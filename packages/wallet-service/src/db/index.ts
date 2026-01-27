@@ -449,6 +449,22 @@ export const getWalletAddressDetail = async (mysql: ServerlessMysql, walletId: s
 };
 
 /**
+ * Increment the seqnum of an address.
+ *
+ * @param mysql - Database connection
+ * @param walletId - Wallet id
+ * @param address - Address to increment seqnum for
+ */
+export const incrementAddressSeqnum = async (mysql: ServerlessMysql, walletId: string, address: string): Promise<void> => {
+  await mysql.query(`
+    UPDATE \`address\`
+       SET \`seqnum\` = \`seqnum\` + 1
+     WHERE \`wallet_id\` = ?
+         AND \`address\` = ?`,
+    [walletId, address]);
+};
+
+/**
  * Initialize a wallet's transaction history.
  *
  * @remarks
