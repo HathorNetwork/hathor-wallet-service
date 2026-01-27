@@ -1379,7 +1379,7 @@ describe('voidTransaction', () => {
     await expect(checkAddressTxHistoryTable(mysql, 0, addr1, txId, token1, -1, 0)).resolves.toBe(true);
     await expect(checkAddressTxHistoryTable(mysql, 0, addr1, txId, token2, -1, 0)).resolves.toBe(true);
 
-    await expect(checkTransactionTable(mysql, 1, txId, 0, constants.BLOCK_VERSION, true, 1)).resolves.toBe(true);
+    await expect(checkTransactionTable(mysql, 1, txId, 0, constants.BLOCK_VERSION, true, 1, null)).resolves.toBe(true);
   });
 
   it('should not fail when balances are empty (from a tx with no inputs and outputs)', async () => {
@@ -1397,7 +1397,7 @@ describe('voidTransaction', () => {
 
     await expect(voidTransaction(mysql, txId)).resolves.not.toThrow();
     // Tx should be voided
-    await expect(checkTransactionTable(mysql, 1, txId, 0, constants.BLOCK_VERSION, true, 1)).resolves.toBe(true);
+    await expect(checkTransactionTable(mysql, 1, txId, 0, constants.BLOCK_VERSION, true, 1, null)).resolves.toBe(true);
   });
 
   it('should throw an error if the transaction is not found in the database', async () => {

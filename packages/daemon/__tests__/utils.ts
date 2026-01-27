@@ -321,7 +321,7 @@ export const checkTransactionTable = async (
   version: number,
   voided: boolean,
   height: number | null,
-  firstBlock?: string | null,
+  firstBlock: string | null,
 ): Promise<boolean | Record<string, unknown>> => {
   // first check the total number of rows in the table
   let [results] = await mysql.query<TransactionTableRow[]>('SELECT * FROM `transaction`');
@@ -348,18 +348,10 @@ export const checkTransactionTable = async (
        AND \`height\` ${height !== null ? '= ?' : 'IS ?'}
   `;
 
-  // Only check first_block if provided (for backwards compatibility)
-  if (firstBlock !== undefined) {
-    [results] = await mysql.query<TransactionTableRow[]>(
-      `${baseQuery} AND \`first_block\` ${firstBlock !== null ? '= ?' : 'IS ?'}`,
-      [txId, timestamp, version, voided, height, firstBlock],
-    );
-  } else {
-    [results] = await mysql.query<TransactionTableRow[]>(
-      baseQuery,
-      [txId, timestamp, version, voided, height],
-    );
-  }
+  [results] = await mysql.query<TransactionTableRow[]>(
+    `${baseQuery} AND \`first_block\` ${firstBlock !== null ? '= ?' : 'IS ?'}`,
+    [txId, timestamp, version, voided, height, firstBlock],
+  );
 
   if (results.length !== 1) {
     return {
