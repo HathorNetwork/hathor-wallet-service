@@ -1,10 +1,6 @@
 import { Context, Event, FullNodeEventTypes } from '../../src/types';
 import {
-  nextChangeIsVoided,
-  nextChangeIsUnvoided,
-  nextChangeIsNewTx,
-  nextChangeIsFirstBlock,
-  nextChangeIsNcExecVoided,
+  hasNextChange,
   metadataChanged,
   vertexAccepted,
   invalidPeerId,
@@ -99,7 +95,7 @@ const generateFullNodeEvent = (type: FullNodeEventTypes, data = {} as any): Even
   return generateStandardFullNodeEvent(type, data);
 };
 
-describe('metadata dispatch queue guards', () => {
+describe('hasNextChange parameterized guard', () => {
   const contextWithChange = (changeType: string): Context => ({
     ...mockContext,
     pendingMetadataChanges: [changeType],
@@ -110,43 +106,29 @@ describe('metadata dispatch queue guards', () => {
     pendingMetadataChanges: [],
   };
 
-  test('nextChangeIsVoided', () => {
-    expect(nextChangeIsVoided(contextWithChange('TX_VOIDED'))).toBe(true);
-    expect(nextChangeIsVoided(contextWithChange('TX_NEW'))).toBe(false);
-    expect(nextChangeIsVoided(emptyContext)).toBe(false);
+  const callGuard = (ctx: Context, changeType: string) =>
+    hasNextChange(ctx, {} as Event, { cond: { type: 'hasNextChange', changeType } });
+
+  test('matches when pendingMetadataChanges[0] equals changeType', () => {
+    expect(callGuard(contextWithChange('TX_VOIDED'), 'TX_VOIDED')).toBe(true);
+    expect(callGuard(contextWithChange('TX_UNVOIDED'), 'TX_UNVOIDED')).toBe(true);
+    expect(callGuard(contextWithChange('TX_NEW'), 'TX_NEW')).toBe(true);
+    expect(callGuard(contextWithChange('TX_FIRST_BLOCK'), 'TX_FIRST_BLOCK')).toBe(true);
+    expect(callGuard(contextWithChange('NC_EXEC_VOIDED'), 'NC_EXEC_VOIDED')).toBe(true);
   });
 
-  test('nextChangeIsUnvoided', () => {
-    expect(nextChangeIsUnvoided(contextWithChange('TX_UNVOIDED'))).toBe(true);
-    expect(nextChangeIsUnvoided(contextWithChange('TX_VOIDED'))).toBe(false);
-    expect(nextChangeIsUnvoided(emptyContext)).toBe(false);
+  test('does not match when changeType differs', () => {
+    expect(callGuard(contextWithChange('TX_VOIDED'), 'TX_NEW')).toBe(false);
+    expect(callGuard(contextWithChange('TX_NEW'), 'TX_VOIDED')).toBe(false);
   });
 
-  test('nextChangeIsNewTx', () => {
-    expect(nextChangeIsNewTx(contextWithChange('TX_NEW'))).toBe(true);
-    expect(nextChangeIsNewTx(contextWithChange('TX_VOIDED'))).toBe(false);
-    expect(nextChangeIsNewTx(emptyContext)).toBe(false);
+  test('returns false when queue is empty', () => {
+    expect(callGuard(emptyContext, 'TX_VOIDED')).toBe(false);
   });
 
-  test('nextChangeIsFirstBlock', () => {
-    expect(nextChangeIsFirstBlock(contextWithChange('TX_FIRST_BLOCK'))).toBe(true);
-    expect(nextChangeIsFirstBlock(contextWithChange('TX_VOIDED'))).toBe(false);
-    expect(nextChangeIsFirstBlock(emptyContext)).toBe(false);
-  });
-
-  test('nextChangeIsNcExecVoided', () => {
-    expect(nextChangeIsNcExecVoided(contextWithChange('NC_EXEC_VOIDED'))).toBe(true);
-    expect(nextChangeIsNcExecVoided(contextWithChange('TX_VOIDED'))).toBe(false);
-    expect(nextChangeIsNcExecVoided(emptyContext)).toBe(false);
-  });
-
-  test('guards return false when pendingMetadataChanges is undefined', () => {
+  test('returns false when pendingMetadataChanges is undefined', () => {
     const ctx = { ...mockContext, pendingMetadataChanges: undefined };
-    expect(nextChangeIsVoided(ctx)).toBe(false);
-    expect(nextChangeIsUnvoided(ctx)).toBe(false);
-    expect(nextChangeIsNewTx(ctx)).toBe(false);
-    expect(nextChangeIsFirstBlock(ctx)).toBe(false);
-    expect(nextChangeIsNcExecVoided(ctx)).toBe(false);
+    expect(callGuard(ctx, 'TX_VOIDED')).toBe(false);
   });
 });
 

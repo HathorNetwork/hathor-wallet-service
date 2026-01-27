@@ -31,11 +31,7 @@ import {
   checkForMissedEvents,
 } from '../services';
 import {
-  nextChangeIsVoided,
-  nextChangeIsUnvoided,
-  nextChangeIsNewTx,
-  nextChangeIsFirstBlock,
-  nextChangeIsNcExecVoided,
+  hasNextChange,
   metadataChanged,
   vertexAccepted,
   invalidPeerId,
@@ -49,6 +45,7 @@ import {
   tokenCreated,
   hasNewEvents,
 } from '../guards';
+import { METADATA_DIFF_EVENT_TYPES } from '../services';
 import {
   storeInitialState,
   storeMetadataChanges,
@@ -225,11 +222,11 @@ export const SyncMachine = Machine<Context, any, Event>({
             dispatching: {
               id: 'dispatchingMetadataChange',
               always: [
-                { target: `#${CONNECTED_STATES.handlingVoidedTx}`, cond: 'nextChangeIsVoided', actions: ['shiftMetadataChange'] },
-                { target: `#${CONNECTED_STATES.handlingUnvoidedTx}`, cond: 'nextChangeIsUnvoided', actions: ['shiftMetadataChange'] },
-                { target: `#${CONNECTED_STATES.handlingVertexAccepted}`, cond: 'nextChangeIsNewTx', actions: ['shiftMetadataChange'] },
-                { target: `#${CONNECTED_STATES.handlingFirstBlock}`, cond: 'nextChangeIsFirstBlock', actions: ['shiftMetadataChange'] },
-                { target: `#${CONNECTED_STATES.handlingNcExecVoided}`, cond: 'nextChangeIsNcExecVoided', actions: ['shiftMetadataChange'] },
+                { target: `#${CONNECTED_STATES.handlingVoidedTx}`, cond: { type: 'hasNextChange', changeType: METADATA_DIFF_EVENT_TYPES.TX_VOIDED }, actions: ['shiftMetadataChange'] },
+                { target: `#${CONNECTED_STATES.handlingUnvoidedTx}`, cond: { type: 'hasNextChange', changeType: METADATA_DIFF_EVENT_TYPES.TX_UNVOIDED }, actions: ['shiftMetadataChange'] },
+                { target: `#${CONNECTED_STATES.handlingVertexAccepted}`, cond: { type: 'hasNextChange', changeType: METADATA_DIFF_EVENT_TYPES.TX_NEW }, actions: ['shiftMetadataChange'] },
+                { target: `#${CONNECTED_STATES.handlingFirstBlock}`, cond: { type: 'hasNextChange', changeType: METADATA_DIFF_EVENT_TYPES.TX_FIRST_BLOCK }, actions: ['shiftMetadataChange'] },
+                { target: `#${CONNECTED_STATES.handlingNcExecVoided}`, cond: { type: 'hasNextChange', changeType: METADATA_DIFF_EVENT_TYPES.NC_EXEC_VOIDED }, actions: ['shiftMetadataChange'] },
                 // Queue empty or unrecognized (including IGNORE) → done
                 { target: `#${CONNECTED_STATES.handlingUnhandledEvent}` },
               ],
@@ -382,11 +379,7 @@ export const SyncMachine = Machine<Context, any, Event>({
     checkForMissedEvents,
   },
   guards: {
-    nextChangeIsVoided,
-    nextChangeIsUnvoided,
-    nextChangeIsNewTx,
-    nextChangeIsFirstBlock,
-    nextChangeIsNcExecVoided,
+    hasNextChange,
     metadataChanged,
     vertexAccepted,
     invalidPeerId,

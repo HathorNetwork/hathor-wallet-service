@@ -7,32 +7,18 @@
 
 import { Context, Event, EventTypes, FullNodeEventTypes } from '../types';
 import { hashTxData } from '../utils';
-import { METADATA_DIFF_EVENT_TYPES } from '../services';
 import getConfig from '../config';
 import logger from '../logger';
 
 /*
- * Guards for the metadata change dispatch queue.
- * These check context.pendingMetadataChanges[0] to route to the correct handler.
+ * Parameterized guard for the metadata change dispatch queue.
+ * Checks if the next pending change matches the given changeType.
+ *
+ * Usage in machine config:
+ *   cond: { type: 'hasNextChange', changeType: 'TX_VOIDED' }
  */
-export const nextChangeIsVoided = (context: Context) => {
-  return context.pendingMetadataChanges?.[0] === METADATA_DIFF_EVENT_TYPES.TX_VOIDED;
-};
-
-export const nextChangeIsUnvoided = (context: Context) => {
-  return context.pendingMetadataChanges?.[0] === METADATA_DIFF_EVENT_TYPES.TX_UNVOIDED;
-};
-
-export const nextChangeIsNewTx = (context: Context) => {
-  return context.pendingMetadataChanges?.[0] === METADATA_DIFF_EVENT_TYPES.TX_NEW;
-};
-
-export const nextChangeIsFirstBlock = (context: Context) => {
-  return context.pendingMetadataChanges?.[0] === METADATA_DIFF_EVENT_TYPES.TX_FIRST_BLOCK;
-};
-
-export const nextChangeIsNcExecVoided = (context: Context) => {
-  return context.pendingMetadataChanges?.[0] === METADATA_DIFF_EVENT_TYPES.NC_EXEC_VOIDED;
+export const hasNextChange = (context: Context, _event: Event, meta: any) => {
+  return context.pendingMetadataChanges?.[0] === meta.cond.changeType;
 };
 
 /*
