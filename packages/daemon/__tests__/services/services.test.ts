@@ -349,7 +349,7 @@ describe('handleTxFirstBlock', () => {
             hash: 'hashValue',
             metadata: {
               height: 123,
-              first_block: ['hash2'],
+              first_block: 'blockHash123',
             },
             timestamp: 'timestampValue',
             version: 'versionValue',
@@ -362,9 +362,67 @@ describe('handleTxFirstBlock', () => {
 
     await handleTxFirstBlock(context as any);
 
-    expect(addOrUpdateTx).toHaveBeenCalledWith(mockDb, 'hashValue', 123, 'timestampValue', 'versionValue', 'weightValue');
+    expect(addOrUpdateTx).toHaveBeenCalledWith(mockDb, 'hashValue', 123, 'timestampValue', 'versionValue', 'weightValue', 'blockHash123');
     expect(dbUpdateLastSyncedEvent).toHaveBeenCalledWith(mockDb, 'idValue');
-    expect(logger.debug).toHaveBeenCalledWith('Confirmed tx hashValue: idValue');
+    expect(logger.debug).toHaveBeenCalledWith('Confirmed tx hashValue in block blockHash123: idValue');
+    expect(mockDb.commit).toHaveBeenCalled();
+    expect(mockDb.destroy).toHaveBeenCalled();
+  });
+
+  it('should handle tx going back to mempool (first_block is null)', async () => {
+    const context = {
+      event: {
+        event: {
+          data: {
+            hash: 'hashValue',
+            metadata: {
+              height: 123, // This should be ignored when first_block is null
+              first_block: null,
+            },
+            timestamp: 'timestampValue',
+            version: 'versionValue',
+            weight: 'weightValue',
+          },
+          id: 'idValue',
+        },
+      },
+    };
+
+    await handleTxFirstBlock(context as any);
+
+    // When first_block is null, height should also be null
+    expect(addOrUpdateTx).toHaveBeenCalledWith(mockDb, 'hashValue', null, 'timestampValue', 'versionValue', 'weightValue', null);
+    expect(dbUpdateLastSyncedEvent).toHaveBeenCalledWith(mockDb, 'idValue');
+    expect(logger.debug).toHaveBeenCalledWith('Tx hashValue back to mempool (first_block=null): idValue');
+    expect(mockDb.commit).toHaveBeenCalled();
+    expect(mockDb.destroy).toHaveBeenCalled();
+  });
+
+  it('should handle tx going back to mempool (first_block is undefined)', async () => {
+    const context = {
+      event: {
+        event: {
+          data: {
+            hash: 'hashValue',
+            metadata: {
+              height: 123,
+              // first_block is undefined
+            },
+            timestamp: 'timestampValue',
+            version: 'versionValue',
+            weight: 'weightValue',
+          },
+          id: 'idValue',
+        },
+      },
+    };
+
+    await handleTxFirstBlock(context as any);
+
+    // When first_block is undefined (null), height should also be null
+    expect(addOrUpdateTx).toHaveBeenCalledWith(mockDb, 'hashValue', null, 'timestampValue', 'versionValue', 'weightValue', null);
+    expect(dbUpdateLastSyncedEvent).toHaveBeenCalledWith(mockDb, 'idValue');
+    expect(logger.debug).toHaveBeenCalledWith('Tx hashValue back to mempool (first_block=null): idValue');
     expect(mockDb.commit).toHaveBeenCalled();
     expect(mockDb.destroy).toHaveBeenCalled();
   });
@@ -379,7 +437,7 @@ describe('handleTxFirstBlock', () => {
             hash: 'hashValue',
             metadata: {
               height: 123,
-              first_block: ['hash2'],
+              first_block: 'blockHash123',
             },
             timestamp: 'timestampValue',
             version: 'versionValue',
@@ -768,7 +826,7 @@ describe('handleVertexAccepted', () => {
     // Verify addMiner was NOT called since there are no outputs
     expect(addMiner).not.toHaveBeenCalled();
 
-    // Verify the transaction was still processed successfully
+    // Verify the transaction was still processed successfully (with firstBlock = null for PoA block)
     expect(addOrUpdateTx).toHaveBeenCalledWith(
       mockDb,
       'poaBlockHash',
@@ -776,9 +834,62 @@ describe('handleVertexAccepted', () => {
       1762200490, // timestamp
       POA_BLOCK_VERSION,
       2, // weight
+      null, // firstBlock
     );
     expect(mockDb.commit).toHaveBeenCalled();
     expect(mockDb.destroy).toHaveBeenCalled();
+  });
+
+  it('should pass first_block when inserting transaction', async () => {
+    const context = {
+      event: {
+        event: {
+          data: {
+            hash: 'txHash123',
+            metadata: {
+              height: 50,
+              first_block: 'blockHash456',
+              voided_by: [],
+            },
+            timestamp: 1234567890,
+            version: 1,
+            weight: 17.5,
+            outputs: [],
+            inputs: [],
+            tokens: [],
+          },
+          id: 'eventId123',
+        },
+      },
+      rewardMinBlocks: 300,
+      txCache: {
+        get: jest.fn(),
+        set: jest.fn(),
+      },
+    };
+
+    (addOrUpdateTx as jest.Mock).mockReturnValue(Promise.resolve());
+    (getTransactionById as jest.Mock).mockResolvedValue(null);
+    (prepareOutputs as jest.Mock).mockReturnValue([]);
+    (prepareInputs as jest.Mock).mockReturnValue([]);
+    (getAddressBalanceMap as jest.Mock).mockReturnValue({});
+    (getUtxosLockedAtHeight as jest.Mock).mockResolvedValue([]);
+    (hashTxData as jest.Mock).mockReturnValue('hashedData');
+    (getAddressWalletInfo as jest.Mock).mockResolvedValue({});
+
+    await handleVertexAccepted(context as any, {} as any);
+
+    // Verify firstBlock is passed to addOrUpdateTx
+    expect(addOrUpdateTx).toHaveBeenCalledWith(
+      mockDb,
+      'txHash123',
+      50,
+      1234567890,
+      1,
+      17.5,
+      'blockHash456', // firstBlock should be passed
+    );
+    expect(mockDb.commit).toHaveBeenCalled();
   });
 });
 
@@ -798,7 +909,7 @@ describe('metadataDiff', () => {
         event: {
           data: {
             hash: 'mockHash',
-            metadata: { voided_by: ['mockVoidedBy'], first_block: [] },
+            metadata: { voided_by: ['mockVoidedBy'], first_block: null },
           },
         },
       },
@@ -808,7 +919,7 @@ describe('metadataDiff', () => {
 
     const result = await metadataDiff({} as any, event as any);
 
-    expect(result.type).toBe('IGNORE');
+    expect(result.types).toEqual(['IGNORE']);
   });
 
   it('should handle new transactions', async () => {
@@ -817,7 +928,7 @@ describe('metadataDiff', () => {
         event: {
           data: {
             hash: 'mockHash',
-            metadata: { voided_by: [], first_block: [] },
+            metadata: { voided_by: [], first_block: null },
           },
         },
       },
@@ -826,7 +937,7 @@ describe('metadataDiff', () => {
     (getTransactionById as jest.Mock).mockResolvedValue(null);
 
     const result = await metadataDiff({} as any, event as any);
-    expect(result.type).toBe('TX_NEW');
+    expect(result.types).toEqual(['TX_NEW']);
   });
 
   it('should handle transaction voided but not voided in database', async () => {
@@ -835,7 +946,7 @@ describe('metadataDiff', () => {
         event: {
           data: {
             hash: 'mockHash',
-            metadata: { voided_by: ['mockVoidedBy'], first_block: [] },
+            metadata: { voided_by: ['mockVoidedBy'], first_block: null },
           },
         },
       },
@@ -844,7 +955,7 @@ describe('metadataDiff', () => {
     (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
 
     const result = await metadataDiff({} as any, event as any);
-    expect(result.type).toBe('TX_VOIDED');
+    expect(result.types).toEqual(['TX_VOIDED']);
   });
 
   it('should ignore transaction voided and also voided in database', async () => {
@@ -853,7 +964,7 @@ describe('metadataDiff', () => {
         event: {
           data: {
             hash: 'mockHash',
-            metadata: { voided_by: ['mockVoidedBy'], first_block: [] },
+            metadata: { voided_by: ['mockVoidedBy'], first_block: null },
           },
         },
       },
@@ -862,43 +973,102 @@ describe('metadataDiff', () => {
     (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
 
     const result = await metadataDiff({} as any, event as any);
-    expect(result.type).toBe('IGNORE');
+    expect(result.types).toEqual(['IGNORE']);
   });
 
-  it('should handle transaction with first_block but no height in database', async () => {
+  it('should handle transaction with first_block but no first_block in database', async () => {
     const event = {
       event: {
         event: {
           data: {
             hash: 'mockHash',
-            metadata: { voided_by: [], first_block: ['mockFirstBlock'] },
+            metadata: { voided_by: [], first_block: 'mockFirstBlock' },
           },
         },
       },
     };
-    const mockDbTransaction = { height: null };
+    const mockDbTransaction = { height: null, first_block: null };
     (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
 
     const result = await metadataDiff({} as any, event as any);
-    expect(result.type).toBe('TX_FIRST_BLOCK');
+    expect(result.types).toEqual(['TX_FIRST_BLOCK']);
   });
 
-  it('should ignore transaction with first_block and height in database', async () => {
+  it('should ignore transaction with first_block and same first_block in database', async () => {
     const event = {
       event: {
         event: {
           data: {
             hash: 'mockHash',
-            metadata: { voided_by: [], first_block: ['mockFirstBlock'] },
+            metadata: { voided_by: [], first_block: 'mockFirstBlock' },
           },
         },
       },
     };
-    const mockDbTransaction = { height: 1 };
+    const mockDbTransaction = { height: 1, first_block: 'mockFirstBlock' };
     (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
 
     const result = await metadataDiff({} as any, event as any);
-    expect(result.type).toBe('IGNORE');
+    expect(result.types).toEqual(['IGNORE']);
+  });
+
+  it('should return TX_FIRST_BLOCK when transaction goes back to mempool (first_block changes to null)', async () => {
+    const event = {
+      event: {
+        event: {
+          data: {
+            hash: 'mockHash',
+            // nc_execution is 'success' so NC_EXEC_VOIDED is not triggered
+            metadata: { voided_by: [], first_block: '', nc_execution: 'success' }, // Empty string means null
+          },
+        },
+      },
+    };
+    // Transaction was confirmed but now first_block is null
+    const mockDbTransaction = { height: 10, first_block: 'originalBlock' };
+    (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
+
+    const result = await metadataDiff({} as any, event as any);
+    expect(result.types).toEqual(['TX_FIRST_BLOCK']);
+  });
+
+  it('should return TX_FIRST_BLOCK when first_block changes to different block (reorg)', async () => {
+    const event = {
+      event: {
+        event: {
+          data: {
+            hash: 'mockHash',
+            // nc_execution is 'success' so NC_EXEC_VOIDED is not triggered
+            metadata: { voided_by: [], first_block: 'newBlock', nc_execution: 'success' },
+          },
+        },
+      },
+    };
+    // Transaction was in one block, now it's in a different block
+    const mockDbTransaction = { height: 10, first_block: 'oldBlock' };
+    (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
+
+    const result = await metadataDiff({} as any, event as any);
+    expect(result.types).toEqual(['TX_FIRST_BLOCK']);
+  });
+
+  it('should ignore transaction with null first_block in both event and database', async () => {
+    const event = {
+      event: {
+        event: {
+          data: {
+            hash: 'mockHash',
+            metadata: { voided_by: [], first_block: null },
+          },
+        },
+      },
+    };
+    // Transaction is in mempool in both
+    const mockDbTransaction = { height: null, first_block: null };
+    (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
+
+    const result = await metadataDiff({} as any, event as any);
+    expect(result.types).toEqual(['IGNORE']);
   });
 
   it('should return IGNORE when nc_execution is not success but no nano tokens exist', async () => {
@@ -907,7 +1077,7 @@ describe('metadataDiff', () => {
         event: {
           data: {
             hash: 'mockHash',
-            metadata: { voided_by: [], first_block: [], nc_execution: 'pending' },
+            metadata: { voided_by: [], first_block: null, nc_execution: 'pending' },
           },
         },
       },
@@ -917,7 +1087,7 @@ describe('metadataDiff', () => {
     (getTokensCreatedByTx as jest.Mock).mockResolvedValue([]); // No tokens
 
     const result = await metadataDiff({} as any, event as any);
-    expect(result.type).toBe('IGNORE');
+    expect(result.types).toEqual(['IGNORE']);
   });
 
   it('should return IGNORE when nc_execution is success', async () => {
@@ -926,7 +1096,7 @@ describe('metadataDiff', () => {
         event: {
           data: {
             hash: 'mockHash',
-            metadata: { voided_by: [], first_block: [], nc_execution: 'success' },
+            metadata: { voided_by: [], first_block: null, nc_execution: 'success' },
           },
         },
       },
@@ -935,7 +1105,7 @@ describe('metadataDiff', () => {
     (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
 
     const result = await metadataDiff({} as any, event as any);
-    expect(result.type).toBe('IGNORE');
+    expect(result.types).toEqual(['IGNORE']);
     // Should not call getTokensCreatedByTx when nc_execution is success
     expect(getTokensCreatedByTx).not.toHaveBeenCalled();
   });
@@ -947,7 +1117,7 @@ describe('metadataDiff', () => {
         event: {
           data: {
             hash: txHash,
-            metadata: { voided_by: [], first_block: [], nc_execution: 'pending' },
+            metadata: { voided_by: [], first_block: null, nc_execution: 'pending' },
           },
         },
       },
@@ -958,7 +1128,7 @@ describe('metadataDiff', () => {
     (getTokensCreatedByTx as jest.Mock).mockResolvedValue(['nano-token-001', 'nano-token-002']);
 
     const result = await metadataDiff({} as any, event as any);
-    expect(result.type).toBe('NC_EXEC_VOIDED');
+    expect(result.types).toEqual(['NC_EXEC_VOIDED']);
     expect(getTokensCreatedByTx).toHaveBeenCalledWith(expect.anything(), txHash);
   });
 
@@ -969,7 +1139,7 @@ describe('metadataDiff', () => {
         event: {
           data: {
             hash: txHash,
-            metadata: { voided_by: [], first_block: [], nc_execution: 'pending' },
+            metadata: { voided_by: [], first_block: null, nc_execution: 'pending' },
           },
         },
       },
@@ -980,7 +1150,7 @@ describe('metadataDiff', () => {
     (getTokensCreatedByTx as jest.Mock).mockResolvedValue([txHash]);
 
     const result = await metadataDiff({} as any, event as any);
-    expect(result.type).toBe('IGNORE');
+    expect(result.types).toEqual(['IGNORE']);
   });
 
   it('should return NC_EXEC_VOIDED for hybrid tx with both traditional and nano tokens', async () => {
@@ -990,7 +1160,7 @@ describe('metadataDiff', () => {
         event: {
           data: {
             hash: txHash,
-            metadata: { voided_by: [], first_block: [], nc_execution: 'pending' },
+            metadata: { voided_by: [], first_block: null, nc_execution: 'pending' },
           },
         },
       },
@@ -1001,7 +1171,7 @@ describe('metadataDiff', () => {
     (getTokensCreatedByTx as jest.Mock).mockResolvedValue([txHash, 'nano-token-001']);
 
     const result = await metadataDiff({} as any, event as any);
-    expect(result.type).toBe('NC_EXEC_VOIDED');
+    expect(result.types).toEqual(['NC_EXEC_VOIDED']);
   });
 
   it('should return NC_EXEC_VOIDED when nc_execution is null and nano tokens exist', async () => {
@@ -1011,7 +1181,7 @@ describe('metadataDiff', () => {
         event: {
           data: {
             hash: txHash,
-            metadata: { voided_by: [], first_block: [], nc_execution: null },
+            metadata: { voided_by: [], first_block: null, nc_execution: null },
           },
         },
       },
@@ -1021,7 +1191,34 @@ describe('metadataDiff', () => {
     (getTokensCreatedByTx as jest.Mock).mockResolvedValue(['nano-token-001']);
 
     const result = await metadataDiff({} as any, event as any);
-    expect(result.type).toBe('NC_EXEC_VOIDED');
+    expect(result.types).toEqual(['NC_EXEC_VOIDED']);
+  });
+
+  it('should return both NC_EXEC_VOIDED and TX_FIRST_BLOCK when both changed in the same event', async () => {
+    // During a reorg, a single VERTEX_METADATA_CHANGED event can carry BOTH:
+    //   1. nc_execution changing from 'success' to 'pending' (nano tokens must be deleted)
+    //   2. first_block changing (tx moved to different block or back to mempool)
+    // metadataDiff must detect all independent changes, not just the first one.
+    const txHash = 'reorg-tx-hash';
+    const event = {
+      event: {
+        event: {
+          data: {
+            hash: txHash,
+            metadata: { voided_by: [], first_block: null, nc_execution: 'pending' },
+          },
+        },
+      },
+    };
+    // DB has first_block set, event has null → first_block changed
+    const mockDbTransaction = { height: 1, voided: false, first_block: 'old-block' };
+    (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
+    (getTokensCreatedByTx as jest.Mock).mockResolvedValue(['nano-token-001']);
+
+    const result = await metadataDiff({} as any, event as any);
+    // Both changes must be detected — not just the first one
+    expect(result.types).toEqual(['NC_EXEC_VOIDED', 'TX_FIRST_BLOCK']);
+    expect(result.types).toHaveLength(2);
   });
 
   it('should handle errors and destroy the database connection', async () => {
@@ -1031,7 +1228,7 @@ describe('metadataDiff', () => {
           id: 123,
           data: {
             hash: 'mockHash',
-            metadata: { voided_by: [], first_block: [] },
+            metadata: { voided_by: [], first_block: null },
           },
         },
       },
@@ -1049,7 +1246,7 @@ describe('metadataDiff', () => {
         event: {
           data: {
             hash: 'mockHash',
-            metadata: { voided_by: [], first_block: [] },
+            metadata: { voided_by: [], first_block: null },
           },
         },
       },
@@ -1058,7 +1255,132 @@ describe('metadataDiff', () => {
     (getTransactionById as jest.Mock).mockResolvedValue(mockDbTransaction);
 
     const result = await metadataDiff({} as any, event as any);
-    expect(result.type).toBe('TX_UNVOIDED');
+    expect(result.types).toEqual(['TX_UNVOIDED']);
+  });
+
+  it('should detect full nano contract tx lifecycle: mempool → confirmed → reorg', async () => {
+    const txHash = 'nc-lifecycle-tx';
+
+    // Event 0: tx enters the mempool (nc_execution and first_block are null)
+    // DB has no record → TX_NEW
+    const event0 = {
+      event: {
+        event: {
+          data: {
+            hash: txHash,
+            metadata: { voided_by: [], first_block: null, nc_execution: null },
+          },
+        },
+      },
+    };
+    (getTransactionById as jest.Mock).mockResolvedValue(null);
+
+    const result0 = await metadataDiff({} as any, event0 as any);
+    expect(result0.types).toEqual(['TX_NEW']);
+
+    // Event 1: tx gets confirmed (first_block set, nc_execution goes to 'success')
+    // DB has the tx from event 0: first_block = null
+    const event1 = {
+      event: {
+        event: {
+          data: {
+            hash: txHash,
+            metadata: { voided_by: [], first_block: 'block-1', nc_execution: 'success' },
+          },
+        },
+      },
+    };
+    (getTransactionById as jest.Mock).mockResolvedValue({
+      voided: false,
+      first_block: null,
+    });
+
+    const result1 = await metadataDiff({} as any, event1 as any);
+    expect(result1.types).toEqual(['TX_FIRST_BLOCK']);
+
+    // Event 2: reorg — tx loses first_block and nc_execution reverts to null
+    // DB reflects the state after event 1: confirmed with first_block
+    const event2 = {
+      event: {
+        event: {
+          data: {
+            hash: txHash,
+            metadata: { voided_by: [], first_block: null, nc_execution: null },
+          },
+        },
+      },
+    };
+    (getTransactionById as jest.Mock).mockResolvedValue({
+      voided: false,
+      first_block: 'block-1',
+    });
+    (getTokensCreatedByTx as jest.Mock).mockResolvedValue(['nano-token-1']);
+
+    const result2 = await metadataDiff({} as any, event2 as any);
+    // Both changes detected: nano tokens must be deleted AND first_block must be updated
+    expect(result2.types).toEqual(['NC_EXEC_VOIDED', 'TX_FIRST_BLOCK']);
+  });
+
+  it('should detect voided tx becoming unvoided', async () => {
+    const txHash = 'unvoided-lifecycle-tx';
+
+    // Event 0: tx enters the mempool
+    // DB has no record → TX_NEW
+    const event0 = {
+      event: {
+        event: {
+          data: {
+            hash: txHash,
+            metadata: { voided_by: [], first_block: null, nc_execution: null },
+          },
+        },
+      },
+    };
+    (getTransactionById as jest.Mock).mockResolvedValue(null);
+
+    const result0 = await metadataDiff({} as any, event0 as any);
+    expect(result0.types).toEqual(['TX_NEW']);
+
+    // Event 1: tx gets voided (conflict)
+    // DB has the tx from event 0, not voided
+    const event1 = {
+      event: {
+        event: {
+          data: {
+            hash: txHash,
+            metadata: { voided_by: ['conflicting-tx'], first_block: null, nc_execution: null },
+          },
+        },
+      },
+    };
+    (getTransactionById as jest.Mock).mockResolvedValue({
+      voided: false,
+      first_block: null,
+    });
+
+    const result1 = await metadataDiff({} as any, event1 as any);
+    expect(result1.types).toEqual(['TX_VOIDED']);
+
+    // Event 2: tx gets unvoided (conflict resolved)
+    // DB has the tx marked as voided
+    const event2 = {
+      event: {
+        event: {
+          data: {
+            hash: txHash,
+            metadata: { voided_by: [], first_block: null, nc_execution: null },
+          },
+        },
+      },
+    };
+    (getTransactionById as jest.Mock).mockResolvedValue({
+      voided: true,
+      first_block: null,
+    });
+
+    const result2 = await metadataDiff({} as any, event2 as any);
+    // TX_UNVOIDED is mutually exclusive — the machine chains into handlingVertexAccepted to re-add the tx
+    expect(result2.types).toEqual(['TX_UNVOIDED']);
   });
 });
 
@@ -1417,6 +1739,18 @@ describe('handleNcExecVoided', () => {
     destroy: jest.fn(),
   };
 
+  const createContext = (txHash: string, firstBlock: string | null = null) => ({
+    event: {
+      event: {
+        id: 100,
+        data: {
+          hash: txHash,
+          metadata: { first_block: firstBlock },
+        },
+      },
+    },
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     (getDbConnection as jest.Mock).mockResolvedValue(mockDb);
@@ -1424,16 +1758,7 @@ describe('handleNcExecVoided', () => {
 
   it('should not delete any tokens when no tokens exist for the transaction', async () => {
     const txHash = 'tx-without-tokens';
-    const context = {
-      event: {
-        event: {
-          id: 100,
-          data: {
-            hash: txHash,
-          },
-        },
-      },
-    };
+    const context = createContext(txHash);
 
     (getTokensCreatedByTx as jest.Mock).mockResolvedValue([]);
 
@@ -1441,6 +1766,7 @@ describe('handleNcExecVoided', () => {
 
     expect(getTokensCreatedByTx).toHaveBeenCalledWith(mockDb, txHash);
     expect(deleteTokens).not.toHaveBeenCalled();
+    expect(addOrUpdateTx).not.toHaveBeenCalled();
     expect(mockDb.commit).toHaveBeenCalled();
   });
 
@@ -1448,87 +1774,45 @@ describe('handleNcExecVoided', () => {
     const txHash = 'nano-tx-hash';
     const nanoToken1 = 'nano-token-001';
     const nanoToken2 = 'nano-token-002';
-    const context = {
-      event: {
-        event: {
-          id: 100,
-          data: {
-            hash: txHash,
-          },
-        },
-      },
-    };
+    const context = createContext(txHash);
 
-    // Nano tokens have token_id != tx_id
     (getTokensCreatedByTx as jest.Mock).mockResolvedValue([nanoToken1, nanoToken2]);
 
     await handleNcExecVoided(context as any);
 
-    expect(getTokensCreatedByTx).toHaveBeenCalledWith(mockDb, txHash);
     expect(deleteTokens).toHaveBeenCalledWith(mockDb, [nanoToken1, nanoToken2]);
+    expect(addOrUpdateTx).not.toHaveBeenCalled();
     expect(mockDb.commit).toHaveBeenCalled();
   });
 
   it('should NOT delete traditional CREATE_TOKEN_TX tokens (where token_id = tx_id)', async () => {
     const txHash = 'create-token-tx-hash';
-    const context = {
-      event: {
-        event: {
-          id: 100,
-          data: {
-            hash: txHash,
-          },
-        },
-      },
-    };
+    const context = createContext(txHash);
 
-    // Traditional CREATE_TOKEN_TX has token_id = tx_id
     (getTokensCreatedByTx as jest.Mock).mockResolvedValue([txHash]);
 
     await handleNcExecVoided(context as any);
 
-    expect(getTokensCreatedByTx).toHaveBeenCalledWith(mockDb, txHash);
-    expect(deleteTokens).not.toHaveBeenCalled(); // Should NOT delete traditional token
+    expect(deleteTokens).not.toHaveBeenCalled();
     expect(mockDb.commit).toHaveBeenCalled();
   });
 
   it('should delete nano tokens but keep traditional token in hybrid transaction', async () => {
     const txHash = 'hybrid-tx-hash';
     const nanoToken = 'nano-created-token';
-    const context = {
-      event: {
-        event: {
-          id: 100,
-          data: {
-            hash: txHash,
-          },
-        },
-      },
-    };
+    const context = createContext(txHash);
 
-    // Hybrid tx has both: traditional (token_id = tx_id) and nano (token_id != tx_id)
     (getTokensCreatedByTx as jest.Mock).mockResolvedValue([txHash, nanoToken]);
 
     await handleNcExecVoided(context as any);
 
-    expect(getTokensCreatedByTx).toHaveBeenCalledWith(mockDb, txHash);
-    // Should only delete nano token, not the traditional one
     expect(deleteTokens).toHaveBeenCalledWith(mockDb, [nanoToken]);
     expect(mockDb.commit).toHaveBeenCalled();
   });
 
   it('should rollback on error and rethrow', async () => {
     const txHash = 'error-tx-hash';
-    const context = {
-      event: {
-        event: {
-          id: 100,
-          data: {
-            hash: txHash,
-          },
-        },
-      },
-    };
+    const context = createContext(txHash);
 
     const error = new Error('Database error');
     (getTokensCreatedByTx as jest.Mock).mockRejectedValue(error);

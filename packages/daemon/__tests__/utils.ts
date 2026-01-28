@@ -258,12 +258,13 @@ export const addToTransactionTable = async (
     entry.version,
     entry.voided,
     entry.height,
+    entry.firstBlock ?? null,
   ]));
 
   await mysql.query(`
     INSERT INTO \`transaction\` (\`tx_id\`, \`timestamp\`,
                                  \`version\`, \`voided\`,
-                                 \`height\`)
+                                 \`height\`, \`first_block\`)
     VALUES ?`,
   [payload]);
 };
@@ -319,7 +320,8 @@ export const checkTransactionTable = async (
   timestamp: number,
   version: number,
   voided: boolean,
-  height: number,
+  height: number | null,
+  firstBlock: string | null,
 ): Promise<boolean | Record<string, unknown>> => {
   // first check the total number of rows in the table
   let [results] = await mysql.query<TransactionTableRow[]>('SELECT * FROM `transaction`');
@@ -336,22 +338,25 @@ export const checkTransactionTable = async (
   if (totalResults === 0) return true;
 
   // now fetch the exact entry
-
-  [results] = await mysql.query<TransactionTableRow[]>(`
+  const baseQuery = `
     SELECT *
       FROM \`transaction\`
      WHERE \`tx_id\` = ?
        AND \`timestamp\` = ?
        AND \`version\` = ?
        AND \`voided\` = ?
-       AND \`height\` = ?
-  `, [txId, timestamp, version, voided, height],
+       AND \`height\` ${height !== null ? '= ?' : 'IS ?'}
+  `;
+
+  [results] = await mysql.query<TransactionTableRow[]>(
+    `${baseQuery} AND \`first_block\` ${firstBlock !== null ? '= ?' : 'IS ?'}`,
+    [txId, timestamp, version, voided, height, firstBlock],
   );
 
   if (results.length !== 1) {
     return {
-      error: 'checkAddressTable query',
-      params: { txId, timestamp, version, voided, height },
+      error: 'checkTransactionTable query',
+      params: { txId, timestamp, version, voided, height, firstBlock },
       results,
     };
   }

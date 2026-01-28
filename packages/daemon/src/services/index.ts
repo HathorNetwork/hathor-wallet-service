@@ -99,6 +99,7 @@ export const METADATA_DIFF_EVENT_TYPES = {
   NC_EXEC_VOIDED: 'NC_EXEC_VOIDED',
 };
 
+
 const DUPLICATE_TX_ALERT_GRACE_PERIOD = 10; // seconds
 
 export const metadataDiff = async (_context: Context, event: Event) => {
@@ -128,29 +129,30 @@ export const metadataDiff = async (_context: Context, event: Event) => {
             if (voided_by.length > 0) {
               // No need to add voided transactions
               return {
-                type: METADATA_DIFF_EVENT_TYPES.IGNORE,
+                types: [METADATA_DIFF_EVENT_TYPES.IGNORE],
                 originalEvent: event,
               };
             }
 
             return {
-              type: METADATA_DIFF_EVENT_TYPES.TX_NEW,
+              types: [METADATA_DIFF_EVENT_TYPES.TX_NEW],
               originalEvent: event,
             };
           }
 
+          // Mutually exclusive: voided/unvoided/new take priority
           // Tx is voided
           if (voided_by.length > 0) {
             // Was it voided on the database?
             if (!dbTx.voided) {
               return {
-                type: METADATA_DIFF_EVENT_TYPES.TX_VOIDED,
+                types: [METADATA_DIFF_EVENT_TYPES.TX_VOIDED],
                 originalEvent: event,
               };
             }
 
             return {
-              type: METADATA_DIFF_EVENT_TYPES.IGNORE,
+              types: [METADATA_DIFF_EVENT_TYPES.IGNORE],
               originalEvent: event,
             };
           }
@@ -158,26 +160,13 @@ export const metadataDiff = async (_context: Context, event: Event) => {
           // Tx was voided in the database but is not anymore
           if (dbTx.voided && voided_by.length <= 0) {
             return {
-              type: METADATA_DIFF_EVENT_TYPES.TX_UNVOIDED,
+              types: [METADATA_DIFF_EVENT_TYPES.TX_UNVOIDED],
               originalEvent: event,
             };
           }
 
-          if (first_block
-            && first_block.length
-            && first_block.length > 0) {
-            if (!dbTx.height) {
-              return {
-                type: METADATA_DIFF_EVENT_TYPES.TX_FIRST_BLOCK,
-                originalEvent: event,
-              };
-            }
-
-            return {
-              type: METADATA_DIFF_EVENT_TYPES.IGNORE,
-              originalEvent: event,
-            };
-          }
+          // Independent changes: collect all into array
+          const types: string[] = [];
 
           // Check if nc_execution changed from 'success' to something else.
           // If the tx has nano-created tokens in the database (tokens where token_id != tx_id),
@@ -188,15 +177,24 @@ export const metadataDiff = async (_context: Context, event: Event) => {
             const nanoTokens = tokensCreated.filter(tokenId => tokenId !== hash);
 
             if (nanoTokens.length > 0) {
-              return {
-                type: METADATA_DIFF_EVENT_TYPES.NC_EXEC_VOIDED,
-                originalEvent: event,
-              };
+              types.push(METADATA_DIFF_EVENT_TYPES.NC_EXEC_VOIDED);
             }
           }
 
+          // Handle first_block changes (NULL -> value OR value -> NULL)
+          const eventFirstBlock: string | null = first_block ?? null;
+          const dbFirstBlock: string | null = dbTx.first_block ?? null;
+
+          if (eventFirstBlock !== dbFirstBlock) {
+            types.push(METADATA_DIFF_EVENT_TYPES.TX_FIRST_BLOCK);
+          }
+
+          if (types.length === 0) {
+            types.push(METADATA_DIFF_EVENT_TYPES.IGNORE);
+          }
+
           return {
-            type: METADATA_DIFF_EVENT_TYPES.IGNORE,
+            types,
             originalEvent: event,
           };
         } finally {
@@ -382,6 +380,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
     markLockedOutputs(txOutputs, now, heightlock !== null);
 
     // Add the transaction
+    const firstBlock: string | null = metadata.first_block ?? null;
     logger.debug('Will add the tx with height', height);
     // TODO: add is_nanocontract to transaction table?
     await addOrUpdateTx(
@@ -391,6 +390,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       timestamp,
       version,
       weight,
+      firstBlock,
     );
 
     // Add utxos
@@ -827,15 +827,18 @@ export const handleTxFirstBlock = async (context: Context) => {
       weight,
     } = fullNodeEvent.event.data;
 
-    const height: number | null = metadata.height;
+    const firstBlock: string | null = metadata.first_block ?? null;
+    // When first_block is null, height should also be null (tx back in mempool)
+    const height: number | null = firstBlock ? metadata.height : null;
 
-    if (!metadata.first_block) {
-      throw new Error('HandleTxFirstBlock called but no first block on metadata');
-    }
-
-    await addOrUpdateTx(mysql, hash, height, timestamp, version, weight);
+    await addOrUpdateTx(mysql, hash, height, timestamp, version, weight, firstBlock);
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
-    logger.debug(`Confirmed tx ${hash}: ${fullNodeEvent.event.id}`);
+
+    if (firstBlock) {
+      logger.debug(`Confirmed tx ${hash} in block ${firstBlock}: ${fullNodeEvent.event.id}`);
+    } else {
+      logger.debug(`Tx ${hash} back to mempool (first_block=null): ${fullNodeEvent.event.id}`);
+    }
 
     await mysql.commit();
   } catch (e) {
@@ -855,7 +858,7 @@ export const handleTxFirstBlock = async (context: Context) => {
  * by the nano contract execution are no longer valid.
  *
  * This handler deletes all nano-created tokens for the transaction. Traditional
- * CREATE_TOKEN_TX tokens (token_id = tx_id) are NOT affected - they remain valid
+ * CREATE_TOKEN_TX tokens (token_id = tx_id) are NOT affected — they remain valid
  * because the token creation is inherent to the transaction itself, not dependent
  * on nano contract execution.
  */
