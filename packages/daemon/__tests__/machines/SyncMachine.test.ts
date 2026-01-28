@@ -367,7 +367,7 @@ describe('Event handling', () => {
     expect(currentState.context.event.event.id).toStrictEqual(VERTEX_METADATA_CHANGED.event.id);
   });
 
-  it('should transition to handlingVoidedTx if TX_VOIDED action is received from diff detector', () => {
+  it('should transition to handlingVoidedTx when dispatching with TX_VOIDED in queue', () => {
     const MockedFetchMachine = SyncMachine.withConfig({
       guards: {
         invalidPeerId: () => false,
@@ -385,18 +385,19 @@ describe('Event handling', () => {
 
     expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.handlingMetadataChanged}.detectingDiff`)).toBeTruthy();
 
+    // Simulate metadataDiff onDone → dispatching with storeMetadataChanges
     currentState = MockedFetchMachine.transition(currentState, {
-      type: EventTypes.METADATA_DECIDED,
-      event: {
-        type: 'TX_VOIDED',
-        originalEvent: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
+      type: 'done.invoke.SyncMachine.CONNECTED.handlingMetadataChanged.detectingDiff:invocation[0]',
+      data: {
+        types: ['TX_VOIDED'],
+        originalEvent: { event: VERTEX_METADATA_CHANGED },
       },
-    });
+    } as any);
 
     expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.handlingVoidedTx}`)).toBeTruthy();
   });
 
-  it('should transition to handlingUnvoidedTx if TX_UNVOIDED action is received from diff detector', () => {
+  it('should transition to handlingUnvoidedTx when dispatching with TX_UNVOIDED in queue', () => {
     const MockedFetchMachine = SyncMachine.withConfig({
       guards: {
         invalidPeerId: () => false,
@@ -415,17 +416,17 @@ describe('Event handling', () => {
     expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.handlingMetadataChanged}.detectingDiff`)).toBeTruthy();
 
     currentState = MockedFetchMachine.transition(currentState, {
-      type: EventTypes.METADATA_DECIDED,
-      event: {
-        type: 'TX_UNVOIDED',
-        originalEvent: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
+      type: 'done.invoke.SyncMachine.CONNECTED.handlingMetadataChanged.detectingDiff:invocation[0]',
+      data: {
+        types: ['TX_UNVOIDED'],
+        originalEvent: { event: VERTEX_METADATA_CHANGED },
       },
-    });
+    } as any);
 
     expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.handlingUnvoidedTx}`)).toBeTruthy();
   });
 
-  it('should transition to handlingVertexAccepted if TX_NEW action is received from diff detector', () => {
+  it('should transition to handlingVertexAccepted when dispatching with TX_NEW in queue', () => {
     const MockedFetchMachine = SyncMachine.withConfig({
       guards: {
         invalidPeerId: () => false,
@@ -444,17 +445,17 @@ describe('Event handling', () => {
     expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.handlingMetadataChanged}.detectingDiff`)).toBeTruthy();
 
     currentState = MockedFetchMachine.transition(currentState, {
-      type: EventTypes.METADATA_DECIDED,
-      event: {
-        type: 'TX_NEW',
-        originalEvent: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
-      }
-    });
+      type: 'done.invoke.SyncMachine.CONNECTED.handlingMetadataChanged.detectingDiff:invocation[0]',
+      data: {
+        types: ['TX_NEW'],
+        originalEvent: { event: VERTEX_METADATA_CHANGED },
+      },
+    } as any);
 
     expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.handlingVertexAccepted}`)).toBeTruthy();
   });
 
-  it('should transition to handlingFirstBlock if TX_FIRST_BLOCK action is received from diff detector', () => {
+  it('should transition to handlingFirstBlock when dispatching with TX_FIRST_BLOCK in queue', () => {
     const MockedFetchMachine = SyncMachine.withConfig({
       guards: {
         invalidPeerId: () => false,
@@ -473,18 +474,17 @@ describe('Event handling', () => {
     expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.handlingMetadataChanged}.detectingDiff`)).toBeTruthy();
 
     currentState = MockedFetchMachine.transition(currentState, {
-      // @ts-ignore
-      type: EventTypes.METADATA_DECIDED,
-      event: {
-        type: 'TX_FIRST_BLOCK',
-        originalEvent: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
-      }
-    });
+      type: 'done.invoke.SyncMachine.CONNECTED.handlingMetadataChanged.detectingDiff:invocation[0]',
+      data: {
+        types: ['TX_FIRST_BLOCK'],
+        originalEvent: { event: VERTEX_METADATA_CHANGED },
+      },
+    } as any);
 
     expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.handlingFirstBlock}`)).toBeTruthy();
   });
 
-  it('should transition to handlingUnhandledEvent if IGNORE action is received from diff detector', () => {
+  it('should transition to handlingUnhandledEvent when dispatching with IGNORE in queue', () => {
     const MockedFetchMachine = SyncMachine.withConfig({
       guards: {
         invalidPeerId: () => false,
@@ -503,13 +503,12 @@ describe('Event handling', () => {
     expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.handlingMetadataChanged}.detectingDiff`)).toBeTruthy();
 
     currentState = MockedFetchMachine.transition(currentState, {
-      // @ts-ignore
-      type: EventTypes.METADATA_DECIDED,
-      event: {
-        type: 'IGNORE',
-        originalEvent: VERTEX_METADATA_CHANGED as unknown as FullNodeEvent,
-      }
-    });
+      type: 'done.invoke.SyncMachine.CONNECTED.handlingMetadataChanged.detectingDiff:invocation[0]',
+      data: {
+        types: ['IGNORE'],
+        originalEvent: { event: VERTEX_METADATA_CHANGED },
+      },
+    } as any);
 
     expect(currentState.matches(`${SYNC_MACHINE_STATES.CONNECTED}.${CONNECTED_STATES.handlingUnhandledEvent}`)).toBeTruthy();
   });

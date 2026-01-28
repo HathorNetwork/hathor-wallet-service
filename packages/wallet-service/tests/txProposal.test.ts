@@ -4,6 +4,7 @@ import { destroy as txProposalDestroy } from '@src/api/txProposalDestroy';
 import {
   getTxProposal,
   getUtxos,
+  getWalletAddressDetail,
   updateTxProposal,
   updateVersionData,
 } from '@src/db';
@@ -2096,4 +2097,52 @@ test('markUtxosWithProposalId should handle empty utxos array', async () => {
   const txProposal = await getTxProposal(mysql, returnBody.txProposalId);
   expect(txProposal).not.toBeNull();
   expect(txProposal.status).toBe(TxProposalStatus.OPEN);
+});
+
+test('POST /txproposals with nano contract tx should increment caller address seqnum', async () => {
+  expect.hasAssertions();
+
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+  await addToAddressTable(mysql, [{
+    address: ADDRESSES[0],
+    index: 0,
+    walletId: 'my-wallet',
+    transactions: 0,
+    seqnum: 3,
+  }]);
+
+  // Verify initial seqnum
+  const before = await getWalletAddressDetail(mysql, 'my-wallet', ADDRESSES[0]);
+  expect(before.seqnum).toBe(3);
+
+  // Mock createTxFromHex to return a nano contract transaction
+  const spy = jest.spyOn(hathorLib.helpersUtils, 'createTxFromHex').mockReturnValue({
+    inputs: [],
+    outputs: [],
+    isNanoContract: () => true,
+    getNanoHeaders: () => [{
+      address: { base58: ADDRESSES[0] },
+    }],
+  } as any);
+
+  const event = makeGatewayEventWithAuthorizer('my-wallet', null, JSON.stringify({ txHex: 'mockedhex' }));
+  const result = await txProposalCreate(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+
+  expect(result.statusCode).toBe(201);
+  expect(returnBody.success).toBe(true);
+
+  // Verify seqnum was incremented
+  const after = await getWalletAddressDetail(mysql, 'my-wallet', ADDRESSES[0]);
+  expect(after.seqnum).toBe(4);
+
+  spy.mockRestore();
 });

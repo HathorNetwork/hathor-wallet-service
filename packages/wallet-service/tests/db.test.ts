@@ -19,6 +19,7 @@ import {
   getUtxosLockedAtHeight,
   getWallet,
   getWalletAddressDetail,
+  incrementAddressSeqnum,
   getWalletAddresses,
   getWalletTokens,
   getWalletBalances,
@@ -924,6 +925,33 @@ test('getWalletAddressDetail', async () => {
 
   const detailNull = await getWalletAddressDetail(mysql, walletId, ADDRESSES[8]);
   expect(detailNull).toBeNull();
+});
+
+test('incrementAddressSeqnum', async () => {
+  expect.hasAssertions();
+  const walletId = 'walletId';
+
+  await addToAddressTable(mysql, [{
+    address: ADDRESSES[0],
+    index: 0,
+    walletId,
+    transactions: 0,
+    seqnum: 5,
+  }]);
+
+  // seqnum should start at 5
+  const before = await getWalletAddressDetail(mysql, walletId, ADDRESSES[0]);
+  expect(before.seqnum).toBe(5);
+
+  // increment and verify
+  await incrementAddressSeqnum(mysql, walletId, ADDRESSES[0]);
+  const after1 = await getWalletAddressDetail(mysql, walletId, ADDRESSES[0]);
+  expect(after1.seqnum).toBe(6);
+
+  // increment again
+  await incrementAddressSeqnum(mysql, walletId, ADDRESSES[0]);
+  const after2 = await getWalletAddressDetail(mysql, walletId, ADDRESSES[0]);
+  expect(after2.seqnum).toBe(7);
 });
 
 test('getWalletBalances', async () => {

@@ -13,6 +13,7 @@ export interface TransactionTableEntry {
   version: number;
   voided: boolean;
   height: number;
+  firstBlock?: string | null;
 }
 
 export interface WalletBalanceEntry {

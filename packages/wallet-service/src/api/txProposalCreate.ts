@@ -17,6 +17,7 @@ import {
   getWallet,
   getWalletAddresses,
   getWalletAddressDetail,
+  incrementAddressSeqnum,
   markUtxosWithProposalId,
 } from '@src/db';
 import {
@@ -135,6 +136,11 @@ export const create = middy(walletIdProxyHandler(async (walletId, event) => {
     // Nano contract transactions might have empty inputs
     if (inputUtxos.length > 0) {
       await markUtxosWithProposalId(mysql, txProposalId, inputUtxos);
+    }
+
+    if (tx.isNanoContract()) {
+      const nanoHeader = tx.getNanoHeaders()[0];
+      await incrementAddressSeqnum(mysql, walletId, nanoHeader.address.base58);
     }
 
     await commitTransaction(mysql);

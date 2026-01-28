@@ -28,6 +28,7 @@ export interface DbTransaction {
   voided: boolean;
   height?: number | null;
   weight?: number | null;
+  first_block?: string | null;
   created_at: number;
   updated_at: number;
 }
