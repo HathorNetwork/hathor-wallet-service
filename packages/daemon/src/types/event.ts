@@ -70,7 +70,7 @@ const EmptyDataFullNodeEvents = z.union([
 export const FullNodeEventTypesSchema = z.nativeEnum(FullNodeEventTypes);
 
 export type MetadataDecidedEvent = {
-  type: 'TX_VOIDED' | 'TX_UNVOIDED' | 'TX_NEW' | 'TX_FIRST_BLOCK' | 'IGNORE';
+  type: 'TX_VOIDED' | 'TX_UNVOIDED' | 'TX_NEW' | 'TX_FIRST_BLOCK' | 'IGNORE' | 'NC_EXEC_VOIDED';
   originalEvent: FullNodeEvent;
 }
 
@@ -162,6 +162,34 @@ export const TxEventDataSchema = TxEventDataWithoutMetaSchema.extend({
     voided_by: z.string().array(),
     first_block: z.string().nullable(),
     height: z.number(),
+    /**
+     * Nano contract execution state.
+     *
+     * This field indicates the execution status of nano contracts in this transaction:
+     * - 'pending': Nano contract is waiting to be executed (before first_block)
+     * - 'success': Nano contract executed successfully
+     * - 'failure': Nano contract execution failed
+     * - 'skipped': Nano contract execution was skipped
+     * - null/undefined: Not a nano contract transaction, or execution state not available
+     *
+     * Important: This field is INDEPENDENT of transaction voiding (voided_by):
+     * - A voided transaction might still have nc_execution = 'success'
+     * - A non-voided transaction might have nc_execution = 'failure'
+     *
+     * Token Creation Implications:
+     * - Tokens created by nano syscalls are only valid when nc_execution = 'success'
+     * - When nc_execution changes from 'success' to any other state (e.g., during reorg),
+     *   any tokens created by that nano execution must be deleted
+     * - This is separate from CREATE_TOKEN_TX tokens, which are deleted only on void
+     *
+     * See handleVertexAccepted in services/index.ts for the token deletion logic.
+     */
+    nc_execution: z.union([
+      z.literal('pending'),
+      z.literal('success'),
+      z.literal('failure'),
+      z.literal('skipped'),
+    ]).nullable().optional(),
   }),
 });
 
@@ -239,12 +267,16 @@ export const TokenCreatedEventSchema = FullNodeEventBaseSchema.extend({
     type: z.literal('TOKEN_CREATED'),
     data: z.object({
       token_uid: z.string(),
-      nc_exec_info: z.unknown().nullable(),
+      nc_exec_info: z.object({
+        nc_tx: z.string(),
+        nc_block: z.string(),
+      }).nullable(),
       token_name: z.string(),
       token_symbol: z.string(),
       token_version: z.number(),
+      initial_amount: z.number().optional(),
     }),
-    group_id: z.number().nullish(),
+    group_id: z.number().nullable(),
   }),
 });
 export type TokenCreatedEvent = z.infer<typeof TokenCreatedEventSchema>;

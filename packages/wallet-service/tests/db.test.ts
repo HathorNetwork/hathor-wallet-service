@@ -146,7 +146,7 @@ import {
 } from '@tests/utils';
 import { AddressTxHistoryTableEntry } from '@tests/types';
 
-import { constants } from '@hathor/wallet-lib';
+import { constants, TokenVersion } from '@hathor/wallet-lib';
 
 const mysql = getDbConnection();
 
@@ -929,8 +929,8 @@ test('getWalletAddressDetail', async () => {
 test('getWalletBalances', async () => {
   expect.hasAssertions();
   const walletId = 'walletId';
-  const token1 = new TokenInfo('token1', 'MyToken1', 'MT1');
-  const token2 = new TokenInfo('token2', 'MyToken2', 'MT2');
+  const token1 = new TokenInfo('token1', 'MyToken1', 'MT1', TokenVersion.DEPOSIT);
+  const token2 = new TokenInfo('token2', 'MyToken2', 'MT2', TokenVersion.DEPOSIT);
   const now = 1000;
   // add some balances into db
 
@@ -964,8 +964,8 @@ test('getWalletBalances', async () => {
   }]);
 
   await addToTokenTable(mysql, [
-    { id: token1.id, name: token1.name, symbol: token1.symbol, transactions: 0 },
-    { id: token2.id, name: token2.name, symbol: token2.symbol, transactions: 0 },
+    { id: token1.id, name: token1.name, symbol: token1.symbol, version: token1.version, transactions: 0 },
+    { id: token2.id, name: token2.name, symbol: token2.symbol, version: token2.version, transactions: 0 },
   ]);
 
   // first test fetching all tokens
@@ -1254,17 +1254,28 @@ test('storeTokenInformation and getTokenInformation', async () => {
 
   expect(await getTokenInformation(mysql, 'invalid')).toBeNull();
 
-  const info = new TokenInfo('tokenId', 'tokenName', 'TKNS');
-  storeTokenInformation(mysql, info.id, info.name, info.symbol);
+  const info = new TokenInfo('tokenId', 'tokenName', 'TKNS', TokenVersion.DEPOSIT);
+  storeTokenInformation(mysql, info.id, info.name, info.symbol, info.version);
 
   expect(info).toStrictEqual(await getTokenInformation(mysql, info.id));
+});
+
+test('storeTokenInformation and getTokenInformation with TokenVersion.FEE', async () => {
+  expect.hasAssertions();
+
+  const feeToken = new TokenInfo('feeTokenId', 'FeeTokenName', 'FTKS', TokenVersion.FEE);
+  storeTokenInformation(mysql, feeToken.id, feeToken.name, feeToken.symbol, feeToken.version);
+
+  const retrievedToken = await getTokenInformation(mysql, feeToken.id);
+  expect(retrievedToken).toStrictEqual(feeToken);
+  expect(retrievedToken?.version).toBe(TokenVersion.FEE);
 });
 
 test('validateTokenTimestamps', async () => {
   expect.hasAssertions();
 
-  const info = new TokenInfo('tokenId', 'tokenName', 'TKNS');
-  storeTokenInformation(mysql, info.id, info.name, info.symbol);
+  const info = new TokenInfo('tokenId', 'tokenName', 'TKNS', TokenVersion.DEPOSIT);
+  storeTokenInformation(mysql, info.id, info.name, info.symbol, info.version);
   let result = await mysql.query('SELECT * FROM `token` WHERE `id` = ?', [info.id]);
 
   expect(result[0].created_at).toStrictEqual(result[0].updated_at);
@@ -2027,7 +2038,7 @@ test('rebuildAddressBalancesFromUtxos', async () => {
 
   // add to the token table
   await addToTokenTable(mysql, [
-    { id: token1, name: 'token1', symbol: 'TKN1', transactions: 2 },
+    { id: token1, name: 'token1', symbol: 'TKN1', version: TokenVersion.DEPOSIT, transactions: 2 },
   ]);
 
   await expect(checkTokenTable(mysql, 1, [{
@@ -2758,14 +2769,14 @@ test('getAffectedAddressTxCountFromTxList', async () => {
 test('incrementTokensTxCount', async () => {
   expect.hasAssertions();
 
-  const htr = new TokenInfo('00', 'Hathor', 'HTR', 5);
-  const token1 = new TokenInfo('token1', 'MyToken1', 'MT1', 10);
-  const token2 = new TokenInfo('token2', 'MyToken2', 'MT2', 15);
+  const htr = new TokenInfo('00', 'Hathor', 'HTR', TokenVersion.NATIVE, 5);
+  const token1 = new TokenInfo('token1', 'MyToken1', 'MT1', TokenVersion.DEPOSIT, 10);
+  const token2 = new TokenInfo('token2', 'MyToken2', 'MT2', TokenVersion.DEPOSIT, 15);
 
   await addToTokenTable(mysql, [
-    { id: htr.id, name: htr.name, symbol: htr.symbol, transactions: htr.transactions },
-    { id: token1.id, name: token1.name, symbol: token1.symbol, transactions: token1.transactions },
-    { id: token2.id, name: token2.name, symbol: token2.symbol, transactions: token2.transactions },
+    { id: htr.id, name: htr.name, symbol: htr.symbol, version: htr.version, transactions: htr.transactions },
+    { id: token1.id, name: token1.name, symbol: token1.symbol, version: token1.version, transactions: token1.transactions },
+    { id: token2.id, name: token2.name, symbol: token2.symbol, version: token2.version, transactions: token2.transactions },
   ]);
 
   await incrementTokensTxCount(mysql, ['token1', '00', 'token2']);
@@ -2780,6 +2791,39 @@ test('incrementTokensTxCount', async () => {
     tokenSymbol: token2.symbol,
     tokenName: token2.name,
     transactions: token2.transactions + 1,
+  }, {
+    tokenId: htr.id,
+    tokenSymbol: htr.symbol,
+    tokenName: htr.name,
+    transactions: htr.transactions + 1,
+  }])).resolves.toBe(true);
+});
+
+test('incrementTokensTxCount with mixed DEPOSIT and FEE tokens', async () => {
+  expect.hasAssertions();
+
+  const htr = new TokenInfo('00', 'Hathor', 'HTR', TokenVersion.NATIVE, 5);
+  const depositToken = new TokenInfo('deposit1', 'DepositToken', 'DEP', TokenVersion.DEPOSIT, 10);
+  const feeToken = new TokenInfo('fee1', 'FeeToken', 'FEE', TokenVersion.FEE, 20);
+
+  await addToTokenTable(mysql, [
+    { id: htr.id, name: htr.name, symbol: htr.symbol, version: htr.version, transactions: htr.transactions },
+    { id: depositToken.id, name: depositToken.name, symbol: depositToken.symbol, version: depositToken.version, transactions: depositToken.transactions },
+    { id: feeToken.id, name: feeToken.name, symbol: feeToken.symbol, version: feeToken.version, transactions: feeToken.transactions },
+  ]);
+
+  await incrementTokensTxCount(mysql, ['deposit1', '00', 'fee1']);
+
+  await expect(checkTokenTable(mysql, 3, [{
+    tokenId: depositToken.id,
+    tokenSymbol: depositToken.symbol,
+    tokenName: depositToken.name,
+    transactions: depositToken.transactions + 1,
+  }, {
+    tokenId: feeToken.id,
+    tokenSymbol: feeToken.symbol,
+    tokenName: feeToken.name,
+    transactions: feeToken.transactions + 1,
   }, {
     tokenId: htr.id,
     tokenSymbol: htr.symbol,
@@ -3122,8 +3166,8 @@ describe('getTransactionById', () => {
     const txId1 = 'txId1';
     const walletId1 = 'wallet1';
     const addr1 = 'addr1';
-    const token1 = { id: 'token1', name: 'Token 1', symbol: 'T1' };
-    const token2 = { id: 'token2', name: 'Token 2', symbol: 'T2' };
+    const token1 = { id: 'token1', name: 'Token 1', symbol: 'T1', version: TokenVersion.DEPOSIT };
+    const token2 = { id: 'token2', name: 'Token 2', symbol: 'T2', version: TokenVersion.DEPOSIT };
     const timestamp1 = 10;
     const height1 = 1;
     const version1 = 3;
@@ -3133,8 +3177,8 @@ describe('getTransactionById', () => {
     await addOrUpdateTx(mysql, txId1, height1, timestamp1, version1, weight1);
 
     await addToTokenTable(mysql, [
-      { id: token1.id, name: token1.name, symbol: token1.symbol, transactions: 0 },
-      { id: token2.id, name: token2.name, symbol: token2.symbol, transactions: 0 },
+      { id: token1.id, name: token1.name, symbol: token1.symbol, version: token1.version, transactions: 0 },
+      { id: token2.id, name: token2.name, symbol: token2.symbol, version: token2.version, transactions: 0 },
     ]);
     const entries = [
       { address: addr1, txId: txId1, tokenId: token1.id, balance: 10n, timestamp: timestamp1 },
@@ -3452,16 +3496,16 @@ describe('getTokenSymbols', () => {
     expect.hasAssertions();
 
     const tokensToPersist = [
-      new TokenInfo('token1', 'tokenName1', 'TKN1'),
-      new TokenInfo('token2', 'tokenName2', 'TKN2'),
-      new TokenInfo('token3', 'tokenName3', 'TKN3'),
-      new TokenInfo('token4', 'tokenName4', 'TKN4'),
-      new TokenInfo('token5', 'tokenName5', 'TKN5'),
+      new TokenInfo('token1', 'tokenName1', 'TKN1', TokenVersion.DEPOSIT),
+      new TokenInfo('token2', 'tokenName2', 'TKN2', TokenVersion.DEPOSIT),
+      new TokenInfo('token3', 'tokenName3', 'TKN3', TokenVersion.DEPOSIT),
+      new TokenInfo('token4', 'tokenName4', 'TKN4', TokenVersion.DEPOSIT),
+      new TokenInfo('token5', 'tokenName5', 'TKN5', TokenVersion.DEPOSIT),
     ];
 
     // persist tokens
     for (const eachToken of tokensToPersist) {
-      await storeTokenInformation(mysql, eachToken.id, eachToken.name, eachToken.symbol);
+      await storeTokenInformation(mysql, eachToken.id, eachToken.name, eachToken.symbol, eachToken.version);
     }
 
     const tokenIdList = tokensToPersist.map((each: TokenInfo) => each.id);
@@ -3480,11 +3524,11 @@ describe('getTokenSymbols', () => {
     expect.hasAssertions();
 
     const tokensToPersist = [
-      new TokenInfo('token1', 'tokenName1', 'TKN1'),
-      new TokenInfo('token2', 'tokenName2', 'TKN2'),
-      new TokenInfo('token3', 'tokenName3', 'TKN3'),
-      new TokenInfo('token4', 'tokenName4', 'TKN4'),
-      new TokenInfo('token5', 'tokenName5', 'TKN5'),
+      new TokenInfo('token1', 'tokenName1', 'TKN1', TokenVersion.DEPOSIT),
+      new TokenInfo('token2', 'tokenName2', 'TKN2', TokenVersion.DEPOSIT),
+      new TokenInfo('token3', 'tokenName3', 'TKN3', TokenVersion.DEPOSIT),
+      new TokenInfo('token4', 'tokenName4', 'TKN4', TokenVersion.DEPOSIT),
+      new TokenInfo('token5', 'tokenName5', 'TKN5', TokenVersion.DEPOSIT),
     ];
 
     // no token persistence
@@ -3498,6 +3542,32 @@ describe('getTokenSymbols', () => {
     tokenSymbolMap = await getTokenSymbols(mysql, tokenIdList);
 
     expect(tokenSymbolMap).toBeNull();
+  });
+
+  it('should return a map of token symbol by token id with mixed DEPOSIT and FEE tokens', async () => {
+    expect.hasAssertions();
+
+    const tokensToPersist = [
+      new TokenInfo('deposit1', 'DepositToken1', 'DEP1', TokenVersion.DEPOSIT),
+      new TokenInfo('deposit2', 'DepositToken2', 'DEP2', TokenVersion.DEPOSIT),
+      new TokenInfo('fee1', 'FeeToken1', 'FEE1', TokenVersion.FEE),
+      new TokenInfo('fee2', 'FeeToken2', 'FEE2', TokenVersion.FEE),
+    ];
+
+    // persist tokens
+    for (const eachToken of tokensToPersist) {
+      await storeTokenInformation(mysql, eachToken.id, eachToken.name, eachToken.symbol, eachToken.version);
+    }
+
+    const tokenIdList = tokensToPersist.map((each: TokenInfo) => each.id);
+    const tokenSymbolMap = await getTokenSymbols(mysql, tokenIdList);
+
+    expect(tokenSymbolMap).toStrictEqual({
+      deposit1: 'DEP1',
+      deposit2: 'DEP2',
+      fee1: 'FEE1',
+      fee2: 'FEE2',
+    });
   });
 });
 
@@ -3692,5 +3762,191 @@ describe('getAddressByIndex', () => {
     await expect(getAddressAtIndex(mysql, walletId, 1))
       .resolves
       .toBeNull();
+  });
+});
+
+describe('markUtxosWithProposalId - improved query performance', () => {
+  it('should handle empty utxos array without error', async () => {
+    expect.hasAssertions();
+
+    const txProposalId = 'txProposalId';
+
+    // Should not throw error when called with empty array
+    await expect(markUtxosWithProposalId(mysql, txProposalId, []))
+      .resolves
+      .toBeUndefined();
+  });
+
+  it('should correctly mark multiple UTXOs with proposal ID and indexes', async () => {
+    expect.hasAssertions();
+
+    const txId = 'testTxId';
+    const tokenId = 'testTokenId';
+    const address = 'testAddress';
+    const txProposalId = 'testProposalId';
+
+    // Create 5 UTXOs
+    const utxos = Array.from({ length: 5 }, (_, index) => ({
+      txId,
+      index,
+      tokenId,
+      address,
+      value: BigInt((index + 1) * 10),
+      authorities: 0,
+      timelock: null,
+      heightlock: null,
+      locked: false,
+      txProposalId: null,
+      txProposalIndex: null,
+      spentBy: null,
+    }));
+
+    // Add to database
+    const outputs = utxos.map((utxo, index) => createOutput(
+      index,
+      utxo.value,
+      utxo.address,
+      utxo.tokenId,
+      utxo.timelock,
+      utxo.locked
+    ));
+    await addUtxos(mysql, txId, outputs);
+
+    // Mark all UTXOs with the proposal ID
+    await markUtxosWithProposalId(mysql, txProposalId, utxos);
+
+    // Verify all UTXOs were marked correctly
+    const markedUtxos = await getUtxos(mysql, utxos.map((utxo) => ({ txId, index: utxo.index })));
+
+    markedUtxos.forEach((utxo, index) => {
+      expect(utxo.txProposalId).toBe(txProposalId);
+      expect(utxo.txProposalIndex).toBe(index);
+    });
+  });
+
+  it('should update existing tx_proposal markers when called multiple times', async () => {
+    expect.hasAssertions();
+
+    const txId = 'testTxId2';
+    const tokenId = 'testTokenId2';
+    const address = 'testAddress2';
+    const firstProposalId = 'firstProposalId';
+    const secondProposalId = 'secondProposalId';
+
+    const utxos = [{
+      txId,
+      index: 0,
+      tokenId,
+      address,
+      value: 100n,
+      authorities: 0,
+      timelock: null,
+      heightlock: null,
+      locked: false,
+      txProposalId: null,
+      txProposalIndex: null,
+      spentBy: null,
+    }];
+
+    // Add to database
+    const outputs = utxos.map((utxo, index) => createOutput(
+      index,
+      utxo.value,
+      utxo.address,
+      utxo.tokenId,
+      utxo.timelock,
+      utxo.locked
+    ));
+    await addUtxos(mysql, txId, outputs);
+
+    // Mark with first proposal ID
+    await markUtxosWithProposalId(mysql, firstProposalId, utxos);
+    let markedUtxos = await getUtxos(mysql, [{ txId, index: 0 }]);
+    expect(markedUtxos[0].txProposalId).toBe(firstProposalId);
+    expect(markedUtxos[0].txProposalIndex).toBe(0);
+
+    // Mark with second proposal ID (should update)
+    await markUtxosWithProposalId(mysql, secondProposalId, utxos);
+    markedUtxos = await getUtxos(mysql, [{ txId, index: 0 }]);
+    expect(markedUtxos[0].txProposalId).toBe(secondProposalId);
+    expect(markedUtxos[0].txProposalIndex).toBe(0);
+  });
+});
+
+describe('hasTransactionsOnNonFirstAddress', () => {
+  it('should return false when wallet has no addresses', async () => {
+    expect.hasAssertions();
+
+    const walletId = 'test-wallet';
+    await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5);
+
+    const result = await Db.hasTransactionsOnNonFirstAddress(mysql, walletId);
+
+    expect(result).toBe(false);
+  });
+
+  it('should return false when wallet only has address at index 0', async () => {
+    expect.hasAssertions();
+
+    const walletId = 'test-wallet';
+    await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5);
+    await addToAddressTable(mysql, [
+      { address: ADDRESSES[0], index: 0, walletId, transactions: 5 },
+    ]);
+
+    const result = await Db.hasTransactionsOnNonFirstAddress(mysql, walletId);
+
+    expect(result).toBe(false);
+  });
+
+  it('should return false when non-first addresses have no transactions', async () => {
+    expect.hasAssertions();
+
+    const walletId = 'test-wallet';
+    await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5);
+    await addToAddressTable(mysql, [
+      { address: ADDRESSES[0], index: 0, walletId, transactions: 5 },
+      { address: ADDRESSES[1], index: 1, walletId, transactions: 0 },
+      { address: ADDRESSES[2], index: 2, walletId, transactions: 0 },
+    ]);
+
+    const result = await Db.hasTransactionsOnNonFirstAddress(mysql, walletId);
+
+    expect(result).toBe(false);
+  });
+
+  it('should return true when an address with index > 0 has transactions', async () => {
+    expect.hasAssertions();
+
+    const walletId = 'test-wallet';
+    await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5);
+    await addToAddressTable(mysql, [
+      { address: ADDRESSES[0], index: 0, walletId, transactions: 5 },
+      { address: ADDRESSES[1], index: 1, walletId, transactions: 3 },
+    ]);
+
+    const result = await Db.hasTransactionsOnNonFirstAddress(mysql, walletId);
+
+    expect(result).toBe(true);
+  });
+
+  it('should only consider addresses belonging to the specified wallet', async () => {
+    expect.hasAssertions();
+
+    const walletId1 = 'wallet-1';
+    const walletId2 = 'wallet-2';
+    await createWallet(mysql, walletId1, XPUBKEY, AUTH_XPUBKEY, 5);
+    await createWallet(mysql, walletId2, XPUBKEY, AUTH_XPUBKEY, 5);
+
+    await addToAddressTable(mysql, [
+      { address: ADDRESSES[0], index: 0, walletId: walletId1, transactions: 5 },
+      { address: ADDRESSES[1], index: 1, walletId: walletId2, transactions: 10 },
+    ]);
+
+    const result1 = await Db.hasTransactionsOnNonFirstAddress(mysql, walletId1);
+    const result2 = await Db.hasTransactionsOnNonFirstAddress(mysql, walletId2);
+
+    expect(result1).toBe(false);
+    expect(result2).toBe(true);
   });
 });

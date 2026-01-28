@@ -29,6 +29,7 @@ export const cleanDatabase = async (mysql: Connection): Promise<void> => {
     'miner',
     'sync_metadata',
     'token',
+    'token_creation',
     'transaction',
     'tx_output',
     'tx_proposal',
@@ -186,15 +187,44 @@ export const validateWalletBalances = async (
   }
 };
 
-export async function transitionUntilEvent(mysql: Connection, machine: Interpreter<Context, any, Event>, eventId: number) {
-  return await new Promise<void>((resolve) => {
-    machine.onTransition(async (state) => {
-      if (state.matches('CONNECTED.idle')) {
-        const lastSyncedEvent = await getLastSyncedEvent(mysql);
-        if (lastSyncedEvent?.last_event_id === eventId) {
-          machine.stop();
+const DEFAULT_TRANSITION_TIMEOUT_MS = 60000; // 60 seconds
 
-          resolve();
+export async function transitionUntilEvent(
+  mysql: Connection,
+  machine: Interpreter<Context, any, Event>,
+  eventId: number,
+  timeoutMs: number = DEFAULT_TRANSITION_TIMEOUT_MS
+) {
+  return await new Promise<void>((resolve, reject) => {
+    let resolved = false;
+
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        machine.stop();
+        reject(new Error(`transitionUntilEvent timed out after ${timeoutMs}ms waiting for event ${eventId}`));
+      }
+    }, timeoutMs);
+
+    machine.onTransition(async (state) => {
+      if (resolved) return;
+
+      try {
+        if (state.matches('CONNECTED.idle')) {
+          const lastSyncedEvent = await getLastSyncedEvent(mysql);
+          if (lastSyncedEvent?.last_event_id === eventId) {
+            resolved = true;
+            clearTimeout(timeout);
+            machine.stop();
+            resolve();
+          }
+        }
+      } catch (error) {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timeout);
+          machine.stop();
+          reject(error);
         }
       }
     });

@@ -191,6 +191,7 @@ export const cleanDatabase = async (mysql: MysqlConnection): Promise<void> => {
     'address_balance',
     'address_tx_history',
     'token',
+    'token_creation',
     'tx_proposal',
     'transaction',
     'tx_output',
@@ -636,11 +637,12 @@ export const addToTokenTable = async (
     entry.id,
     entry.name,
     entry.symbol,
+    entry.version,
     entry.transactions,
   ]));
 
   await mysql.query(
-    'INSERT INTO `token`(`id`, `name`, `symbol`, `transactions`) VALUES ?',
+    'INSERT INTO `token`(`id`, `name`, `symbol`, `version`, `transactions`) VALUES ?',
     [payload],
   );
 };
