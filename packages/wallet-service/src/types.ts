@@ -701,6 +701,7 @@ export interface IFilterTxOutput {
   txId?: string;
   index?: number;
   totalAmount?: bigint;
+  maxAmount?: bigint;
 }
 
 export enum InputSelectionAlgo {
