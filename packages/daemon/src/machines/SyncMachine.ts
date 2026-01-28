@@ -22,18 +22,16 @@ import {
   metadataDiff,
   handleVoidedTx,
   handleTxFirstBlock,
+  handleNcExecVoided,
   updateLastSyncedEvent,
   fetchInitialState,
   handleUnvoidedTx,
   handleReorgStarted,
+  handleTokenCreated,
   checkForMissedEvents,
 } from '../services';
 import {
-  metadataIgnore,
-  metadataVoided,
-  metadataUnvoided,
-  metadataNewTx,
-  metadataFirstBlock,
+  hasNextChange,
   metadataChanged,
   vertexAccepted,
   invalidPeerId,
@@ -44,16 +42,18 @@ import {
   unchanged,
   vertexRemoved,
   reorgStarted,
+  tokenCreated,
   hasNewEvents,
 } from '../guards';
+import { METADATA_DIFF_EVENT_TYPES } from '../services';
 import {
   storeInitialState,
-  unwrapEvent,
+  storeMetadataChanges,
+  shiftMetadataChange,
   startStream,
   clearSocket,
   storeEvent,
   sendAck,
-  metadataDecided,
   increaseRetry,
   logEventError,
   updateCache,
@@ -80,7 +80,9 @@ export const CONNECTED_STATES = {
   handlingVoidedTx: 'handlingVoidedTx',
   handlingUnvoidedTx: 'handlingUnvoidedTx',
   handlingFirstBlock: 'handlingFirstBlock',
+  handlingNcExecVoided: 'handlingNcExecVoided',
   handlingReorgStarted: 'handlingReorgStarted',
+  handlingTokenCreated: 'handlingTokenCreated',
   checkingForMissedEvents: 'checkingForMissedEvents',
 };
 
@@ -184,6 +186,10 @@ export const SyncMachine = Machine<Context, any, Event>({
               target: CONNECTED_STATES.handlingReorgStarted,
             }, {
               actions: ['storeEvent'],
+              cond: 'tokenCreated',
+              target: CONNECTED_STATES.handlingTokenCreated,
+            }, {
+              actions: ['storeEvent'],
               target: CONNECTED_STATES.handlingUnhandledEvent,
             }],
           },
@@ -206,17 +212,24 @@ export const SyncMachine = Machine<Context, any, Event>({
             detectingDiff: {
               invoke: {
                 src: 'metadataDiff',
-                onDone: { actions: ['metadataDecided'] },
+                onDone: {
+                  target: 'dispatching',
+                  actions: ['storeMetadataChanges'],
+                },
+                onError: `#${SYNC_MACHINE_STATES.ERROR}`,
               },
-              on: {
-                METADATA_DECIDED: [
-                  { target: `#${CONNECTED_STATES.handlingVoidedTx}`, cond: 'metadataVoided', actions: ['unwrapEvent'] },
-                  { target: `#${CONNECTED_STATES.handlingUnvoidedTx}`, cond: 'metadataUnvoided', actions: ['unwrapEvent'] },
-                  { target: `#${CONNECTED_STATES.handlingVertexAccepted}`, cond: 'metadataNewTx', actions: ['unwrapEvent'] },
-                  { target: `#${CONNECTED_STATES.handlingFirstBlock}`, cond: 'metadataFirstBlock', actions: ['unwrapEvent'] },
-                  { target: `#${CONNECTED_STATES.handlingUnhandledEvent}`, cond: 'metadataIgnore' },
-                ],
-              },
+            },
+            dispatching: {
+              id: 'dispatchingMetadataChange',
+              always: [
+                { target: `#${CONNECTED_STATES.handlingVoidedTx}`, cond: { type: 'hasNextChange', changeType: METADATA_DIFF_EVENT_TYPES.TX_VOIDED }, actions: ['shiftMetadataChange'] },
+                { target: `#${CONNECTED_STATES.handlingUnvoidedTx}`, cond: { type: 'hasNextChange', changeType: METADATA_DIFF_EVENT_TYPES.TX_UNVOIDED }, actions: ['shiftMetadataChange'] },
+                { target: `#${CONNECTED_STATES.handlingVertexAccepted}`, cond: { type: 'hasNextChange', changeType: METADATA_DIFF_EVENT_TYPES.TX_NEW }, actions: ['shiftMetadataChange'] },
+                { target: `#${CONNECTED_STATES.handlingFirstBlock}`, cond: { type: 'hasNextChange', changeType: METADATA_DIFF_EVENT_TYPES.TX_FIRST_BLOCK }, actions: ['shiftMetadataChange'] },
+                { target: `#${CONNECTED_STATES.handlingNcExecVoided}`, cond: { type: 'hasNextChange', changeType: METADATA_DIFF_EVENT_TYPES.NC_EXEC_VOIDED }, actions: ['shiftMetadataChange'] },
+                // Queue empty or unrecognized (including IGNORE) → done
+                { target: `#${CONNECTED_STATES.handlingUnhandledEvent}` },
+              ],
             },
           },
         },
@@ -227,8 +240,8 @@ export const SyncMachine = Machine<Context, any, Event>({
             src: 'handleVertexAccepted',
             data: (_context: Context, event: Event) => event,
             onDone: {
-              target: 'idle',
-              actions: ['sendAck', 'storeEvent', 'updateCache'],
+              target: '#dispatchingMetadataChange',
+              actions: ['storeEvent', 'updateCache'],
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
@@ -251,8 +264,8 @@ export const SyncMachine = Machine<Context, any, Event>({
             src: 'handleVoidedTx',
             data: (_context: Context, event: Event) => event,
             onDone: {
-              target: 'idle',
-              actions: ['storeEvent', 'sendAck', 'updateCache'],
+              target: '#dispatchingMetadataChange',
+              actions: ['storeEvent', 'updateCache'],
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
@@ -278,8 +291,20 @@ export const SyncMachine = Machine<Context, any, Event>({
             src: 'handleTxFirstBlock',
             data: (_context: Context, event: Event) => event,
             onDone: {
-              target: 'idle',
-              actions: ['storeEvent', 'sendAck', 'updateCache'],
+              target: '#dispatchingMetadataChange',
+              actions: ['storeEvent', 'updateCache'],
+            },
+            onError: `#${SYNC_MACHINE_STATES.ERROR}`,
+          },
+        },
+        [CONNECTED_STATES.handlingNcExecVoided]: {
+          id: CONNECTED_STATES.handlingNcExecVoided,
+          invoke: {
+            src: 'handleNcExecVoided',
+            data: (_context: Context, event: Event) => event,
+            onDone: {
+              target: '#dispatchingMetadataChange',
+              actions: ['storeEvent', 'updateCache'],
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
@@ -288,6 +313,18 @@ export const SyncMachine = Machine<Context, any, Event>({
           id: CONNECTED_STATES.handlingReorgStarted,
           invoke: {
             src: 'handleReorgStarted',
+            data: (_context: Context, event: Event) => event,
+            onDone: {
+              target: 'idle',
+              actions: ['sendAck', 'storeEvent'],
+            },
+            onError: `#${SYNC_MACHINE_STATES.ERROR}`,
+          },
+        },
+        [CONNECTED_STATES.handlingTokenCreated]: {
+          id: CONNECTED_STATES.handlingTokenCreated,
+          invoke: {
+            src: 'handleTokenCreated',
             data: (_context: Context, event: Event) => event,
             onDone: {
               target: 'idle',
@@ -332,19 +369,17 @@ export const SyncMachine = Machine<Context, any, Event>({
     handleVertexRemoved,
     handleVoidedTx,
     handleTxFirstBlock,
+    handleNcExecVoided,
     handleUnvoidedTx,
     handleReorgStarted,
+    handleTokenCreated,
     fetchInitialState,
     metadataDiff,
     updateLastSyncedEvent,
     checkForMissedEvents,
   },
   guards: {
-    metadataIgnore,
-    metadataVoided,
-    metadataUnvoided,
-    metadataNewTx,
-    metadataFirstBlock,
+    hasNextChange,
     metadataChanged,
     vertexAccepted,
     invalidPeerId,
@@ -355,17 +390,18 @@ export const SyncMachine = Machine<Context, any, Event>({
     unchanged,
     vertexRemoved,
     reorgStarted,
+    tokenCreated,
     hasNewEvents,
   },
   delays: { BACKOFF_DELAYED_RECONNECT, ACK_TIMEOUT },
   actions: {
     storeInitialState,
-    unwrapEvent,
+    storeMetadataChanges,
+    shiftMetadataChange,
     startStream,
     clearSocket,
     storeEvent,
     sendAck,
-    metadataDecided,
     increaseRetry,
     logEventError,
     updateCache,
