@@ -135,6 +135,78 @@ describe('transaction methods', () => {
     const bestBlock = await getBestBlockHeight(mysql);
     expect(bestBlock).toStrictEqual(4);
   });
+
+  test('should insert a new tx with first_block', async () => {
+    expect.hasAssertions();
+
+    const firstBlock = 'block_hash_123';
+    await addOrUpdateTx(mysql, 'txId1', 10, 1, 1, 65.4321, firstBlock);
+    const tx = await getTransactionById(mysql, 'txId1');
+
+    expect(tx?.height).toStrictEqual(10);
+    expect(tx?.first_block).toStrictEqual(firstBlock);
+  });
+
+  test('should insert a new tx without first_block (mempool tx)', async () => {
+    expect.hasAssertions();
+
+    await addOrUpdateTx(mysql, 'txId1', null, 1, 1, 65.4321, null);
+    const tx = await getTransactionById(mysql, 'txId1');
+
+    expect(tx?.height).toBeNull();
+    expect(tx?.first_block).toBeNull();
+  });
+
+  test('should update first_block from NULL to value (tx confirmed)', async () => {
+    expect.hasAssertions();
+
+    // Insert tx without first_block (in mempool)
+    await addOrUpdateTx(mysql, 'txId1', null, 1, 1, 65.4321, null);
+    let tx = await getTransactionById(mysql, 'txId1');
+    expect(tx?.first_block).toBeNull();
+    expect(tx?.height).toBeNull();
+
+    // Update tx with first_block (confirmed in a block)
+    const firstBlock = 'block_hash_456';
+    await addOrUpdateTx(mysql, 'txId1', 5, 1, 1, 65.4321, firstBlock);
+    tx = await getTransactionById(mysql, 'txId1');
+    expect(tx?.first_block).toStrictEqual(firstBlock);
+    expect(tx?.height).toStrictEqual(5);
+  });
+
+  test('should update first_block from value to NULL (tx back to mempool after reorg)', async () => {
+    expect.hasAssertions();
+
+    // Insert tx with first_block (confirmed)
+    const firstBlock = 'block_hash_789';
+    await addOrUpdateTx(mysql, 'txId1', 10, 1, 1, 65.4321, firstBlock);
+    let tx = await getTransactionById(mysql, 'txId1');
+    expect(tx?.first_block).toStrictEqual(firstBlock);
+    expect(tx?.height).toStrictEqual(10);
+
+    // Update tx to remove first_block (back to mempool after reorg)
+    await addOrUpdateTx(mysql, 'txId1', null, 1, 1, 65.4321, null);
+    tx = await getTransactionById(mysql, 'txId1');
+    expect(tx?.first_block).toBeNull();
+    expect(tx?.height).toBeNull();
+  });
+
+  test('should update first_block from one value to another (reorg to different block)', async () => {
+    expect.hasAssertions();
+
+    // Insert tx with first_block
+    const firstBlock1 = 'block_hash_aaa';
+    await addOrUpdateTx(mysql, 'txId1', 10, 1, 1, 65.4321, firstBlock1);
+    let tx = await getTransactionById(mysql, 'txId1');
+    expect(tx?.first_block).toStrictEqual(firstBlock1);
+
+    // Update tx with different first_block (reorg to different block)
+    const firstBlock2 = 'block_hash_bbb';
+    await addOrUpdateTx(mysql, 'txId1', 11, 1, 1, 65.4321, firstBlock2);
+    tx = await getTransactionById(mysql, 'txId1');
+    expect(tx?.first_block).toStrictEqual(firstBlock2);
+    expect(tx?.height).toStrictEqual(11);
+  });
 });
 
 describe('tx output methods', () => {
@@ -1307,7 +1379,7 @@ describe('voidTransaction', () => {
     await expect(checkAddressTxHistoryTable(mysql, 0, addr1, txId, token1, -1, 0)).resolves.toBe(true);
     await expect(checkAddressTxHistoryTable(mysql, 0, addr1, txId, token2, -1, 0)).resolves.toBe(true);
 
-    await expect(checkTransactionTable(mysql, 1, txId, 0, constants.BLOCK_VERSION, true, 1)).resolves.toBe(true);
+    await expect(checkTransactionTable(mysql, 1, txId, 0, constants.BLOCK_VERSION, true, 1, null)).resolves.toBe(true);
   });
 
   it('should not fail when balances are empty (from a tx with no inputs and outputs)', async () => {
@@ -1325,7 +1397,7 @@ describe('voidTransaction', () => {
 
     await expect(voidTransaction(mysql, txId)).resolves.not.toThrow();
     // Tx should be voided
-    await expect(checkTransactionTable(mysql, 1, txId, 0, constants.BLOCK_VERSION, true, 1)).resolves.toBe(true);
+    await expect(checkTransactionTable(mysql, 1, txId, 0, constants.BLOCK_VERSION, true, 1, null)).resolves.toBe(true);
   });
 
   it('should throw an error if the transaction is not found in the database', async () => {

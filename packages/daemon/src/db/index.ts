@@ -80,9 +80,11 @@ export const getDbConnection = async (): Promise<MysqlConnection> => {
  *
  * @param mysql - Database connection
  * @param txId - Transaction id
+ * @param height - The transaction height (null if not confirmed)
  * @param timestamp - The transaction timestamp
  * @param version - The transaction version
- * @param weight - the transaction weight
+ * @param weight - The transaction weight
+ * @param firstBlock - Hash of the first block that confirmed this transaction (null if not confirmed)
  */
 export const addOrUpdateTx = async (
   mysql: any,
@@ -91,14 +93,15 @@ export const addOrUpdateTx = async (
   timestamp: number,
   version: number,
   weight: number,
+  firstBlock: string | null = null,
 ): Promise<void> => {
-  const entries = [[txId, height, timestamp, version, weight]];
+  const entries = [[txId, height, timestamp, version, weight, firstBlock]];
 
   await mysql.query(
-    `INSERT INTO \`transaction\` (tx_id, height, timestamp, version, weight)
+    `INSERT INTO \`transaction\` (tx_id, height, timestamp, version, weight, first_block)
      VALUES ?
-         ON DUPLICATE KEY UPDATE height = ?`,
-    [entries, height],
+         ON DUPLICATE KEY UPDATE height = ?, first_block = ?`,
+    [entries, height, firstBlock],
   );
 };
 
@@ -1451,9 +1454,11 @@ export const updateWalletTablesWithTx = async (
  *
  * @param mysql - Database connection
  * @param txId - Transaction id
+ * @param height - The transaction height
  * @param timestamp - The transaction timestamp
  * @param version - The transaction version
  * @param weight - The transaction weight
+ * @param firstBlock - Hash of the first block that confirmed this transaction
  */
 export const updateTx = async (
   mysql: MysqlConnection,
@@ -1462,7 +1467,8 @@ export const updateTx = async (
   timestamp: number,
   version: number,
   weight: number,
-): Promise<void> => addOrUpdateTx(mysql, txId, height, timestamp, version, weight);
+  firstBlock: string | null = null,
+): Promise<void> => addOrUpdateTx(mysql, txId, height, timestamp, version, weight, firstBlock);
 
 /**
  * Get a list of tx outputs from their spent_by txId
