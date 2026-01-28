@@ -8,6 +8,11 @@ import {
   updateTxProposal,
   releaseTxProposalUtxos,
 } from '@src/db';
+import {
+  beginTransaction,
+  commitTransaction,
+  rollbackTransaction,
+} from '@src/db/utils';
 import { walletIdProxyHandler } from '@src/commons';
 import { TxProposalStatus } from '@src/types';
 import { closeDbConnection, getDbConnection, getUnixTimestamp } from '@src/utils';
@@ -49,15 +54,25 @@ export const destroy: APIGatewayProxyHandler = middy(walletIdProxyHandler(async 
 
   const now = getUnixTimestamp();
 
-  await updateTxProposal(
-    mysql,
-    [txProposalId],
-    now,
-    TxProposalStatus.CANCELLED,
-  );
+  // Update status and release UTXOs atomically
+  try {
+    await beginTransaction(mysql);
 
-  // Remove tx_proposal_id and tx_proposal_index from utxo table
-  await releaseTxProposalUtxos(mysql, [txProposalId]);
+    await updateTxProposal(
+      mysql,
+      [txProposalId],
+      now,
+      TxProposalStatus.CANCELLED,
+    );
+
+    // Remove tx_proposal_id and tx_proposal_index from utxo table
+    await releaseTxProposalUtxos(mysql, [txProposalId]);
+
+    await commitTransaction(mysql);
+  } catch (e) {
+    await rollbackTransaction(mysql);
+    return closeDbAndGetError(mysql, ApiError.UNKNOWN_ERROR, { message: e.message });
+  }
 
   await closeDbConnection(mysql);
 
