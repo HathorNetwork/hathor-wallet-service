@@ -1253,10 +1253,10 @@ test('filter tx_outputs with maxAmount', async () => {
 
   expect(result.statusCode).toBe(200);
   expect(returnBody.success).toBe(true);
-  // Should select 50 + 100 = 150 (iterating from smallest)
+  // Should select 100 + 50 = 150 (iterating from largest to smallest to minimize UTXO count)
   const totalValue1 = returnBody.txOutputs.reduce((sum, utxo) => sum + utxo.value, 0);
   expect(totalValue1).toBeLessThanOrEqual(150);
-  expect(totalValue1).toBe(150); // Exact match: 50 + 100
+  expect(totalValue1).toBe(150); // Exact match: 100 + 50
 
   // Test 2: Request maxAmount of 55 - should get only the 50 UTXO
   event = makeGatewayEventWithAuthorizer('my-wallet', {
@@ -1272,7 +1272,7 @@ test('filter tx_outputs with maxAmount', async () => {
   expect(returnBody.txOutputs).toHaveLength(1);
   expect(returnBody.txOutputs[0].value).toBe(50);
 
-  // Test 3: Request maxAmount of 350 - should get 50 + 100 + 200 = 350
+  // Test 3: Request maxAmount of 350 - should get 300 + 50 = 350 (minimizing UTXO count)
   event = makeGatewayEventWithAuthorizer('my-wallet', {
     tokenId: token1,
     maxAmount: '350',
@@ -1285,7 +1285,7 @@ test('filter tx_outputs with maxAmount', async () => {
   expect(returnBody.success).toBe(true);
   const totalValue3 = returnBody.txOutputs.reduce((sum, utxo) => sum + utxo.value, 0);
   expect(totalValue3).toBeLessThanOrEqual(350);
-  expect(totalValue3).toBe(350); // Exact match: 50 + 100 + 200
+  expect(totalValue3).toBe(350); // Exact match: 300 + 50
 
   // Test 4: Request maxAmount of 10 - should get no UTXOs (smallest is 50)
   event = makeGatewayEventWithAuthorizer('my-wallet', {

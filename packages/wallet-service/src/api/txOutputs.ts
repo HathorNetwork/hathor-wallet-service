@@ -231,9 +231,8 @@ const _getFilteredTxOutputs = async (walletId: string, filters: IFilterTxOutput)
     const selectedTxOutputs: DbTxOutput[] = [];
 
     // txOutputs are sorted by value DESC from the database, so we iterate
-    // from smallest to largest to maximize the number of UTXOs within the limit
-    for (let i = finalTxOutputs.length - 1; i >= 0; i--) {
-      const txOutput = finalTxOutputs[i];
+    // from largest to smallest to minimize the number of UTXOs within the limit
+    for (const txOutput of finalTxOutputs) {
       if (accumulatedAmount + txOutput.value <= filters.maxAmount) {
         selectedTxOutputs.push(txOutput);
         accumulatedAmount += txOutput.value;
