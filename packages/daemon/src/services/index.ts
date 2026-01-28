@@ -169,6 +169,9 @@ export const metadataDiff = async (_context: Context, event: Event) => {
           const types: string[] = [];
 
           // Check if nc_execution changed from 'success' to something else.
+          // If the tx has nano-created tokens in the database (tokens where token_id != tx_id),
+          // those tokens were created when nc_execution was 'success'.
+          // If nc_execution is now NOT 'success', we should delete those tokens.
           if (nc_execution !== 'success') {
             const tokensCreated = await getTokensCreatedByTx(mysql, hash);
             const nanoTokens = tokensCreated.filter(tokenId => tokenId !== hash);
