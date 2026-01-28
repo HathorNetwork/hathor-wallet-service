@@ -13,6 +13,11 @@ import {
   releaseTxProposalUtxos,
 } from '@src/db';
 import {
+  beginTransaction,
+  commitTransaction,
+  rollbackTransaction,
+} from '@src/db/utils';
+import {
   TxProposalStatus,
   ApiResponse,
 } from '@src/types';
@@ -134,14 +139,24 @@ export const send: APIGatewayProxyHandler = middy(walletIdProxyHandler(async (wa
       }),
     };
   } catch (e) {
-    await updateTxProposal(
-      mysql,
-      [txProposalId],
-      now,
-      TxProposalStatus.SEND_ERROR,
-    );
+    // Update status and release UTXOs atomically
+    try {
+      await beginTransaction(mysql);
 
-    await releaseTxProposalUtxos(mysql, [txProposalId]);
+      await updateTxProposal(
+        mysql,
+        [txProposalId],
+        now,
+        TxProposalStatus.SEND_ERROR,
+      );
+
+      await releaseTxProposalUtxos(mysql, [txProposalId]);
+
+      await commitTransaction(mysql);
+    } catch (txError) {
+      await rollbackTransaction(mysql);
+      // Log the transaction error but still return the original send error
+    }
 
     return closeDbAndGetError(mysql, ApiError.TX_PROPOSAL_SEND_ERROR, {
       message: e.message,

@@ -16,7 +16,7 @@ export const UNVOIDED_SCENARIO_LAST_EVENT = 39;
 // reorg
 export const REORG_SCENARIO_PORT = 8082;
 // Same as the comment on the unvoided scenario last event
-export const REORG_SCENARIO_LAST_EVENT = 19;
+export const REORG_SCENARIO_LAST_EVENT = 18;
 
 
 // single chain blocks and transactions port
@@ -49,6 +49,9 @@ export const SINGLE_VOIDED_CREATE_TOKEN_TRANSACTION_LAST_EVENT = 50;
 export const SINGLE_VOIDED_REGULAR_TRANSACTION_PORT = 8092;
 export const SINGLE_VOIDED_REGULAR_TRANSACTION_LAST_EVENT = 60;
 
+export const TOKEN_CREATION_PORT = 8093;
+export const TOKEN_CREATION_LAST_EVENT = 45;
+
 export const SCENARIOS = [
   'UNVOIDED_SCENARIO',
   'REORG_SCENARIO',
@@ -61,4 +64,5 @@ export const SCENARIOS = [
   'VOIDED_TOKEN_AUTHORITY',
   'SINGLE_VOIDED_CREATE_TOKEN_TRANSACTION',
   'SINGLE_VOIDED_REGULAR_TRANSACTION',
+  'TOKEN_CREATION',
 ];

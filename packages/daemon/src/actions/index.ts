@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { assign, AssignAction, raise, sendTo } from 'xstate';
+import { assign, AssignAction, sendTo } from 'xstate';
 import { Context, Event, EventTypes, StandardFullNodeEvent } from '../types';
 import { get } from 'lodash';
 import logger from '../logger';
@@ -28,21 +28,28 @@ export const storeInitialState = assign({
 });
 
 /*
- * This action is used to set the context event to the event that comes on the
- * event.
- *
- * This is used after the metadataDiff service detects what is the type of the
- * event, so the state is transitioned to the right place and the event is set
- * to the original event (that initiated the metadata diff check)
+ * This action stores the metadata change types from metadataDiff into context
+ * and sets context.event from the original event.
  */
-export const unwrapEvent = assign({
-  // @ts-ignore: The return event.event.originalEvent.event is not the correct type for an event.
+export const storeMetadataChanges = assign({
+  pendingMetadataChanges: (_context: Context, event: Event) => {
+    // @ts-ignore
+    return event.data.types;
+  },
+  // @ts-ignore
   event: (_context: Context, event: Event) => {
-    if (event.type !== 'METADATA_DECIDED') {
-      throw new Error(`Received unhandled ${event.type} on unwrapEvent action`);
-    }
+    // @ts-ignore
+    return event.data.originalEvent.event;
+  },
+});
 
-    return event.event.originalEvent.event;
+/*
+ * This action removes the first element from pendingMetadataChanges.
+ */
+export const shiftMetadataChange = assign({
+  pendingMetadataChanges: (context: Context) => {
+    const changes = context.pendingMetadataChanges ?? [];
+    return changes.slice(1);
   },
 });
 
@@ -151,16 +158,6 @@ export const sendAck = sendTo(getSocketRefFromContext,
     }
   });
 
-/*
- * This action is used to raise the metadataDecided event on the machine.
- * This is currently used to indicate that the metadataDiff service finished and
- * yielded a result
- */
-export const metadataDecided = raise((_context: Context, event: Event) => ({
-  type: EventTypes.METADATA_DECIDED,
-  // @ts-ignore
-  event: event.data,
-}));
 
 /*
  * Updates the cache with the last processed event (from the context)

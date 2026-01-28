@@ -31,7 +31,6 @@ export type HealthCheckEvent =
 export enum EventTypes {
   WEBSOCKET_EVENT = 'WEBSOCKET_EVENT',
   FULLNODE_EVENT = 'FULLNODE_EVENT',
-  METADATA_DECIDED = 'METADATA_DECIDED',
   WEBSOCKET_SEND_EVENT = 'WEBSOCKET_SEND_EVENT',
   HEALTHCHECK_EVENT = 'HEALTHCHECK_EVENT',
 }
@@ -45,6 +44,8 @@ export enum FullNodeEventTypes {
   REORG_STARTED = 'REORG_STARTED',
   REORG_FINISHED = 'REORG_FINISHED',
   NC_EVENT = 'NC_EVENT',
+  TOKEN_CREATED = 'TOKEN_CREATED',
+  FULL_NODE_CRASHED = 'FULL_NODE_CRASHED',
 }
 
 /**
@@ -62,19 +63,14 @@ const EmptyDataFullNodeEvents = z.union([
   z.literal('LOAD_STARTED'),
   z.literal('LOAD_FINISHED'),
   z.literal('REORG_FINISHED'),
+  z.literal('FULL_NODE_CRASHED'),
 ]);
 
 export const FullNodeEventTypesSchema = z.nativeEnum(FullNodeEventTypes);
 
-export type MetadataDecidedEvent = {
-  type: 'TX_VOIDED' | 'TX_UNVOIDED' | 'TX_NEW' | 'TX_FIRST_BLOCK' | 'IGNORE';
-  originalEvent: FullNodeEvent;
-}
-
 export type Event =
   | { type: EventTypes.WEBSOCKET_EVENT, event: WebSocketEvent }
   | { type: EventTypes.FULLNODE_EVENT, event: FullNodeEvent }
-  | { type: EventTypes.METADATA_DECIDED, event: MetadataDecidedEvent }
   | { type: EventTypes.WEBSOCKET_SEND_EVENT, event: WebSocketSendEvent }
   | { type: EventTypes.HEALTHCHECK_EVENT, event: HealthCheckEvent };
 
@@ -159,6 +155,34 @@ export const TxEventDataSchema = TxEventDataWithoutMetaSchema.extend({
     voided_by: z.string().array(),
     first_block: z.string().nullable(),
     height: z.number(),
+    /**
+     * Nano contract execution state.
+     *
+     * This field indicates the execution status of nano contracts in this transaction:
+     * - 'pending': Nano contract is waiting to be executed (before first_block)
+     * - 'success': Nano contract executed successfully
+     * - 'failure': Nano contract execution failed
+     * - 'skipped': Nano contract execution was skipped
+     * - null/undefined: Not a nano contract transaction, or execution state not available
+     *
+     * Important: This field is INDEPENDENT of transaction voiding (voided_by):
+     * - A voided transaction might still have nc_execution = 'success'
+     * - A non-voided transaction might have nc_execution = 'failure'
+     *
+     * Token Creation Implications:
+     * - Tokens created by nano syscalls are only valid when nc_execution = 'success'
+     * - When nc_execution changes from 'success' to any other state (e.g., during reorg),
+     *   any tokens created by that nano execution must be deleted
+     * - This is separate from CREATE_TOKEN_TX tokens, which are deleted only on void
+     *
+     * See handleVertexAccepted in services/index.ts for the token deletion logic.
+     */
+    nc_execution: z.union([
+      z.literal('pending'),
+      z.literal('success'),
+      z.literal('failure'),
+      z.literal('skipped'),
+    ]).nullable().optional(),
   }),
 });
 
@@ -229,12 +253,34 @@ export const NcEventSchema = FullNodeEventBaseSchema.extend({
 });
 export type NcEvent = z.infer<typeof NcEventSchema>;
 
+export const TokenCreatedEventSchema = FullNodeEventBaseSchema.extend({
+  event: z.object({
+    id: z.number(),
+    timestamp: z.number(),
+    type: z.literal('TOKEN_CREATED'),
+    data: z.object({
+      token_uid: z.string(),
+      nc_exec_info: z.object({
+        nc_tx: z.string(),
+        nc_block: z.string(),
+      }).nullable(),
+      token_name: z.string(),
+      token_symbol: z.string(),
+      token_version: z.number(),
+      initial_amount: z.number().optional(),
+    }),
+    group_id: z.number().nullable(),
+  }),
+});
+export type TokenCreatedEvent = z.infer<typeof TokenCreatedEventSchema>;
+
 export const FullNodeEventSchema = z.union([
   TxDataWithoutMetaFullNodeEventSchema,
   StandardFullNodeEventSchema,
   ReorgFullNodeEventSchema,
   EmptyDataFullNodeEventSchema,
   NcEventSchema,
+  TokenCreatedEventSchema,
 ]);
 export type FullNodeEvent = z.infer<typeof FullNodeEventSchema>;
 

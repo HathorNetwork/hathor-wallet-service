@@ -7,71 +7,18 @@
 
 import { Context, Event, EventTypes, FullNodeEventTypes } from '../types';
 import { hashTxData } from '../utils';
-import { METADATA_DIFF_EVENT_TYPES } from '../services';
 import getConfig from '../config';
 import logger from '../logger';
 
 /*
- * This guard is used during the `handlingMetadataChanged` to check if
- * the result was an IGNORE event
+ * Parameterized guard for the metadata change dispatch queue.
+ * Checks if the next pending change matches the given changeType.
+ *
+ * Usage in machine config:
+ *   cond: { type: 'hasNextChange', changeType: 'TX_VOIDED' }
  */
-export const metadataIgnore = (_context: Context, event: Event) => {
-  if (event.type !== EventTypes.METADATA_DECIDED) {
-    throw new Error(`Invalid event type on metadataIgnore guard: ${event.type}`);
-  }
-
-  return event.event.type === METADATA_DIFF_EVENT_TYPES.IGNORE;
-};
-
-/*
- * This guard is used during the `handlingMetadataChanged` to check if
- * the result was a TX_VOIDED event
- */
-export const metadataVoided = (_context: Context, event: Event) => {
-  if (event.type !== EventTypes.METADATA_DECIDED) {
-    throw new Error(`Invalid event type on metadataVoided guard: ${event.type}`);
-  }
-
-  return event.event.type === METADATA_DIFF_EVENT_TYPES.TX_VOIDED;
-};
-
-/*
- * This guard is used during the `handlingMetadataChanged` to check if
- * the result was a TX_UNVOIDED event, which means the tx was voided
- * and then got unvoided
- */
-export const metadataUnvoided = (_context: Context, event: Event) => {
-  if (event.type !== EventTypes.METADATA_DECIDED) {
-    throw new Error(`Invalid event type on metadataUnvoided guard: ${event.type}`);
-  }
-
-  return event.event.type === METADATA_DIFF_EVENT_TYPES.TX_UNVOIDED;
-};
-
-/*
- * This guard is used during the `handlingMetadataChanged` to check if
- * the result was a TX_NEW event, which means that we should insert
- * this transaction on the database
- */
-export const metadataNewTx = (_context: Context, event: Event) => {
-  if (event.type !== EventTypes.METADATA_DECIDED) {
-    throw new Error(`Invalid event type on metadataNewTx guard: ${event.type}`);
-  }
-
-  return event.event.type === METADATA_DIFF_EVENT_TYPES.TX_NEW;
-};
-
-/*
- * This guard is used during the `handlingMetadataChanged` to check if
- * the result was a TX_FIRST_BLOCK event, which means that we should insert
- * the height of this transaction to the database
- */
-export const metadataFirstBlock = (_context: Context, event: Event) => {
-  if (event.type !== EventTypes.METADATA_DECIDED) {
-    throw new Error(`Invalid event type on metadataFirstBlock guard: ${event.type}`);
-  }
-
-  return event.event.type === METADATA_DIFF_EVENT_TYPES.TX_FIRST_BLOCK;
+export const hasNextChange = (context: Context, _event: Event, meta: any) => {
+  return context.pendingMetadataChanges?.[0] === meta.cond.changeType;
 };
 
 /*
@@ -263,4 +210,15 @@ export const hasNewEvents = (_context: Context, event: any) => {
   }
 
   return event.data.hasNewEvents === true;
+};
+
+/*
+ * This guard is used to detect if the event is a TOKEN_CREATED event
+ */
+export const tokenCreated = (_context: Context, event: Event) => {
+  if (event.type !== EventTypes.FULLNODE_EVENT) {
+    throw new Error(`Invalid event type on tokenCreated guard: ${event.type}`);
+  }
+
+  return event.event.event.type === FullNodeEventTypes.TOKEN_CREATED;
 };

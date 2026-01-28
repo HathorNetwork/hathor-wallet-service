@@ -32,6 +32,10 @@ import {
   incrementTokensTxCount,
   markUtxosAsVoided,
   storeTokenInformation,
+  insertTokenCreation,
+  getTokensCreatedByTx,
+  getReexecNanoTokens,
+  deleteTokens,
   unlockUtxos,
   unspendUtxos,
   updateAddressLockedBalance,
@@ -72,7 +76,7 @@ import {
 import { isAuthority } from '@wallet-service/common';
 import { DbTxOutput, StringMap, TokenInfo, WalletStatus } from '../../src/types';
 import { Authorities, TokenBalanceMap } from '@wallet-service/common';
-import { constants } from '@hathor/wallet-lib';
+import { constants, TokenVersion } from '@hathor/wallet-lib';
 import { generateAddresses } from '../../src/utils';
 
 // Use a single mysql connection for all tests
@@ -130,6 +134,78 @@ describe('transaction methods', () => {
 
     const bestBlock = await getBestBlockHeight(mysql);
     expect(bestBlock).toStrictEqual(4);
+  });
+
+  test('should insert a new tx with first_block', async () => {
+    expect.hasAssertions();
+
+    const firstBlock = 'block_hash_123';
+    await addOrUpdateTx(mysql, 'txId1', 10, 1, 1, 65.4321, firstBlock);
+    const tx = await getTransactionById(mysql, 'txId1');
+
+    expect(tx?.height).toStrictEqual(10);
+    expect(tx?.first_block).toStrictEqual(firstBlock);
+  });
+
+  test('should insert a new tx without first_block (mempool tx)', async () => {
+    expect.hasAssertions();
+
+    await addOrUpdateTx(mysql, 'txId1', null, 1, 1, 65.4321, null);
+    const tx = await getTransactionById(mysql, 'txId1');
+
+    expect(tx?.height).toBeNull();
+    expect(tx?.first_block).toBeNull();
+  });
+
+  test('should update first_block from NULL to value (tx confirmed)', async () => {
+    expect.hasAssertions();
+
+    // Insert tx without first_block (in mempool)
+    await addOrUpdateTx(mysql, 'txId1', null, 1, 1, 65.4321, null);
+    let tx = await getTransactionById(mysql, 'txId1');
+    expect(tx?.first_block).toBeNull();
+    expect(tx?.height).toBeNull();
+
+    // Update tx with first_block (confirmed in a block)
+    const firstBlock = 'block_hash_456';
+    await addOrUpdateTx(mysql, 'txId1', 5, 1, 1, 65.4321, firstBlock);
+    tx = await getTransactionById(mysql, 'txId1');
+    expect(tx?.first_block).toStrictEqual(firstBlock);
+    expect(tx?.height).toStrictEqual(5);
+  });
+
+  test('should update first_block from value to NULL (tx back to mempool after reorg)', async () => {
+    expect.hasAssertions();
+
+    // Insert tx with first_block (confirmed)
+    const firstBlock = 'block_hash_789';
+    await addOrUpdateTx(mysql, 'txId1', 10, 1, 1, 65.4321, firstBlock);
+    let tx = await getTransactionById(mysql, 'txId1');
+    expect(tx?.first_block).toStrictEqual(firstBlock);
+    expect(tx?.height).toStrictEqual(10);
+
+    // Update tx to remove first_block (back to mempool after reorg)
+    await addOrUpdateTx(mysql, 'txId1', null, 1, 1, 65.4321, null);
+    tx = await getTransactionById(mysql, 'txId1');
+    expect(tx?.first_block).toBeNull();
+    expect(tx?.height).toBeNull();
+  });
+
+  test('should update first_block from one value to another (reorg to different block)', async () => {
+    expect.hasAssertions();
+
+    // Insert tx with first_block
+    const firstBlock1 = 'block_hash_aaa';
+    await addOrUpdateTx(mysql, 'txId1', 10, 1, 1, 65.4321, firstBlock1);
+    let tx = await getTransactionById(mysql, 'txId1');
+    expect(tx?.first_block).toStrictEqual(firstBlock1);
+
+    // Update tx with different first_block (reorg to different block)
+    const firstBlock2 = 'block_hash_bbb';
+    await addOrUpdateTx(mysql, 'txId1', 11, 1, 1, 65.4321, firstBlock2);
+    tx = await getTransactionById(mysql, 'txId1');
+    expect(tx?.first_block).toStrictEqual(firstBlock2);
+    expect(tx?.height).toStrictEqual(11);
   });
 });
 
@@ -1062,23 +1138,34 @@ describe('token methods', () => {
 
     expect(await getTokenInformation(mysql, 'invalid')).toBeNull();
 
-    const info = new TokenInfo('tokenId', 'tokenName', 'TKNS');
-    storeTokenInformation(mysql, info.id, info.name, info.symbol);
+    const info = new TokenInfo('tokenId', 'tokenName', 'TKNS', TokenVersion.DEPOSIT);
+    storeTokenInformation(mysql, info.id, info.name, info.symbol, info.version);
 
     expect(info).toStrictEqual(await getTokenInformation(mysql, info.id));
+  });
+
+  test('storeTokenInformation and getTokenInformation with TokenVersion.FEE', async () => {
+    expect.hasAssertions();
+
+    const feeToken = new TokenInfo('feeTokenId', 'FeeTokenName', 'FTKS', TokenVersion.FEE);
+    storeTokenInformation(mysql, feeToken.id, feeToken.name, feeToken.symbol, feeToken.version);
+
+    const retrievedToken = await getTokenInformation(mysql, feeToken.id);
+    expect(retrievedToken).toStrictEqual(feeToken);
+    expect(retrievedToken?.version).toBe(TokenVersion.FEE);
   });
 
   test('incrementTokensTxCount', async () => {
     expect.hasAssertions();
 
-    const htr = new TokenInfo('00', 'Hathor', 'HTR', 5);
-    const token1 = new TokenInfo('token1', 'MyToken1', 'MT1', 10);
-    const token2 = new TokenInfo('token2', 'MyToken2', 'MT2', 15);
+    const htr = new TokenInfo('00', 'Hathor', 'HTR', TokenVersion.NATIVE, 5);
+    const token1 = new TokenInfo('token1', 'MyToken1', 'MT1', TokenVersion.DEPOSIT, 10);
+    const token2 = new TokenInfo('token2', 'MyToken2', 'MT2', TokenVersion.DEPOSIT, 15);
 
     await addToTokenTable(mysql, [
-      { id: htr.id, name: htr.name, symbol: htr.symbol, transactions: htr.transactions },
-      { id: token1.id, name: token1.name, symbol: token1.symbol, transactions: token1.transactions },
-      { id: token2.id, name: token2.name, symbol: token2.symbol, transactions: token2.transactions },
+      { id: htr.id, name: htr.name, symbol: htr.symbol, version: htr.version, transactions: htr.transactions },
+      { id: token1.id, name: token1.name, symbol: token1.symbol, version: token1.version, transactions: token1.transactions },
+      { id: token2.id, name: token2.name, symbol: token2.symbol, version: token2.version, transactions: token2.transactions },
     ]);
 
     await incrementTokensTxCount(mysql, ['token1', '00', 'token2']);
@@ -1093,6 +1180,39 @@ describe('token methods', () => {
       tokenSymbol: token2.symbol,
       tokenName: token2.name,
       transactions: token2.transactions + 1,
+    }, {
+      tokenId: htr.id,
+      tokenSymbol: htr.symbol,
+      tokenName: htr.name,
+      transactions: htr.transactions + 1,
+    }])).resolves.toBe(true);
+  });
+
+  test('incrementTokensTxCount with mixed DEPOSIT and FEE tokens', async () => {
+    expect.hasAssertions();
+
+    const htr = new TokenInfo('00', 'Hathor', 'HTR', TokenVersion.NATIVE, 5);
+    const depositToken = new TokenInfo('deposit1', 'DepositToken', 'DEP', TokenVersion.DEPOSIT, 10);
+    const feeToken = new TokenInfo('fee1', 'FeeToken', 'FEE', TokenVersion.FEE, 20);
+
+    await addToTokenTable(mysql, [
+      { id: htr.id, name: htr.name, symbol: htr.symbol, version: htr.version, transactions: htr.transactions },
+      { id: depositToken.id, name: depositToken.name, symbol: depositToken.symbol, version: depositToken.version, transactions: depositToken.transactions },
+      { id: feeToken.id, name: feeToken.name, symbol: feeToken.symbol, version: feeToken.version, transactions: feeToken.transactions },
+    ]);
+
+    await incrementTokensTxCount(mysql, ['deposit1', '00', 'fee1']);
+
+    await expect(checkTokenTable(mysql, 3, [{
+      tokenId: depositToken.id,
+      tokenSymbol: depositToken.symbol,
+      tokenName: depositToken.name,
+      transactions: depositToken.transactions + 1,
+    }, {
+      tokenId: feeToken.id,
+      tokenSymbol: feeToken.symbol,
+      tokenName: feeToken.name,
+      transactions: feeToken.transactions + 1,
     }, {
       tokenId: htr.id,
       tokenSymbol: htr.symbol,
@@ -1119,16 +1239,16 @@ describe('getTokenSymbols', () => {
     expect.hasAssertions();
 
     const tokensToPersist = [
-      new TokenInfo('token1', 'tokenName1', 'TKN1'),
-      new TokenInfo('token2', 'tokenName2', 'TKN2'),
-      new TokenInfo('token3', 'tokenName3', 'TKN3'),
-      new TokenInfo('token4', 'tokenName4', 'TKN4'),
-      new TokenInfo('token5', 'tokenName5', 'TKN5'),
+      new TokenInfo('token1', 'tokenName1', 'TKN1', TokenVersion.DEPOSIT),
+      new TokenInfo('token2', 'tokenName2', 'TKN2', TokenVersion.DEPOSIT),
+      new TokenInfo('token3', 'tokenName3', 'TKN3', TokenVersion.DEPOSIT),
+      new TokenInfo('token4', 'tokenName4', 'TKN4', TokenVersion.DEPOSIT),
+      new TokenInfo('token5', 'tokenName5', 'TKN5', TokenVersion.DEPOSIT),
     ];
 
     // persist tokens
     for (const eachToken of tokensToPersist) {
-      await storeTokenInformation(mysql, eachToken.id, eachToken.name, eachToken.symbol);
+      await storeTokenInformation(mysql, eachToken.id, eachToken.name, eachToken.symbol, eachToken.version);
     }
 
     const tokenIdList = tokensToPersist.map((each: TokenInfo) => each.id);
@@ -1147,11 +1267,11 @@ describe('getTokenSymbols', () => {
     expect.hasAssertions();
 
     const tokensToPersist = [
-      new TokenInfo('token1', 'tokenName1', 'TKN1'),
-      new TokenInfo('token2', 'tokenName2', 'TKN2'),
-      new TokenInfo('token3', 'tokenName3', 'TKN3'),
-      new TokenInfo('token4', 'tokenName4', 'TKN4'),
-      new TokenInfo('token5', 'tokenName5', 'TKN5'),
+      new TokenInfo('token1', 'tokenName1', 'TKN1', TokenVersion.DEPOSIT),
+      new TokenInfo('token2', 'tokenName2', 'TKN2', TokenVersion.DEPOSIT),
+      new TokenInfo('token3', 'tokenName3', 'TKN3', TokenVersion.DEPOSIT),
+      new TokenInfo('token4', 'tokenName4', 'TKN4', TokenVersion.DEPOSIT),
+      new TokenInfo('token5', 'tokenName5', 'TKN5', TokenVersion.DEPOSIT),
     ];
 
     // no token persistence
@@ -1165,6 +1285,32 @@ describe('getTokenSymbols', () => {
     tokenSymbolMap = await getTokenSymbols(mysql, tokenIdList);
 
     expect(tokenSymbolMap).toStrictEqual({});
+  });
+
+  it('should return a map of token symbol by token id with mixed DEPOSIT and FEE tokens', async () => {
+    expect.hasAssertions();
+
+    const tokensToPersist = [
+      new TokenInfo('deposit1', 'DepositToken1', 'DEP1', TokenVersion.DEPOSIT),
+      new TokenInfo('deposit2', 'DepositToken2', 'DEP2', TokenVersion.DEPOSIT),
+      new TokenInfo('fee1', 'FeeToken1', 'FEE1', TokenVersion.FEE),
+      new TokenInfo('fee2', 'FeeToken2', 'FEE2', TokenVersion.FEE),
+    ];
+
+    // persist tokens
+    for (const eachToken of tokensToPersist) {
+      await storeTokenInformation(mysql, eachToken.id, eachToken.name, eachToken.symbol, eachToken.version);
+    }
+
+    const tokenIdList = tokensToPersist.map((each: TokenInfo) => each.id);
+    const tokenSymbolMap = await getTokenSymbols(mysql, tokenIdList);
+
+    expect(tokenSymbolMap).toStrictEqual({
+      deposit1: 'DEP1',
+      deposit2: 'DEP2',
+      fee1: 'FEE1',
+      fee2: 'FEE2',
+    });
   });
 });
 
@@ -1233,7 +1379,7 @@ describe('voidTransaction', () => {
     await expect(checkAddressTxHistoryTable(mysql, 0, addr1, txId, token1, -1, 0)).resolves.toBe(true);
     await expect(checkAddressTxHistoryTable(mysql, 0, addr1, txId, token2, -1, 0)).resolves.toBe(true);
 
-    await expect(checkTransactionTable(mysql, 1, txId, 0, constants.BLOCK_VERSION, true, 1)).resolves.toBe(true);
+    await expect(checkTransactionTable(mysql, 1, txId, 0, constants.BLOCK_VERSION, true, 1, null)).resolves.toBe(true);
   });
 
   it('should not fail when balances are empty (from a tx with no inputs and outputs)', async () => {
@@ -1251,7 +1397,7 @@ describe('voidTransaction', () => {
 
     await expect(voidTransaction(mysql, txId)).resolves.not.toThrow();
     // Tx should be voided
-    await expect(checkTransactionTable(mysql, 1, txId, 0, constants.BLOCK_VERSION, true, 1)).resolves.toBe(true);
+    await expect(checkTransactionTable(mysql, 1, txId, 0, constants.BLOCK_VERSION, true, 1, null)).resolves.toBe(true);
   });
 
   it('should throw an error if the transaction is not found in the database', async () => {
@@ -1345,5 +1491,212 @@ describe('address generation and index methods', () => {
     expect(subsetWallet1).toBeDefined();
     expect(subsetWallet1?.maxAmongAddresses).toBe(10);
     expect(subsetWallet1?.maxWalletIndex).toBe(15);
+  });
+});
+
+describe('token creation mapping methods', () => {
+  test('insertTokenCreation and getTokensCreatedByTx', async () => {
+    expect.hasAssertions();
+
+    const tokenId1 = 'token001';
+    const tokenId2 = 'token002';
+    const tokenId3 = 'token003';
+    const txId1 = 'tx001';
+    const txId2 = 'tx002';
+
+    // First, add tokens to the token table
+    await addToTokenTable(mysql, [
+      { id: tokenId1, name: 'Token 1', symbol: 'TK1', version: TokenVersion.DEPOSIT, transactions: 0 },
+      { id: tokenId2, name: 'Token 2', symbol: 'TK2', version: TokenVersion.DEPOSIT, transactions: 0 },
+      { id: tokenId3, name: 'Token 3', symbol: 'TK3', version: TokenVersion.DEPOSIT, transactions: 0 },
+    ]);
+
+    // Insert token creation mappings
+    // tx001 creates token1 and token2 (like a nano contract creating multiple tokens)
+    await insertTokenCreation(mysql, tokenId1, txId1, 'block001');
+    await insertTokenCreation(mysql, tokenId2, txId1, 'block001');
+    // tx002 creates token3
+    await insertTokenCreation(mysql, tokenId3, txId2, 'block002');
+
+    // Get tokens created by tx001
+    const tokensFromTx1 = await getTokensCreatedByTx(mysql, txId1);
+    expect(tokensFromTx1).toHaveLength(2);
+    expect(tokensFromTx1).toContain(tokenId1);
+    expect(tokensFromTx1).toContain(tokenId2);
+
+    // Get tokens created by tx002
+    const tokensFromTx2 = await getTokensCreatedByTx(mysql, txId2);
+    expect(tokensFromTx2).toHaveLength(1);
+    expect(tokensFromTx2).toContain(tokenId3);
+
+    // Query non-existent transaction
+    const tokensFromNonExistent = await getTokensCreatedByTx(mysql, 'nonexistent');
+    expect(tokensFromNonExistent).toHaveLength(0);
+  });
+
+  test('deleteTokens', async () => {
+    expect.hasAssertions();
+
+    const tokenId1 = 'token001';
+    const tokenId2 = 'token002';
+    const tokenId3 = 'token003';
+
+    // Add tokens to token table
+    await addToTokenTable(mysql, [
+      { id: tokenId1, name: 'Token 1', symbol: 'TK1', version: TokenVersion.DEPOSIT, transactions: 0 },
+      { id: tokenId2, name: 'Token 2', symbol: 'TK2', version: TokenVersion.DEPOSIT, transactions: 0 },
+      { id: tokenId3, name: 'Token 3', symbol: 'TK3', version: TokenVersion.DEPOSIT, transactions: 0 },
+    ]);
+
+    // Verify tokens exist
+    let token1 = await getTokenInformation(mysql, tokenId1);
+    expect(token1).toBeDefined();
+    expect(token1?.name).toBe('Token 1');
+
+    // Delete token1 and token2
+    await deleteTokens(mysql, [tokenId1, tokenId2]);
+
+    // Verify token1 and token2 are gone
+    token1 = await getTokenInformation(mysql, tokenId1);
+    expect(token1).toBeNull();
+
+    const token2 = await getTokenInformation(mysql, tokenId2);
+    expect(token2).toBeNull();
+
+    // Verify token3 still exists
+    const token3 = await getTokenInformation(mysql, tokenId3);
+    expect(token3).toBeDefined();
+    expect(token3?.name).toBe('Token 3');
+
+    // Delete with empty array should not throw
+    await expect(deleteTokens(mysql, [])).resolves.not.toThrow();
+  });
+
+  test('token deletion cascade with token_creation table', async () => {
+    expect.hasAssertions();
+
+    const tokenId1 = 'token001';
+    const tokenId2 = 'token002';
+    const txId1 = 'tx001';
+
+    // Add tokens
+    await addToTokenTable(mysql, [
+      { id: tokenId1, name: 'Token 1', symbol: 'TK1', version: TokenVersion.DEPOSIT, transactions: 0 },
+      { id: tokenId2, name: 'Token 2', symbol: 'TK2', version: TokenVersion.DEPOSIT, transactions: 0 },
+    ]);
+
+    // Insert mappings
+    await insertTokenCreation(mysql, tokenId1, txId1, 'block001');
+    await insertTokenCreation(mysql, tokenId2, txId1, 'block001');
+
+    // Verify mappings exist
+    let tokens = await getTokensCreatedByTx(mysql, txId1);
+    expect(tokens).toHaveLength(2);
+
+    // Delete the tokens (should cascade to token_creation due to FK)
+    await deleteTokens(mysql, [tokenId1, tokenId2]);
+
+    // Verify mappings are also deleted
+    tokens = await getTokensCreatedByTx(mysql, txId1);
+    expect(tokens).toHaveLength(0);
+  });
+
+  test('getReexecNanoTokens should only return nano-created tokens', async () => {
+    expect.hasAssertions();
+
+    const txId = 'hybrid-tx-001';
+    // Traditional CREATE_TOKEN_TX token: token_id = tx_id
+    const traditionalTokenId = txId;
+    // Nano-created tokens: token_id != tx_id
+    const nanoTokenId1 = 'nano-token-001';
+    const nanoTokenId2 = 'nano-token-002';
+
+    const blockA = 'block-A';
+    const blockB = 'block-B';
+
+    // Add tokens to token table
+    await addToTokenTable(mysql, [
+      { id: traditionalTokenId, name: 'Hybrid Token', symbol: 'HYB', version: TokenVersion.DEPOSIT, transactions: 0 },
+      { id: nanoTokenId1, name: 'Nano Token 1', symbol: 'NC1', version: TokenVersion.DEPOSIT, transactions: 0 },
+      { id: nanoTokenId2, name: 'Nano Token 2', symbol: 'NC2', version: TokenVersion.DEPOSIT, transactions: 0 },
+    ]);
+
+    // Insert token creation mappings:
+    // - Traditional token has first_block = null (created in mempool)
+    // - Nano tokens have first_block = blockA
+    await insertTokenCreation(mysql, traditionalTokenId, txId, null);
+    await insertTokenCreation(mysql, nanoTokenId1, txId, blockA);
+    await insertTokenCreation(mysql, nanoTokenId2, txId, blockA);
+
+    // Query for tokens with different first_block than blockB
+    // Should return nano tokens (blockA != blockB) but NOT traditional token (token_id = tx_id)
+    const tokensWithDifferentBlock = await getReexecNanoTokens(mysql, txId, blockB);
+
+    expect(tokensWithDifferentBlock).toHaveLength(2);
+    expect(tokensWithDifferentBlock).toContain(nanoTokenId1);
+    expect(tokensWithDifferentBlock).toContain(nanoTokenId2);
+    expect(tokensWithDifferentBlock).not.toContain(traditionalTokenId);
+  });
+
+  test('getReexecNanoTokens should not return tokens with same first_block', async () => {
+    expect.hasAssertions();
+
+    const txId = 'nano-tx-001';
+    const nanoTokenId = 'nano-token-001';
+    const blockA = 'block-A';
+
+    // Add token
+    await addToTokenTable(mysql, [
+      { id: nanoTokenId, name: 'Nano Token', symbol: 'NCT', version: TokenVersion.DEPOSIT, transactions: 0 },
+    ]);
+
+    // Insert mapping with first_block = blockA
+    await insertTokenCreation(mysql, nanoTokenId, txId, blockA);
+
+    // Query with same first_block - should return empty
+    const tokens = await getReexecNanoTokens(mysql, txId, blockA);
+    expect(tokens).toHaveLength(0);
+  });
+
+  test('getReexecNanoTokens should handle null first_block queries', async () => {
+    expect.hasAssertions();
+
+    const txId = 'nano-tx-001';
+    const nanoTokenId = 'nano-token-001';
+    const blockA = 'block-A';
+
+    // Add token
+    await addToTokenTable(mysql, [
+      { id: nanoTokenId, name: 'Nano Token', symbol: 'NCT', version: TokenVersion.DEPOSIT, transactions: 0 },
+    ]);
+
+    // Insert mapping with first_block = blockA
+    await insertTokenCreation(mysql, nanoTokenId, txId, blockA);
+
+    // Query with null first_block - should return the token since blockA != null
+    const tokens = await getReexecNanoTokens(mysql, txId, null);
+    expect(tokens).toHaveLength(1);
+    expect(tokens).toContain(nanoTokenId);
+  });
+
+  test('getReexecNanoTokens should not return traditional tokens even with different first_block', async () => {
+    expect.hasAssertions();
+
+    const txId = 'create-token-tx-001';
+    // Traditional CREATE_TOKEN_TX: token_id = tx_id
+    const traditionalTokenId = txId;
+
+    // Add token
+    await addToTokenTable(mysql, [
+      { id: traditionalTokenId, name: 'My Token', symbol: 'MTK', version: TokenVersion.DEPOSIT, transactions: 0 },
+    ]);
+
+    // Insert mapping with first_block = null (traditional token)
+    await insertTokenCreation(mysql, traditionalTokenId, txId, null);
+
+    // Query with a block hash - should NOT return the traditional token
+    // even though null != 'some-block' because token_id = tx_id
+    const tokens = await getReexecNanoTokens(mysql, txId, 'some-block');
+    expect(tokens).toHaveLength(0);
   });
 });
