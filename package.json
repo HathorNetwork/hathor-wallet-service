@@ -4,7 +4,8 @@
   "workspaces": [
     "packages/common",
     "packages/daemon",
-    "packages/wallet-service"
+    "packages/wallet-service",
+    "packages/event-downloader"
   ],
   "engines": {
     "node": ">=22"
