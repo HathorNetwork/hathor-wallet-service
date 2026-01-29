@@ -14296,6 +14296,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"lodash@npm:4.17.23":
+  version: 4.17.23
+  resolution: "lodash@npm:4.17.23"
+  checksum: 10/82504c88250f58da7a5a4289f57a4f759c44946c005dd232821c7688b5fcfbf4a6268f6a6cdde4b792c91edd2f3b5398c1d2a0998274432cff76def48735e233
+  languageName: node
+  linkType: hard
+
 "log-node@npm:^8.0.3":
   version: 8.0.3
   resolution: "log-node@npm:8.0.3"
@@ -17804,7 +17811,7 @@ __metadata:
     eslint-plugin-import: "npm:2.29.1"
     eslint-plugin-jest: "npm:27.4.0"
     jest: "npm:29.6.4"
-    lodash: "npm:4.17.21"
+    lodash: "npm:4.17.23"
     mysql2: "npm:3.5.2"
     sequelize: "npm:6.33.0"
     sequelize-cli: "npm:6.6.1"
@@ -18909,7 +18916,7 @@ __metadata:
     jest: "npm:29.7.0"
     joi: "npm:17.4.0"
     jsonwebtoken: "npm:8.5.1"
-    lodash: "npm:4.17.21"
+    lodash: "npm:4.17.23"
     mysql: "npm:2.18.1"
     mysql2: "npm:2.2.5"
     npm-run-all: "npm:4.1.5"
