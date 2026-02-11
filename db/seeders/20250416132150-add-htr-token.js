@@ -14,6 +14,7 @@ module.exports = {
       name: 'Hathor',
       symbol: 'HTR',
       transactions: htrTxCount,
+      version: 0, // TokenVersion.NATIVE
     }]);
   },
 
