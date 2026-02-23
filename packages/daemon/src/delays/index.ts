@@ -24,3 +24,9 @@ export const ACK_TIMEOUT = () => {
   const { ACK_TIMEOUT_MS } = getConfig();
   return ACK_TIMEOUT_MS;
 };
+
+// Timeout before auto-restarting when stuck in a single processing state
+export const STUCK_PROCESSING_TIMEOUT = () => {
+  const { STUCK_PROCESSING_TIMEOUT_MS } = getConfig();
+  return STUCK_PROCESSING_TIMEOUT_MS;
+};

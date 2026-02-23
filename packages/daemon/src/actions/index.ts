@@ -12,6 +12,7 @@ import logger from '../logger';
 import { hashTxData } from '../utils';
 import { createStartStreamMessage, createSendAckMessage } from '../actors';
 import { bigIntUtils } from '@hathor/wallet-lib';
+import { addAlert, Severity } from '@wallet-service/common';
 
 /*
  * This action is used to store the initial event id on the context
@@ -197,3 +198,68 @@ export const stopHealthcheckPing = sendTo(
  * Logs the event as an error log
  */
 export const logEventError = (_context: Context, event: Event) => logger.error(bigIntUtils.JSONBigInt.stringify(event));
+
+/*
+ * This is a helper to get the monitoring ref from the context and throw if it's not found.
+ */
+export const getMonitoringRefFromContext = (context: Context) => {
+  if (!context.monitoring) {
+    throw new Error('No monitoring actor in context');
+  }
+
+  return context.monitoring;
+};
+
+/*
+ * Notifies the monitoring actor that the WebSocket became connected.
+ */
+export const sendMonitoringConnected = sendTo(
+  getMonitoringRefFromContext,
+  { type: EventTypes.MONITORING_EVENT, event: { type: 'CONNECTED' } },
+);
+
+/*
+ * Notifies the monitoring actor that the WebSocket disconnected.
+ */
+export const sendMonitoringDisconnected = sendTo(
+  getMonitoringRefFromContext,
+  { type: EventTypes.MONITORING_EVENT, event: { type: 'DISCONNECTED' } },
+);
+
+/*
+ * Notifies the monitoring actor that a fullnode event was received (resets the idle timer).
+ */
+export const sendMonitoringEventReceived = sendTo(
+  getMonitoringRefFromContext,
+  { type: EventTypes.MONITORING_EVENT, event: { type: 'EVENT_RECEIVED' } },
+);
+
+/*
+ * Notifies the monitoring actor that the machine is entering the RECONNECTING state.
+ */
+export const sendMonitoringReconnecting = sendTo(
+  getMonitoringRefFromContext,
+  { type: EventTypes.MONITORING_EVENT, event: { type: 'RECONNECTING' } },
+);
+
+/*
+ * Fires a CRITICAL alert and logs when the machine has been stuck in a processing
+ * state for longer than STUCK_PROCESSING_TIMEOUT_MS. The machine will transition to
+ * RECONNECTING immediately after this action runs.
+ */
+export const alertStuckProcessing = (context: Context) => {
+  const eventId = context.event?.event?.id;
+  logger.error(
+    `[monitoring] State machine stuck processing event ${eventId ?? 'unknown'} for too long — forcing reconnection`,
+  );
+  addAlert(
+    'Daemon Stuck In Processing State',
+    `The state machine has been processing event ${eventId ?? 'unknown'} ` +
+      'for longer than the configured timeout. Forcing a reconnection.',
+    Severity.CRITICAL,
+    { eventId: eventId !== undefined ? String(eventId) : 'unknown' },
+    logger,
+  ).catch((err: Error) =>
+    logger.error(`[monitoring] Failed to send stuck-processing alert: ${err}`),
+  );
+};

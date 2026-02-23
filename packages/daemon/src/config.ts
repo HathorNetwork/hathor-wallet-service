@@ -87,6 +87,16 @@ export const HEALTHCHECK_PING_INTERVAL = parseInt(process.env.HEALTHCHECK_PING_I
 // ACK timeout configuration (in milliseconds)
 export const ACK_TIMEOUT_MS = parseInt(process.env.ACK_TIMEOUT_MS ?? '20000', 10);  // 20 seconds
 
+// Monitoring configuration
+// Timeout (ms) before alerting when no fullnode events received while WebSocket connected
+export const IDLE_EVENT_TIMEOUT_MS = parseInt(process.env.IDLE_EVENT_TIMEOUT_MS ?? String(5 * 60 * 1000), 10);  // 5 minutes
+// Timeout (ms) before auto-restarting when stuck in a single processing state
+export const STUCK_PROCESSING_TIMEOUT_MS = parseInt(process.env.STUCK_PROCESSING_TIMEOUT_MS ?? String(5 * 60 * 1000), 10);  // 5 minutes
+// Number of reconnections within RECONNECTION_STORM_WINDOW_MS to trigger a storm alert
+export const RECONNECTION_STORM_THRESHOLD = parseInt(process.env.RECONNECTION_STORM_THRESHOLD ?? '10', 10);
+// Time window (ms) for reconnection storm detection
+export const RECONNECTION_STORM_WINDOW_MS = parseInt(process.env.RECONNECTION_STORM_WINDOW_MS ?? String(5 * 60 * 1000), 10);  // 5 minutes
+
 // Other
 export const USE_SSL = process.env.USE_SSL === 'true';
 
@@ -127,6 +137,10 @@ export default () => ({
   HEALTHCHECK_SERVER_API_KEY,
   HEALTHCHECK_PING_INTERVAL,
   ACK_TIMEOUT_MS,
+  IDLE_EVENT_TIMEOUT_MS,
+  STUCK_PROCESSING_TIMEOUT_MS,
+  RECONNECTION_STORM_THRESHOLD,
+  RECONNECTION_STORM_WINDOW_MS,
   REORG_SIZE_INFO,
   REORG_SIZE_MINOR,
   REORG_SIZE_MAJOR,
