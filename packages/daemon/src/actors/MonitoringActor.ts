@@ -34,8 +34,18 @@ import { Event, EventTypes } from '../types';
  *    reconnects more than RECONNECTION_STORM_THRESHOLD times within
  *    RECONNECTION_STORM_WINDOW_MS.
  */
+const DEFAULT_IDLE_EVENT_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_STUCK_PROCESSING_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_RECONNECTION_STORM_THRESHOLD = 10;
+const DEFAULT_RECONNECTION_STORM_WINDOW_MS = 5 * 60 * 1000;
+
 export default (callback: any, receive: any, config = getConfig()) => {
   logger.info('Starting monitoring actor');
+
+  const idleTimeoutMs = config.IDLE_EVENT_TIMEOUT_MS ?? DEFAULT_IDLE_EVENT_TIMEOUT_MS;
+  const stuckTimeoutMs = config.STUCK_PROCESSING_TIMEOUT_MS ?? DEFAULT_STUCK_PROCESSING_TIMEOUT_MS;
+  const stormThreshold = config.RECONNECTION_STORM_THRESHOLD ?? DEFAULT_RECONNECTION_STORM_THRESHOLD;
+  const stormWindowMs = config.RECONNECTION_STORM_WINDOW_MS ?? DEFAULT_RECONNECTION_STORM_WINDOW_MS;
 
   // ── Idle detection ──────────────────────────────────────────────────────────
   let isConnected = false;
@@ -52,7 +62,7 @@ export default (callback: any, receive: any, config = getConfig()) => {
       if (!isConnected || lastEventReceivedAt === null) return;
 
       const idleMs = Date.now() - lastEventReceivedAt;
-      if (idleMs >= config.IDLE_EVENT_TIMEOUT_MS && !idleAlertFired) {
+      if (idleMs >= idleTimeoutMs && !idleAlertFired) {
         idleAlertFired = true;
         const idleMinutes = Math.round(idleMs / 60000);
         logger.error(
@@ -67,7 +77,7 @@ export default (callback: any, receive: any, config = getConfig()) => {
           logger,
         ).finally(() => process.exit(1));
       }
-    }, config.IDLE_EVENT_TIMEOUT_MS);
+    }, idleTimeoutMs);
   };
 
   const stopIdleCheck = () => {
@@ -88,17 +98,17 @@ export default (callback: any, receive: any, config = getConfig()) => {
         await addAlert(
           'Daemon Stuck In Processing State',
           `The state machine has been processing a single event for more than ` +
-            `${Math.round(config.STUCK_PROCESSING_TIMEOUT_MS / 60000)} minute(s). ` +
+            `${Math.round(stuckTimeoutMs / 60000)} minute(s). ` +
             'Forcing a reconnection.',
           Severity.MAJOR,
-          { timeoutMs: String(config.STUCK_PROCESSING_TIMEOUT_MS) },
+          { timeoutMs: String(stuckTimeoutMs) },
           logger,
         );
       } catch (err) {
         logger.error(`[monitoring] Failed to send stuck-processing alert: ${err}`);
       }
       callback({ type: EventTypes.MONITORING_STUCK_PROCESSING });
-    }, config.STUCK_PROCESSING_TIMEOUT_MS);
+    }, stuckTimeoutMs);
   };
 
   const clearStuckTimer = () => {
@@ -115,11 +125,11 @@ export default (callback: any, receive: any, config = getConfig()) => {
     const now = Date.now();
     reconnectionTimestamps.push(now);
 
-    const windowStart = now - config.RECONNECTION_STORM_WINDOW_MS;
+    const windowStart = now - stormWindowMs;
     reconnectionTimestamps = reconnectionTimestamps.filter(t => t >= windowStart);
 
-    if (reconnectionTimestamps.length >= config.RECONNECTION_STORM_THRESHOLD) {
-      const windowMinutes = Math.round(config.RECONNECTION_STORM_WINDOW_MS / 60000);
+    if (reconnectionTimestamps.length >= stormThreshold) {
+      const windowMinutes = Math.round(stormWindowMs / 60000);
       logger.error(
         `[monitoring] Reconnection storm: ${reconnectionTimestamps.length} reconnections in the last ${windowMinutes} minutes`,
       );
