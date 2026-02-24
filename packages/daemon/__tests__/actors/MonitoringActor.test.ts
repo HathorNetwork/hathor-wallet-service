@@ -29,6 +29,7 @@ describe('MonitoringActor', () => {
   let mockReceive: jest.Mock;
   let receiveCallback: (event: any) => void;
   let config: ReturnType<typeof getConfig>;
+  let processExitSpy: jest.SpyInstance;
 
   const sendEvent = (monitoringEventType: string) => {
     receiveCallback({
@@ -40,6 +41,7 @@ describe('MonitoringActor', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.clearAllTimers();
+    processExitSpy = jest.spyOn(process, 'exit').mockImplementation(() => undefined as never);
     config = getConfig();
     config['IDLE_EVENT_TIMEOUT_MS'] = 5 * 60 * 1000;       // 5 min
     config['STUCK_PROCESSING_TIMEOUT_MS'] = 5 * 60 * 1000; // 5 min
@@ -84,15 +86,17 @@ describe('MonitoringActor', () => {
     expect(clearInterval).toHaveBeenCalledTimes(1);
   });
 
-  it('should fire an idle alert after IDLE_EVENT_TIMEOUT_MS with no events', async () => {
+  it('should fire an idle alert and exit after IDLE_EVENT_TIMEOUT_MS with no events', async () => {
     MonitoringActor(mockCallback, mockReceive, config);
     sendEvent('CONNECTED');
 
     jest.advanceTimersByTime(config['IDLE_EVENT_TIMEOUT_MS'] + 1);
     await Promise.resolve();
+    await Promise.resolve(); // flush the .finally() microtask
 
     expect(mockAddAlert).toHaveBeenCalledTimes(1);
     expect(mockAddAlert.mock.calls[0][0]).toBe('Daemon Idle — No Events Received');
+    expect(processExitSpy).toHaveBeenCalledWith(1);
   });
 
   it('should NOT fire an idle alert when events keep arriving', async () => {
@@ -108,24 +112,29 @@ describe('MonitoringActor', () => {
     expect(mockAddAlert).not.toHaveBeenCalled();
   });
 
-  it('should fire only one idle alert per idle period', async () => {
+  it('should fire only one idle alert and exit once per idle period', async () => {
     MonitoringActor(mockCallback, mockReceive, config);
     sendEvent('CONNECTED');
 
     jest.advanceTimersByTime(config['IDLE_EVENT_TIMEOUT_MS'] * 3);
     await Promise.resolve();
+    await Promise.resolve();
 
     expect(mockAddAlert).toHaveBeenCalledTimes(1);
+    expect(processExitSpy).toHaveBeenCalledTimes(1);
+    expect(processExitSpy).toHaveBeenCalledWith(1);
   });
 
-  it('should reset the idle alert flag when an event is received, allowing a second alert', async () => {
+  it('should reset the idle alert flag when an event is received, allowing a second exit', async () => {
     MonitoringActor(mockCallback, mockReceive, config);
     sendEvent('CONNECTED');
 
-    // Trigger first alert
+    // Trigger first alert + exit
     jest.advanceTimersByTime(config['IDLE_EVENT_TIMEOUT_MS'] + 1);
     await Promise.resolve();
+    await Promise.resolve();
     expect(mockAddAlert).toHaveBeenCalledTimes(1);
+    expect(processExitSpy).toHaveBeenCalledTimes(1);
 
     // Receive an event — resets idleAlertFired and lastEventReceivedAt
     sendEvent('EVENT_RECEIVED');
@@ -135,8 +144,10 @@ describe('MonitoringActor', () => {
     // the next fire where idleMs >= T is at 3T (fire at 2T gives idleMs = T-1).
     jest.advanceTimersByTime(2 * config['IDLE_EVENT_TIMEOUT_MS']);
     await Promise.resolve();
+    await Promise.resolve();
 
     expect(mockAddAlert).toHaveBeenCalledTimes(2);
+    expect(processExitSpy).toHaveBeenCalledTimes(2);
   });
 
   it('should restart the idle timer when CONNECTED is sent while already running', () => {

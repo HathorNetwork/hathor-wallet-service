@@ -55,19 +55,17 @@ export default (callback: any, receive: any, config = getConfig()) => {
       if (idleMs >= config.IDLE_EVENT_TIMEOUT_MS && !idleAlertFired) {
         idleAlertFired = true;
         const idleMinutes = Math.round(idleMs / 60000);
-        logger.warn(
-          `[monitoring] No fullnode events received for ${idleMinutes} minutes while WebSocket is connected`,
+        logger.error(
+          `[monitoring] No fullnode events received for ${idleMinutes} minutes while WebSocket is connected — terminating`,
         );
         addAlert(
           'Daemon Idle — No Events Received',
           `No fullnode events received for ${idleMinutes} minute(s) while the WebSocket is connected. ` +
-            'The fullnode stream may be stalled.',
-          Severity.MINOR,
+            'Terminating the process so Kubernetes can restart it.',
+          Severity.MAJOR,
           { idleMs: String(idleMs) },
           logger,
-        ).catch((err: Error) =>
-          logger.error(`[monitoring] Failed to send idle alert: ${err}`),
-        );
+        ).finally(() => process.exit(1));
       }
     }, config.IDLE_EVENT_TIMEOUT_MS);
   };
