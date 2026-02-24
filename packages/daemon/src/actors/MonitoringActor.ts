@@ -35,7 +35,7 @@ import { Event, EventTypes } from '../types';
  *    RECONNECTION_STORM_WINDOW_MS.
  */
 const DEFAULT_IDLE_EVENT_TIMEOUT_MS = 5 * 60 * 1000;
-const DEFAULT_STUCK_PROCESSING_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_STUCK_PROCESSING_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
 const DEFAULT_RECONNECTION_STORM_THRESHOLD = 10;
 const DEFAULT_RECONNECTION_STORM_WINDOW_MS = 5 * 60 * 1000;
 
@@ -93,21 +93,17 @@ export default (callback: any, receive: any, config = getConfig()) => {
   const startStuckTimer = () => {
     clearStuckTimer();
     stuckTimer = setTimeout(async () => {
-      logger.error('[monitoring] State machine stuck in processing state — forcing reconnection');
-      try {
-        await addAlert(
-          'Daemon Stuck In Processing State',
-          `The state machine has been processing a single event for more than ` +
-            `${Math.round(stuckTimeoutMs / 60000)} minute(s). ` +
-            'Forcing a reconnection.',
-          Severity.MAJOR,
-          { timeoutMs: String(stuckTimeoutMs) },
-          logger,
-        );
-      } catch (err) {
-        logger.error(`[monitoring] Failed to send stuck-processing alert: ${err}`);
-      }
-      callback({ type: EventTypes.MONITORING_STUCK_PROCESSING });
+      logger.error('[monitoring] State machine stuck in processing state');
+      addAlert(
+        'Daemon Stuck In Processing State',
+        `The state machine has been processing a single event for more than ` +
+          `${Math.round(stuckTimeoutMs / 60000)} minute(s).`,
+        Severity.MAJOR,
+        { timeoutMs: String(stuckTimeoutMs) },
+        logger,
+      ).catch((err: Error) =>
+        logger.error(`[monitoring] Failed to send stuck-processing alert: ${err}`),
+      );
     }, stuckTimeoutMs);
   };
 

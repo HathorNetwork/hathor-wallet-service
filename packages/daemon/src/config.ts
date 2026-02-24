@@ -90,8 +90,8 @@ export const ACK_TIMEOUT_MS = parseInt(process.env.ACK_TIMEOUT_MS ?? '20000', 10
 // Monitoring configuration
 // Timeout (ms) before alerting when no fullnode events received while WebSocket connected
 export const IDLE_EVENT_TIMEOUT_MS = parseInt(process.env.IDLE_EVENT_TIMEOUT_MS ?? String(5 * 60 * 1000), 10);  // 5 minutes
-// Timeout (ms) before auto-restarting when stuck in a single processing state
-export const STUCK_PROCESSING_TIMEOUT_MS = parseInt(process.env.STUCK_PROCESSING_TIMEOUT_MS ?? String(5 * 60 * 1000), 10);  // 5 minutes
+// Timeout (ms) before alerting when stuck in a single processing state
+export const STUCK_PROCESSING_TIMEOUT_MS = parseInt(process.env.STUCK_PROCESSING_TIMEOUT_MS ?? String(60 * 60 * 1000), 10);  // 1 hour
 // Number of reconnections within RECONNECTION_STORM_WINDOW_MS to trigger a storm alert
 export const RECONNECTION_STORM_THRESHOLD = parseInt(process.env.RECONNECTION_STORM_THRESHOLD ?? '10', 10);
 // Time window (ms) for reconnection storm detection

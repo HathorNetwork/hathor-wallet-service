@@ -15,7 +15,6 @@ import { WebSocketActor, HealthCheckActor, MonitoringActor } from '../actors';
 import {
   Context,
   Event,
-  EventTypes,
 } from '../types';
 import {
   handleVertexAccepted,
@@ -392,10 +391,6 @@ export const SyncMachine = Machine<Context, any, Event>({
           cond: 'websocketDisconnected',
           target: SYNC_MACHINE_STATES.RECONNECTING,
         }],
-        // Sent by MonitoringActor when a processing state has been active for too long
-        [EventTypes.MONITORING_STUCK_PROCESSING]: {
-          target: `#SyncMachine.${SYNC_MACHINE_STATES.RECONNECTING}`,
-        },
       },
     },
     [SYNC_MACHINE_STATES.ERROR]: {

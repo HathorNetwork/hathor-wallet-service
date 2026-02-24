@@ -173,18 +173,17 @@ describe('MonitoringActor', () => {
     expect(clearTimeout).toHaveBeenCalledTimes(1);
   });
 
-  it('should fire a CRITICAL alert and call back MONITORING_STUCK_PROCESSING when stuck', async () => {
+  it('should fire a MAJOR alert when stuck', async () => {
     MonitoringActor(mockCallback, mockReceive, config);
     sendEvent('PROCESSING_STARTED');
 
     jest.advanceTimersByTime(config['STUCK_PROCESSING_TIMEOUT_MS'] + 1);
-    // Let the async addAlert inside the timeout resolve
     await Promise.resolve();
     await Promise.resolve();
 
     expect(mockAddAlert).toHaveBeenCalledTimes(1);
     expect(mockAddAlert.mock.calls[0][0]).toBe('Daemon Stuck In Processing State');
-    expect(mockCallback).toHaveBeenCalledWith({ type: EventTypes.MONITORING_STUCK_PROCESSING });
+    expect(mockCallback).not.toHaveBeenCalled();
   });
 
   it('should NOT fire the stuck alert when PROCESSING_COMPLETED arrives in time', async () => {
