@@ -1,6 +1,7 @@
 import {
   get,
 } from '@src/api/txById';
+import { TokenVersion } from '@hathor/wallet-lib';
 import { closeDbConnection, getDbConnection } from '@src/utils';
 import { addOrUpdateTx, createWallet, initWalletTxHistory } from '@src/db';
 import {
@@ -29,8 +30,8 @@ test('get a transaction given its ID', async () => {
   const txId1 = new Array(64).fill('0').join('');
   const walletId1 = 'wallet1';
   const addr1 = 'addr1';
-  const token1 = { id: 'token1', name: 'Token 1', symbol: 'T1' };
-  const token2 = { id: 'token2', name: 'Token 2', symbol: 'T2' };
+  const token1 = { id: 'token1', name: 'Token 1', symbol: 'T1', version: TokenVersion.DEPOSIT };
+  const token2 = { id: 'token2', name: 'Token 2', symbol: 'T2', version: TokenVersion.FEE };
   const timestamp1 = 10;
   const height1 = 1;
   const version1 = 3;
@@ -40,8 +41,8 @@ test('get a transaction given its ID', async () => {
   await addOrUpdateTx(mysql, txId1, height1, timestamp1, version1, weight1);
 
   await addToTokenTable(mysql, [
-    { id: token1.id, name: token1.name, symbol: token1.symbol, transactions: 0 },
-    { id: token2.id, name: token2.name, symbol: token2.symbol, transactions: 0 },
+    { id: token1.id, name: token1.name, symbol: token1.symbol, version: TokenVersion.DEPOSIT, transactions: 0 },
+    { id: token2.id, name: token2.name, symbol: token2.symbol, version: TokenVersion.FEE, transactions: 0 },
   ]);
   const entries = [
     { address: addr1, txId: txId1, tokenId: token1.id, balance: 10n, timestamp: timestamp1 },

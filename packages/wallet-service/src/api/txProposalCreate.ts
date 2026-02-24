@@ -17,8 +17,14 @@ import {
   getWallet,
   getWalletAddresses,
   getWalletAddressDetail,
+  incrementAddressSeqnum,
   markUtxosWithProposalId,
 } from '@src/db';
+import {
+  beginTransaction,
+  commitTransaction,
+  rollbackTransaction,
+} from '@src/db/utils';
 import {
   AddressInfo,
   IWalletInput,
@@ -117,15 +123,31 @@ export const create = middy(walletIdProxyHandler(async (walletId, event) => {
     return closeDbAndGetError(mysql, ApiError.TOO_MANY_INPUTS, { inputs: inputUtxos.length });
   }
 
-  // mark utxos with tx-proposal id
+  // Create tx-proposal and mark utxos atomically to prevent orphaned references
   const txProposalId = uuidv4();
 
-  // Nano contract transactions might have empty inputs
-  if (inputUtxos.length > 0) {
-    await markUtxosWithProposalId(mysql, txProposalId, inputUtxos);
-  }
+  try {
+    await beginTransaction(mysql);
 
-  await createTxProposal(mysql, txProposalId, walletId, now);
+    // IMPORTANT: Create the tx_proposal BEFORE marking UTXOs
+    // This prevents orphaned tx_output records if the operation fails
+    await createTxProposal(mysql, txProposalId, walletId, now);
+
+    // Nano contract transactions might have empty inputs
+    if (inputUtxos.length > 0) {
+      await markUtxosWithProposalId(mysql, txProposalId, inputUtxos);
+    }
+
+    if (tx.isNanoContract()) {
+      const nanoHeader = tx.getNanoHeaders()[0];
+      await incrementAddressSeqnum(mysql, walletId, nanoHeader.address.base58);
+    }
+
+    await commitTransaction(mysql);
+  } catch (e) {
+    await rollbackTransaction(mysql);
+    return closeDbAndGetError(mysql, ApiError.UNKNOWN_ERROR, { message: e.message });
+  }
 
   const inputPromises = inputUtxos.map(async (utxo) => {
     const addressDetail: AddressInfo = await getWalletAddressDetail(mysql, walletId, utxo.address);

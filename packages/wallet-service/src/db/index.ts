@@ -48,6 +48,7 @@ import {
 } from '@src/utils';
 import {
   isAuthority,
+  toTokenVersion,
 } from '@wallet-service/common/src/utils/wallet.utils';
 import {
   getWalletFromDbEntry,
@@ -445,6 +446,22 @@ export const getWalletAddressDetail = async (mysql: ServerlessMysql, walletId: s
   }
 
   return null;
+};
+
+/**
+ * Increment the seqnum of an address.
+ *
+ * @param mysql - Database connection
+ * @param walletId - Wallet id
+ * @param address - Address to increment seqnum for
+ */
+export const incrementAddressSeqnum = async (mysql: ServerlessMysql, walletId: string, address: string): Promise<void> => {
+  await mysql.query(`
+    UPDATE \`address\`
+       SET \`seqnum\` = \`seqnum\` + 1
+     WHERE \`wallet_id\` = ?
+         AND \`address\` = ?`,
+    [walletId, address]);
 };
 
 /**
@@ -1380,7 +1397,8 @@ export const getWalletBalances = async (mysql: ServerlessMysql, walletId: string
            w.transactions AS transactions,
            w.token_id AS token_id,
            token.name AS name,
-           token.symbol AS symbol
+           token.symbol AS symbol,
+           token.version AS token_version
       FROM (${subquery}) w
 INNER JOIN token ON w.token_id = token.id
   `;
@@ -1395,7 +1413,12 @@ INNER JOIN token ON w.token_id = token.id
     const timelockExpires = result.timelock_expires as number;
 
     const balance = new WalletTokenBalance(
-      new TokenInfo(result.token_id as string, result.name as string, result.symbol as string),
+      new TokenInfo(
+        result.token_id as string,
+        result.name as string,
+        result.symbol as string,
+        toTokenVersion(result.token_version as number),
+      ),
       new Balance(totalAmount, unlockedBalance, lockedBalance, timelockExpires, unlockedAuthorities, lockedAuthorities),
       result.transactions as number,
     );
@@ -1723,14 +1746,21 @@ export const getBlockByHeight = async (mysql: ServerlessMysql, height: number): 
  * @param tokenId - The token's id
  * @param tokenName - The token's name
  * @param tokenSymbol - The token's symbol
+ * @param tokenVersion - The token version
  */
 export const storeTokenInformation = async (
   mysql: ServerlessMysql,
   tokenId: string,
   tokenName: string,
   tokenSymbol: string,
+  tokenVersion: number,
 ): Promise<void> => {
-  const entry = { id: tokenId, name: tokenName, symbol: tokenSymbol };
+  const entry = {
+    id: tokenId,
+    name: tokenName,
+    symbol: tokenSymbol,
+    version: tokenVersion,
+  };
   await mysql.query(
     'INSERT INTO `token` SET ?',
     [entry],
@@ -1753,7 +1783,13 @@ export const getTokenInformation = async (
     [tokenId],
   );
   if (results.length === 0) return null;
-  return new TokenInfo(tokenId, results[0].name as string, results[0].symbol as string);
+  return new TokenInfo(
+    tokenId,
+    results[0].name as string,
+    results[0].symbol as string,
+    toTokenVersion(results[0].version as number),
+    results[0].transactions as number,
+  );
 };
 
 /**
@@ -1788,14 +1824,24 @@ export const getUnusedAddresses = async (mysql: ServerlessMysql, walletId: strin
  * @param utxos - The UTXOs to be marked with the proposal id
  */
 export const markUtxosWithProposalId = async (mysql: ServerlessMysql, txProposalId: string, utxos: DbTxOutput[]): Promise<void> => {
-  const entries = utxos.map((utxo, index) => ([utxo.txId, utxo.index, '', '', 0, 0, null, null, false, txProposalId, index, null, 0]));
+  if (utxos.length === 0) return;
+
+  // Use direct UPDATE instead of INSERT...ON DUPLICATE KEY UPDATE for better performance
+  // Build WHEN clauses for setting tx_proposal_index based on matching tx_id and index
+  const whenClauses = utxos.map((utxo, index) =>
+    `WHEN \`tx_id\` = ${mysql.escape(utxo.txId)} AND \`index\` = ${utxo.index} THEN ${index}`
+  ).join(' ');
+
+  // Build WHERE clause with all (tx_id, index) pairs
+  const whereConditions = utxos.map((utxo) =>
+    `(\`tx_id\` = ${mysql.escape(utxo.txId)} AND \`index\` = ${utxo.index})`
+  ).join(' OR ');
+
   await mysql.query(
-    `INSERT INTO \`tx_output\`
-          VALUES ?
-              ON DUPLICATE KEY\
-          UPDATE \`tx_proposal\` = VALUES(\`tx_proposal\`),
-                 \`tx_proposal_index\` = VALUES(\`tx_proposal_index\`)`,
-    [entries],
+    `UPDATE \`tx_output\`
+        SET \`tx_proposal\` = ${mysql.escape(txProposalId)},
+            \`tx_proposal_index\` = CASE ${whenClauses} END
+      WHERE ${whereConditions}`
   );
 };
 
@@ -3194,4 +3240,29 @@ export const getAddressAtIndex = async (
     transactions: addresses[0].transactions,
     seqnum: addresses[0].seqnum,
   }
+};
+
+/**
+ * Check if a wallet has any transactions on addresses with index > 0
+ *
+ * @param mysql - Database connection
+ * @param walletId - The wallet id to search for
+ *
+ * @returns True if there are transactions on addresses with index > 0, false otherwise
+ */
+export const hasTransactionsOnNonFirstAddress = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+): Promise<boolean> => {
+  const results: DbSelectResult = await mysql.query(
+    `SELECT 1
+       FROM \`address\`
+      WHERE \`wallet_id\` = ?
+        AND \`index\` > 0
+        AND \`transactions\` > 0
+      LIMIT 1`,
+    [walletId],
+  );
+
+  return results.length > 0;
 };

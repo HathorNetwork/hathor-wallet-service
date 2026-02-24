@@ -7,6 +7,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+import { TokenVersion } from '@hathor/wallet-lib';
+
 export interface WalletBalanceEntry {
   walletId: string;
   tokenId: string;
@@ -39,6 +41,7 @@ export interface TokenTableEntry {
   id: string;
   name: string;
   symbol: string;
+  version: TokenVersion;
   transactions: number;
 }
 

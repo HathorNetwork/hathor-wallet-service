@@ -1,4 +1,5 @@
 import { logger } from '@tests/winston.mock';
+import { TokenVersion } from '@hathor/wallet-lib';
 import { initFirebaseAdminMock } from '@tests/utils/firebase-admin.mock';
 import { closeDbConnection, getDbConnection } from '@src/utils';
 import {
@@ -89,7 +90,7 @@ describe('success', () => {
       enableShowAmounts: false,
     };
 
-    await storeTokenInformation(mysql, 'token1', 'token1', 'T1');
+    await storeTokenInformation(mysql, 'token1', 'token1', 'T1', TokenVersion.DEPOSIT);
 
     await registerPushDevice(mysql, pushDevice);
 
@@ -141,8 +142,8 @@ describe('success', () => {
       enableShowAmounts: false,
     };
 
-    await storeTokenInformation(mysql, 'token1', 'token1', 'T1');
-    await storeTokenInformation(mysql, 'token2', 'token2', 'T2');
+    await storeTokenInformation(mysql, 'token1', 'token1', 'T1', TokenVersion.DEPOSIT);
+    await storeTokenInformation(mysql, 'token2', 'token2', 'T2', TokenVersion.DEPOSIT);
 
     await registerPushDevice(mysql, pushDevice);
 
@@ -228,7 +229,7 @@ describe('success', () => {
     };
     await registerPushDevice(mysql, pushDevice);
 
-    await storeTokenInformation(mysql, 'token2', 'token2', 'T2');
+    await storeTokenInformation(mysql, 'token2', 'token2', 'T2', TokenVersion.DEPOSIT);
 
     const sendEvent = buildEvent(walletId, txId, [
       {
@@ -274,10 +275,10 @@ describe('success', () => {
         enableShowAmounts: true,
       };
       await registerPushDevice(mysql, pushDevice);
-      await storeTokenInformation(mysql, 'token1', 'token1', 'T1');
-      await storeTokenInformation(mysql, 'token2', 'token2', 'T2');
-      await storeTokenInformation(mysql, 'token3', 'token3', 'T3');
-      await storeTokenInformation(mysql, 'token4', 'token4', 'T4');
+      await storeTokenInformation(mysql, 'token1', 'token1', 'T1', TokenVersion.DEPOSIT);
+      await storeTokenInformation(mysql, 'token2', 'token2', 'T2', TokenVersion.FEE);
+      await storeTokenInformation(mysql, 'token3', 'token3', 'T3', TokenVersion.DEPOSIT);
+      await storeTokenInformation(mysql, 'token4', 'token4', 'T4', TokenVersion.FEE);
     });
 
     it('token balance with 1 token', async () => {

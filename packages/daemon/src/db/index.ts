@@ -27,7 +27,7 @@ import {
   TokenBalanceMap,
   TxOutputWithIndex,
 } from '@wallet-service/common';
-import { isAuthority } from '@wallet-service/common';
+import { isAuthority, toTokenVersion } from '@wallet-service/common';
 import { getWalletBalanceMap } from '../utils/wallet';
 import {
   AddressBalanceRow,
@@ -80,9 +80,11 @@ export const getDbConnection = async (): Promise<MysqlConnection> => {
  *
  * @param mysql - Database connection
  * @param txId - Transaction id
+ * @param height - The transaction height (null if not confirmed)
  * @param timestamp - The transaction timestamp
  * @param version - The transaction version
- * @param weight - the transaction weight
+ * @param weight - The transaction weight
+ * @param firstBlock - Hash of the first block that confirmed this transaction (null if not confirmed)
  */
 export const addOrUpdateTx = async (
   mysql: any,
@@ -91,14 +93,15 @@ export const addOrUpdateTx = async (
   timestamp: number,
   version: number,
   weight: number,
+  firstBlock: string | null = null,
 ): Promise<void> => {
-  const entries = [[txId, height, timestamp, version, weight]];
+  const entries = [[txId, height, timestamp, version, weight, firstBlock]];
 
   await mysql.query(
-    `INSERT INTO \`transaction\` (tx_id, height, timestamp, version, weight)
+    `INSERT INTO \`transaction\` (tx_id, height, timestamp, version, weight, first_block)
      VALUES ?
-         ON DUPLICATE KEY UPDATE height = ?`,
-    [entries, height],
+         ON DUPLICATE KEY UPDATE height = ?, first_block = ?`,
+    [entries, height, firstBlock],
   );
 };
 
@@ -1135,17 +1138,112 @@ export const mapDbResultToDbTxOutput = (result: TxOutputRow): DbTxOutput => ({
  * @param tokenId - The token's id
  * @param tokenName - The token's name
  * @param tokenSymbol - The token's symbol
+ * @param tokenVersion - The token's version
  */
 export const storeTokenInformation = async (
   mysql: MysqlConnection,
   tokenId: string,
   tokenName: string,
   tokenSymbol: string,
+  tokenVersion: number,
 ): Promise<void> => {
-  const entry = { id: tokenId, name: tokenName, symbol: tokenSymbol };
+  const entry = {
+    id: tokenId,
+    name: tokenName,
+    symbol: tokenSymbol,
+    version: tokenVersion,
+  };
   await mysql.query(
     'INSERT INTO `token` SET ?',
     [entry],
+  );
+};
+
+/**
+ * Store the mapping between a token and the transaction that created it
+ *
+ * @param mysql - Database connection
+ * @param tokenId - The token UID
+ * @param txId - Transaction ID that created the token (regular or nano contract)
+ * @param firstBlock - First block hash that confirmed the nano contract execution (null for traditional CREATE_TOKEN_TX)
+ */
+export const insertTokenCreation = async (
+  mysql: MysqlConnection,
+  tokenId: string,
+  txId: string,
+  firstBlock: string | null = null,
+): Promise<void> => {
+  const entry = {
+    token_id: tokenId,
+    tx_id: txId,
+    first_block: firstBlock,
+  };
+  await mysql.query(
+    'INSERT INTO `token_creation` SET ?',
+    [entry],
+  );
+};
+
+/**
+ * Get all token IDs created by a specific transaction
+ *
+ * @param mysql - Database connection
+ * @param txId - The transaction ID (regular or nano contract)
+ * @returns Array of token IDs created by this transaction
+ */
+export const getTokensCreatedByTx = async (
+  mysql: MysqlConnection,
+  txId: string,
+): Promise<string[]> => {
+  const [rows] = await mysql.query<any[]>(
+    'SELECT `token_id` FROM `token_creation` WHERE `tx_id` = ?',
+    [txId],
+  );
+  return rows.map((row) => row.token_id);
+};
+
+/**
+ * Get all token IDs created by a transaction that have a different first_block than expected.
+ *
+ * This is used to detect nano-created tokens that need to be deleted during a reorg.
+ * When the first_block changes, the token_id might also change (even though tx_id stays the same),
+ * so we need to delete tokens with the old first_block and let new TOKEN_CREATED events create new ones.
+ *
+ * IMPORTANT: Excludes tokens where token_id = tx_id. These are traditional CREATE_TOKEN_TX tokens
+ * which should not be affected by nano reorg logic.
+ *
+ * @param mysql - Database connection
+ * @param txId - The transaction ID
+ * @param currentFirstBlock - The current first_block from the TOKEN_CREATED event
+ * @returns Array of nano-created token IDs that have a different first_block
+ */
+export const getReexecNanoTokens = async (
+  mysql: MysqlConnection,
+  txId: string,
+  currentFirstBlock: string | null,
+): Promise<string[]> => {
+  const [rows] = await mysql.query<any[]>(
+    'SELECT `token_id` FROM `token_creation` WHERE `tx_id` = ? AND `token_id` != `tx_id` AND NOT (`first_block` <=> ?)',
+    [txId, currentFirstBlock],
+  );
+  return rows.map((row) => row.token_id);
+};
+
+/**
+ * Delete tokens from the token table
+ *
+ * @param mysql - Database connection
+ * @param tokenIds - Array of token IDs to delete
+ */
+export const deleteTokens = async (
+  mysql: MysqlConnection,
+  tokenIds: string[],
+): Promise<void> => {
+  if (tokenIds.length === 0) return;
+
+  await mysql.query(
+    'DELETE FROM `token` WHERE `id` IN (?)',
+    [tokenIds],
   );
 };
 
@@ -1356,9 +1454,11 @@ export const updateWalletTablesWithTx = async (
  *
  * @param mysql - Database connection
  * @param txId - Transaction id
+ * @param height - The transaction height
  * @param timestamp - The transaction timestamp
  * @param version - The transaction version
  * @param weight - The transaction weight
+ * @param firstBlock - Hash of the first block that confirmed this transaction
  */
 export const updateTx = async (
   mysql: MysqlConnection,
@@ -1367,7 +1467,8 @@ export const updateTx = async (
   timestamp: number,
   version: number,
   weight: number,
-): Promise<void> => addOrUpdateTx(mysql, txId, height, timestamp, version, weight);
+  firstBlock: string | null = null,
+): Promise<void> => addOrUpdateTx(mysql, txId, height, timestamp, version, weight, firstBlock);
 
 /**
  * Get a list of tx outputs from their spent_by txId
@@ -1644,7 +1745,13 @@ export const getTokenInformation = async (
 
   if (results.length === 0) return null;
 
-  return new TokenInfo(tokenId, results[0].name as string, results[0].symbol as string);
+  return new TokenInfo(
+    tokenId,
+    results[0].name as string,
+    results[0].symbol as string,
+    toTokenVersion(results[0].version as number),
+    results[0].transactions,
+  );
 };
 
 /**

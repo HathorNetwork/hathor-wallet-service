@@ -5,8 +5,23 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { constants } from '@hathor/wallet-lib';
+import { constants, TokenVersion } from '@hathor/wallet-lib';
 import { DecodedOutput } from '../types';
+
+/**
+ * Safely converts a number to TokenVersion enum.
+ * This function validates the number against known TokenVersion values.
+ *
+ * @param value - The number to convert
+ * @returns The corresponding TokenVersion
+ * @throws Error if the value is not a valid TokenVersion
+ */
+export const toTokenVersion = (value: number): TokenVersion => {
+  if (value in TokenVersion) {
+    return value as TokenVersion;
+  }
+  throw new Error(`Invalid TokenVersion: ${value}`);
+};
 
 /**
  * Checks if a given tokenData has any authority bit set
