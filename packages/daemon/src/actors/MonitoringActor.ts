@@ -62,7 +62,7 @@ export default (callback: any, receive: any, config = getConfig()) => {
           'Daemon Idle — No Events Received',
           `No fullnode events received for ${idleMinutes} minute(s) while the WebSocket is connected. ` +
             'The fullnode stream may be stalled.',
-          Severity.MAJOR,
+          Severity.MINOR,
           { idleMs: String(idleMs) },
           logger,
         ).catch((err: Error) =>
@@ -92,7 +92,7 @@ export default (callback: any, receive: any, config = getConfig()) => {
           `The state machine has been processing a single event for more than ` +
             `${Math.round(config.STUCK_PROCESSING_TIMEOUT_MS / 60000)} minute(s). ` +
             'Forcing a reconnection.',
-          Severity.CRITICAL,
+          Severity.MAJOR,
           { timeoutMs: String(config.STUCK_PROCESSING_TIMEOUT_MS) },
           logger,
         );
@@ -129,7 +129,7 @@ export default (callback: any, receive: any, config = getConfig()) => {
         'Daemon Reconnection Storm',
         `${reconnectionTimestamps.length} reconnections occurred in the last ${windowMinutes} minute(s). ` +
           'The daemon may be stuck in a reconnection loop.',
-        Severity.CRITICAL,
+        Severity.MAJOR,
         {
           reconnectionCount: String(reconnectionTimestamps.length),
           windowMinutes: String(windowMinutes),
