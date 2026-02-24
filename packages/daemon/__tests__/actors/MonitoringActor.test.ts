@@ -14,6 +14,8 @@ import { addAlert } from '@wallet-service/common';
 jest.useFakeTimers();
 jest.spyOn(global, 'setInterval');
 jest.spyOn(global, 'clearInterval');
+jest.spyOn(global, 'setTimeout');
+jest.spyOn(global, 'clearTimeout');
 
 jest.mock('@wallet-service/common', () => ({
   ...jest.requireActual('@wallet-service/common'),
@@ -39,8 +41,9 @@ describe('MonitoringActor', () => {
     jest.clearAllMocks();
     jest.clearAllTimers();
     config = getConfig();
-    config['IDLE_EVENT_TIMEOUT_MS'] = 5 * 60 * 1000;      // 5 min
-    config['RECONNECTION_STORM_THRESHOLD'] = 3;             // low threshold for tests
+    config['IDLE_EVENT_TIMEOUT_MS'] = 5 * 60 * 1000;       // 5 min
+    config['STUCK_PROCESSING_TIMEOUT_MS'] = 5 * 60 * 1000; // 5 min
+    config['RECONNECTION_STORM_THRESHOLD'] = 3;              // low threshold for tests
     config['RECONNECTION_STORM_WINDOW_MS'] = 5 * 60 * 1000; // 5 min
 
     mockCallback = jest.fn();
@@ -53,6 +56,8 @@ describe('MonitoringActor', () => {
     jest.clearAllMocks();
     jest.useRealTimers();
   });
+
+  // ── Idle detection ───────────────────────────────────────────────────────────
 
   it('should not start the idle timer on initialization', () => {
     MonitoringActor(mockCallback, mockReceive, config);
@@ -68,8 +73,6 @@ describe('MonitoringActor', () => {
   it('should stop the idle timer when receiving a DISCONNECTED event', () => {
     MonitoringActor(mockCallback, mockReceive, config);
     sendEvent('CONNECTED');
-    expect(setInterval).toHaveBeenCalledTimes(1);
-
     sendEvent('DISCONNECTED');
     expect(clearInterval).toHaveBeenCalledTimes(1);
   });
@@ -77,8 +80,6 @@ describe('MonitoringActor', () => {
   it('should stop the idle timer when the actor is stopped', () => {
     const stopActor = MonitoringActor(mockCallback, mockReceive, config);
     sendEvent('CONNECTED');
-    expect(setInterval).toHaveBeenCalledTimes(1);
-
     stopActor();
     expect(clearInterval).toHaveBeenCalledTimes(1);
   });
@@ -87,75 +88,143 @@ describe('MonitoringActor', () => {
     MonitoringActor(mockCallback, mockReceive, config);
     sendEvent('CONNECTED');
 
-    // Advance time past the idle timeout
     jest.advanceTimersByTime(config['IDLE_EVENT_TIMEOUT_MS'] + 1);
-
-    // Allow the async addAlert promise to resolve
     await Promise.resolve();
 
     expect(mockAddAlert).toHaveBeenCalledTimes(1);
     expect(mockAddAlert.mock.calls[0][0]).toBe('Daemon Idle — No Events Received');
   });
 
-  it('should NOT fire an idle alert when events are being received', async () => {
+  it('should NOT fire an idle alert when events keep arriving', async () => {
     MonitoringActor(mockCallback, mockReceive, config);
     sendEvent('CONNECTED');
 
-    // Advance to just before the timeout
+    // Stay below the threshold each time
     jest.advanceTimersByTime(config['IDLE_EVENT_TIMEOUT_MS'] - 1000);
     sendEvent('EVENT_RECEIVED');
-
-    // Advance past the original threshold (but lastEventReceivedAt was reset)
     jest.advanceTimersByTime(config['IDLE_EVENT_TIMEOUT_MS'] - 1000);
 
     await Promise.resolve();
     expect(mockAddAlert).not.toHaveBeenCalled();
   });
 
-  it('should fire only one idle alert even if the timer fires multiple times', async () => {
+  it('should fire only one idle alert per idle period', async () => {
     MonitoringActor(mockCallback, mockReceive, config);
     sendEvent('CONNECTED');
 
-    // Fire timer three times without receiving any events
     jest.advanceTimersByTime(config['IDLE_EVENT_TIMEOUT_MS'] * 3);
-
     await Promise.resolve();
 
     expect(mockAddAlert).toHaveBeenCalledTimes(1);
   });
 
-  it('should reset the idle alert flag when an event is received after an alert fired', async () => {
+  it('should reset the idle alert flag when an event is received, allowing a second alert', async () => {
     MonitoringActor(mockCallback, mockReceive, config);
     sendEvent('CONNECTED');
 
-    // Trigger first alert (interval fires at T = IDLE_EVENT_TIMEOUT_MS)
+    // Trigger first alert
     jest.advanceTimersByTime(config['IDLE_EVENT_TIMEOUT_MS'] + 1);
     await Promise.resolve();
     expect(mockAddAlert).toHaveBeenCalledTimes(1);
 
-    // Receive an event — resets idleAlertFired and lastEventReceivedAt to current time T1
+    // Receive an event — resets idleAlertFired and lastEventReceivedAt
     sendEvent('EVENT_RECEIVED');
 
-    // The next interval tick where idleMs >= threshold is at 3*T (the interval at 2*T
-    // fires only T-1 ms after EVENT_RECEIVED, which is below the threshold).
-    // Advancing by 2*T from T1 guarantees we cross that boundary.
+    // Advance far enough for the interval to fire when idleMs >= threshold again.
+    // The interval fires at 2T, 3T, … from start.  After EVENT_RECEIVED at ~T,
+    // the next fire where idleMs >= T is at 3T (fire at 2T gives idleMs = T-1).
     jest.advanceTimersByTime(2 * config['IDLE_EVENT_TIMEOUT_MS']);
     await Promise.resolve();
 
-    // A second alert should now be fired
     expect(mockAddAlert).toHaveBeenCalledTimes(2);
   });
 
-  it('should fire a reconnection storm alert when threshold is reached', async () => {
+  it('should restart the idle timer when CONNECTED is sent while already running', () => {
     MonitoringActor(mockCallback, mockReceive, config);
+    sendEvent('CONNECTED');
+    sendEvent('CONNECTED'); // second connect clears old and starts new
+    expect(clearInterval).toHaveBeenCalledTimes(1);
+    expect(setInterval).toHaveBeenCalledTimes(2);
+  });
 
-    // Send enough reconnections to trigger the storm threshold (3 in our test config)
-    sendEvent('RECONNECTING');
-    sendEvent('RECONNECTING');
-    sendEvent('RECONNECTING');
+  // ── Stuck-processing detection ───────────────────────────────────────────────
 
+  it('should start a stuck timer on PROCESSING_STARTED', () => {
+    MonitoringActor(mockCallback, mockReceive, config);
+    sendEvent('PROCESSING_STARTED');
+    expect(setTimeout).toHaveBeenCalledTimes(1);
+  });
+
+  it('should cancel the stuck timer on PROCESSING_COMPLETED', () => {
+    MonitoringActor(mockCallback, mockReceive, config);
+    sendEvent('PROCESSING_STARTED');
+    sendEvent('PROCESSING_COMPLETED');
+    expect(clearTimeout).toHaveBeenCalledTimes(1);
+  });
+
+  it('should fire a CRITICAL alert and call back MONITORING_STUCK_PROCESSING when stuck', async () => {
+    MonitoringActor(mockCallback, mockReceive, config);
+    sendEvent('PROCESSING_STARTED');
+
+    jest.advanceTimersByTime(config['STUCK_PROCESSING_TIMEOUT_MS'] + 1);
+    // Let the async addAlert inside the timeout resolve
+    await Promise.resolve();
     await Promise.resolve();
 
+    expect(mockAddAlert).toHaveBeenCalledTimes(1);
+    expect(mockAddAlert.mock.calls[0][0]).toBe('Daemon Stuck In Processing State');
+    expect(mockCallback).toHaveBeenCalledWith({ type: EventTypes.MONITORING_STUCK_PROCESSING });
+  });
+
+  it('should NOT fire the stuck alert when PROCESSING_COMPLETED arrives in time', async () => {
+    MonitoringActor(mockCallback, mockReceive, config);
+    sendEvent('PROCESSING_STARTED');
+
+    jest.advanceTimersByTime(config['STUCK_PROCESSING_TIMEOUT_MS'] - 1000);
+    sendEvent('PROCESSING_COMPLETED');
+
+    jest.advanceTimersByTime(2000); // advance past original timeout
+    await Promise.resolve();
+
+    expect(mockAddAlert).not.toHaveBeenCalled();
+    expect(mockCallback).not.toHaveBeenCalled();
+  });
+
+  it('should reset the stuck timer on consecutive PROCESSING_STARTED events', () => {
+    MonitoringActor(mockCallback, mockReceive, config);
+    sendEvent('PROCESSING_STARTED');
+    sendEvent('PROCESSING_STARTED'); // second one clears the first
+    expect(clearTimeout).toHaveBeenCalledTimes(1);
+    expect(setTimeout).toHaveBeenCalledTimes(2);
+  });
+
+  it('should stop the stuck timer when the actor is stopped', () => {
+    const stopActor = MonitoringActor(mockCallback, mockReceive, config);
+    sendEvent('PROCESSING_STARTED');
+    stopActor();
+    expect(clearTimeout).toHaveBeenCalledTimes(1);
+  });
+
+  it('should also clear the stuck timer on DISCONNECTED', () => {
+    MonitoringActor(mockCallback, mockReceive, config);
+    sendEvent('CONNECTED');
+    sendEvent('PROCESSING_STARTED');
+    sendEvent('DISCONNECTED');
+    // clearTimeout for stuck timer + clearInterval for idle timer
+    expect(clearTimeout).toHaveBeenCalledTimes(1);
+    expect(clearInterval).toHaveBeenCalledTimes(1);
+  });
+
+  // ── Reconnection storm detection ─────────────────────────────────────────────
+
+  it('should fire a reconnection storm alert when the threshold is reached', async () => {
+    MonitoringActor(mockCallback, mockReceive, config);
+
+    sendEvent('RECONNECTING');
+    sendEvent('RECONNECTING');
+    sendEvent('RECONNECTING'); // threshold is 3 in test config
+
+    await Promise.resolve();
     expect(mockAddAlert).toHaveBeenCalledTimes(1);
     expect(mockAddAlert.mock.calls[0][0]).toBe('Daemon Reconnection Storm');
   });
@@ -163,7 +232,6 @@ describe('MonitoringActor', () => {
   it('should NOT fire a reconnection storm alert below the threshold', async () => {
     MonitoringActor(mockCallback, mockReceive, config);
 
-    // Send fewer reconnections than the threshold
     sendEvent('RECONNECTING');
     sendEvent('RECONNECTING');
 
@@ -174,33 +242,21 @@ describe('MonitoringActor', () => {
   it('should evict old reconnections outside the storm window', async () => {
     MonitoringActor(mockCallback, mockReceive, config);
 
-    // Two reconnections at time 0
     sendEvent('RECONNECTING');
     sendEvent('RECONNECTING');
 
-    // Advance past the storm window so those timestamps are evicted
     jest.advanceTimersByTime(config['RECONNECTION_STORM_WINDOW_MS'] + 1000);
 
-    // One new reconnection — count should restart from 1, no alert
+    // Only 1 new reconnection — below threshold after eviction
     sendEvent('RECONNECTING');
 
     await Promise.resolve();
     expect(mockAddAlert).not.toHaveBeenCalled();
   });
 
-  it('should restart idle timer when CONNECTED is sent while already connected', () => {
-    MonitoringActor(mockCallback, mockReceive, config);
+  // ── Misc ─────────────────────────────────────────────────────────────────────
 
-    sendEvent('CONNECTED');
-    expect(setInterval).toHaveBeenCalledTimes(1);
-
-    // A second CONNECTED clears the old timer and creates a new one
-    sendEvent('CONNECTED');
-    expect(clearInterval).toHaveBeenCalledTimes(1);
-    expect(setInterval).toHaveBeenCalledTimes(2);
-  });
-
-  it('should ignore events of other types', () => {
+  it('should ignore events of other types and log a warning', () => {
     const warnSpy = jest.spyOn(logger, 'warn');
     MonitoringActor(mockCallback, mockReceive, config);
 

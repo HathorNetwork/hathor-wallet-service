@@ -15,6 +15,7 @@ import { WebSocketActor, HealthCheckActor, MonitoringActor } from '../actors';
 import {
   Context,
   Event,
+  EventTypes,
 } from '../types';
 import {
   handleVertexAccepted,
@@ -63,9 +64,10 @@ import {
   sendMonitoringDisconnected,
   sendMonitoringEventReceived,
   sendMonitoringReconnecting,
-  alertStuckProcessing,
+  sendMonitoringProcessingStarted,
+  sendMonitoringProcessingCompleted,
 } from '../actions';
-import { BACKOFF_DELAYED_RECONNECT, ACK_TIMEOUT, STUCK_PROCESSING_TIMEOUT } from '../delays';
+import { BACKOFF_DELAYED_RECONNECT, ACK_TIMEOUT } from '../delays';
 import getConfig from '../config';
 
 export const SYNC_MACHINE_STATES = {
@@ -209,12 +211,8 @@ export const SyncMachine = Machine<Context, any, Event>({
         },
         [CONNECTED_STATES.handlingUnhandledEvent]: {
           id: CONNECTED_STATES.handlingUnhandledEvent,
-          after: {
-            STUCK_PROCESSING_TIMEOUT: {
-              target: `#SyncMachine.${SYNC_MACHINE_STATES.RECONNECTING}`,
-              actions: ['alertStuckProcessing'],
-            },
-          },
+          entry: ['sendMonitoringProcessingStarted'],
+          exit: ['sendMonitoringProcessingCompleted'],
           invoke: {
             src: 'updateLastSyncedEvent',
             onDone: {
@@ -227,12 +225,8 @@ export const SyncMachine = Machine<Context, any, Event>({
         [CONNECTED_STATES.handlingMetadataChanged]: {
           id: 'handlingMetadataChanged',
           initial: 'detectingDiff',
-          after: {
-            STUCK_PROCESSING_TIMEOUT: {
-              target: `#SyncMachine.${SYNC_MACHINE_STATES.RECONNECTING}`,
-              actions: ['alertStuckProcessing'],
-            },
-          },
+          entry: ['sendMonitoringProcessingStarted'],
+          exit: ['sendMonitoringProcessingCompleted'],
           states: {
             detectingDiff: {
               invoke: {
@@ -261,12 +255,8 @@ export const SyncMachine = Machine<Context, any, Event>({
         // We have the unchanged guard, so it's guaranteed that this is a new tx
         [CONNECTED_STATES.handlingVertexAccepted]: {
           id: CONNECTED_STATES.handlingVertexAccepted,
-          after: {
-            STUCK_PROCESSING_TIMEOUT: {
-              target: `#SyncMachine.${SYNC_MACHINE_STATES.RECONNECTING}`,
-              actions: ['alertStuckProcessing'],
-            },
-          },
+          entry: ['sendMonitoringProcessingStarted'],
+          exit: ['sendMonitoringProcessingCompleted'],
           invoke: {
             src: 'handleVertexAccepted',
             data: (_context: Context, event: Event) => event,
@@ -279,12 +269,8 @@ export const SyncMachine = Machine<Context, any, Event>({
         },
         [CONNECTED_STATES.handlingVertexRemoved]: {
           id: CONNECTED_STATES.handlingVertexRemoved,
-          after: {
-            STUCK_PROCESSING_TIMEOUT: {
-              target: `#SyncMachine.${SYNC_MACHINE_STATES.RECONNECTING}`,
-              actions: ['alertStuckProcessing'],
-            },
-          },
+          entry: ['sendMonitoringProcessingStarted'],
+          exit: ['sendMonitoringProcessingCompleted'],
           invoke: {
             src: 'handleVertexRemoved',
             data: (_context: Context, event: Event) => event,
@@ -297,12 +283,8 @@ export const SyncMachine = Machine<Context, any, Event>({
         },
         [CONNECTED_STATES.handlingVoidedTx]: {
           id: CONNECTED_STATES.handlingVoidedTx,
-          after: {
-            STUCK_PROCESSING_TIMEOUT: {
-              target: `#SyncMachine.${SYNC_MACHINE_STATES.RECONNECTING}`,
-              actions: ['alertStuckProcessing'],
-            },
-          },
+          entry: ['sendMonitoringProcessingStarted'],
+          exit: ['sendMonitoringProcessingCompleted'],
           invoke: {
             src: 'handleVoidedTx',
             data: (_context: Context, event: Event) => event,
@@ -315,12 +297,8 @@ export const SyncMachine = Machine<Context, any, Event>({
         },
         [CONNECTED_STATES.handlingUnvoidedTx]: {
           id: CONNECTED_STATES.handlingUnvoidedTx,
-          after: {
-            STUCK_PROCESSING_TIMEOUT: {
-              target: `#SyncMachine.${SYNC_MACHINE_STATES.RECONNECTING}`,
-              actions: ['alertStuckProcessing'],
-            },
-          },
+          entry: ['sendMonitoringProcessingStarted'],
+          exit: ['sendMonitoringProcessingCompleted'],
           invoke: {
             src: 'handleUnvoidedTx',
             data: (_context: Context, event: Event) => event,
@@ -336,12 +314,8 @@ export const SyncMachine = Machine<Context, any, Event>({
         },
         [CONNECTED_STATES.handlingFirstBlock]: {
           id: CONNECTED_STATES.handlingFirstBlock,
-          after: {
-            STUCK_PROCESSING_TIMEOUT: {
-              target: `#SyncMachine.${SYNC_MACHINE_STATES.RECONNECTING}`,
-              actions: ['alertStuckProcessing'],
-            },
-          },
+          entry: ['sendMonitoringProcessingStarted'],
+          exit: ['sendMonitoringProcessingCompleted'],
           invoke: {
             src: 'handleTxFirstBlock',
             data: (_context: Context, event: Event) => event,
@@ -354,12 +328,8 @@ export const SyncMachine = Machine<Context, any, Event>({
         },
         [CONNECTED_STATES.handlingNcExecVoided]: {
           id: CONNECTED_STATES.handlingNcExecVoided,
-          after: {
-            STUCK_PROCESSING_TIMEOUT: {
-              target: `#SyncMachine.${SYNC_MACHINE_STATES.RECONNECTING}`,
-              actions: ['alertStuckProcessing'],
-            },
-          },
+          entry: ['sendMonitoringProcessingStarted'],
+          exit: ['sendMonitoringProcessingCompleted'],
           invoke: {
             src: 'handleNcExecVoided',
             data: (_context: Context, event: Event) => event,
@@ -372,12 +342,8 @@ export const SyncMachine = Machine<Context, any, Event>({
         },
         [CONNECTED_STATES.handlingReorgStarted]: {
           id: CONNECTED_STATES.handlingReorgStarted,
-          after: {
-            STUCK_PROCESSING_TIMEOUT: {
-              target: `#SyncMachine.${SYNC_MACHINE_STATES.RECONNECTING}`,
-              actions: ['alertStuckProcessing'],
-            },
-          },
+          entry: ['sendMonitoringProcessingStarted'],
+          exit: ['sendMonitoringProcessingCompleted'],
           invoke: {
             src: 'handleReorgStarted',
             data: (_context: Context, event: Event) => event,
@@ -390,12 +356,8 @@ export const SyncMachine = Machine<Context, any, Event>({
         },
         [CONNECTED_STATES.handlingTokenCreated]: {
           id: CONNECTED_STATES.handlingTokenCreated,
-          after: {
-            STUCK_PROCESSING_TIMEOUT: {
-              target: `#SyncMachine.${SYNC_MACHINE_STATES.RECONNECTING}`,
-              actions: ['alertStuckProcessing'],
-            },
-          },
+          entry: ['sendMonitoringProcessingStarted'],
+          exit: ['sendMonitoringProcessingCompleted'],
           invoke: {
             src: 'handleTokenCreated',
             data: (_context: Context, event: Event) => event,
@@ -408,12 +370,8 @@ export const SyncMachine = Machine<Context, any, Event>({
         },
         [CONNECTED_STATES.checkingForMissedEvents]: {
           id: CONNECTED_STATES.checkingForMissedEvents,
-          after: {
-            STUCK_PROCESSING_TIMEOUT: {
-              target: `#SyncMachine.${SYNC_MACHINE_STATES.RECONNECTING}`,
-              actions: ['alertStuckProcessing'],
-            },
-          },
+          entry: ['sendMonitoringProcessingStarted'],
+          exit: ['sendMonitoringProcessingCompleted'],
           invoke: {
             src: 'checkForMissedEvents',
             onDone: [{
@@ -434,6 +392,10 @@ export const SyncMachine = Machine<Context, any, Event>({
           cond: 'websocketDisconnected',
           target: SYNC_MACHINE_STATES.RECONNECTING,
         }],
+        // Sent by MonitoringActor when a processing state has been active for too long
+        [EventTypes.MONITORING_STUCK_PROCESSING]: {
+          target: `#SyncMachine.${SYNC_MACHINE_STATES.RECONNECTING}`,
+        },
       },
     },
     [SYNC_MACHINE_STATES.ERROR]: {
@@ -472,7 +434,7 @@ export const SyncMachine = Machine<Context, any, Event>({
     tokenCreated,
     hasNewEvents,
   },
-  delays: { BACKOFF_DELAYED_RECONNECT, ACK_TIMEOUT, STUCK_PROCESSING_TIMEOUT },
+  delays: { BACKOFF_DELAYED_RECONNECT, ACK_TIMEOUT },
   actions: {
     storeInitialState,
     storeMetadataChanges,
@@ -490,7 +452,8 @@ export const SyncMachine = Machine<Context, any, Event>({
     sendMonitoringDisconnected,
     sendMonitoringEventReceived,
     sendMonitoringReconnecting,
-    alertStuckProcessing,
+    sendMonitoringProcessingStarted,
+    sendMonitoringProcessingCompleted,
   },
 });
 

@@ -12,7 +12,6 @@ import logger from '../logger';
 import { hashTxData } from '../utils';
 import { createStartStreamMessage, createSendAckMessage } from '../actors';
 import { bigIntUtils } from '@hathor/wallet-lib';
-import { addAlert, Severity } from '@wallet-service/common';
 
 /*
  * This action is used to store the initial event id on the context
@@ -243,23 +242,21 @@ export const sendMonitoringReconnecting = sendTo(
 );
 
 /*
- * Fires a CRITICAL alert and logs when the machine has been stuck in a processing
- * state for longer than STUCK_PROCESSING_TIMEOUT_MS. The machine will transition to
- * RECONNECTING immediately after this action runs.
+ * Notifies the monitoring actor that a processing state was entered.
+ * The actor starts a stuck-detection timer; if PROCESSING_COMPLETED doesn't
+ * arrive within STUCK_PROCESSING_TIMEOUT_MS it fires a CRITICAL alert and sends
+ * MONITORING_STUCK_PROCESSING back to the machine.
  */
-export const alertStuckProcessing = (context: Context) => {
-  const eventId = context.event?.event?.id;
-  logger.error(
-    `[monitoring] State machine stuck processing event ${eventId ?? 'unknown'} for too long — forcing reconnection`,
-  );
-  addAlert(
-    'Daemon Stuck In Processing State',
-    `The state machine has been processing event ${eventId ?? 'unknown'} ` +
-      'for longer than the configured timeout. Forcing a reconnection.',
-    Severity.CRITICAL,
-    { eventId: eventId !== undefined ? String(eventId) : 'unknown' },
-    logger,
-  ).catch((err: Error) =>
-    logger.error(`[monitoring] Failed to send stuck-processing alert: ${err}`),
-  );
-};
+export const sendMonitoringProcessingStarted = sendTo(
+  getMonitoringRefFromContext,
+  { type: EventTypes.MONITORING_EVENT, event: { type: 'PROCESSING_STARTED' } },
+);
+
+/*
+ * Notifies the monitoring actor that a processing state was exited normally,
+ * cancelling the stuck-detection timer.
+ */
+export const sendMonitoringProcessingCompleted = sendTo(
+  getMonitoringRefFromContext,
+  { type: EventTypes.MONITORING_EVENT, event: { type: 'PROCESSING_COMPLETED' } },
+);

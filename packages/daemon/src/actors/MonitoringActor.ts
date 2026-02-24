@@ -13,32 +13,35 @@ import { Event, EventTypes } from '../types';
 /**
  * MonitoringActor
  *
- * Watches the state machine for anomalies and raises alerts via the alert manager.
+ * Centralises all runtime health monitoring for the sync state machine.
+ * The machine sends MONITORING_EVENTs to this actor; when anomalies are detected
+ * the actor fires alerts and, when necessary, sends MONITORING_STUCK_PROCESSING
+ * back to the machine to trigger a soft reconnect.
  *
- * Monitors:
- * 1. No events received for >IDLE_EVENT_TIMEOUT_MS while WebSocket connected — fires a MAJOR alert
- *    so operators know the fullnode stream may have stalled without a disconnect.
- * 2. Reconnection storm — fires a CRITICAL alert if the daemon reconnects more than
- *    RECONNECTION_STORM_THRESHOLD times within RECONNECTION_STORM_WINDOW_MS.  This catches
- *    pathological thrash-reconnect cycles that would otherwise be silent.
+ * Responsibilities:
  *
- * The actor receives MONITORING_EVENTs from the SyncMachine:
- *   - CONNECTED:        WebSocket became connected; starts the idle-event timer.
- *   - DISCONNECTED:     WebSocket disconnected; stops the idle-event timer.
- *   - EVENT_RECEIVED:   A fullnode event arrived (resets the idle timer).
- *   - RECONNECTING:     Machine entered RECONNECTING state (used for storm detection).
+ * 1. Idle-stream detection — no EVENT_RECEIVED for >IDLE_EVENT_TIMEOUT_MS while
+ *    connected fires a MAJOR alert so operators know the fullnode stream may have
+ *    stalled without triggering a WebSocket disconnect.
+ *
+ * 2. Stuck-processing detection — PROCESSING_STARTED begins a one-shot timer;
+ *    PROCESSING_COMPLETED cancels it.  If the timer fires the actor fires a
+ *    CRITICAL alert and sends MONITORING_STUCK_PROCESSING to the machine, which
+ *    transitions to RECONNECTING.  This replaces the per-state XState `after`
+ *    blocks that previously scattered this logic across every processing state.
+ *
+ * 3. Reconnection storm detection — fires a CRITICAL alert when the daemon
+ *    reconnects more than RECONNECTION_STORM_THRESHOLD times within
+ *    RECONNECTION_STORM_WINDOW_MS.
  */
 export default (callback: any, receive: any, config = getConfig()) => {
   logger.info('Starting monitoring actor');
 
+  // ── Idle detection ──────────────────────────────────────────────────────────
   let isConnected = false;
   let lastEventReceivedAt: number | null = null;
-  // Timer that fires when we have been idle (no EVENT_RECEIVED) for too long
   let idleCheckTimer: ReturnType<typeof setInterval> | null = null;
-  // Whether we already fired the current idle alert (avoids alert flood)
   let idleAlertFired = false;
-  // Rolling list of reconnection timestamps within the storm window
-  let reconnectionTimestamps: number[] = [];
 
   const startIdleCheck = () => {
     stopIdleCheck();
@@ -76,11 +79,44 @@ export default (callback: any, receive: any, config = getConfig()) => {
     }
   };
 
+  // ── Stuck-processing detection ───────────────────────────────────────────────
+  let stuckTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const startStuckTimer = () => {
+    clearStuckTimer();
+    stuckTimer = setTimeout(async () => {
+      logger.error('[monitoring] State machine stuck in processing state — forcing reconnection');
+      try {
+        await addAlert(
+          'Daemon Stuck In Processing State',
+          `The state machine has been processing a single event for more than ` +
+            `${Math.round(config.STUCK_PROCESSING_TIMEOUT_MS / 60000)} minute(s). ` +
+            'Forcing a reconnection.',
+          Severity.CRITICAL,
+          { timeoutMs: String(config.STUCK_PROCESSING_TIMEOUT_MS) },
+          logger,
+        );
+      } catch (err) {
+        logger.error(`[monitoring] Failed to send stuck-processing alert: ${err}`);
+      }
+      callback({ type: EventTypes.MONITORING_STUCK_PROCESSING });
+    }, config.STUCK_PROCESSING_TIMEOUT_MS);
+  };
+
+  const clearStuckTimer = () => {
+    if (stuckTimer) {
+      clearTimeout(stuckTimer);
+      stuckTimer = null;
+    }
+  };
+
+  // ── Reconnection storm detection ─────────────────────────────────────────────
+  let reconnectionTimestamps: number[] = [];
+
   const trackReconnection = () => {
     const now = Date.now();
     reconnectionTimestamps.push(now);
 
-    // Evict timestamps outside the rolling window
     const windowStart = now - config.RECONNECTION_STORM_WINDOW_MS;
     reconnectionTimestamps = reconnectionTimestamps.filter(t => t >= windowStart);
 
@@ -105,6 +141,7 @@ export default (callback: any, receive: any, config = getConfig()) => {
     }
   };
 
+  // ── Event handling ────────────────────────────────────────────────────────────
   receive((event: Event) => {
     if (event.type !== EventTypes.MONITORING_EVENT) {
       logger.warn('[monitoring] Unexpected event type received by MonitoringActor');
@@ -119,14 +156,23 @@ export default (callback: any, receive: any, config = getConfig()) => {
         break;
 
       case 'DISCONNECTED':
-        logger.info('[monitoring] WebSocket disconnected — stopping idle-event timer');
+        logger.info('[monitoring] WebSocket disconnected — stopping timers');
         isConnected = false;
         stopIdleCheck();
+        clearStuckTimer();
         break;
 
       case 'EVENT_RECEIVED':
         lastEventReceivedAt = Date.now();
         idleAlertFired = false;
+        break;
+
+      case 'PROCESSING_STARTED':
+        startStuckTimer();
+        break;
+
+      case 'PROCESSING_COMPLETED':
+        clearStuckTimer();
         break;
 
       case 'RECONNECTING':
@@ -138,5 +184,6 @@ export default (callback: any, receive: any, config = getConfig()) => {
   return () => {
     logger.info('Stopping monitoring actor');
     stopIdleCheck();
+    clearStuckTimer();
   };
 };
