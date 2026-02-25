@@ -54,14 +54,14 @@
     "@aws-sdk/client-sqs": "3.540.0",
     "assert": "2.1.0",
     "aws-sdk": "2.1454.0",
-    "axios": "1.6.2",
+    "axios": "1.13.5",
     "dotenv": "8.2.0",
-    "lodash": "4.17.21",
-    "mysql2": "3.5.2",
+    "lodash": "4.17.23",
+    "mysql2": "3.9.8",
     "sequelize": "6.33.0",
     "websocket": "1.0.33",
     "winston": "3.13.0",
-    "ws": "8.13.0",
+    "ws": "8.17.1",
     "xstate": "4.38.2",
     "zod": "3.23.8"
   }
