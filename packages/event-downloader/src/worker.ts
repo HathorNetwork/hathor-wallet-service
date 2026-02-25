@@ -41,6 +41,7 @@ export function createWorker(config: BatchConfig, callbacks: WorkerCallbacks): W
 
   let socket: WebSocket | null = null;
   let isRunning = false;
+  let isDone = false;
   let eventsSinceLastAck = 0;
   let lastReceivedEventId = 0;
   let activityTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -100,6 +101,7 @@ export function createWorker(config: BatchConfig, callbacks: WorkerCallbacks): W
     };
 
     socket.onmessage = (socketEvent: MessageEvent) => {
+      if (isDone) return;
       resetActivityTimeout();
       try {
         const rawData = bigIntUtils.JSONBigInt.parse(socketEvent.data.toString());
@@ -142,6 +144,7 @@ export function createWorker(config: BatchConfig, callbacks: WorkerCallbacks): W
         }
 
         if (isComplete) {
+          isDone = true;
           onComplete();
           stop();
         }

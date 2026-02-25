@@ -167,6 +167,7 @@ function runWorker(
     const txEventBuffer: TxEvent[] = [];
     let eventsDownloaded = 0;
     let lastEventId = batch.lastDownloaded ?? batch.start - 1;
+    let isCompleted = false;
 
     const flushBuffers = () => {
       if (eventBuffer.length > 0) {
@@ -229,12 +230,14 @@ function runWorker(
       },
 
       onComplete: () => {
+        isCompleted = true;
         flushBuffers();
         updateBatchProgress(db, batch.start, batch.end, batch.end, 'completed');
         resolve();
       },
 
       onError: (error: Error) => {
+        if (isCompleted) return;
         // Save progress before failing (only if db is still open)
         try {
           flushBuffers();
@@ -323,32 +326,40 @@ export async function downloadAllEvents(callbacks: OrchestratorCallbacks): Promi
 
     // Initialize progress tracking
     let totalEventsDownloaded = 0;
+    let finishedPendingBatches = 0;
+    let activeWorkers = 0;
     const workerStatuses = new Map<number, WorkerStatus>();
 
     const updateStats = () => {
       callbacks.onStatsUpdate({
         totalEvents: latestEventId,
         totalBatches: allBatches.length,
-        completedBatches: completedCount + (allBatches.length - pendingBatches.length),
-        inProgressBatches: workerStatuses.size,
-        pendingBatches: pendingBatches.length - workerStatuses.size,
+        completedBatches: completedCount + finishedPendingBatches,
+        inProgressBatches: activeWorkers,
+        pendingBatches: pendingBatches.length - finishedPendingBatches - activeWorkers,
         eventsDownloaded: totalEventsDownloaded,
       });
     };
 
     // Run workers with concurrency limit
     await runWithConcurrency(pendingBatches, PARALLEL_CONNECTIONS, async (batch, workerSlot) => {
-      await runWorker(db, batch, workerSlot, {
-        ...callbacks,
-        onWorkerUpdate: (workerId, status) => {
-          workerStatuses.set(workerId, status);
-          totalEventsDownloaded = Array.from(workerStatuses.values())
-            .reduce((sum, s) => sum + s.eventsDownloaded, 0);
-          updateStats();
-          callbacks.onWorkerUpdate(workerId, status);
-        },
-      });
-      // Don't delete - worker slot will be reused for next batch
+      activeWorkers++;
+      try {
+        await runWorker(db, batch, workerSlot, {
+          ...callbacks,
+          onWorkerUpdate: (workerId, status) => {
+            workerStatuses.set(workerId, status);
+            totalEventsDownloaded = Array.from(workerStatuses.values())
+              .reduce((sum, s) => sum + s.eventsDownloaded, 0);
+            updateStats();
+            callbacks.onWorkerUpdate(workerId, status);
+          },
+        });
+        finishedPendingBatches++;
+      } finally {
+        activeWorkers--;
+      }
+      updateStats();
     });
 
     callbacks.onComplete();

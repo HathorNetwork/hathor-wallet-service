@@ -17843,6 +17843,7 @@ __metadata:
   dependencies:
     "@aws-sdk/client-lambda": "npm:3.540.0"
     "@aws-sdk/client-sqs": "npm:3.540.0"
+    "@types/better-sqlite3": "npm:^7.6.12"
     "@types/jest": "npm:29.5.4"
     "@types/lodash": "npm:4.14.199"
     "@types/mysql": "npm:2.15.21"
@@ -17853,6 +17854,7 @@ __metadata:
     assert: "npm:2.1.0"
     aws-sdk: "npm:2.1454.0"
     axios: "npm:1.6.2"
+    better-sqlite3: "npm:^11.7.0"
     dotenv: "npm:8.2.0"
     eslint: "npm:9.3.0"
     eslint-config-airbnb-base: "npm:15.0.0"

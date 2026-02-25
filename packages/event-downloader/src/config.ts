@@ -32,18 +32,3 @@ export const CONNECTION_TIMEOUT_MS = parseInt(process.env.CONNECTION_TIMEOUT_MS 
 // Database configuration
 export const DB_PATH = process.env.DB_PATH ?? './events.sqlite';
 
-export const getConfig = () => {
-  checkEnvVariables();
-
-  return {
-    FULLNODE_HOST,
-    USE_SSL,
-    BATCH_SIZE,
-    PARALLEL_CONNECTIONS,
-    WINDOW_SIZE,
-    DB_PATH,
-    CONNECTION_TIMEOUT_MS,
-  };
-};
-
-export default getConfig;

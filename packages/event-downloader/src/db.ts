@@ -177,22 +177,6 @@ export function updateBatchProgress(
 }
 
 /**
- * Get all batches that are not marked as 'completed'.
- * @param db - Database instance
- * @returns Array of pending batch progress records
- */
-export function getPendingBatches(db: DatabaseType): BatchProgress[] {
-  const stmt = db.prepare(`
-    SELECT batch_start, batch_end, last_downloaded, status, updated_at
-    FROM download_progress
-    WHERE status != 'completed'
-    ORDER BY batch_start ASC
-  `);
-
-  return stmt.all() as BatchProgress[];
-}
-
-/**
  * Get all batch progress records.
  * @param db - Database instance
  * @returns Array of all batch progress records
@@ -207,16 +191,3 @@ export function getAllBatchProgress(db: DatabaseType): BatchProgress[] {
   return stmt.all() as BatchProgress[];
 }
 
-/**
- * Get the highest event ID currently stored in the database.
- * @param db - Database instance
- * @returns The highest event ID or null if no events exist
- */
-export function getLastEventId(db: DatabaseType): number | null {
-  const stmt = db.prepare(`
-    SELECT MAX(id) as last_id FROM events
-  `);
-
-  const result = stmt.get() as { last_id: number | null };
-  return result?.last_id ?? null;
-}
