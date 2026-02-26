@@ -11,6 +11,8 @@ import { EventTypes } from '../../src/types/event';
 import getConfig from '../../src/config';
 import { addAlert } from '@wallet-service/common';
 
+const MONITORING_IDLE_TIMEOUT_EVENT = { type: EventTypes.MONITORING_IDLE_TIMEOUT };
+
 jest.useFakeTimers();
 jest.spyOn(global, 'setInterval');
 jest.spyOn(global, 'clearInterval');
@@ -86,7 +88,7 @@ describe('MonitoringActor', () => {
     expect(clearInterval).toHaveBeenCalledTimes(1);
   });
 
-  it('should fire an idle alert and exit after IDLE_EVENT_TIMEOUT_MS with no events', async () => {
+  it('should fire an idle alert and send MONITORING_IDLE_TIMEOUT after IDLE_EVENT_TIMEOUT_MS with no events', async () => {
     MonitoringActor(mockCallback, mockReceive, config);
     sendEvent('CONNECTED');
 
@@ -96,7 +98,8 @@ describe('MonitoringActor', () => {
 
     expect(mockAddAlert).toHaveBeenCalledTimes(1);
     expect(mockAddAlert.mock.calls[0][0]).toBe('Daemon Idle — No Events Received');
-    expect(processExitSpy).toHaveBeenCalledWith(1);
+    expect(mockCallback).toHaveBeenCalledWith(MONITORING_IDLE_TIMEOUT_EVENT);
+    expect(processExitSpy).not.toHaveBeenCalled();
   });
 
   it('should NOT fire an idle alert when events keep arriving', async () => {
@@ -112,7 +115,7 @@ describe('MonitoringActor', () => {
     expect(mockAddAlert).not.toHaveBeenCalled();
   });
 
-  it('should fire only one idle alert and exit once per idle period', async () => {
+  it('should fire only one idle alert and send MONITORING_IDLE_TIMEOUT once per idle period', async () => {
     MonitoringActor(mockCallback, mockReceive, config);
     sendEvent('CONNECTED');
 
@@ -121,33 +124,35 @@ describe('MonitoringActor', () => {
     await Promise.resolve();
 
     expect(mockAddAlert).toHaveBeenCalledTimes(1);
-    expect(processExitSpy).toHaveBeenCalledTimes(1);
-    expect(processExitSpy).toHaveBeenCalledWith(1);
+    expect(mockCallback).toHaveBeenCalledTimes(1);
+    expect(mockCallback).toHaveBeenCalledWith(MONITORING_IDLE_TIMEOUT_EVENT);
+    expect(processExitSpy).not.toHaveBeenCalled();
   });
 
-  it('should reset the idle alert flag when an event is received, allowing a second exit', async () => {
+  it('should reset the idle alert flag when an event is received, allowing a second MONITORING_IDLE_TIMEOUT', async () => {
     MonitoringActor(mockCallback, mockReceive, config);
     sendEvent('CONNECTED');
 
-    // Trigger first alert + exit
+    // Trigger first alert (interval = T/2, fires at T/2 then T — alert at T)
     jest.advanceTimersByTime(config['IDLE_EVENT_TIMEOUT_MS'] + 1);
     await Promise.resolve();
     await Promise.resolve();
     expect(mockAddAlert).toHaveBeenCalledTimes(1);
-    expect(processExitSpy).toHaveBeenCalledTimes(1);
+    expect(mockCallback).toHaveBeenCalledTimes(1);
 
-    // Receive an event — resets idleAlertFired and lastEventReceivedAt
+    // Receive an event — resets idleAlertFired and lastEventReceivedAt (~T from start)
     sendEvent('EVENT_RECEIVED');
 
-    // Advance far enough for the interval to fire when idleMs >= threshold again.
-    // The interval fires at 2T, 3T, … from start.  After EVENT_RECEIVED at ~T,
-    // the next fire where idleMs >= T is at 3T (fire at 2T gives idleMs = T-1).
+    // With interval=T/2, interval fires at 3T/2, 2T, 5T/2, … from start.
+    // The first fire where idleMs >= T after EVENT_RECEIVED is at 5T/2 (idleMs = 3T/2 - ε).
+    // Advancing 2T from here (total ~3T from start) covers 5T/2, so the second alert fires.
     jest.advanceTimersByTime(2 * config['IDLE_EVENT_TIMEOUT_MS']);
     await Promise.resolve();
     await Promise.resolve();
 
     expect(mockAddAlert).toHaveBeenCalledTimes(2);
-    expect(processExitSpy).toHaveBeenCalledTimes(2);
+    expect(mockCallback).toHaveBeenCalledTimes(2);
+    expect(processExitSpy).not.toHaveBeenCalled();
   });
 
   it('should restart the idle timer when CONNECTED is sent while already running', () => {
@@ -173,7 +178,7 @@ describe('MonitoringActor', () => {
     expect(clearTimeout).toHaveBeenCalledTimes(1);
   });
 
-  it('should fire a MAJOR alert when stuck', async () => {
+  it('should fire a MAJOR alert when stuck and NOT send MONITORING_IDLE_TIMEOUT', async () => {
     MonitoringActor(mockCallback, mockReceive, config);
     sendEvent('PROCESSING_STARTED');
 
@@ -183,6 +188,7 @@ describe('MonitoringActor', () => {
 
     expect(mockAddAlert).toHaveBeenCalledTimes(1);
     expect(mockAddAlert.mock.calls[0][0]).toBe('Daemon Stuck In Processing State');
+    // Stuck detection intentionally does not notify the machine — machine keeps running
     expect(mockCallback).not.toHaveBeenCalled();
   });
 
@@ -247,6 +253,46 @@ describe('MonitoringActor', () => {
 
     await Promise.resolve();
     expect(mockAddAlert).not.toHaveBeenCalled();
+  });
+
+  it('should not fire more than one storm alert within the 1-minute cooldown window', async () => {
+    MonitoringActor(mockCallback, mockReceive, config);
+
+    // Trigger threshold
+    sendEvent('RECONNECTING');
+    sendEvent('RECONNECTING');
+    sendEvent('RECONNECTING'); // threshold = 3 → first alert
+
+    await Promise.resolve();
+    expect(mockAddAlert).toHaveBeenCalledTimes(1);
+
+    // Additional reconnections within cooldown (no time advanced)
+    sendEvent('RECONNECTING');
+    sendEvent('RECONNECTING');
+
+    await Promise.resolve();
+    // Cooldown prevents a second alert
+    expect(mockAddAlert).toHaveBeenCalledTimes(1);
+  });
+
+  it('should fire another storm alert after the 1-minute cooldown expires', async () => {
+    MonitoringActor(mockCallback, mockReceive, config);
+
+    sendEvent('RECONNECTING');
+    sendEvent('RECONNECTING');
+    sendEvent('RECONNECTING'); // first alert
+
+    await Promise.resolve();
+    expect(mockAddAlert).toHaveBeenCalledTimes(1);
+
+    // Advance past the 1-minute cooldown
+    jest.advanceTimersByTime(61 * 1000);
+
+    sendEvent('RECONNECTING'); // still >= threshold in window, cooldown expired
+
+    await Promise.resolve();
+    expect(mockAddAlert).toHaveBeenCalledTimes(2);
+    expect(mockAddAlert.mock.calls[1][0]).toBe('Daemon Reconnection Storm');
   });
 
   it('should evict old reconnections outside the storm window', async () => {

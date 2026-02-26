@@ -24,4 +24,3 @@ export const ACK_TIMEOUT = () => {
   const { ACK_TIMEOUT_MS } = getConfig();
   return ACK_TIMEOUT_MS;
 };
-

@@ -15,8 +15,8 @@ import { Event, EventTypes } from '../types';
  *
  * Centralises all runtime health monitoring for the sync state machine.
  * The machine sends MONITORING_EVENTs to this actor; when anomalies are detected
- * the actor fires alerts and, when necessary, sends MONITORING_STUCK_PROCESSING
- * back to the machine to trigger a soft reconnect.
+ * the actor fires alerts and, when necessary, sends MONITORING_IDLE_TIMEOUT back
+ * to the machine to trigger a graceful shutdown.
  *
  * Responsibilities:
  *
@@ -26,13 +26,13 @@ import { Event, EventTypes } from '../types';
  *
  * 2. Stuck-processing detection — PROCESSING_STARTED begins a one-shot timer;
  *    PROCESSING_COMPLETED cancels it.  If the timer fires the actor fires a
- *    CRITICAL alert and sends MONITORING_STUCK_PROCESSING to the machine, which
- *    transitions to RECONNECTING.  This replaces the per-state XState `after`
- *    blocks that previously scattered this logic across every processing state.
+ *    MAJOR alert; the machine keeps running so that a long-running handler
+ *    (e.g. a large reorg) is allowed to finish.
  *
- * 3. Reconnection storm detection — fires a CRITICAL alert when the daemon
+ * 3. Reconnection storm detection — fires a MAJOR alert when the daemon
  *    reconnects more than RECONNECTION_STORM_THRESHOLD times within
- *    RECONNECTION_STORM_WINDOW_MS.
+ *    RECONNECTION_STORM_WINDOW_MS.  Duplicate alerts are suppressed for
+ *    STORM_ALERT_COOLDOWN_MS (1 min) to avoid spamming the alerting system.
  */
 const DEFAULT_IDLE_EVENT_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_STUCK_PROCESSING_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
@@ -59,6 +59,7 @@ export default (callback: any, receive: any, config = getConfig()) => {
     idleAlertFired = false;
 
     idleCheckTimer = setInterval(async () => {
+      // Interval is idleTimeoutMs/2 so the worst-case detection lag is 1.5×timeout
       if (!isConnected || lastEventReceivedAt === null) return;
 
       const idleMs = Date.now() - lastEventReceivedAt;
@@ -75,9 +76,11 @@ export default (callback: any, receive: any, config = getConfig()) => {
           Severity.MAJOR,
           { idleMs: String(idleMs) },
           logger,
-        ).finally(() => process.exit(1));
+        ).finally(() => {
+          callback({ type: EventTypes.MONITORING_IDLE_TIMEOUT });
+        });
       }
-    }, idleTimeoutMs);
+    }, Math.floor(idleTimeoutMs / 2));
   };
 
   const stopIdleCheck = () => {
@@ -102,7 +105,7 @@ export default (callback: any, receive: any, config = getConfig()) => {
         { timeoutMs: String(stuckTimeoutMs) },
         logger,
       ).catch((err: Error) =>
-        logger.error(`[monitoring] Failed to send stuck-processing alert: ${err}`),
+        logger.error(`[monitoring] Failed to send stuck-processing alert: ${err.message}`),
       );
     }, stuckTimeoutMs);
   };
@@ -115,7 +118,9 @@ export default (callback: any, receive: any, config = getConfig()) => {
   };
 
   // ── Reconnection storm detection ─────────────────────────────────────────────
+  const STORM_ALERT_COOLDOWN_MS = 60 * 1000; // suppress duplicate storm alerts for 1 minute
   let reconnectionTimestamps: number[] = [];
+  let stormAlertLastFiredAt: number | null = null;
 
   const trackReconnection = () => {
     const now = Date.now();
@@ -125,6 +130,11 @@ export default (callback: any, receive: any, config = getConfig()) => {
     reconnectionTimestamps = reconnectionTimestamps.filter(t => t >= windowStart);
 
     if (reconnectionTimestamps.length >= stormThreshold) {
+      if (stormAlertLastFiredAt !== null && now - stormAlertLastFiredAt < STORM_ALERT_COOLDOWN_MS) {
+        return; // still within cooldown — do not spam the alerting system
+      }
+      stormAlertLastFiredAt = now;
+
       const windowMinutes = Math.round(stormWindowMs / 60000);
       logger.error(
         `[monitoring] Reconnection storm: ${reconnectionTimestamps.length} reconnections in the last ${windowMinutes} minutes`,
@@ -140,7 +150,7 @@ export default (callback: any, receive: any, config = getConfig()) => {
         },
         logger,
       ).catch((err: Error) =>
-        logger.error(`[monitoring] Failed to send reconnection storm alert: ${err}`),
+        logger.error(`[monitoring] Failed to send reconnection storm alert: ${err.message}`),
       );
     }
   };

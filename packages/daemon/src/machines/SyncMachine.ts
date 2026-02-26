@@ -391,6 +391,9 @@ export const SyncMachine = Machine<Context, any, Event>({
           cond: 'websocketDisconnected',
           target: SYNC_MACHINE_STATES.RECONNECTING,
         }],
+        MONITORING_IDLE_TIMEOUT: {
+          target: `#${SYNC_MACHINE_STATES.ERROR}`,
+        },
       },
     },
     [SYNC_MACHINE_STATES.ERROR]: {
