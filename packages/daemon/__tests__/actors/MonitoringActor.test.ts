@@ -9,7 +9,7 @@ import MonitoringActor from '../../src/actors/MonitoringActor';
 import logger from '../../src/logger';
 import { EventTypes } from '../../src/types/event';
 import getConfig from '../../src/config';
-import { addAlert } from '@wallet-service/common';
+import { addAlert, Severity } from '@wallet-service/common';
 
 const MONITORING_IDLE_TIMEOUT_EVENT = { type: EventTypes.MONITORING_IDLE_TIMEOUT };
 
@@ -56,6 +56,10 @@ describe('MonitoringActor', () => {
     });
   });
 
+  afterEach(() => {
+    processExitSpy.mockRestore();
+  });
+
   afterAll(() => {
     jest.clearAllMocks();
     jest.useRealTimers();
@@ -98,6 +102,7 @@ describe('MonitoringActor', () => {
 
     expect(mockAddAlert).toHaveBeenCalledTimes(1);
     expect(mockAddAlert.mock.calls[0][0]).toBe('Daemon Idle — No Events Received');
+    expect(mockAddAlert.mock.calls[0][2]).toBe(Severity.MAJOR);
     expect(mockCallback).toHaveBeenCalledWith(MONITORING_IDLE_TIMEOUT_EVENT);
     expect(processExitSpy).not.toHaveBeenCalled();
   });
@@ -188,6 +193,7 @@ describe('MonitoringActor', () => {
 
     expect(mockAddAlert).toHaveBeenCalledTimes(1);
     expect(mockAddAlert.mock.calls[0][0]).toBe('Daemon Stuck In Processing State');
+    expect(mockAddAlert.mock.calls[0][2]).toBe(Severity.MAJOR);
     // Stuck detection intentionally does not notify the machine — machine keeps running
     expect(mockCallback).not.toHaveBeenCalled();
   });
@@ -243,6 +249,7 @@ describe('MonitoringActor', () => {
     await Promise.resolve();
     expect(mockAddAlert).toHaveBeenCalledTimes(1);
     expect(mockAddAlert.mock.calls[0][0]).toBe('Daemon Reconnection Storm');
+    expect(mockAddAlert.mock.calls[0][2]).toBe(Severity.MAJOR);
   });
 
   it('should NOT fire a reconnection storm alert below the threshold', async () => {

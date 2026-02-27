@@ -6,7 +6,7 @@
  */
 
 import { assign, AssignAction, sendTo, choose } from 'xstate';
-import { Context, Event, EventTypes, StandardFullNodeEvent } from '../types';
+import { Context, Event, EventTypes, MonitoringEvent, StandardFullNodeEvent } from '../types';
 import { get } from 'lodash';
 import logger from '../logger';
 import { hashTxData } from '../utils';
@@ -211,53 +211,14 @@ export const getMonitoringRefFromContext = (context: Context) => {
 
 const monitoringIsPresent = (context: Context) => context.monitoring !== null;
 
-/*
- * Notifies the monitoring actor that the WebSocket became connected.
- */
-export const sendMonitoringConnected = choose([{
+const makeMonitoringSender = (eventType: MonitoringEvent['type']) => choose([{
   cond: monitoringIsPresent,
-  actions: sendTo(getMonitoringRefFromContext, { type: EventTypes.MONITORING_EVENT, event: { type: 'CONNECTED' } }),
+  actions: sendTo(getMonitoringRefFromContext, { type: EventTypes.MONITORING_EVENT, event: { type: eventType } }),
 }]);
 
-/*
- * Notifies the monitoring actor that the WebSocket disconnected.
- */
-export const sendMonitoringDisconnected = choose([{
-  cond: monitoringIsPresent,
-  actions: sendTo(getMonitoringRefFromContext, { type: EventTypes.MONITORING_EVENT, event: { type: 'DISCONNECTED' } }),
-}]);
-
-/*
- * Notifies the monitoring actor that a fullnode event was received (resets the idle timer).
- */
-export const sendMonitoringEventReceived = choose([{
-  cond: monitoringIsPresent,
-  actions: sendTo(getMonitoringRefFromContext, { type: EventTypes.MONITORING_EVENT, event: { type: 'EVENT_RECEIVED' } }),
-}]);
-
-/*
- * Notifies the monitoring actor that the machine is entering the RECONNECTING state.
- */
-export const sendMonitoringReconnecting = choose([{
-  cond: monitoringIsPresent,
-  actions: sendTo(getMonitoringRefFromContext, { type: EventTypes.MONITORING_EVENT, event: { type: 'RECONNECTING' } }),
-}]);
-
-/*
- * Notifies the monitoring actor that a processing state was entered.
- * The actor starts a stuck-detection timer; if PROCESSING_COMPLETED doesn't
- * arrive within STUCK_PROCESSING_TIMEOUT_MS it fires a MAJOR alert.
- */
-export const sendMonitoringProcessingStarted = choose([{
-  cond: monitoringIsPresent,
-  actions: sendTo(getMonitoringRefFromContext, { type: EventTypes.MONITORING_EVENT, event: { type: 'PROCESSING_STARTED' } }),
-}]);
-
-/*
- * Notifies the monitoring actor that a processing state was exited normally,
- * cancelling the stuck-detection timer.
- */
-export const sendMonitoringProcessingCompleted = choose([{
-  cond: monitoringIsPresent,
-  actions: sendTo(getMonitoringRefFromContext, { type: EventTypes.MONITORING_EVENT, event: { type: 'PROCESSING_COMPLETED' } }),
-}]);
+export const sendMonitoringConnected = makeMonitoringSender('CONNECTED');
+export const sendMonitoringDisconnected = makeMonitoringSender('DISCONNECTED');
+export const sendMonitoringEventReceived = makeMonitoringSender('EVENT_RECEIVED');
+export const sendMonitoringReconnecting = makeMonitoringSender('RECONNECTING');
+export const sendMonitoringProcessingStarted = makeMonitoringSender('PROCESSING_STARTED');
+export const sendMonitoringProcessingCompleted = makeMonitoringSender('PROCESSING_COMPLETED');
