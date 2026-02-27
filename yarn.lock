@@ -11017,7 +11017,7 @@ __metadata:
     ws: "npm:^8.18.0"
     zod: "npm:^3.23.8"
   peerDependencies:
-    "@hathor/wallet-lib": 2.8.3
+    "@hathor/wallet-lib": ">=2.8.3"
   languageName: unknown
   linkType: soft
 
