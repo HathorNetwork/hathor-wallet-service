@@ -2525,6 +2525,10 @@ test('getTotalSupply', async () => {
   expect(await getTotalSupply(mysql, 'token2')).toStrictEqual(25n);
   expect(await getTotalSupply(mysql, 'token1')).toStrictEqual(35n);
 
+  // Token with no UTXOs returns 0n (e.g., nano contract token held by contract)
+  // SQL SUM() returns NULL when no rows match, which we handle gracefully
+  expect(await getTotalSupply(mysql, 'token-with-no-utxos')).toStrictEqual(0n);
+
   const mysqlQuerySpy = jest.spyOn(mysql, 'query');
   mysqlQuerySpy.mockImplementationOnce(() => Promise.resolve({ length: null }));
 
