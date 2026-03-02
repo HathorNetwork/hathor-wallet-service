@@ -70,9 +70,14 @@ export const getTokenDetails = middy(walletIdProxyHandler(async (_walletId, even
     const data = await fullnode.getTokenDetails(tokenId);
 
     if (!data?.success) {
-      return closeDbAndGetError(mysql, ApiError.TOKEN_NOT_FOUND, {
-        details: [{ message: 'Token not found' }],
-      });
+      return {
+        statusCode: 404,
+        body: JSON.stringify({
+          success: false,
+          error: ApiError.TOKEN_NOT_FOUND,
+          details: [{ message: 'Token not found' }],
+        }),
+      };
     }
 
     return {
