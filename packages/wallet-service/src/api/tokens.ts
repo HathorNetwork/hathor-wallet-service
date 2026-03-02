@@ -65,30 +65,39 @@ export const getTokenDetails = middy(walletIdProxyHandler(async (_walletId, even
   }
 
   const tokenId = value.token_id;
-  const data = await fullnode.getTokenDetails(tokenId);
 
-  await closeDbConnection(mysql);
+  try {
+    const data = await fullnode.getTokenDetails(tokenId);
 
-  return {
-    statusCode: 200,
-    body: JSON.stringify({
-      success: true,
-      details: {
-        tokenInfo: {
-          id: tokenId,
-          name: data.name,
-          symbol: data.symbol,
-          version: data.version,
+    if (!data?.success) {
+      return closeDbAndGetError(mysql, ApiError.TOKEN_NOT_FOUND, {
+        details: [{ message: 'Token not found' }],
+      });
+    }
+
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        success: true,
+        details: {
+          tokenInfo: {
+            id: tokenId,
+            name: data.name,
+            symbol: data.symbol,
+            version: data.version,
+          },
+          totalSupply: data.total,
+          totalTransactions: data.transactions_count,
+          authorities: {
+            mint: data.can_mint,
+            melt: data.can_melt,
+          },
         },
-        totalSupply: data.total,
-        totalTransactions: data.transactions_count,
-        authorities: {
-          mint: data.can_mint,
-          melt: data.can_melt,
-        },
-      },
-    }),
-  };
+      }),
+    };
+  } finally {
+    await closeDbConnection(mysql);
+  }
 })).use(cors())
   .use(warmupMiddleware())
   .use(errorHandler());

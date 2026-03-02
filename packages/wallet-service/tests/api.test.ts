@@ -1527,7 +1527,7 @@ test('GET /wallet/tokens/token_id/details', async () => {
   expect(returnBody.details.totalTransactions).toStrictEqual(1);
   expect(returnBody.details.authorities.mint).toStrictEqual(true);
   expect(returnBody.details.authorities.melt).toStrictEqual(false);
-  expect(mockFullnodeResponse).toHaveBeenCalledWith(TX_IDS[0]);
+  expect(mockFullnodeResponse).toHaveBeenNthCalledWith(1, TX_IDS[0]);
 
   // Test with a token that has both mint and melt authorities
   const mockFullnodeData2 = {
@@ -1560,6 +1560,7 @@ test('GET /wallet/tokens/token_id/details', async () => {
   expect(returnBody.details.totalTransactions).toStrictEqual(2);
   expect(returnBody.details.authorities.mint).toStrictEqual(true);
   expect(returnBody.details.authorities.melt).toStrictEqual(true);
+  expect(mockFullnodeResponse).toHaveBeenNthCalledWith(2, TX_IDS[1]);
 
   // Short token_id should fail validation
   event = makeGatewayEventWithAuthorizer('my-wallet', { token_id: constants.NATIVE_TOKEN_UID });
