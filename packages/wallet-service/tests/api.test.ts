@@ -1472,6 +1472,25 @@ test('GET /wallet/tokens/token_id/details', async () => {
   // check CORS headers
   await _testCORSHeaders(getTokenDetails, null, null);
 
+  const mockFullnodeData = {
+    name: 'MyToken1',
+    symbol: 'MT1',
+    version: 1,
+    success: true,
+    mint: [
+      { tx_id: 'txId', index: 2 },
+    ],
+    melt: [],
+    can_mint: true,
+    can_melt: false,
+    total: 100,
+    transactions_count: 1,
+  };
+
+  const spy = jest.spyOn(fullnode, 'getTokenDetails');
+  const mockFullnodeResponse = jest.fn(() => Promise.resolve(mockFullnodeData));
+  spy.mockImplementation(mockFullnodeResponse);
+
   await addToWalletTable(mysql, [{
     id: 'my-wallet',
     xpubkey: 'xpubkey',
@@ -1482,158 +1501,67 @@ test('GET /wallet/tokens/token_id/details', async () => {
     readyAt: 10001,
   }]);
 
-  let event = makeGatewayEventWithAuthorizer('my-wallet', { token_id: TX_IDS[0] });
+  // Missing token_id should return validation error
+  let event = makeGatewayEventWithAuthorizer('my-wallet', null);
   let result = await getTokenDetails(event, null, null) as APIGatewayProxyResult;
   let returnBody = JSON.parse(result.body as string);
-
-  expect(result.statusCode).toBe(404);
-  expect(returnBody.success).toBe(false);
-  expect(returnBody.details[0]).toStrictEqual({ message: 'Token not found' });
-
-  event = makeGatewayEventWithAuthorizer('my-wallet', null);
-  result = await getTokenDetails(event, null, null) as APIGatewayProxyResult;
-  returnBody = JSON.parse(result.body as string);
 
   expect(result.statusCode).toBe(400);
   expect(returnBody.success).toBe(false);
   expect(returnBody.details[0]).toStrictEqual({ message: '"token_id" is required', path: ['token_id'] });
 
-  // add tokens
-  const token1 = { id: TX_IDS[1], name: 'MyToken1', symbol: 'MT1', version: TokenVersion.DEPOSIT };
-  const token2 = { id: TX_IDS[2], name: 'MyToken2', symbol: 'MT2', version: TokenVersion.DEPOSIT };
-
-  await addToTokenTable(mysql, [
-    { id: token1.id, name: token1.name, symbol: token1.symbol, version: TokenVersion.DEPOSIT, transactions: 0 },
-    { id: token2.id, name: token2.name, symbol: token2.symbol, version: TokenVersion.DEPOSIT, transactions: 0 },
-  ]);
-
-  await addToUtxoTable(mysql, [{
-    // Total tokens created
-    txId: 'txId',
-    index: 0,
-    tokenId: token1.id,
-    address: ADDRESSES[0],
-    value: 100n,
-    authorities: 0,
-    timelock: null,
-    heightlock: null,
-    locked: false,
-    spentBy: null,
-  }, {
-    // Mint UTXO:
-    txId: 'txId',
-    index: 1,
-    tokenId: token1.id,
-    address: ADDRESSES[0],
-    value: 0n,
-    authorities: Number(constants.TOKEN_MINT_MASK),
-    timelock: null,
-    heightlock: null,
-    locked: false,
-    spentBy: null,
-  }, {
-    // Another Mint UTXO
-    txId: 'txId',
-    index: 2,
-    tokenId: token1.id,
-    address: ADDRESSES[0],
-    value: 0n,
-    authorities: Number(constants.TOKEN_MINT_MASK),
-    timelock: null,
-    heightlock: null,
-    locked: false,
-    spentBy: null,
-  }, {
-    // Total tokens created
-    txId: 'txId2',
-    index: 0,
-    tokenId: token2.id,
-    address: ADDRESSES[0],
-    value: 250n,
-    authorities: 0,
-    timelock: null,
-    heightlock: null,
-    locked: true,
-    spentBy: null,
-  }, {
-    // Locked utxo
-    txId: 'txId2',
-    index: 1,
-    tokenId: token2.id,
-    address: ADDRESSES[0],
-    value: 0n,
-    authorities: Number(constants.TOKEN_MINT_MASK),
-    timelock: 1000,
-    heightlock: null,
-    locked: true,
-    spentBy: null,
-  }, {
-    // Spent utxo
-    txId: 'txId2',
-    index: 2,
-    tokenId: token2.id,
-    address: ADDRESSES[0],
-    value: 0n,
-    authorities: Number(constants.TOKEN_MINT_MASK),
-    timelock: 1000,
-    heightlock: null,
-    locked: true,
-    spentBy: 'txid2',
-  }, {
-    txId: 'txId3',
-    index: 0,
-    tokenId: token2.id,
-    address: ADDRESSES[0],
-    value: 0n,
-    authorities: Number(constants.TOKEN_MINT_MASK),
-    timelock: null,
-    heightlock: null,
-    locked: false,
-    spentBy: null,
-  }, {
-    // Melt UTXO
-    txId: 'txId3',
-    index: 1,
-    tokenId: token2.id,
-    address: ADDRESSES[0],
-    value: 0n,
-    authorities: Number(constants.TOKEN_MELT_MASK),
-    timelock: null,
-    heightlock: null,
-    locked: false,
-    spentBy: null,
-  }]);
-
-  await addToAddressTxHistoryTable(mysql, [
-    { address: ADDRESSES[0], txId: 'txId', tokenId: token1.id, balance: 100n, timestamp: 0 },
-    { address: ADDRESSES[0], txId: 'txId2', tokenId: token2.id, balance: 250n, timestamp: 0 },
-    { address: ADDRESSES[0], txId: 'txId3', tokenId: token2.id, balance: 0n, timestamp: 0 },
-  ]);
-
-  event = makeGatewayEventWithAuthorizer('my-wallet', { token_id: token1.id });
+  // Valid token_id should proxy to fullnode and return in the old response format
+  event = makeGatewayEventWithAuthorizer('my-wallet', { token_id: TX_IDS[0] });
   result = await getTokenDetails(event, null, null) as APIGatewayProxyResult;
   returnBody = JSON.parse(result.body as string);
 
   expect(result.statusCode).toBe(200);
   expect(returnBody.success).toBe(true);
+  expect(returnBody.details.tokenInfo).toStrictEqual({
+    id: TX_IDS[0],
+    name: 'MyToken1',
+    symbol: 'MT1',
+    version: 1,
+  });
   expect(returnBody.details.totalSupply).toStrictEqual(100);
   expect(returnBody.details.totalTransactions).toStrictEqual(1);
   expect(returnBody.details.authorities.mint).toStrictEqual(true);
   expect(returnBody.details.authorities.melt).toStrictEqual(false);
-  expect(returnBody.details.tokenInfo).toStrictEqual(token1);
+  expect(mockFullnodeResponse).toHaveBeenCalledWith(TX_IDS[0]);
 
-  event = makeGatewayEventWithAuthorizer('my-wallet', { token_id: token2.id });
+  // Test with a token that has both mint and melt authorities
+  const mockFullnodeData2 = {
+    name: 'MyToken2',
+    symbol: 'MT2',
+    version: 1,
+    success: true,
+    mint: [{ tx_id: 'txId2', index: 1 }],
+    melt: [{ tx_id: 'txId2', index: 2 }],
+    can_mint: true,
+    can_melt: true,
+    total: 250,
+    transactions_count: 2,
+  };
+  mockFullnodeResponse.mockResolvedValue(mockFullnodeData2);
+
+  event = makeGatewayEventWithAuthorizer('my-wallet', { token_id: TX_IDS[1] });
   result = await getTokenDetails(event, null, null) as APIGatewayProxyResult;
   returnBody = JSON.parse(result.body as string);
 
   expect(result.statusCode).toBe(200);
   expect(returnBody.success).toBe(true);
+  expect(returnBody.details.tokenInfo).toStrictEqual({
+    id: TX_IDS[1],
+    name: 'MyToken2',
+    symbol: 'MT2',
+    version: 1,
+  });
   expect(returnBody.details.totalSupply).toStrictEqual(250);
   expect(returnBody.details.totalTransactions).toStrictEqual(2);
   expect(returnBody.details.authorities.mint).toStrictEqual(true);
   expect(returnBody.details.authorities.melt).toStrictEqual(true);
-  expect(returnBody.details.tokenInfo).toStrictEqual(token2);
 
+  // Short token_id should fail validation
   event = makeGatewayEventWithAuthorizer('my-wallet', { token_id: constants.NATIVE_TOKEN_UID });
   result = await getTokenDetails(event, null, null) as APIGatewayProxyResult;
   returnBody = JSON.parse(result.body as string);
@@ -1651,21 +1579,7 @@ test('GET /wallet/tokens/token_id/details', async () => {
   ]
   `);
 
-  const oldHathorTokenConfig = constants.NATIVE_TOKEN_UID;
-
-  // @ts-ignore
-  constants.NATIVE_TOKEN_UID = TX_IDS[4];
-
-  event = makeGatewayEventWithAuthorizer('my-wallet', { token_id: constants.NATIVE_TOKEN_UID });
-  result = await getTokenDetails(event, null, null) as APIGatewayProxyResult;
-  returnBody = JSON.parse(result.body as string);
-
-  expect(result.statusCode).toBe(400);
-  expect(returnBody.success).toBe(false);
-  expect(returnBody.details).toStrictEqual([{ message: 'Invalid tokenId' }]);
-
-  // @ts-ignore
-  constants.NATIVE_TOKEN_UID = oldHathorTokenConfig;
+  spy.mockRestore();
 });
 
 test('GET /wallet/utxos', async () => {

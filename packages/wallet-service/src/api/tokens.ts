@@ -3,19 +3,15 @@ import 'source-map-support/register';
 import { walletIdProxyHandler } from '@src/commons';
 import {
   getWalletTokens,
-  getTotalSupply,
-  getTotalTransactions,
-  getTokenInformation,
-  getAuthorityUtxo,
 } from '@src/db';
 import {
-  TokenInfo,
-} from '@src/types';
-import { getDbConnection } from '@src/utils';
+  closeDbConnection,
+  getDbConnection,
+} from '@src/utils';
 import { ApiError } from '@src/api/errors';
 import { closeDbAndGetError, warmupMiddleware, txIdJoiValidator } from '@src/api/utils';
+import fullnode from '@src/fullnode';
 import Joi from 'joi';
-import { bigIntUtils, constants } from '@hathor/wallet-lib';
 import middy from '@middy/core';
 import cors from '@middy/http-cors';
 import errorHandler from '@src/api/middlewares/errorHandler';
@@ -49,8 +45,9 @@ const getTokenDetailsParamsSchema = Joi.object({
  * Get token details
  *
  * This lambda is called by API Gateway on GET /wallet/tokens/:token_id/details
+ * It proxies the request to the fullnode's thin_wallet/token API
  */
-export const getTokenDetails = middy(walletIdProxyHandler(async (walletId, event) => {
+export const getTokenDetails = middy(walletIdProxyHandler(async (_walletId, event) => {
   const params = event.pathParameters || {};
 
   const { value, error } = getTokenDetailsParamsSchema.validate(params, {
@@ -68,47 +65,26 @@ export const getTokenDetails = middy(walletIdProxyHandler(async (walletId, event
   }
 
   const tokenId = value.token_id;
-  const tokenInfo: TokenInfo = await getTokenInformation(mysql, tokenId);
+  const data = await fullnode.getTokenDetails(tokenId);
 
-  if (tokenId === constants.NATIVE_TOKEN_UID) {
-    const details = [{
-      message: 'Invalid tokenId',
-    }];
-
-    return closeDbAndGetError(mysql, ApiError.INVALID_PAYLOAD, { details });
-  }
-
-  if (!tokenInfo) {
-    const details = [{
-      message: 'Token not found',
-    }];
-
-    return closeDbAndGetError(mysql, ApiError.TOKEN_NOT_FOUND, { details });
-  }
-
-  const [
-    totalSupply,
-    totalTransactions,
-    meltAuthority,
-    mintAuthority,
-  ] = await Promise.all([
-    getTotalSupply(mysql, tokenId),
-    getTotalTransactions(mysql, tokenId),
-    getAuthorityUtxo(mysql, tokenId, Number(constants.TOKEN_MELT_MASK)),
-    getAuthorityUtxo(mysql, tokenId, Number(constants.TOKEN_MINT_MASK)),
-  ]);
+  await closeDbConnection(mysql);
 
   return {
     statusCode: 200,
-    body: bigIntUtils.JSONBigInt.stringify({
+    body: JSON.stringify({
       success: true,
       details: {
-        tokenInfo,
-        totalSupply,
-        totalTransactions,
+        tokenInfo: {
+          id: tokenId,
+          name: data.name,
+          symbol: data.symbol,
+          version: data.version,
+        },
+        totalSupply: data.total,
+        totalTransactions: data.transactions_count,
         authorities: {
-          mint: mintAuthority !== null,
-          melt: meltAuthority !== null,
+          mint: data.can_mint,
+          melt: data.can_melt,
         },
       },
     }),
