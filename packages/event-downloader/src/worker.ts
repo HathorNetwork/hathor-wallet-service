@@ -42,9 +42,17 @@ export function createWorker(config: BatchConfig, callbacks: WorkerCallbacks): W
   let socket: WebSocket | null = null;
   let isRunning = false;
   let isDone = false;
+  let hasFailed = false;
   let eventsSinceLastAck = 0;
   let lastReceivedEventId = 0;
   let activityTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  const fail = (error: Error): void => {
+    if (hasFailed || isDone) return;
+    hasFailed = true;
+    onError(error);
+    stop();
+  };
 
   const resetActivityTimeout = (): void => {
     if (activityTimeout) {
@@ -53,8 +61,7 @@ export function createWorker(config: BatchConfig, callbacks: WorkerCallbacks): W
     if (isRunning && CONNECTION_TIMEOUT_MS > 0) {
       activityTimeout = setTimeout(() => {
         if (isRunning) {
-          onError(new Error(`Connection timeout: no activity for ${CONNECTION_TIMEOUT_MS}ms`));
-          stop();
+          fail(new Error(`Connection timeout: no activity for ${CONNECTION_TIMEOUT_MS}ms`));
         }
       }, CONNECTION_TIMEOUT_MS);
     }
@@ -149,18 +156,17 @@ export function createWorker(config: BatchConfig, callbacks: WorkerCallbacks): W
           stop();
         }
       } catch (error) {
-        onError(error instanceof Error ? error : new Error(String(error)));
+        fail(error instanceof Error ? error : new Error(String(error)));
       }
     };
 
     socket.onerror = (error: ErrorEvent) => {
-      onError(new Error(`WebSocket error: ${error.message}`));
+      fail(new Error(`WebSocket error: ${error.message}`));
     };
 
     socket.onclose = () => {
-      if (isRunning) {
-        // Unexpected close - report as error
-        onError(new Error('WebSocket connection closed unexpectedly'));
+      if (isRunning && !isDone) {
+        fail(new Error('WebSocket connection closed unexpectedly'));
       }
       isRunning = false;
       socket = null;

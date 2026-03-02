@@ -79,7 +79,13 @@ export async function getLatestEventId(): Promise<number> {
       clearTimeout(timeout);
       try {
         const data = bigIntUtils.JSONBigInt.parse(event.data.toString());
-        const latestEventId = data.latest_event_id;
+        const rawLatestEventId = data?.latest_event_id;
+        const latestEventId = typeof rawLatestEventId === 'bigint'
+          ? Number(rawLatestEventId)
+          : rawLatestEventId;
+        if (!Number.isSafeInteger(latestEventId) || latestEventId < 0) {
+          throw new Error(`Invalid latest_event_id: ${String(rawLatestEventId)}`);
+        }
         socket.close();
         resolve(latestEventId);
       } catch (error) {
@@ -102,7 +108,7 @@ function calculateBatches(latestEventId: number, batchSize: number): BatchInfo[]
   const batches: BatchInfo[] = [];
   let start = 0;
 
-  while (start < latestEventId) {
+  while (start <= latestEventId) {
     const end = Math.min(start + batchSize - 1, latestEventId);
     batches.push({ start, end });
     start = end + 1;
@@ -167,7 +173,20 @@ function runWorker(
     const txEventBuffer: TxEvent[] = [];
     let eventsDownloaded = 0;
     let lastEventId = batch.lastDownloaded ?? batch.start - 1;
-    let isCompleted = false;
+    let isSettled = false;
+
+    const settleResolve = () => {
+      if (!isSettled) {
+        isSettled = true;
+        resolve();
+      }
+    };
+    const settleReject = (error: Error) => {
+      if (!isSettled) {
+        isSettled = true;
+        reject(error);
+      }
+    };
 
     const flushBuffers = () => {
       if (eventBuffer.length > 0) {
@@ -230,14 +249,16 @@ function runWorker(
       },
 
       onComplete: () => {
-        isCompleted = true;
-        flushBuffers();
-        updateBatchProgress(db, batch.start, batch.end, batch.end, 'completed');
-        resolve();
+        try {
+          flushBuffers();
+          updateBatchProgress(db, batch.start, batch.end, batch.end, 'completed');
+          settleResolve();
+        } catch (error) {
+          settleReject(error instanceof Error ? error : new Error(String(error)));
+        }
       },
 
       onError: (error: Error) => {
-        if (isCompleted) return;
         // Save progress before failing (only if db is still open)
         try {
           flushBuffers();
@@ -247,7 +268,7 @@ function runWorker(
         } catch (e) {
           // Database might be closed already, ignore
         }
-        reject(error);
+        settleReject(error);
       },
     });
 
@@ -265,8 +286,9 @@ async function runWithConcurrency<T>(
   items: T[],
   concurrency: number,
   fn: (item: T, workerSlot: number) => Promise<void>
-): Promise<void> {
+): Promise<Error[]> {
   const results: Promise<void>[] = [];
+  const errors: Error[] = [];
   let currentIndex = 0;
 
   const runWorkerSlot = async (workerSlot: number): Promise<void> => {
@@ -279,8 +301,8 @@ async function runWithConcurrency<T>(
       try {
         await fn(items[index], workerSlot);
       } catch (error) {
-        // Log but continue with other batches
-        console.error(`Worker ${workerSlot} failed:`, error);
+        const normalized = error instanceof Error ? error : new Error(String(error));
+        errors.push(normalized);
       }
     }
   };
@@ -292,6 +314,7 @@ async function runWithConcurrency<T>(
   }
 
   await Promise.all(results);
+  return errors;
 }
 
 /**
@@ -332,7 +355,7 @@ export async function downloadAllEvents(callbacks: OrchestratorCallbacks): Promi
 
     const updateStats = () => {
       callbacks.onStatsUpdate({
-        totalEvents: latestEventId,
+        totalEvents: latestEventId + 1,
         totalBatches: allBatches.length,
         completedBatches: completedCount + finishedPendingBatches,
         inProgressBatches: activeWorkers,
@@ -342,19 +365,24 @@ export async function downloadAllEvents(callbacks: OrchestratorCallbacks): Promi
     };
 
     // Run workers with concurrency limit
-    await runWithConcurrency(pendingBatches, PARALLEL_CONNECTIONS, async (batch, workerSlot) => {
+    let completedEventsDownloaded = 0;
+
+    const errors = await runWithConcurrency(pendingBatches, PARALLEL_CONNECTIONS, async (batch, workerSlot) => {
       activeWorkers++;
       try {
         await runWorker(db, batch, workerSlot, {
           ...callbacks,
           onWorkerUpdate: (workerId, status) => {
             workerStatuses.set(workerId, status);
-            totalEventsDownloaded = Array.from(workerStatuses.values())
+            const inProgressEvents = Array.from(workerStatuses.values())
               .reduce((sum, s) => sum + s.eventsDownloaded, 0);
+            totalEventsDownloaded = completedEventsDownloaded + inProgressEvents;
             updateStats();
             callbacks.onWorkerUpdate(workerId, status);
           },
         });
+        completedEventsDownloaded += workerStatuses.get(workerSlot)?.eventsDownloaded ?? 0;
+        workerStatuses.delete(workerSlot);
         finishedPendingBatches++;
       } finally {
         activeWorkers--;
@@ -362,6 +390,10 @@ export async function downloadAllEvents(callbacks: OrchestratorCallbacks): Promi
       updateStats();
     });
 
+    if (errors.length > 0) {
+      callbacks.onError(new Error(`${errors.length} batch(es) failed: ${errors.map(e => e.message).join('; ')}`));
+      return;
+    }
     callbacks.onComplete();
   } finally {
     db.close();

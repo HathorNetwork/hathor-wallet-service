@@ -125,7 +125,10 @@ function render(): void {
   // Print worker statuses
   const sortedWorkers = Array.from(workerStatuses.entries()).sort((a, b) => a[0] - b[0]);
   for (const [workerId, status] of sortedWorkers) {
-    const workerPercent = ((status.lastEventId - status.batchStart) / (status.batchEnd - status.batchStart) * 100).toFixed(0);
+    const batchSize = status.batchEnd - status.batchStart;
+    const workerPercent = batchSize > 0
+      ? ((status.lastEventId - status.batchStart) / batchSize * 100).toFixed(0)
+      : '0';
     console.log(
       `Worker ${workerId + 1}: ${formatNumber(status.batchStart)}-${formatNumber(status.batchEnd)} | ` +
       `${formatNumber(status.eventsDownloaded)} events (${workerPercent}%)`
@@ -164,10 +167,17 @@ async function main(): Promise<void> {
     startTime = Date.now();
 
     // Handle graceful shutdown
+    let isShuttingDown = false;
     const cleanup = () => {
+      if (isShuttingDown) return;
+      isShuttingDown = true;
       process.stdout.write(SHOW_CURSOR);
-      console.log('\n\nDownload interrupted. Progress has been saved.');
-      process.exit(0);
+      console.log('\n\nDownload interrupted. Saving progress...');
+      // Give a brief window for in-flight DB writes to complete
+      setTimeout(() => {
+        console.log('Progress has been saved.');
+        process.exit(0);
+      }, 2000);
     };
 
     process.on('SIGINT', cleanup);

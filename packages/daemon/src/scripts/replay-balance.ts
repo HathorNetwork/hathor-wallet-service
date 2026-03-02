@@ -46,12 +46,22 @@ function parseArgs(): Opts {
     verbose: false,
   };
 
+  const readNext = (index: number, flag: string): string => {
+    const value = args[index + 1];
+    if (!value || value.startsWith('--')) {
+      throw new Error(`Missing value for ${flag}`);
+    }
+    return value;
+  };
+
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
-      case '--db':        opts.db = args[++i]; break;
-      case '--addresses': opts.addresses = args[++i]; break;
-      case '--expected':  opts.expected = BigInt(args[++i]); break;
+      case '--db':        opts.db = readNext(i, '--db'); i++; break;
+      case '--addresses': opts.addresses = readNext(i, '--addresses'); i++; break;
+      case '--expected':  opts.expected = BigInt(readNext(i, '--expected')); i++; break;
       case '--verbose':   opts.verbose = true; break;
+      default:
+        throw new Error(`Unknown option: ${args[i]}`);
     }
   }
   return opts;
@@ -62,9 +72,19 @@ function parseArgs(): Opts {
 // ---------------------------------------------------------------------------
 
 function loadAddresses(csvPath: string): Set<string> {
-  const lines = fs.readFileSync(csvPath, 'utf-8').trim().split('\n');
-  // Skip header row
-  return new Set(lines.slice(1).map(l => l.trim()).filter(Boolean));
+  const lines = fs.readFileSync(csvPath, 'utf-8')
+    .split(/\r?\n/)
+    .map(l => l.trim())
+    .filter(Boolean);
+
+  const hasHeader = lines[0]?.toLowerCase().startsWith('address');
+  const dataLines = hasHeader ? lines.slice(1) : lines;
+
+  return new Set(
+    dataLines
+      .map(line => line.split(',')[0]?.trim())
+      .filter((addr): addr is string => Boolean(addr)),
+  );
 }
 
 interface TxState {
@@ -87,12 +107,16 @@ function main() {
   const walletAddresses = loadAddresses(opts.addresses);
   console.log(`Loaded ${walletAddresses.size} wallet addresses`);
 
+  if (walletAddresses.size === 0) {
+    throw new Error('No wallet addresses found in CSV');
+  }
+
   const sqlite = new Database(opts.db, { readonly: true });
 
-  // Build the WHERE clause — one LIKE condition per address
-  const conditions = Array.from(walletAddresses)
-    .map(addr => `data LIKE '%${addr}%'`)
-    .join(' OR ');
+  // Build the WHERE clause — one parameterized LIKE condition per address
+  const addresses = Array.from(walletAddresses);
+  const conditions = addresses.map(() => 'data LIKE ?').join(' OR ');
+  const likeParams = addresses.map(addr => `%${addr}%`);
 
   const rows = sqlite.prepare(`
     SELECT id, type, data
@@ -100,7 +124,7 @@ function main() {
     WHERE type IN ('NEW_VERTEX_ACCEPTED', 'VERTEX_METADATA_CHANGED')
       AND (${conditions})
     ORDER BY id ASC
-  `).all() as Array<{ id: number; type: string; data: string }>;
+  `).all(...likeParams) as Array<{ id: number; type: string; data: string }>;
 
   sqlite.close();
 

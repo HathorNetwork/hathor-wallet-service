@@ -12,11 +12,23 @@ const requiredEnvs = [
 ];
 
 export const checkEnvVariables = () => {
-  const missingEnv = requiredEnvs.filter(envVar => process.env[envVar] === undefined);
+  const missingEnv = requiredEnvs.filter((envVar) => {
+    const value = process.env[envVar];
+    return value === undefined || value.trim() === '';
+  });
 
   if (missingEnv.length > 0) {
     throw new Error(`Missing required environment variables: ${missingEnv.join(', ')}`);
   }
+};
+
+const parsePositiveInt = (envName: string, fallback: number): number => {
+  const raw = process.env[envName];
+  const value = Number.parseInt(raw ?? String(fallback), 10);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`Invalid ${envName}: expected a positive integer, got "${raw}"`);
+  }
+  return value;
 };
 
 // Fullnode connection
@@ -24,10 +36,10 @@ export const FULLNODE_HOST = process.env.FULLNODE_HOST!;
 export const USE_SSL = process.env.USE_SSL === 'true';
 
 // Download configuration
-export const BATCH_SIZE = parseInt(process.env.BATCH_SIZE ?? '5000', 10);
-export const PARALLEL_CONNECTIONS = parseInt(process.env.PARALLEL_CONNECTIONS ?? '5', 10);
-export const WINDOW_SIZE = parseInt(process.env.WINDOW_SIZE ?? '100', 10);
-export const CONNECTION_TIMEOUT_MS = parseInt(process.env.CONNECTION_TIMEOUT_MS ?? '60000', 10);
+export const BATCH_SIZE = parsePositiveInt('BATCH_SIZE', 5000);
+export const PARALLEL_CONNECTIONS = parsePositiveInt('PARALLEL_CONNECTIONS', 5);
+export const WINDOW_SIZE = parsePositiveInt('WINDOW_SIZE', 100);
+export const CONNECTION_TIMEOUT_MS = parsePositiveInt('CONNECTION_TIMEOUT_MS', 60000);
 
 // Database configuration
 export const DB_PATH = process.env.DB_PATH ?? './events.sqlite';
