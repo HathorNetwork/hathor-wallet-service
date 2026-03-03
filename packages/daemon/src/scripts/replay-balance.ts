@@ -18,6 +18,7 @@
  * Options:
  *   --db <path>          Path to events.sqlite (default: ./events.sqlite)
  *   --addresses <path>   Path to addresses CSV (default: ./addresses.csv)
+ *   --token <uid>        Token UID to compute balance for (default: NATIVE_TOKEN_UID)
  *   --expected <value>   Expected balance in hatoshis for comparison
  *   --verbose            Show per-transaction breakdown
  */
@@ -34,6 +35,7 @@ import { prepareOutputs, prepareInputs } from '../utils/wallet';
 interface Opts {
   db: string;
   addresses: string;
+  token: string;
   expected?: bigint;
   verbose: boolean;
 }
@@ -43,6 +45,7 @@ function parseArgs(): Opts {
   const opts: Opts = {
     db: './events.sqlite',
     addresses: './addresses.csv',
+    token: constants.NATIVE_TOKEN_UID,
     verbose: false,
   };
 
@@ -58,6 +61,7 @@ function parseArgs(): Opts {
     switch (args[i]) {
       case '--db':        opts.db = readNext(i, '--db'); i++; break;
       case '--addresses': opts.addresses = readNext(i, '--addresses'); i++; break;
+      case '--token':     opts.token = readNext(i, '--token'); i++; break;
       case '--expected':  opts.expected = BigInt(readNext(i, '--expected')); i++; break;
       case '--verbose':   opts.verbose = true; break;
       default:
@@ -106,6 +110,7 @@ function main() {
 
   const walletAddresses = loadAddresses(opts.addresses);
   console.log(`Loaded ${walletAddresses.size} wallet addresses`);
+  console.log(`Token: ${opts.token === constants.NATIVE_TOKEN_UID ? 'HTR (native)' : opts.token}`);
 
   if (walletAddresses.size === 0) {
     throw new Error('No wallet addresses found in CSV');
@@ -200,7 +205,7 @@ function main() {
     for (const output of outputs) {
       const address = output.decoded?.address;
       if (!address || !walletAddresses.has(address)) continue;
-      if (output.token !== constants.NATIVE_TOKEN_UID) continue;
+      if (output.token !== opts.token) continue;
 
       // Skip authority outputs (mint / melt)
       const isAuthority = (output.token_data & 0x80) !== 0;
