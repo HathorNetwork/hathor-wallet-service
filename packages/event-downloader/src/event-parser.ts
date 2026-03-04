@@ -9,7 +9,6 @@ import { FullNodeEvent, FullNodeEventTypes } from './types';
 
 /**
  * Extracts the transaction hash from a fullnode event.
- * Now handles ALL event types, not just predefined ones.
  *
  * @param event - The fullnode event to extract the hash from
  * @returns The transaction hash if the event contains one, null otherwise
