@@ -118,6 +118,16 @@ export const create = (baseURL = BASE_URL) => {
     return response.data;
   }
 
+  const getTokenDetails = async (tokenId: string) => {
+    const response = await api.get('thin_wallet/token', {
+      data: null,
+      params: { id: tokenId },
+      headers: { 'content-type': 'application/json' },
+    });
+
+    return response.data;
+  }
+
   return {
     api, // exported so we can mock it on the tests
     version,
@@ -129,6 +139,7 @@ export const create = (baseURL = BASE_URL) => {
     getNCState,
     getNCHistory,
     getNCBlueprintInfo,
+    getTokenDetails,
   };
 };
 
