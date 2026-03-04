@@ -34,18 +34,13 @@ import { Event, EventTypes } from '../types';
  *    RECONNECTION_STORM_WINDOW_MS.  Duplicate alerts are suppressed for
  *    STORM_ALERT_COOLDOWN_MS (1 min) to avoid spamming the alerting system.
  */
-const DEFAULT_IDLE_EVENT_TIMEOUT_MS = 5 * 60 * 1000;
-const DEFAULT_STUCK_PROCESSING_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
-const DEFAULT_RECONNECTION_STORM_THRESHOLD = 10;
-const DEFAULT_RECONNECTION_STORM_WINDOW_MS = 5 * 60 * 1000;
-
 export default (callback: any, receive: any, config = getConfig()) => {
   logger.info('Starting monitoring actor');
 
-  const idleTimeoutMs = config.IDLE_EVENT_TIMEOUT_MS ?? DEFAULT_IDLE_EVENT_TIMEOUT_MS;
-  const stuckTimeoutMs = config.STUCK_PROCESSING_TIMEOUT_MS ?? DEFAULT_STUCK_PROCESSING_TIMEOUT_MS;
-  const stormThreshold = config.RECONNECTION_STORM_THRESHOLD ?? DEFAULT_RECONNECTION_STORM_THRESHOLD;
-  const stormWindowMs = config.RECONNECTION_STORM_WINDOW_MS ?? DEFAULT_RECONNECTION_STORM_WINDOW_MS;
+  const idleTimeoutMs = config.IDLE_EVENT_TIMEOUT_MS;
+  const stuckTimeoutMs = config.STUCK_PROCESSING_TIMEOUT_MS;
+  const stormThreshold = config.RECONNECTION_STORM_THRESHOLD;
+  const stormWindowMs = config.RECONNECTION_STORM_WINDOW_MS;
 
   // ── Idle detection ──────────────────────────────────────────────────────────
   let isConnected = false;

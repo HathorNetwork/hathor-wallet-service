@@ -94,6 +94,16 @@ export const CONNECTED_STATES = {
 
 const { TX_CACHE_SIZE } = getConfig();
 
+/**
+ * Wraps a state definition with the standard monitoring entry/exit actions
+ * (sendMonitoringProcessingStarted / sendMonitoringProcessingCompleted).
+ */
+const monitoredState = (state: Record<string, any>): Record<string, any> => ({
+  ...state,
+  entry: ['sendMonitoringProcessingStarted', ...(state.entry ?? [])],
+  exit: ['sendMonitoringProcessingCompleted', ...(state.exit ?? [])],
+});
+
 export const SyncMachine = Machine<Context, any, Event>({
   id: 'SyncMachine',
   initial: SYNC_MACHINE_STATES.INITIALIZING,
@@ -208,10 +218,8 @@ export const SyncMachine = Machine<Context, any, Event>({
             }],
           },
         },
-        [CONNECTED_STATES.handlingUnhandledEvent]: {
+        [CONNECTED_STATES.handlingUnhandledEvent]: monitoredState({
           id: CONNECTED_STATES.handlingUnhandledEvent,
-          entry: ['sendMonitoringProcessingStarted'],
-          exit: ['sendMonitoringProcessingCompleted'],
           invoke: {
             src: 'updateLastSyncedEvent',
             onDone: {
@@ -220,12 +228,10 @@ export const SyncMachine = Machine<Context, any, Event>({
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
-        },
-        [CONNECTED_STATES.handlingMetadataChanged]: {
+        }),
+        [CONNECTED_STATES.handlingMetadataChanged]: monitoredState({
           id: 'handlingMetadataChanged',
           initial: 'detectingDiff',
-          entry: ['sendMonitoringProcessingStarted'],
-          exit: ['sendMonitoringProcessingCompleted'],
           states: {
             detectingDiff: {
               invoke: {
@@ -250,12 +256,10 @@ export const SyncMachine = Machine<Context, any, Event>({
               ],
             },
           },
-        },
+        }),
         // We have the unchanged guard, so it's guaranteed that this is a new tx
-        [CONNECTED_STATES.handlingVertexAccepted]: {
+        [CONNECTED_STATES.handlingVertexAccepted]: monitoredState({
           id: CONNECTED_STATES.handlingVertexAccepted,
-          entry: ['sendMonitoringProcessingStarted'],
-          exit: ['sendMonitoringProcessingCompleted'],
           invoke: {
             src: 'handleVertexAccepted',
             data: (_context: Context, event: Event) => event,
@@ -265,11 +269,9 @@ export const SyncMachine = Machine<Context, any, Event>({
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
-        },
-        [CONNECTED_STATES.handlingVertexRemoved]: {
+        }),
+        [CONNECTED_STATES.handlingVertexRemoved]: monitoredState({
           id: CONNECTED_STATES.handlingVertexRemoved,
-          entry: ['sendMonitoringProcessingStarted'],
-          exit: ['sendMonitoringProcessingCompleted'],
           invoke: {
             src: 'handleVertexRemoved',
             data: (_context: Context, event: Event) => event,
@@ -279,11 +281,9 @@ export const SyncMachine = Machine<Context, any, Event>({
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
-        },
-        [CONNECTED_STATES.handlingVoidedTx]: {
+        }),
+        [CONNECTED_STATES.handlingVoidedTx]: monitoredState({
           id: CONNECTED_STATES.handlingVoidedTx,
-          entry: ['sendMonitoringProcessingStarted'],
-          exit: ['sendMonitoringProcessingCompleted'],
           invoke: {
             src: 'handleVoidedTx',
             data: (_context: Context, event: Event) => event,
@@ -293,11 +293,9 @@ export const SyncMachine = Machine<Context, any, Event>({
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
-        },
-        [CONNECTED_STATES.handlingUnvoidedTx]: {
+        }),
+        [CONNECTED_STATES.handlingUnvoidedTx]: monitoredState({
           id: CONNECTED_STATES.handlingUnvoidedTx,
-          entry: ['sendMonitoringProcessingStarted'],
-          exit: ['sendMonitoringProcessingCompleted'],
           invoke: {
             src: 'handleUnvoidedTx',
             data: (_context: Context, event: Event) => event,
@@ -310,11 +308,9 @@ export const SyncMachine = Machine<Context, any, Event>({
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
-        },
-        [CONNECTED_STATES.handlingFirstBlock]: {
+        }),
+        [CONNECTED_STATES.handlingFirstBlock]: monitoredState({
           id: CONNECTED_STATES.handlingFirstBlock,
-          entry: ['sendMonitoringProcessingStarted'],
-          exit: ['sendMonitoringProcessingCompleted'],
           invoke: {
             src: 'handleTxFirstBlock',
             data: (_context: Context, event: Event) => event,
@@ -324,11 +320,9 @@ export const SyncMachine = Machine<Context, any, Event>({
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
-        },
-        [CONNECTED_STATES.handlingNcExecVoided]: {
+        }),
+        [CONNECTED_STATES.handlingNcExecVoided]: monitoredState({
           id: CONNECTED_STATES.handlingNcExecVoided,
-          entry: ['sendMonitoringProcessingStarted'],
-          exit: ['sendMonitoringProcessingCompleted'],
           invoke: {
             src: 'handleNcExecVoided',
             data: (_context: Context, event: Event) => event,
@@ -338,11 +332,9 @@ export const SyncMachine = Machine<Context, any, Event>({
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
-        },
-        [CONNECTED_STATES.handlingReorgStarted]: {
+        }),
+        [CONNECTED_STATES.handlingReorgStarted]: monitoredState({
           id: CONNECTED_STATES.handlingReorgStarted,
-          entry: ['sendMonitoringProcessingStarted'],
-          exit: ['sendMonitoringProcessingCompleted'],
           invoke: {
             src: 'handleReorgStarted',
             data: (_context: Context, event: Event) => event,
@@ -352,11 +344,9 @@ export const SyncMachine = Machine<Context, any, Event>({
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
-        },
-        [CONNECTED_STATES.handlingTokenCreated]: {
+        }),
+        [CONNECTED_STATES.handlingTokenCreated]: monitoredState({
           id: CONNECTED_STATES.handlingTokenCreated,
-          entry: ['sendMonitoringProcessingStarted'],
-          exit: ['sendMonitoringProcessingCompleted'],
           invoke: {
             src: 'handleTokenCreated',
             data: (_context: Context, event: Event) => event,
@@ -366,11 +356,9 @@ export const SyncMachine = Machine<Context, any, Event>({
             },
             onError: `#${SYNC_MACHINE_STATES.ERROR}`,
           },
-        },
-        [CONNECTED_STATES.checkingForMissedEvents]: {
+        }),
+        [CONNECTED_STATES.checkingForMissedEvents]: monitoredState({
           id: CONNECTED_STATES.checkingForMissedEvents,
-          entry: ['sendMonitoringProcessingStarted'],
-          exit: ['sendMonitoringProcessingCompleted'],
           invoke: {
             src: 'checkForMissedEvents',
             onDone: [{
@@ -384,7 +372,7 @@ export const SyncMachine = Machine<Context, any, Event>({
               target: `#${SYNC_MACHINE_STATES.ERROR}`,
             },
           },
-        },
+        }),
       },
       on: {
         WEBSOCKET_EVENT: [{
