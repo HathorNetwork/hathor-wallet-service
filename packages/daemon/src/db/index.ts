@@ -1693,6 +1693,19 @@ export const fetchAddressTxHistorySum = async (
   }));
 };
 
+export const fetchAllDistinctAddresses = async (
+  mysql: MysqlConnection,
+  limit: number,
+  offset: number,
+): Promise<string[]> => {
+  const [results] = await mysql.query(
+    `SELECT DISTINCT address FROM \`address_balance\` ORDER BY address LIMIT ? OFFSET ?`,
+    [limit, offset],
+  );
+
+  return (results as any[]).map((row: any) => row.address as string);
+};
+
 export const getTxOutputsHeightUnlockedAtHeight = async (
   mysql: MysqlConnection,
   height: number,

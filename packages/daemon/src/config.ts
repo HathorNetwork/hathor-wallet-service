@@ -90,6 +90,11 @@ export const ACK_TIMEOUT_MS = parseInt(process.env.ACK_TIMEOUT_MS ?? '20000', 10
 // Other
 export const USE_SSL = process.env.USE_SSL === 'true';
 
+// Scheduled balance validation configuration
+export const BALANCE_VALIDATION_ENABLED = process.env.BALANCE_VALIDATION_ENABLED === 'true';
+export const BALANCE_VALIDATION_INTERVAL_MS = parseInt(process.env.BALANCE_VALIDATION_INTERVAL_MS ?? '600000', 10);  // 10 minutes
+export const BALANCE_VALIDATION_BATCH_SIZE = parseInt(process.env.BALANCE_VALIDATION_BATCH_SIZE ?? '5000', 10);
+
 // Reorg size thresholds for different alert levels
 export const REORG_SIZE_INFO = parseInt(process.env.REORG_SIZE_INFO ?? '1', 10);
 export const REORG_SIZE_MINOR = parseInt(process.env.REORG_SIZE_MINOR ?? '3', 10);
@@ -131,4 +136,7 @@ export default () => ({
   REORG_SIZE_MINOR,
   REORG_SIZE_MAJOR,
   REORG_SIZE_CRITICAL,
+  BALANCE_VALIDATION_ENABLED,
+  BALANCE_VALIDATION_INTERVAL_MS,
+  BALANCE_VALIDATION_BATCH_SIZE,
 });

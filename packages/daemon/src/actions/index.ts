@@ -194,6 +194,34 @@ export const stopHealthcheckPing = sendTo(
 );
 
 /*
+ * This is a helper to get the balance validation ref from the context and throw if it's not
+ * found.
+ */
+export const getBalanceValidationRefFromContext = (context: Context) => {
+  if (!context.balanceValidation) {
+    throw new Error('No balanceValidation in context');
+  }
+
+  return context.balanceValidation;
+};
+
+/*
+ * Starts the balance validation timer in the balance validation actor
+*/
+export const startBalanceValidation = sendTo(
+  getBalanceValidationRefFromContext,
+  { type: EventTypes.BALANCE_VALIDATION_EVENT, event: { type: 'START' } },
+);
+
+/*
+ * Stops the balance validation timer in the balance validation actor
+*/
+export const stopBalanceValidation = sendTo(
+  getBalanceValidationRefFromContext,
+  { type: EventTypes.BALANCE_VALIDATION_EVENT, event: { type: 'STOP' } },
+);
+
+/*
  * Logs the event as an error log
  */
 export const logEventError = (_context: Context, event: Event) => logger.error(bigIntUtils.JSONBigInt.stringify(event));

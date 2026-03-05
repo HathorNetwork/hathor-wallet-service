@@ -28,11 +28,16 @@ export type HealthCheckEvent =
   | { type: 'START' }
   | { type: 'STOP' };
 
+export type BalanceValidationEvent =
+  | { type: 'START' }
+  | { type: 'STOP' };
+
 export enum EventTypes {
   WEBSOCKET_EVENT = 'WEBSOCKET_EVENT',
   FULLNODE_EVENT = 'FULLNODE_EVENT',
   WEBSOCKET_SEND_EVENT = 'WEBSOCKET_SEND_EVENT',
   HEALTHCHECK_EVENT = 'HEALTHCHECK_EVENT',
+  BALANCE_VALIDATION_EVENT = 'BALANCE_VALIDATION_EVENT',
 }
 
 export enum FullNodeEventTypes {
@@ -72,7 +77,8 @@ export type Event =
   | { type: EventTypes.WEBSOCKET_EVENT, event: WebSocketEvent }
   | { type: EventTypes.FULLNODE_EVENT, event: FullNodeEvent }
   | { type: EventTypes.WEBSOCKET_SEND_EVENT, event: WebSocketSendEvent }
-  | { type: EventTypes.HEALTHCHECK_EVENT, event: HealthCheckEvent };
+  | { type: EventTypes.HEALTHCHECK_EVENT, event: HealthCheckEvent }
+  | { type: EventTypes.BALANCE_VALIDATION_EVENT, event: BalanceValidationEvent };
 
 
 export interface VertexRemovedEventData {

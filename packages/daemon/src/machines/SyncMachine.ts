@@ -11,7 +11,7 @@ import {
   spawn,
 } from 'xstate';
 import { LRU } from '../utils';
-import { WebSocketActor, HealthCheckActor } from '../actors';
+import { WebSocketActor, HealthCheckActor, BalanceValidationActor } from '../actors';
 import {
   Context,
   Event,
@@ -59,6 +59,8 @@ import {
   updateCache,
   startHealthcheckPing,
   stopHealthcheckPing,
+  startBalanceValidation,
+  stopBalanceValidation,
 } from '../actions';
 import { BACKOFF_DELAYED_RECONNECT, ACK_TIMEOUT } from '../delays';
 import getConfig from '../config';
@@ -94,6 +96,7 @@ export const SyncMachine = Machine<Context, any, Event>({
   context: {
     socket: null,
     healthcheck: null,
+    balanceValidation: null,
     retryAttempt: 0,
     event: null,
     initialEventId: null,
@@ -104,6 +107,7 @@ export const SyncMachine = Machine<Context, any, Event>({
       entry: assign({
         txCache: () => new LRU(TX_CACHE_SIZE),
         healthcheck: () => spawn(HealthCheckActor),
+        balanceValidation: () => spawn(BalanceValidationActor),
       }),
       invoke: {
         src: 'fetchInitialState',
@@ -130,7 +134,7 @@ export const SyncMachine = Machine<Context, any, Event>({
       },
     },
     [SYNC_MACHINE_STATES.RECONNECTING]: {
-      onEntry: ['clearSocket', 'increaseRetry', 'stopHealthcheckPing'],
+      onEntry: ['clearSocket', 'increaseRetry', 'stopHealthcheckPing', 'stopBalanceValidation'],
       after: {
         BACKOFF_DELAYED_RECONNECT: SYNC_MACHINE_STATES.CONNECTING,
       },
@@ -138,7 +142,7 @@ export const SyncMachine = Machine<Context, any, Event>({
     [SYNC_MACHINE_STATES.CONNECTED]: {
       id: SYNC_MACHINE_STATES.CONNECTED,
       initial: CONNECTED_STATES.idle,
-      entry: ['startStream', 'startHealthcheckPing'],
+      entry: ['startStream', 'startHealthcheckPing', 'startBalanceValidation'],
       states: {
         [CONNECTED_STATES.idle]: {
           id: CONNECTED_STATES.idle,
@@ -360,7 +364,7 @@ export const SyncMachine = Machine<Context, any, Event>({
     [SYNC_MACHINE_STATES.ERROR]: {
       id: SYNC_MACHINE_STATES.ERROR,
       type: 'final',
-      onEntry: ['logEventError', 'stopHealthcheckPing'],
+      onEntry: ['logEventError', 'stopHealthcheckPing', 'stopBalanceValidation'],
     },
   },
 }, {
@@ -407,6 +411,8 @@ export const SyncMachine = Machine<Context, any, Event>({
     updateCache,
     startHealthcheckPing,
     stopHealthcheckPing,
+    startBalanceValidation,
+    stopBalanceValidation,
   },
 });
 
