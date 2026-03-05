@@ -17,6 +17,7 @@ import {
   DbTransaction,
   LastSyncedEvent,
   Event,
+  EventTypes,
   Context,
   EventTxInput,
   EventTxOutput,
@@ -104,7 +105,7 @@ export const METADATA_DIFF_EVENT_TYPES = {
 const DUPLICATE_TX_ALERT_GRACE_PERIOD = 10; // seconds
 
 export const metadataDiff = async (_context: Context, event: Event) => {
-  const fullNodeEvent = event.event as StandardFullNodeEvent;
+  const fullNodeEvent = (event as Extract<Event, { type: EventTypes.FULLNODE_EVENT }>).event as StandardFullNodeEvent;
   const {
     hash,
     metadata: { voided_by, first_block, nc_execution },

@@ -12,6 +12,7 @@ import { FullNodeEvent } from './event';
 export interface Context {
   socket: ActorRef<any, any> | null;
   healthcheck: ActorRef<any, any> | null;
+  monitoring: ActorRef<any, any> | null;
   retryAttempt: number;
   event?: FullNodeEvent | null;
   initialEventId: null | number;
