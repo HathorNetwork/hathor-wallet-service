@@ -28,11 +28,21 @@ export type HealthCheckEvent =
   | { type: 'START' }
   | { type: 'STOP' };
 
+export type MonitoringEvent =
+  | { type: 'CONNECTED' }
+  | { type: 'DISCONNECTED' }
+  | { type: 'EVENT_RECEIVED' }
+  | { type: 'RECONNECTING' }
+  | { type: 'PROCESSING_STARTED' }
+  | { type: 'PROCESSING_COMPLETED' };
+
 export enum EventTypes {
   WEBSOCKET_EVENT = 'WEBSOCKET_EVENT',
   FULLNODE_EVENT = 'FULLNODE_EVENT',
   WEBSOCKET_SEND_EVENT = 'WEBSOCKET_SEND_EVENT',
   HEALTHCHECK_EVENT = 'HEALTHCHECK_EVENT',
+  MONITORING_EVENT = 'MONITORING_EVENT',
+  MONITORING_IDLE_TIMEOUT = 'MONITORING_IDLE_TIMEOUT',
 }
 
 export enum FullNodeEventTypes {
@@ -72,7 +82,9 @@ export type Event =
   | { type: EventTypes.WEBSOCKET_EVENT, event: WebSocketEvent }
   | { type: EventTypes.FULLNODE_EVENT, event: FullNodeEvent }
   | { type: EventTypes.WEBSOCKET_SEND_EVENT, event: WebSocketSendEvent }
-  | { type: EventTypes.HEALTHCHECK_EVENT, event: HealthCheckEvent };
+  | { type: EventTypes.HEALTHCHECK_EVENT, event: HealthCheckEvent }
+  | { type: EventTypes.MONITORING_EVENT, event: MonitoringEvent }
+  | { type: EventTypes.MONITORING_IDLE_TIMEOUT };
 
 
 export interface VertexRemovedEventData {

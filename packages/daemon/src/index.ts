@@ -20,6 +20,11 @@ const main = async () => {
     logger.info(`Transitioned to ${bigIntUtils.JSONBigInt.stringify(state.value)}`);
   });
 
+  machine.onDone(() => {
+    logger.error('Sync machine reached a final state — terminating process for Kubernetes restart');
+    process.exit(1);
+  });
+
   machine.onEvent((event) => {
     logger.info(`Processing event: ${bigIntUtils.JSONBigInt.stringify(event.type)}`);
   });
