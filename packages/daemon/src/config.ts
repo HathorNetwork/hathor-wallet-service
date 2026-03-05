@@ -90,6 +90,9 @@ export const ACK_TIMEOUT_MS = parseInt(process.env.ACK_TIMEOUT_MS ?? '20000', 10
 // Other
 export const USE_SSL = process.env.USE_SSL === 'true';
 
+// When false, skips the address balance validation after voiding transactions
+export const VALIDATE_ADDRESS_BALANCES = process.env.VALIDATE_ADDRESS_BALANCES !== 'false';
+
 // Reorg size thresholds for different alert levels
 export const REORG_SIZE_INFO = parseInt(process.env.REORG_SIZE_INFO ?? '1', 10);
 export const REORG_SIZE_MINOR = parseInt(process.env.REORG_SIZE_MINOR ?? '3', 10);
