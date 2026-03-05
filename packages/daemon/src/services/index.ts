@@ -1078,11 +1078,11 @@ export const handleTokenCreated = async (context: Context) => {
  * This is used to detect if we lost an event due to network packet loss
  */
 export const checkForMissedEvents = async (context: Context): Promise<{ hasNewEvents: boolean; events: any[] }> => {
-  if (!context.event) {
-    throw new Error('No event in context when checking for missed events');
-  }
+  const lastAckEventId = context.event?.event.id ?? context.initialEventId;
 
-  const lastAckEventId = context.event.event.id;
+  if (lastAckEventId === null || lastAckEventId === undefined) {
+    throw new Error('No event in context and no initialEventId when checking for missed events');
+  }
   const fullnodeUrl = getFullnodeHttpUrl();
 
   logger.debug(`Checking for missed events after event ID ${lastAckEventId}`);

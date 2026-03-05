@@ -1675,12 +1675,42 @@ describe('checkForMissedEvents', () => {
     );
   });
 
-  it('should throw error when context has no event', async () => {
+  it('should throw error when context has no event and no initialEventId', async () => {
     const context = {};
 
     await expect(checkForMissedEvents(context as any))
       .rejects
-      .toThrow('No event in context when checking for missed events');
+      .toThrow('No event in context and no initialEventId when checking for missed events');
+  });
+
+  it('should use initialEventId when context.event is null', async () => {
+    const mockResponse = {
+      status: 200,
+      data: {
+        events: [],
+        latest_event_id: 25717039,
+      },
+    };
+
+    (axios.get as jest.Mock).mockResolvedValue(mockResponse);
+
+    const context = {
+      event: null,
+      initialEventId: 25717039,
+    };
+
+    const result = await checkForMissedEvents(context as any);
+
+    expect(result.hasNewEvents).toBe(false);
+    expect(axios.get).toHaveBeenCalledWith(
+      expect.stringContaining('/event'),
+      expect.objectContaining({
+        params: {
+          last_ack_event_id: 25717039,
+          size: 1,
+        },
+      }),
+    );
   });
 
   it('should handle API response with non-array events field', async () => {
