@@ -9,6 +9,7 @@ import logger from '../logger';
 import getConfig from '../config';
 import { addAlert, Severity } from '@wallet-service/common';
 import { Event, EventTypes } from '../types';
+import { getDbConnection, fetchAddressBalance, fetchAddressTxHistorySum, fetchAllDistinctAddresses } from '../db';
 
 /**
  * MonitoringActor
@@ -33,6 +34,12 @@ import { Event, EventTypes } from '../types';
  *    reconnects more than RECONNECTION_STORM_THRESHOLD times within
  *    RECONNECTION_STORM_WINDOW_MS.  Duplicate alerts are suppressed for
  *    STORM_ALERT_COOLDOWN_MS (1 min) to avoid spamming the alerting system.
+ *
+ * 4. Scheduled balance validation — when BALANCE_VALIDATION_ENABLED is true,
+ *    periodically validates all address_balance rows against address_tx_history
+ *    sums.  Runs on a configurable interval (BALANCE_VALIDATION_INTERVAL_MS)
+ *    and batches addresses (BALANCE_VALIDATION_BATCH_SIZE).  Mismatches are
+ *    logged and alerted; errors never crash the daemon.
  */
 export default (callback: any, receive: any, config = getConfig()) => {
   logger.info('Starting monitoring actor');
@@ -150,6 +157,107 @@ export default (callback: any, receive: any, config = getConfig()) => {
     }
   };
 
+  // ── Scheduled balance validation ──────────────────────────────────────────────
+  let balanceValidationTimer: ReturnType<typeof setInterval> | null = null;
+
+  const runBalanceValidation = async () => {
+    let mysql;
+    try {
+      mysql = await getDbConnection();
+      let offset = 0;
+      const batchSize = config.BALANCE_VALIDATION_BATCH_SIZE;
+      let totalAddresses = 0;
+      let totalMismatches = 0;
+
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const addresses = await fetchAllDistinctAddresses(mysql, batchSize, offset);
+        if (addresses.length === 0) break;
+
+        totalAddresses += addresses.length;
+
+        const addressBalances = await fetchAddressBalance(mysql, addresses);
+        const addressTxHistorySums = await fetchAddressTxHistorySum(mysql, addresses);
+
+        const filteredAddressBalances = addressBalances.filter(
+          (ab) => ab.transactions > 0
+        );
+
+        for (let i = 0; i < addressTxHistorySums.length; i++) {
+          const addressBalance = filteredAddressBalances[i];
+          const addressTxHistorySum = addressTxHistorySums[i];
+
+          if (!addressBalance || !addressTxHistorySum) {
+            logger.error(`[monitoring] Balance validation: array length mismatch at index ${i}`, {
+              filteredAddressBalancesLength: filteredAddressBalances.length,
+              addressTxHistorySumsLength: addressTxHistorySums.length,
+            });
+            totalMismatches++;
+            continue;
+          }
+
+          if (addressBalance.tokenId !== addressTxHistorySum.tokenId) {
+            logger.error(`[monitoring] Balance validation mismatch: tokenId mismatch for address ${addressBalance.address}`, {
+              addressBalanceTokenId: addressBalance.tokenId,
+              txHistoryTokenId: addressTxHistorySum.tokenId,
+            });
+            totalMismatches++;
+            continue;
+          }
+
+          const balanceFromTable = Number(addressBalance.unlockedBalance + addressBalance.lockedBalance);
+          const balanceFromHistory = Number(addressTxHistorySum.balance);
+
+          if (balanceFromTable !== balanceFromHistory) {
+            logger.error(`[monitoring] Balance validation mismatch for address ${addressBalance.address}, token ${addressBalance.tokenId}`, {
+              addressBalanceTotal: balanceFromTable,
+              txHistoryBalance: balanceFromHistory,
+            });
+            totalMismatches++;
+          }
+        }
+
+        offset += addresses.length;
+      }
+
+      if (totalMismatches > 0) {
+        await addAlert(
+          'Balance validation found mismatches',
+          `Found ${totalMismatches} balance mismatch(es) across ${totalAddresses} addresses`,
+          Severity.MAJOR,
+          { totalAddresses, totalMismatches },
+          logger,
+        );
+      } else {
+        logger.info(`[monitoring] Balance validation complete, no mismatches found (${totalAddresses} addresses checked)`);
+      }
+    } catch (err) {
+      logger.error(`[monitoring] Balance validation error: ${err}`);
+    } finally {
+      if (mysql) {
+        (mysql as any).release();
+      }
+    }
+  };
+
+  const startBalanceValidation = () => {
+    if (!config.BALANCE_VALIDATION_ENABLED) return;
+    stopBalanceValidation();
+
+    logger.info('[monitoring] Starting scheduled balance validation');
+    balanceValidationTimer = setInterval(async () => {
+      logger.info('[monitoring] Running scheduled balance validation');
+      await runBalanceValidation();
+    }, config.BALANCE_VALIDATION_INTERVAL_MS);
+  };
+
+  const stopBalanceValidation = () => {
+    if (balanceValidationTimer) {
+      clearInterval(balanceValidationTimer);
+      balanceValidationTimer = null;
+    }
+  };
+
   // ── Event handling ────────────────────────────────────────────────────────────
   receive((event: Event) => {
     if (event.type !== EventTypes.MONITORING_EVENT) {
@@ -162,6 +270,7 @@ export default (callback: any, receive: any, config = getConfig()) => {
         logger.info('[monitoring] WebSocket connected — starting idle-event timer');
         isConnected = true;
         startIdleCheck();
+        startBalanceValidation();
         break;
 
       case 'DISCONNECTED':
@@ -169,6 +278,7 @@ export default (callback: any, receive: any, config = getConfig()) => {
         isConnected = false;
         stopIdleCheck();
         clearStuckTimer();
+        stopBalanceValidation();
         break;
 
       case 'EVENT_RECEIVED':
@@ -194,5 +304,6 @@ export default (callback: any, receive: any, config = getConfig()) => {
     logger.info('Stopping monitoring actor');
     stopIdleCheck();
     clearStuckTimer();
+    stopBalanceValidation();
   };
 };

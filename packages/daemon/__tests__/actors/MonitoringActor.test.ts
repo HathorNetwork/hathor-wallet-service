@@ -10,6 +10,7 @@ import logger from '../../src/logger';
 import { EventTypes } from '../../src/types/event';
 import getConfig from '../../src/config';
 import { addAlert, Severity } from '@wallet-service/common';
+import * as db from '../../src/db';
 
 const MONITORING_IDLE_TIMEOUT_EVENT = { type: EventTypes.MONITORING_IDLE_TIMEOUT };
 
@@ -22,6 +23,13 @@ jest.spyOn(global, 'clearTimeout');
 jest.mock('@wallet-service/common', () => ({
   ...jest.requireActual('@wallet-service/common'),
   addAlert: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('../../src/db', () => ({
+  getDbConnection: jest.fn(),
+  fetchAddressBalance: jest.fn(),
+  fetchAddressTxHistorySum: jest.fn(),
+  fetchAllDistinctAddresses: jest.fn(),
 }));
 
 const mockAddAlert = addAlert as jest.Mock;
@@ -49,6 +57,9 @@ describe('MonitoringActor', () => {
     config['STUCK_PROCESSING_TIMEOUT_MS'] = 5 * 60 * 1000; // 5 min
     config['RECONNECTION_STORM_THRESHOLD'] = 3;              // low threshold for tests
     config['RECONNECTION_STORM_WINDOW_MS'] = 5 * 60 * 1000; // 5 min
+    config['BALANCE_VALIDATION_ENABLED'] = false;
+    config['BALANCE_VALIDATION_INTERVAL_MS'] = 5000;
+    config['BALANCE_VALIDATION_BATCH_SIZE'] = 100;
 
     mockCallback = jest.fn();
     mockReceive = jest.fn().mockImplementation((cb: any) => {
@@ -329,5 +340,167 @@ describe('MonitoringActor', () => {
       '[monitoring] Unexpected event type received by MonitoringActor',
     );
     expect(setInterval).not.toHaveBeenCalled();
+  });
+
+  // ── Balance validation ────────────────────────────────────────────────────
+
+  const flushPromises = () => new Promise(jest.requireActual('timers').setImmediate);
+
+  describe('balance validation', () => {
+    let mockMysql: any;
+
+    beforeEach(() => {
+      mockMysql = { release: jest.fn() };
+      (db.getDbConnection as jest.Mock).mockResolvedValue(mockMysql);
+    });
+
+    it('should not start balance validation when disabled', () => {
+      config['BALANCE_VALIDATION_ENABLED'] = false;
+      MonitoringActor(mockCallback, mockReceive, config);
+      sendEvent('CONNECTED');
+
+      // Only the idle check interval should be created, not balance validation
+      expect(setInterval).toHaveBeenCalledTimes(1);
+    });
+
+    it('should start balance validation timer on CONNECTED when enabled', () => {
+      config['BALANCE_VALIDATION_ENABLED'] = true;
+      MonitoringActor(mockCallback, mockReceive, config);
+      sendEvent('CONNECTED');
+
+      // idle check + balance validation = 2 intervals
+      expect(setInterval).toHaveBeenCalledTimes(2);
+    });
+
+    it('should stop balance validation timer on DISCONNECTED', () => {
+      config['BALANCE_VALIDATION_ENABLED'] = true;
+      MonitoringActor(mockCallback, mockReceive, config);
+      sendEvent('CONNECTED');
+      sendEvent('DISCONNECTED');
+
+      // idle check cleared + balance validation cleared = 2
+      expect(clearInterval).toHaveBeenCalledTimes(2);
+    });
+
+    it('should detect mismatches and call addAlert', async () => {
+      config['BALANCE_VALIDATION_ENABLED'] = true;
+
+      (db.fetchAllDistinctAddresses as jest.Mock)
+        .mockResolvedValueOnce(['addr1'])
+        .mockResolvedValueOnce([]);
+
+      (db.fetchAddressBalance as jest.Mock).mockResolvedValue([{
+        address: 'addr1',
+        tokenId: 'token1',
+        unlockedBalance: BigInt(100),
+        lockedBalance: BigInt(0),
+        lockedAuthorities: 0,
+        unlockedAuthorities: 0,
+        timelockExpires: 0,
+        transactions: 1,
+      }]);
+
+      (db.fetchAddressTxHistorySum as jest.Mock).mockResolvedValue([{
+        address: 'addr1',
+        tokenId: 'token1',
+        balance: BigInt(200), // mismatch
+        transactions: 1,
+      }]);
+
+      MonitoringActor(mockCallback, mockReceive, config);
+      sendEvent('CONNECTED');
+
+      jest.advanceTimersByTime(config['BALANCE_VALIDATION_INTERVAL_MS']);
+      await flushPromises();
+
+      expect(db.fetchAddressBalance).toHaveBeenCalledWith(mockMysql, ['addr1']);
+      expect(mockAddAlert).toHaveBeenCalledWith(
+        'Balance validation found mismatches',
+        expect.stringContaining('1 balance mismatch'),
+        Severity.MAJOR,
+        expect.objectContaining({ totalMismatches: 1 }),
+        expect.anything(),
+      );
+      expect(mockMysql.release).toHaveBeenCalled();
+    });
+
+    it('should log info when no mismatches found', async () => {
+      config['BALANCE_VALIDATION_ENABLED'] = true;
+      const mockLoggerInfo = jest.spyOn(logger, 'info');
+
+      (db.fetchAllDistinctAddresses as jest.Mock)
+        .mockResolvedValueOnce(['addr1'])
+        .mockResolvedValueOnce([]);
+
+      (db.fetchAddressBalance as jest.Mock).mockResolvedValue([{
+        address: 'addr1',
+        tokenId: 'token1',
+        unlockedBalance: BigInt(100),
+        lockedBalance: BigInt(0),
+        lockedAuthorities: 0,
+        unlockedAuthorities: 0,
+        timelockExpires: 0,
+        transactions: 1,
+      }]);
+
+      (db.fetchAddressTxHistorySum as jest.Mock).mockResolvedValue([{
+        address: 'addr1',
+        tokenId: 'token1',
+        balance: BigInt(100),
+        transactions: 1,
+      }]);
+
+      MonitoringActor(mockCallback, mockReceive, config);
+      sendEvent('CONNECTED');
+
+      jest.advanceTimersByTime(config['BALANCE_VALIDATION_INTERVAL_MS']);
+      await flushPromises();
+
+      expect(mockAddAlert).not.toHaveBeenCalled();
+      expect(mockLoggerInfo).toHaveBeenCalledWith(
+        expect.stringContaining('Balance validation complete, no mismatches found'),
+      );
+    });
+
+    it('should handle DB errors without crashing', async () => {
+      config['BALANCE_VALIDATION_ENABLED'] = true;
+      const mockLoggerError = jest.spyOn(logger, 'error');
+
+      (db.getDbConnection as jest.Mock).mockRejectedValue(new Error('DB connection failed'));
+
+      MonitoringActor(mockCallback, mockReceive, config);
+      sendEvent('CONNECTED');
+
+      jest.advanceTimersByTime(config['BALANCE_VALIDATION_INTERVAL_MS']);
+      await flushPromises();
+
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.stringContaining('Balance validation error'),
+      );
+    });
+
+    it('should process multiple batches', async () => {
+      config['BALANCE_VALIDATION_ENABLED'] = true;
+      config['BALANCE_VALIDATION_BATCH_SIZE'] = 2;
+
+      (db.fetchAllDistinctAddresses as jest.Mock)
+        .mockResolvedValueOnce(['addr1', 'addr2'])
+        .mockResolvedValueOnce(['addr3'])
+        .mockResolvedValueOnce([]);
+
+      (db.fetchAddressBalance as jest.Mock).mockResolvedValue([]);
+      (db.fetchAddressTxHistorySum as jest.Mock).mockResolvedValue([]);
+
+      MonitoringActor(mockCallback, mockReceive, config);
+      sendEvent('CONNECTED');
+
+      jest.advanceTimersByTime(config['BALANCE_VALIDATION_INTERVAL_MS']);
+      await flushPromises();
+
+      expect(db.fetchAllDistinctAddresses).toHaveBeenCalledWith(mockMysql, 2, 0);
+      expect(db.fetchAllDistinctAddresses).toHaveBeenCalledWith(mockMysql, 2, 2);
+      expect(db.fetchAllDistinctAddresses).toHaveBeenCalledWith(mockMysql, 2, 3);
+      expect(db.fetchAddressBalance).toHaveBeenCalledTimes(2);
+    });
   });
 });
