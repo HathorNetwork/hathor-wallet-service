@@ -2525,6 +2525,10 @@ test('getTotalSupply', async () => {
   expect(await getTotalSupply(mysql, 'token2')).toStrictEqual(25n);
   expect(await getTotalSupply(mysql, 'token1')).toStrictEqual(35n);
 
+  // Token with no UTXOs returns 0n (e.g., nano contract token held by contract)
+  // SQL SUM() returns NULL when no rows match, which we handle gracefully
+  expect(await getTotalSupply(mysql, 'token-with-no-utxos')).toStrictEqual(0n);
+
   const mysqlQuerySpy = jest.spyOn(mysql, 'query');
   mysqlQuerySpy.mockImplementationOnce(() => Promise.resolve({ length: null }));
 
@@ -2536,6 +2540,41 @@ test('getTotalSupply', async () => {
     { tokenId: 'undefined-token' },
     logger,
   );
+});
+
+test('getTotalSupply returns 0n for nano contract token with no wallet-owned UTXOs', async () => {
+  expect.hasAssertions();
+
+  // Simulate a token created by a nano contract
+  // The daemon indexes it in the token table via TOKEN_CREATED event
+  const nanoContractToken = {
+    id: 'nc_token_abc123',
+    name: 'NanoContractToken',
+    symbol: 'NCT',
+  };
+
+  await storeTokenInformation(
+    mysql,
+    nanoContractToken.id,
+    nanoContractToken.name,
+    nanoContractToken.symbol,
+    TokenVersion.FEE,
+  );
+
+  // Verify the token exists in the database
+  const storedToken = await getTokenInformation(mysql, nanoContractToken.id);
+  expect(storedToken).not.toBeNull();
+  expect(storedToken?.id).toBe(nanoContractToken.id);
+  expect(storedToken?.name).toBe(nanoContractToken.name);
+  expect(storedToken?.symbol).toBe(nanoContractToken.symbol);
+
+  // No UTXOs are added for this token because it's held by the contract,
+  // not by any wallet address that wallet-service tracks.
+  // This is the key scenario: token exists but has zero wallet-owned supply.
+
+  // getTotalSupply should return 0n instead of crashing with BigInt(null)
+  const totalSupply = await getTotalSupply(mysql, nanoContractToken.id);
+  expect(totalSupply).toStrictEqual(0n);
 });
 
 test('getExpiredTimelocksUtxos', async () => {

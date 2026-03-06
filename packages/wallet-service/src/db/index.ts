@@ -2639,7 +2639,11 @@ export const getTotalSupply = async (
     throw new Error('Total supply query returned no results');
   }
 
-  return BigInt(results[0].value as string);
+  // SUM() returns NULL when no rows match the WHERE clause.
+  // This is valid for tokens that exist but have no wallet-owned UTXOs
+  // (e.g., nano contract tokens held entirely by the contract).
+  const value = results[0].value as string | null;
+  return BigInt(value ?? '0');
 };
 
 /**
