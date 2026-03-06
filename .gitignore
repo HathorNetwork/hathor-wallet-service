@@ -15,3 +15,4 @@ packages/wallet-service/.env*
 packages/wallet-service/.warmup
 .yarn/
 .env.*
+*.tsbuildinfo

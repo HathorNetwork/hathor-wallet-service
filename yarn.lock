@@ -6493,6 +6493,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@types/better-sqlite3@npm:7.6.12":
+  version: 7.6.12
+  resolution: "@types/better-sqlite3@npm:7.6.12"
+  dependencies:
+    "@types/node": "npm:*"
+  checksum: 10/a442231518f1a3e28e0ee6efe2581807e5cfaa88a8af4513da34e6ae303ce82f5666e8a0048a1d2738fa248b1b369ee28e59a75189ae0b43e28e44a243a2f24b
+  languageName: node
+  linkType: hard
+
 "@types/body-parser@npm:*":
   version: 1.19.3
   resolution: "@types/body-parser@npm:1.19.3"
@@ -6804,6 +6813,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@types/node@npm:22.10.2":
+  version: 22.10.2
+  resolution: "@types/node@npm:22.10.2"
+  dependencies:
+    undici-types: "npm:~6.20.0"
+  checksum: 10/451adfefed4add58b069407173e616220fd4aaa3307cdde1bb701aa053b65b54ced8483db2f870dcedec7a58cb3b06101fbc19d85852716672ec1fd3660947fa
+  languageName: node
+  linkType: hard
+
 "@types/node@npm:^22.8.7":
   version: 22.9.0
   resolution: "@types/node@npm:22.9.0"
@@ -6924,6 +6942,15 @@ __metadata:
   version: 13.11.2
   resolution: "@types/validator@npm:13.11.2"
   checksum: 10/b16a76d573d7ddffbb0357e38d24a8b0268d64519a5c8cd8b9dac632f68251cfa4e6ada598fcacc704af672cf889fcc356f0ba6d33e99924c0b736e39c0224f9
+  languageName: node
+  linkType: hard
+
+"@types/ws@npm:8.5.13":
+  version: 8.5.13
+  resolution: "@types/ws@npm:8.5.13"
+  dependencies:
+    "@types/node": "npm:*"
+  checksum: 10/21369beafa75c91ae3b00d3a2671c7408fceae1d492ca2abd5ac7c8c8bf4596d513c1599ebbddeae82c27c4a2d248976d0d714c4b3d34362b2ae35b964e2e637
   languageName: node
   linkType: hard
 
@@ -8364,6 +8391,17 @@ __metadata:
   version: 1.1.4
   resolution: "bech32@npm:1.1.4"
   checksum: 10/63ff37c0ce43be914c685ce89700bba1589c319af0dac1ea04f51b33d0e5ecfd40d14c24f527350b94f0a4e236385373bb9122ec276410f354ddcdbf29ca13f4
+  languageName: node
+  linkType: hard
+
+"better-sqlite3@npm:11.7.0":
+  version: 11.7.0
+  resolution: "better-sqlite3@npm:11.7.0"
+  dependencies:
+    bindings: "npm:^1.5.0"
+    node-gyp: "npm:latest"
+    prebuild-install: "npm:^7.1.1"
+  checksum: 10/a09bb28c0292bb7c037896ee99197815841275bca2d14f63b58994188239f292642c8c7ea3e0206d8ea6c7530d7b03d7343138ebeb9a4cc855c0b3663e00c812
   languageName: node
   linkType: hard
 
@@ -9923,6 +9961,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"dotenv@npm:16.4.5, dotenv@npm:^16.4.5":
+  version: 16.4.5
+  resolution: "dotenv@npm:16.4.5"
+  checksum: 10/55a3134601115194ae0f924e54473459ed0d9fc340ae610b676e248cca45aa7c680d86365318ea964e6da4e2ea80c4514c1adab5adb43d6867fb57ff068f95c8
+  languageName: node
+  linkType: hard
+
 "dotenv@npm:8.2.0":
   version: 8.2.0
   resolution: "dotenv@npm:8.2.0"
@@ -9934,13 +9979,6 @@ __metadata:
   version: 16.3.1
   resolution: "dotenv@npm:16.3.1"
   checksum: 10/dbb778237ef8750e9e3cd1473d3c8eaa9cc3600e33a75c0e36415d0fa0848197f56c3800f77924c70e7828f0b03896818cd52f785b07b9ad4d88dba73fbba83f
-  languageName: node
-  linkType: hard
-
-"dotenv@npm:^16.4.5":
-  version: 16.4.5
-  resolution: "dotenv@npm:16.4.5"
-  checksum: 10/55a3134601115194ae0f924e54473459ed0d9fc340ae610b676e248cca45aa7c680d86365318ea964e6da4e2ea80c4514c1adab5adb43d6867fb57ff068f95c8
   languageName: node
   linkType: hard
 
@@ -10965,6 +11003,23 @@ __metadata:
   checksum: 10/b23acd24791db11d8f65be5ea58fd9a6ce2df5120ae2da65c16cfc5331ff59d5ac4ef50af66cd4bde238881503ec839928a0135b99a036a9cdfa22d17fd56cdb
   languageName: node
   linkType: hard
+
+"event-downloader@workspace:packages/event-downloader":
+  version: 0.0.0-use.local
+  resolution: "event-downloader@workspace:packages/event-downloader"
+  dependencies:
+    "@types/better-sqlite3": "npm:7.6.12"
+    "@types/node": "npm:22.10.2"
+    "@types/ws": "npm:8.5.13"
+    better-sqlite3: "npm:11.7.0"
+    dotenv: "npm:16.4.5"
+    typescript: "npm:5.7.2"
+    ws: "npm:8.18.0"
+    zod: "npm:3.23.8"
+  peerDependencies:
+    "@hathor/wallet-lib": ">=2.8.3"
+  languageName: unknown
+  linkType: soft
 
 "event-emitter@npm:^0.3.5":
   version: 0.3.5
@@ -17788,6 +17843,7 @@ __metadata:
   dependencies:
     "@aws-sdk/client-lambda": "npm:3.540.0"
     "@aws-sdk/client-sqs": "npm:3.540.0"
+    "@types/better-sqlite3": "npm:7.6.12"
     "@types/jest": "npm:29.5.4"
     "@types/lodash": "npm:4.14.199"
     "@types/mysql": "npm:2.15.21"
@@ -17798,6 +17854,7 @@ __metadata:
     assert: "npm:2.1.0"
     aws-sdk: "npm:2.1454.0"
     axios: "npm:1.6.2"
+    better-sqlite3: "npm:11.7.0"
     dotenv: "npm:8.2.0"
     eslint: "npm:9.3.0"
     eslint-config-airbnb-base: "npm:15.0.0"
@@ -18524,6 +18581,16 @@ __metadata:
   languageName: node
   linkType: hard
 
+"typescript@npm:5.7.2":
+  version: 5.7.2
+  resolution: "typescript@npm:5.7.2"
+  bin:
+    tsc: bin/tsc
+    tsserver: bin/tsserver
+  checksum: 10/4caa3904df69db9d4a8bedc31bafc1e19ffb7b24fbde2997a1633ae1398d0de5bdbf8daf602ccf3b23faddf1aeeb9b795223a2ed9c9a4fdcaf07bfde114a401a
+  languageName: node
+  linkType: hard
+
 "typescript@npm:^5.8.2":
   version: 5.8.2
   resolution: "typescript@npm:5.8.2"
@@ -18561,6 +18628,16 @@ __metadata:
     tsc: bin/tsc
     tsserver: bin/tsserver
   checksum: 10/5aedd97595582b08aadb8a70e8e3ddebaf5a9c1e5ad4d6503c2fcfc15329b5cf8d01145b09913e9555683ac16c5123a96be32b6d72614098ebd42df520eed9b1
+  languageName: node
+  linkType: hard
+
+"typescript@patch:typescript@npm%3A5.7.2#optional!builtin<compat/typescript>":
+  version: 5.7.2
+  resolution: "typescript@patch:typescript@npm%3A5.7.2#optional!builtin<compat/typescript>::version=5.7.2&hash=5786d5"
+  bin:
+    tsc: bin/tsc
+    tsserver: bin/tsserver
+  checksum: 10/d75ca10141afc64fd3474b41a8b082b640555bed388d237558aed64e5827ddadb48f90932c7f4205883f18f5bcab8b6a739a2cfac95855604b0dfeb34bc2f3eb
   languageName: node
   linkType: hard
 
@@ -18623,6 +18700,13 @@ __metadata:
   version: 6.19.8
   resolution: "undici-types@npm:6.19.8"
   checksum: 10/cf0b48ed4fc99baf56584afa91aaffa5010c268b8842f62e02f752df209e3dea138b372a60a963b3b2576ed932f32329ce7ddb9cb5f27a6c83040d8cd74b7a70
+  languageName: node
+  linkType: hard
+
+"undici-types@npm:~6.20.0":
+  version: 6.20.0
+  resolution: "undici-types@npm:6.20.0"
+  checksum: 10/583ac7bbf4ff69931d3985f4762cde2690bb607844c16a5e2fbb92ed312fe4fa1b365e953032d469fa28ba8b224e88a595f0b10a449332f83fa77c695e567dbe
   languageName: node
   linkType: hard
 
@@ -19273,6 +19357,21 @@ __metadata:
     utf-8-validate:
       optional: true
   checksum: 10/4264ae92c0b3e59c7e309001e93079b26937aab181835fb7af79f906b22cd33b6196d96556dafb4e985742dd401e99139572242e9847661fdbc96556b9e6902d
+  languageName: node
+  linkType: hard
+
+"ws@npm:8.18.0":
+  version: 8.18.0
+  resolution: "ws@npm:8.18.0"
+  peerDependencies:
+    bufferutil: ^4.0.1
+    utf-8-validate: ">=5.0.2"
+  peerDependenciesMeta:
+    bufferutil:
+      optional: true
+    utf-8-validate:
+      optional: true
+  checksum: 10/70dfe53f23ff4368d46e4c0b1d4ca734db2c4149c6f68bc62cb16fc21f753c47b35fcc6e582f3bdfba0eaeb1c488cddab3c2255755a5c3eecb251431e42b3ff6
   languageName: node
   linkType: hard
 
