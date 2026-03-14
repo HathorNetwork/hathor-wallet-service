@@ -346,7 +346,6 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       // We do not log if the daemon has just started, because it's expected that
       // we receive an initial duplicate transaction from the fullnode in this case.
       if (daemonUptime < DUPLICATE_TX_ALERT_GRACE_PERIOD) {
-        span.end();
         return;
       }
 
@@ -354,7 +353,6 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
       // This might happen if the service has been recently restarted,
       // so we should raise the alert and just ignore the tx
-      span.end();
       return;
     }
 
@@ -1024,64 +1022,68 @@ export const fetchInitialState = async () => {
 
 export const handleReorgStarted = async (context: Context): Promise<void> => {
   return tracer.startActiveSpan('handleReorgStarted', async (span) => {
-  if (!context.event) {
+  try {
+    if (!context.event) {
+      throw new Error('No event in context');
+    }
+
+    const fullNodeEvent = context.event;
+    if (fullNodeEvent.event.type !== FullNodeEventTypes.REORG_STARTED) {
+      throw new Error('Invalid event type for REORG_STARTED');
+    }
+
+    const { reorg_size, previous_best_block, new_best_block, common_block } = fullNodeEvent.event.data;
+
+    span.setAttribute('reorg.size', reorg_size);
+    const { REORG_SIZE_INFO, REORG_SIZE_MINOR, REORG_SIZE_MAJOR, REORG_SIZE_CRITICAL } = getConfig();
+
+    const metadata = {
+      reorg_size,
+      previous_best_block,
+      new_best_block,
+      common_block,
+    };
+
+    if (reorg_size >= REORG_SIZE_CRITICAL) {
+      await addAlert(
+        'Critical Reorg Detected',
+        `A critical reorg of size ${reorg_size} has occurred.`,
+        Severity.CRITICAL,
+        metadata,
+        logger,
+      );
+    } else if (reorg_size >= REORG_SIZE_MAJOR) {
+      await addAlert(
+        'Major Reorg Detected',
+        `A major reorg of size ${reorg_size} has occurred.`,
+        Severity.MAJOR,
+        metadata,
+        logger,
+      );
+    } else if (reorg_size >= REORG_SIZE_MINOR) {
+      await addAlert(
+        'Minor Reorg Detected',
+        `A minor reorg of size ${reorg_size} has occurred.`,
+        Severity.MINOR,
+        metadata,
+        logger,
+      );
+    } else if (reorg_size >= REORG_SIZE_INFO) {
+      await addAlert(
+        'Reorg Detected',
+        `A reorg of size ${reorg_size} has occurred.`,
+        Severity.INFO,
+        metadata,
+        logger,
+      );
+    }
+  } catch (e) {
+    span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
+    span.recordException(e as Error);
+    throw e;
+  } finally {
     span.end();
-    throw new Error('No event in context');
   }
-
-  const fullNodeEvent = context.event;
-  if (fullNodeEvent.event.type !== FullNodeEventTypes.REORG_STARTED) {
-    span.end();
-    throw new Error('Invalid event type for REORG_STARTED');
-  }
-
-  const { reorg_size, previous_best_block, new_best_block, common_block } = fullNodeEvent.event.data;
-
-  span.setAttribute('reorg.size', reorg_size);
-  const { REORG_SIZE_INFO, REORG_SIZE_MINOR, REORG_SIZE_MAJOR, REORG_SIZE_CRITICAL } = getConfig();
-
-  const metadata = {
-    reorg_size,
-    previous_best_block,
-    new_best_block,
-    common_block,
-  };
-
-  if (reorg_size >= REORG_SIZE_CRITICAL) {
-    await addAlert(
-      'Critical Reorg Detected',
-      `A critical reorg of size ${reorg_size} has occurred.`,
-      Severity.CRITICAL,
-      metadata,
-      logger,
-    );
-  } else if (reorg_size >= REORG_SIZE_MAJOR) {
-    await addAlert(
-      'Major Reorg Detected',
-      `A major reorg of size ${reorg_size} has occurred.`,
-      Severity.MAJOR,
-      metadata,
-      logger,
-    );
-  } else if (reorg_size >= REORG_SIZE_MINOR) {
-    await addAlert(
-      'Minor Reorg Detected',
-      `A minor reorg of size ${reorg_size} has occurred.`,
-      Severity.MINOR,
-      metadata,
-      logger,
-    );
-  } else if (reorg_size >= REORG_SIZE_INFO) {
-    await addAlert(
-      'Reorg Detected',
-      `A reorg of size ${reorg_size} has occurred.`,
-      Severity.INFO,
-      metadata,
-      logger,
-    );
-  }
-
-  span.end();
   });
 };
 
