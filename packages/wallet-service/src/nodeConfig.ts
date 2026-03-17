@@ -57,6 +57,7 @@ export function convertApiVersionData(data: FullNodeApiVersionResponse): FullNod
     decimalPlaces: data.decimal_places ?? constants.DECIMAL_PLACES,
     nativeTokenName: data.native_token?.name ?? constants.DEFAULT_NATIVE_TOKEN_CONFIG.name,
     nativeTokenSymbol: data.native_token?.symbol ?? constants.DEFAULT_NATIVE_TOKEN_CONFIG.symbol,
+    genesisBlockHash: data.genesis_block_hash ?? null,
   };
 }
 

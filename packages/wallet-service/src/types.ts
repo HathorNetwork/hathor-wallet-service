@@ -101,6 +101,7 @@ export interface FullNodeVersionData {
   decimalPlaces: number;
   nativeTokenName: string;
   nativeTokenSymbol: string;
+  genesisBlockHash: string | null;
 }
 
 /**
