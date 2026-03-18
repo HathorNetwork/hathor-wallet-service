@@ -1958,3 +1958,39 @@ export async function setAddressSeqnum(mysql: MysqlConnection, address: string, 
     [entries, seqnum],
   );
 }
+
+/**
+ * Log a transaction event to the audit table for debugging purposes.
+ *
+ * @remarks
+ * This function stores the complete event data in JSON format to track which
+ * events triggered changes to which transactions. Only logs if TX_EVENT_AUDIT_ENABLED
+ * environment variable is set to true.
+ *
+ * @param mysql - Database connection
+ * @param txId - Transaction ID that was affected
+ * @param eventId - The fullnode event ID
+ * @param eventType - The type of change (TX_NEW, TX_VOIDED, TX_UNVOIDED, TX_FIRST_BLOCK, TX_REMOVED)
+ * @param eventData - The complete event data to be stored as JSON
+ */
+export const logTxEventAudit = async (
+  mysql: MysqlConnection,
+  txId: string,
+  eventId: number,
+  eventType: string,
+  eventData: any,
+): Promise<void> => {
+  const { TX_EVENT_AUDIT_ENABLED } = getConfig();
+
+  if (!TX_EVENT_AUDIT_ENABLED) {
+    return;
+  }
+
+  const eventJson = JSON.stringify(eventData);
+
+  await mysql.query(
+    `INSERT INTO \`tx_event_audit\` (\`tx_id\`, \`event_id\`, \`event_type\`, \`event_data\`)
+     VALUES (?, ?, ?, ?)`,
+    [txId, eventId, eventType, eventJson],
+  );
+};

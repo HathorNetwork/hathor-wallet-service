@@ -84,6 +84,7 @@ import {
   voidWalletTransaction,
   getTxOutput,
   clearTxProposalForVoidedTx,
+  logTxEventAudit,
 } from '../db';
 import getConfig from '../config';
 import logger from '../logger';
@@ -545,6 +546,9 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
 
+    // Log to audit table if enabled
+    await logTxEventAudit(mysql, hash, fullNodeEvent.event.id, 'TX_NEW', fullNodeEvent);
+
     await mysql.commit();
   } catch (e) {
     await mysql.rollback();
@@ -593,6 +597,10 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
     logger.info(`[VertexRemoved] Removing tx from database: ${hash}`);
     await cleanupVoidedTx(mysql, hash);
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
+
+    // Log to audit table if enabled
+    await logTxEventAudit(mysql, hash, fullNodeEvent.event.id, 'TX_REMOVED', fullNodeEvent);
+
     await mysql.commit();
   } catch (e) {
     logger.debug(e);
@@ -775,6 +783,10 @@ export const handleVoidedTx = async (context: Context) => {
       version,
     );
     logger.debug(`Voided tx ${hash}`);
+
+    // Log to audit table if enabled
+    await logTxEventAudit(mysql, hash, fullNodeEvent.event.id, 'TX_VOIDED', fullNodeEvent);
+
     await mysql.commit();
     await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
   } catch (e) {
@@ -801,6 +813,9 @@ export const handleUnvoidedTx = async (context: Context) => {
     await cleanupVoidedTx(mysql, hash);
 
     logger.debug(`Unvoided tx ${hash}`);
+
+    // Log to audit table if enabled
+    await logTxEventAudit(mysql, hash, fullNodeEvent.event.id, 'TX_UNVOIDED', fullNodeEvent);
 
     await mysql.commit();
   } catch (e) {
@@ -840,6 +855,9 @@ export const handleTxFirstBlock = async (context: Context) => {
     } else {
       logger.debug(`Tx ${hash} back to mempool (first_block=null): ${fullNodeEvent.event.id}`);
     }
+
+    // Log to audit table if enabled
+    await logTxEventAudit(mysql, hash, fullNodeEvent.event.id, 'TX_FIRST_BLOCK', fullNodeEvent);
 
     await mysql.commit();
   } catch (e) {
