@@ -142,9 +142,7 @@ jobs:
         echo "sequelize_cli=$(jq -er '.devDependencies["sequelize-cli"]' package.json)" >> "$GITHUB_OUTPUT"
         echo "mysql2=$(jq -er '.devDependencies["mysql2"]' package.json)" >> "$GITHUB_OUTPUT"
 
-    - name: Set up QEMU
-      uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
-
+    # To add multi-platform builds (e.g., arm64), add docker/setup-qemu-action before setup-buildx-action
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
