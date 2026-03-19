@@ -187,8 +187,8 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
-    - name: Remove stale .dockerignore before migrator build
-      run: rm -f .dockerignore
+    - name: Copy migrator .dockerignore to root
+      run: cp db/.dockerignore .dockerignore
 
     - name: Build and push migrator dev image
       uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
