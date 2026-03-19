@@ -135,8 +135,12 @@ jobs:
       id: version
       run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
 
-    - name: Copy daemon .dockerignore to root
-      run: cp packages/daemon/.dockerignore .dockerignore
+    - name: Extract dependency versions for migrator
+      id: deps
+      run: |
+        echo "sequelize=$(jq -r '.devDependencies["sequelize"]' package.json)" >> "$GITHUB_OUTPUT"
+        echo "sequelize_cli=$(jq -r '.devDependencies["sequelize-cli"]' package.json)" >> "$GITHUB_OUTPUT"
+        echo "mysql2=$(jq -r '.devDependencies["mysql2"]' package.json)" >> "$GITHUB_OUTPUT"
 
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v3
@@ -150,6 +154,9 @@ jobs:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+    - name: Copy daemon .dockerignore to root
+      run: cp packages/daemon/.dockerignore .dockerignore
+
     - name: Build and push daemon dev image
       uses: docker/build-push-action@v5
       with:
@@ -160,6 +167,39 @@ jobs:
         tags: |
           hathornetwork/hathor-wallet-service-sync-daemon:dev
           hathornetwork/hathor-wallet-service-sync-daemon:dev-${{ steps.version.outputs.version }}
+        platforms: linux/amd64
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Copy lambdas .dockerignore to root
+      run: cp packages/wallet-service/.dockerignore .dockerignore
+
+    - name: Build and push lambdas dev image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: packages/wallet-service/Dockerfile.dev
+        push: true
+        tags: |
+          hathornetwork/hathor-wallet-service-lambdas:dev
+          hathornetwork/hathor-wallet-service-lambdas:dev-${{ steps.version.outputs.version }}
+        platforms: linux/amd64
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Build and push migrator dev image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: db/Dockerfile.dev
+        push: true
+        build-args: |
+          SEQUELIZE_VERSION=${{ steps.deps.outputs.sequelize }}
+          SEQUELIZE_CLI_VERSION=${{ steps.deps.outputs.sequelize_cli }}
+          MYSQL2_VERSION=${{ steps.deps.outputs.mysql2 }}
+        tags: |
+          hathornetwork/hathor-wallet-service-migrator:dev
+          hathornetwork/hathor-wallet-service-migrator:dev-${{ steps.version.outputs.version }}
         platforms: linux/amd64
         cache-from: type=gha
         cache-to: type=gha,mode=max
