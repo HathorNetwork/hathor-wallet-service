@@ -129,7 +129,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Extract version from tag
       id: version
@@ -138,9 +138,9 @@ jobs:
     - name: Extract dependency versions for migrator
       id: deps
       run: |
-        echo "sequelize=$(jq -r '.devDependencies["sequelize"]' package.json)" >> "$GITHUB_OUTPUT"
-        echo "sequelize_cli=$(jq -r '.devDependencies["sequelize-cli"]' package.json)" >> "$GITHUB_OUTPUT"
-        echo "mysql2=$(jq -r '.devDependencies["mysql2"]' package.json)" >> "$GITHUB_OUTPUT"
+        echo "sequelize=$(jq -er '.devDependencies["sequelize"]' package.json)" >> "$GITHUB_OUTPUT"
+        echo "sequelize_cli=$(jq -er '.devDependencies["sequelize-cli"]' package.json)" >> "$GITHUB_OUTPUT"
+        echo "mysql2=$(jq -er '.devDependencies["mysql2"]' package.json)" >> "$GITHUB_OUTPUT"
 
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v3
@@ -186,6 +186,9 @@ jobs:
         platforms: linux/amd64
         cache-from: type=gha
         cache-to: type=gha,mode=max
+
+    - name: Remove stale .dockerignore before migrator build
+      run: rm -f .dockerignore
 
     - name: Build and push migrator dev image
       uses: docker/build-push-action@v5
