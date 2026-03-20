@@ -76,6 +76,7 @@ test('convertApiVersionData', async () => {
     decimalPlaces: 2,
     nativeTokenName: 'Hathor',
     nativeTokenSymbol: 'HTR',
+    genesisBlockHash: null,
   });
 
   expect(convertApiVersionData(VERSION_DATA)).toStrictEqual({
@@ -93,6 +94,7 @@ test('convertApiVersionData', async () => {
     decimalPlaces: VERSION_DATA.decimal_places,
     nativeTokenName: VERSION_DATA.native_token.name,
     nativeTokenSymbol: VERSION_DATA.native_token.symbol,
+    genesisBlockHash: VERSION_DATA.genesis_block_hash,
   });
 });
 
