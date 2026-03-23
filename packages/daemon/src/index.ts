@@ -9,13 +9,10 @@
 import './tracing';
 
 import { interpret } from 'xstate';
-import { trace } from '@opentelemetry/api';
 import { SyncMachine } from './machines';
 import logger from './logger';
 import { checkEnvVariables } from './config';
 import { bigIntUtils } from '@hathor/wallet-lib';
-
-const tracer = trace.getTracer('wallet-service-daemon');
 
 const main = async () => {
   checkEnvVariables();
@@ -25,14 +22,6 @@ const main = async () => {
   machine.onTransition((state) => {
     const stateValue = bigIntUtils.JSONBigInt.stringify(state.value);
     logger.info(`Transitioned to ${stateValue}`);
-
-    const span = trace.getActiveSpan();
-    if (span) {
-      span.addEvent('state.transition', {
-        'state.value': stateValue,
-        'state.event': state.event.type,
-      });
-    }
   });
 
   machine.onDone(() => {

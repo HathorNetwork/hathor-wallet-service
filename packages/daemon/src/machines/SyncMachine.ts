@@ -10,6 +10,7 @@ import {
   assign,
   spawn,
 } from 'xstate';
+import { trace, SpanStatusCode } from '@opentelemetry/api';
 import { LRU } from '../utils';
 import { WebSocketActor, HealthCheckActor, MonitoringActor } from '../actors';
 import {
@@ -30,6 +31,33 @@ import {
   handleTokenCreated,
   checkForMissedEvents,
 } from '../services';
+
+const tracer = trace.getTracer('wallet-service-daemon');
+
+/**
+ * Wraps an xstate service function with a root OTel span, so the span context
+ * is active for the entire event processing lifecycle (including child spans
+ * created inside the service).
+ */
+function tracedService<T>(
+  name: string,
+  fn: (...args: any[]) => Promise<T>,
+): (...args: any[]) => Promise<T> {
+  return (...args: any[]) => {
+    return tracer.startActiveSpan(`event.processing.${name}`, async (span) => {
+      try {
+        const result = await fn(...args);
+        return result;
+      } catch (e) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
+        span.recordException(e as Error);
+        throw e;
+      } finally {
+        span.end();
+      }
+    });
+  };
+}
 import {
   hasNextChange,
   metadataChanged,
@@ -392,16 +420,16 @@ export const SyncMachine = Machine<Context, any, Event>({
   },
 }, {
   services: {
-    handleVertexAccepted,
-    handleVertexRemoved,
-    handleVoidedTx,
-    handleTxFirstBlock,
-    handleNcExecVoided,
-    handleUnvoidedTx,
-    handleReorgStarted,
-    handleTokenCreated,
+    handleVertexAccepted: tracedService('handleVertexAccepted', handleVertexAccepted),
+    handleVertexRemoved: tracedService('handleVertexRemoved', handleVertexRemoved),
+    handleVoidedTx: tracedService('handleVoidedTx', handleVoidedTx),
+    handleTxFirstBlock: tracedService('handleTxFirstBlock', handleTxFirstBlock),
+    handleNcExecVoided: tracedService('handleNcExecVoided', handleNcExecVoided),
+    handleUnvoidedTx: tracedService('handleUnvoidedTx', handleUnvoidedTx),
+    handleReorgStarted: tracedService('handleReorgStarted', handleReorgStarted),
+    handleTokenCreated: tracedService('handleTokenCreated', handleTokenCreated),
     fetchInitialState,
-    metadataDiff,
+    metadataDiff: tracedService('metadataDiff', metadataDiff),
     updateLastSyncedEvent,
     checkForMissedEvents,
   },
