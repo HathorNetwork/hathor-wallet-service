@@ -139,8 +139,6 @@ provider:
   memorySize: 256
   # This is the default timeout. Each function can specify a different value
   timeout: 6
-  layers:
-    - arn:aws:lambda:${self:provider.region}:901920570463:layer:aws-otel-nodejs-amd64-ver-1-18-1:4
   websocketsApiName: wallet-realtime-ws-api-${self:custom.stage}
   websocketsApiRouteSelectionExpression: $request.body.action
   iam:
@@ -213,13 +211,9 @@ provider:
     ALERT_MANAGER_REGION: ${env:ALERT_MANAGER_REGION}
     ALERT_MANAGER_TOPIC: ${env:ALERT_MANAGER_TOPIC}
     ALERT_MANAGER_ACCOUNT_ID: ${env:ALERT_MANAGER_ACCOUNT_ID}
-    # OpenTelemetry (ADOT Lambda layer)
-    # Set AWS_LAMBDA_EXEC_WRAPPER=/opt/otel-handler to enable ADOT tracing.
-    # Left empty by default so tracing is opt-in per environment.
-    AWS_LAMBDA_EXEC_WRAPPER: ${env:AWS_LAMBDA_EXEC_WRAPPER, ""}
+    # OpenTelemetry — manual SDK init (RFC Option B)
+    # Set OTEL_EXPORTER_OTLP_ENDPOINT to enable tracing, leave empty to disable.
     OTEL_SERVICE_NAME: wallet-service-lambda-${self:custom.stage}
-    OTEL_PROPAGATORS: tracecontext,baggage
-    OTEL_NODE_DISABLED_INSTRUMENTATIONS: fs,dns
     OTEL_EXPORTER_OTLP_ENDPOINT: ${env:OTEL_EXPORTER_OTLP_ENDPOINT, ""}
 
 functions:
