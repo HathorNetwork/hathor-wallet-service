@@ -212,9 +212,9 @@ provider:
     ALERT_MANAGER_TOPIC: ${env:ALERT_MANAGER_TOPIC}
     ALERT_MANAGER_ACCOUNT_ID: ${env:ALERT_MANAGER_ACCOUNT_ID}
     # OpenTelemetry — manual SDK init (RFC Option B)
-    # The service name is read from OTEL_SERVICE_NAME at runtime.
-    # Set OTEL_EXPORTER_OTLP_ENDPOINT to enable trace export.
+    # OTEL_EXPORTER_OTLP_ENDPOINT must be set per-function (env budget is tight).
     # Set OTEL_CONSOLE_DEBUG=true to print spans to CloudWatch logs.
+    OTEL_CONSOLE_DEBUG: ${env:OTEL_CONSOLE_DEBUG, ""}
 
 functions:
   getLatestBlock:
