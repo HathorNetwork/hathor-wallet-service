@@ -7,7 +7,7 @@
 
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
-import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-node';
+import { BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node';
 import { Resource } from '@opentelemetry/resources';
 import { AwsLambdaInstrumentation } from '@opentelemetry/instrumentation-aws-lambda';
 import { AwsInstrumentation } from '@opentelemetry/instrumentation-aws-sdk';
@@ -17,25 +17,32 @@ import { RedisInstrumentation } from '@opentelemetry/instrumentation-redis';
 import { WinstonInstrumentation } from '@opentelemetry/instrumentation-winston';
 
 const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+const consoleDebug = process.env.OTEL_CONSOLE_DEBUG === 'true';
 
-const spanProcessor = endpoint
-  ? new BatchSpanProcessor(
-      new OTLPTraceExporter(),
-      {
-        maxQueueSize: 2048,
-        maxExportBatchSize: 512,
-        scheduledDelayMillis: 5000,
-        exportTimeoutMillis: 5000,
-      },
-    )
-  : undefined;
+const spanProcessors: any[] = [];
+
+if (endpoint) {
+  spanProcessors.push(new BatchSpanProcessor(
+    new OTLPTraceExporter(),
+    {
+      maxQueueSize: 2048,
+      maxExportBatchSize: 512,
+      scheduledDelayMillis: 5000,
+      exportTimeoutMillis: 5000,
+    },
+  ));
+}
+
+if (consoleDebug) {
+  spanProcessors.push(new SimpleSpanProcessor(new ConsoleSpanExporter()));
+}
 
 const sdk = new NodeSDK({
   resource: new Resource({
     'service.name': process.env.OTEL_SERVICE_NAME || 'wallet-service-lambda',
     'deployment.environment': process.env.STAGE || 'local',
   }),
-  ...(spanProcessor && { spanProcessor }),
+  ...(spanProcessors.length && { spanProcessors }),
   instrumentations: [
     new AwsLambdaInstrumentation({
       disableAwsContextPropagation: true,

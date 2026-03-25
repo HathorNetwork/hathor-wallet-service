@@ -213,8 +213,10 @@ provider:
     ALERT_MANAGER_ACCOUNT_ID: ${env:ALERT_MANAGER_ACCOUNT_ID}
     # OpenTelemetry — manual SDK init (RFC Option B)
     # Set OTEL_EXPORTER_OTLP_ENDPOINT to enable tracing, leave empty to disable.
+    # Set OTEL_CONSOLE_DEBUG=true to print spans to CloudWatch logs.
     OTEL_SERVICE_NAME: wallet-service-lambda-${self:custom.stage}
     OTEL_EXPORTER_OTLP_ENDPOINT: ${env:OTEL_EXPORTER_OTLP_ENDPOINT, ""}
+    OTEL_CONSOLE_DEBUG: ${env:OTEL_CONSOLE_DEBUG, ""}
 
 functions:
   getLatestBlock:
