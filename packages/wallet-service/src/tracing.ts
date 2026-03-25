@@ -12,7 +12,7 @@ import { Resource } from '@opentelemetry/resources';
 import { AwsLambdaInstrumentation } from '@opentelemetry/instrumentation-aws-lambda';
 import { AwsInstrumentation } from '@opentelemetry/instrumentation-aws-sdk';
 import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
-import { MysqlInstrumentation } from '@opentelemetry/instrumentation-mysql';
+import { MySQLInstrumentation } from '@opentelemetry/instrumentation-mysql';
 import { RedisInstrumentation } from '@opentelemetry/instrumentation-redis';
 import { WinstonInstrumentation } from '@opentelemetry/instrumentation-winston';
 
@@ -42,7 +42,7 @@ const sdk = new NodeSDK({
     }),
     new AwsInstrumentation(),
     new HttpInstrumentation(),
-    new MysqlInstrumentation(),
+    new MySQLInstrumentation(),
     new RedisInstrumentation(),
     new WinstonInstrumentation(),
   ],
