@@ -5,54 +5,61 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { NodeSDK } from '@opentelemetry/sdk-node';
-import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
-import { BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node';
-import { Resource } from '@opentelemetry/resources';
-import { AwsLambdaInstrumentation } from '@opentelemetry/instrumentation-aws-lambda';
-import { AwsInstrumentation } from '@opentelemetry/instrumentation-aws-sdk';
-import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
-import { MySQLInstrumentation } from '@opentelemetry/instrumentation-mysql';
-import { RedisInstrumentation } from '@opentelemetry/instrumentation-redis';
-import { WinstonInstrumentation } from '@opentelemetry/instrumentation-winston';
+// Skip all OTel initialization when disabled — avoids module loading cost.
+// eslint-disable-next-line no-console
+console.log(`[tracing] OTEL_SDK_DISABLED=${process.env.OTEL_SDK_DISABLED || 'false'}`);
+if (process.env.OTEL_SDK_DISABLED !== 'true') {
+  // Use require() so that imports are fully skipped when disabled.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { NodeSDK } = require('@opentelemetry/sdk-node');
+  const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-http');
+  const { BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor } = require('@opentelemetry/sdk-trace-node');
+  const { Resource } = require('@opentelemetry/resources');
+  const { AwsLambdaInstrumentation } = require('@opentelemetry/instrumentation-aws-lambda');
+  const { AwsInstrumentation } = require('@opentelemetry/instrumentation-aws-sdk');
+  const { HttpInstrumentation } = require('@opentelemetry/instrumentation-http');
+  const { MySQLInstrumentation } = require('@opentelemetry/instrumentation-mysql');
+  const { RedisInstrumentation } = require('@opentelemetry/instrumentation-redis');
+  const { WinstonInstrumentation } = require('@opentelemetry/instrumentation-winston');
 
-const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
-const consoleDebug = process.env.OTEL_CONSOLE_DEBUG === 'true';
+  const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+  const consoleDebug = process.env.OTEL_CONSOLE_DEBUG === 'true';
 
-const spanProcessors: any[] = [];
+  const spanProcessors: any[] = [];
 
-if (endpoint) {
-  spanProcessors.push(new BatchSpanProcessor(
-    new OTLPTraceExporter(),
-    {
-      maxQueueSize: 2048,
-      maxExportBatchSize: 512,
-      scheduledDelayMillis: 5000,
-      exportTimeoutMillis: 5000,
-    },
-  ));
-}
+  if (endpoint) {
+    spanProcessors.push(new BatchSpanProcessor(
+      new OTLPTraceExporter(),
+      {
+        maxQueueSize: 2048,
+        maxExportBatchSize: 512,
+        scheduledDelayMillis: 5000,
+        exportTimeoutMillis: 5000,
+      },
+    ));
+  }
 
-if (consoleDebug) {
-  spanProcessors.push(new SimpleSpanProcessor(new ConsoleSpanExporter()));
-}
+  if (consoleDebug) {
+    spanProcessors.push(new SimpleSpanProcessor(new ConsoleSpanExporter()));
+  }
 
-const sdk = new NodeSDK({
-  resource: new Resource({
-    'service.name': process.env.OTEL_SERVICE_NAME || 'wallet-service-lambda',
-    'deployment.environment': process.env.STAGE || 'local',
-  }),
-  ...(spanProcessors.length && { spanProcessors }),
-  instrumentations: [
-    new AwsLambdaInstrumentation({
-      disableAwsContextPropagation: true,
+  const sdk = new NodeSDK({
+    resource: new Resource({
+      'service.name': process.env.OTEL_SERVICE_NAME || 'wallet-service-lambda',
+      'deployment.environment': process.env.STAGE || 'local',
     }),
-    new AwsInstrumentation(),
-    new HttpInstrumentation(),
-    new MySQLInstrumentation(),
-    new RedisInstrumentation(),
-    new WinstonInstrumentation(),
-  ],
-});
+    ...(spanProcessors.length && { spanProcessors }),
+    instrumentations: [
+      new AwsLambdaInstrumentation({
+        disableAwsContextPropagation: true,
+      }),
+      new AwsInstrumentation(),
+      new HttpInstrumentation(),
+      new MySQLInstrumentation(),
+      new RedisInstrumentation(),
+      new WinstonInstrumentation(),
+    ],
+  });
 
-sdk.start();
+  sdk.start();
+}
