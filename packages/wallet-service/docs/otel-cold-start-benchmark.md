@@ -16,14 +16,14 @@ Cherry-picked instrumentations (not the full `auto-instrumentations-node` meta-p
 - `@opentelemetry/instrumentation-redis`
 - `@opentelemetry/instrumentation-winston`
 
-## Test 1: Cold Start Overhead (console debug ON)
+## Test 1: Cold Start Overhead
 
-Console exporter enabled (`OTEL_CONSOLE_DEBUG=true`), no OTLP endpoint configured.
+Console exporter enabled (`OTEL_CONSOLE_DEBUG=true`), no OTLP endpoint configured. Every invocation is a forced cold start.
 
 ### WITH OTel (n=7)
 
-| # | Init Duration (ms) | Handler Duration (ms) |
-|---|-------------------:|----------------------:|
+| # | Init Duration (ms) | Cold Handler Duration (ms) |
+|---|-------------------:|---------------------------:|
 | 1 | 1979 | 1231 |
 | 2 | 1846 | 1297 |
 | 3 | 1829 | 1246 |
@@ -34,8 +34,8 @@ Console exporter enabled (`OTEL_CONSOLE_DEBUG=true`), no OTLP endpoint configure
 
 ### WITHOUT OTel (n=7)
 
-| # | Init Duration (ms) | Handler Duration (ms) |
-|---|-------------------:|----------------------:|
+| # | Init Duration (ms) | Cold Handler Duration (ms) |
+|---|-------------------:|---------------------------:|
 | 1 | 1143 | 591 |
 | 2 | 1170 | 615 |
 | 3 | 1133 | 927 |
@@ -43,6 +43,8 @@ Console exporter enabled (`OTEL_CONSOLE_DEBUG=true`), no OTLP endpoint configure
 | 5 | 1151 | 918 |
 | 6 | 1163 | 610 |
 | 7 | 1242 | 634 |
+
+> **Note on Cold Handler Duration:** These are the first invocation after a cold start, so they include one-time costs like establishing the MySQL connection pool (~500-900ms). This is **not** representative of warm handler performance. The difference between OTel ON (avg 1265ms) and OTel OFF (avg 749ms) in this column is inflated by the synchronous console exporter (`OTEL_CONSOLE_DEBUG=true`), which serializes spans to stdout on every call.
 
 ### Cold Start Results
 
