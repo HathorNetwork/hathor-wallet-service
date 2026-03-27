@@ -1,0 +1,27 @@
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: hathor
+      MYSQL_DATABASE: wallet_service
+      MYSQL_USER: hathor
+      MYSQL_PASSWORD: hathor
+    ports:
+      - "3306:3306"
+    volumes:
+      - daemon-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+
+  jaeger:
+    image: jaegertracing/jaeger:latest
+    ports:
+      - "16686:16686"
+      - "4318:4318"
+
+volumes:
+  daemon-mysql-data:

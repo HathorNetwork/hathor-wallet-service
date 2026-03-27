@@ -211,6 +211,10 @@ provider:
     ALERT_MANAGER_REGION: ${env:ALERT_MANAGER_REGION}
     ALERT_MANAGER_TOPIC: ${env:ALERT_MANAGER_TOPIC}
     ALERT_MANAGER_ACCOUNT_ID: ${env:ALERT_MANAGER_ACCOUNT_ID}
+    # OpenTelemetry — manual SDK init (RFC Option B)
+    # OTEL_EXPORTER_OTLP_ENDPOINT must be set per-function (env budget is tight).
+    # Set OTEL_CONSOLE_DEBUG=true to print spans to CloudWatch logs.
+    OTEL_CONSOLE_DEBUG: ${env:OTEL_CONSOLE_DEBUG, ""}
 
 functions:
   getLatestBlock:
