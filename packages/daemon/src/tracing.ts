@@ -1,0 +1,53 @@
+/**
+ * Copyright (c) Hathor Labs and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+import { NodeSDK } from '@opentelemetry/sdk-node';
+import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
+import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-node';
+import { Resource } from '@opentelemetry/resources';
+
+const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+
+const spanProcessor = endpoint
+  ? new BatchSpanProcessor(
+      new OTLPTraceExporter(),
+      {
+        maxQueueSize: 2048,
+        maxExportBatchSize: 512,
+        scheduledDelayMillis: 5000,
+        exportTimeoutMillis: 5000,
+      },
+    )
+  : undefined;
+
+const sdk = new NodeSDK({
+  resource: new Resource({
+    'service.name': process.env.OTEL_SERVICE_NAME || 'wallet-service-daemon',
+    'service.version': process.env.SERVICE_VERSION || 'unknown',
+    'deployment.environment': process.env.STAGE || 'local',
+  }),
+  ...(spanProcessor && { spanProcessor }),
+  instrumentations: [
+    getNodeAutoInstrumentations({
+      '@opentelemetry/instrumentation-fs': { enabled: false },
+      '@opentelemetry/instrumentation-dns': { enabled: false },
+    }),
+  ],
+});
+
+sdk.start();
+
+process.once('SIGTERM', async () => {
+  try {
+    await sdk.shutdown();
+    process.exit(0);
+  } catch (err) {
+    console.error('OTel SDK shutdown error:', err);
+    process.exit(1);
+  }
+});
