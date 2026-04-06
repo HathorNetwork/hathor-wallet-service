@@ -17,7 +17,7 @@
     "dev:down": "docker compose -f docker-compose.dev.yml down",
     "dev:destroy": "docker compose -f docker-compose.dev.yml down -v",
     "dev:migrate": "cd ../.. && DB_ENDPOINT=localhost DB_NAME=wallet_service DB_USER=hathor DB_PASS=hathor DB_PORT=3306 npx sequelize-cli db:migrate && DB_ENDPOINT=localhost DB_NAME=wallet_service DB_USER=hathor DB_PASS=hathor DB_PORT=3306 npx sequelize-cli db:seed:all",
-    "dev:fetch-ids": "FULLNODE_WEBSOCKET_BASEURL=${FULLNODE_HOST:-hathor-dynasty.network} node ../../scripts/fetch-fullnode-ids.js",
+    "dev:fetch-ids": "FULLNODE_WEBSOCKET_BASEURL=${FULLNODE_HOST} node ../../scripts/fetch-fullnode-ids.js",
     "replay-balance": "yarn dlx ts-node src/scripts/replay-balance.ts",
     "watch": "tsc -w",
     "test_images_up": "docker compose -f ./__tests__/integration/scripts/docker-compose.yml up -d",
