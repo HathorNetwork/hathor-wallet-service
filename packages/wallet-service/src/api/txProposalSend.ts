@@ -36,6 +36,7 @@ import middy from '@middy/core';
 import cors from '@middy/http-cors';
 import config from '@src/config';
 import errorHandler from '@src/api/middlewares/errorHandler';
+import createDefaultLogger from '@src/logger';
 
 const mysql = getDbConnection();
 
@@ -114,6 +115,8 @@ export const send: APIGatewayProxyHandler = middy(walletIdProxyHandler(async (wa
     }
   }
 
+  const logger = createDefaultLogger();
+
   try {
     const response: ApiResponse = await new Promise((resolve) => {
       hathorLib.txApi.pushTx(txHex, false, resolve);
@@ -139,6 +142,12 @@ export const send: APIGatewayProxyHandler = middy(walletIdProxyHandler(async (wa
       }),
     };
   } catch (e) {
+    logger.error('Failed to send tx proposal', {
+      txProposalId,
+      error: e.message,
+      txHex,
+    });
+
     // Update status and release UTXOs atomically
     try {
       await beginTransaction(mysql);
@@ -155,7 +164,10 @@ export const send: APIGatewayProxyHandler = middy(walletIdProxyHandler(async (wa
       await commitTransaction(mysql);
     } catch (txError) {
       await rollbackTransaction(mysql);
-      // Log the transaction error but still return the original send error
+      logger.error('Failed to update tx proposal status after send error', {
+        txProposalId,
+        txError: txError.message,
+      });
     }
 
     return closeDbAndGetError(mysql, ApiError.TX_PROPOSAL_SEND_ERROR, {
