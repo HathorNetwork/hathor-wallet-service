@@ -48,9 +48,7 @@ if (process.env.OTEL_SDK_DISABLED !== 'true') {
     }),
     ...(spanProcessors.length && { spanProcessors }),
     instrumentations: [
-      new AwsLambdaInstrumentation({
-        disableAwsContextPropagation: true,
-      }),
+      new AwsLambdaInstrumentation(),
       new AwsInstrumentation(),
       new HttpInstrumentation(),
       new MySQLInstrumentation(),
