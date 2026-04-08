@@ -6,10 +6,12 @@
  */
 
 import { NodeSDK } from '@opentelemetry/sdk-node';
-import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-node';
 import { Resource } from '@opentelemetry/resources';
+import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
+import { MySQLInstrumentation } from '@opentelemetry/instrumentation-mysql';
+import { WinstonInstrumentation } from '@opentelemetry/instrumentation-winston';
 
 const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
 
@@ -33,10 +35,9 @@ const sdk = new NodeSDK({
   }),
   ...(spanProcessor && { spanProcessor }),
   instrumentations: [
-    getNodeAutoInstrumentations({
-      '@opentelemetry/instrumentation-fs': { enabled: false },
-      '@opentelemetry/instrumentation-dns': { enabled: false },
-    }),
+    new HttpInstrumentation(),
+    new MySQLInstrumentation(),
+    new WinstonInstrumentation(),
   ],
 });
 
