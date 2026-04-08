@@ -30,7 +30,8 @@ const spanProcessor = endpoint
 const sdk = new NodeSDK({
   resource: new Resource({
     'service.name': process.env.OTEL_SERVICE_NAME || 'wallet-service-daemon',
-    'service.version': process.env.SERVICE_VERSION || 'unknown',
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    'service.version': process.env.SERVICE_VERSION || require('../../package.json').version,
     'deployment.environment': process.env.STAGE || 'local',
   }),
   ...(spanProcessor && { spanProcessor }),
