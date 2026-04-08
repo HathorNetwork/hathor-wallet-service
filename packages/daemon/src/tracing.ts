@@ -44,7 +44,7 @@ const sdk = new NodeSDK({
 
 sdk.start();
 
-process.once('SIGTERM', async () => {
+const shutdown = async () => {
   try {
     await sdk.shutdown();
     process.exit(0);
@@ -52,4 +52,7 @@ process.once('SIGTERM', async () => {
     console.error('OTel SDK shutdown error:', err);
     process.exit(1);
   }
-});
+};
+
+process.once('SIGTERM', shutdown);
+process.once('SIGINT', shutdown);
