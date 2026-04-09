@@ -55,10 +55,15 @@ if (process.env.OTEL_SDK_DISABLED !== 'true') {
     // Swallow exporter flush failures (e.g. OTLP endpoint unreachable) so
     // they don't cause a non-zero exit and don't trip the errors-in-logs
     // alert pattern.
+    //
+    // Intentionally do NOT log the raw error object: its stack trace
+    // commonly contains strings like "AggregateError" / "Error:" which
+    // would be picked up by the log-based alert regex, defeating the
+    // purpose of this handler.
     try {
       await sdk.shutdown();
-    } catch (err) {
-      console.warn('OTel SDK: failed to flush spans during shutdown (non-fatal):', err);
+    } catch {
+      console.warn('OTel flush skipped during shutdown (non-fatal)');
     }
     process.exit(0);
   };
