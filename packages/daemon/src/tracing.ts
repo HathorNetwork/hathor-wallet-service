@@ -35,7 +35,7 @@ if (process.env.OTEL_SDK_DISABLED !== 'true') {
     resource: new Resource({
       'service.name': process.env.OTEL_SERVICE_NAME || 'wallet-service-daemon',
       // eslint-disable-next-line @typescript-eslint/no-var-requires
-      'service.version': process.env.SERVICE_VERSION || require('../../package.json').version,
+      'service.version': process.env.SERVICE_VERSION || require('../package.json').version,
       'deployment.environment': process.env.STAGE || 'local',
     }),
     ...(spanProcessor && { spanProcessor }),
