@@ -35,7 +35,9 @@ if (process.env.OTEL_SDK_DISABLED !== 'true') {
     resource: new Resource({
       'service.name': process.env.OTEL_SERVICE_NAME || 'wallet-service-daemon',
       // eslint-disable-next-line @typescript-eslint/no-var-requires
-      'service.version': process.env.SERVICE_VERSION || require('../../package.json').version,
+      // The daemon package.json has no "version" field — the monorepo root
+      // package.json is the single source of truth (kept in sync with git tags).
+      'service.version': process.env.SERVICE_VERSION || require('../../../package.json').version || 'unknown',
       'deployment.environment': process.env.STAGE || 'local',
     }),
     ...(spanProcessor && { spanProcessor }),
