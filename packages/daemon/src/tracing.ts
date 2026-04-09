@@ -51,13 +51,16 @@ if (process.env.OTEL_SDK_DISABLED !== 'true') {
   sdk.start();
 
   const shutdown = async () => {
+    // Losing buffered telemetry during shutdown is not a service failure.
+    // Swallow exporter flush failures (e.g. OTLP endpoint unreachable) so
+    // they don't cause a non-zero exit and don't trip the errors-in-logs
+    // alert pattern.
     try {
       await sdk.shutdown();
-      process.exit(0);
     } catch (err) {
-      console.error('OTel SDK shutdown error:', err);
-      process.exit(1);
+      console.warn('OTel SDK: failed to flush spans during shutdown (non-fatal):', err);
     }
+    process.exit(0);
   };
 
   process.once('SIGTERM', shutdown);
