@@ -62,6 +62,7 @@ import {
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 
 import { isTxVoided } from '@src/utils';
+import createDefaultLogger from '@src/logger';
 
 import hathorLib from '@hathor/wallet-lib';
 import { stringMapIterator, WalletBalanceMapConverter } from '@src/db/utils';
@@ -551,11 +552,15 @@ export const handleReorg = async (mysql: ServerlessMysql, logger: Logger): Promi
 
 export const walletIdProxyHandler = (handler: WalletProxyHandler): APIGatewayProxyHandler => (
   async (event, context) => {
+    const logger = createDefaultLogger();
     let walletId: string;
     try {
       walletId = event.requestContext.authorizer.principalId;
       // validate walletId?
     } catch (e) {
+      logger.error('Failed to extract walletId from authorization context', {
+        error: e.message,
+      });
       return {
         statusCode: 401,
         body: 'Unauthorized',
