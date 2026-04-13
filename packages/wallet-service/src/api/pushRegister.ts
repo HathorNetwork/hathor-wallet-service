@@ -21,6 +21,7 @@ import cors from '@middy/http-cors';
 import Joi, { ValidationError } from 'joi';
 import { PushRegister } from '@src/types';
 import errorHandler from '@src/api/middlewares/errorHandler';
+import createDefaultLogger from '@src/logger';
 
 const mysql = getDbConnection();
 
@@ -86,6 +87,12 @@ export const register: APIGatewayProxyHandler = middy(walletIdProxyHandler(async
 
     await commitTransaction(mysql);
   } catch (e) {
+    const logger = createDefaultLogger();
+    logger.error('Failed to register push device', {
+      walletId,
+      deviceId: body.deviceId,
+      error: e.message,
+    });
     await rollbackTransaction(mysql);
     return closeDbAndGetError(mysql, ApiError.UNKNOWN_ERROR, { message: e.message });
   }

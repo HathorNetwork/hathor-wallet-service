@@ -7,6 +7,7 @@ const mainTestMatch = process.env.SPECIFIC_INTEGRATION_TEST_FILE
 module.exports = {
   roots: ["<rootDir>/__tests__"],
   setupFiles: ['./jestSetup.ts'],
+  setupFilesAfterEnv: ['./jestIntegrationSetup.ts'],
   transform: {
     "^.+\\.ts$": ["ts-jest", {
       tsconfig: "./tsconfig.json",
