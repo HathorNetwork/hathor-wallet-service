@@ -54,7 +54,7 @@ class TxPushNotificationRequestValidator {
       unlockedAmount: Joi.number().required(),
       lockedAuthorities: TxPushNotificationRequestValidator.authoritiesSchema,
       unlockedAuthorities: TxPushNotificationRequestValidator.authoritiesSchema,
-      lockExpires: Joi.number().integer().min(0).valid(null),
+      lockExpires: Joi.number().integer().min(0).allow(null),
       total: Joi.number().required(),
     }),
   ).required();

@@ -596,6 +596,55 @@ describe('failure', () => {
   });
 });
 
+describe('validation lockExpires', () => {
+  it('should accept a numeric lockExpires timestamp', async () => {
+    expect.hasAssertions();
+
+    const walletId = 'wallet1';
+    await addToWalletTable(mysql, [buildWallet({ id: walletId })]);
+
+    const deviceId = 'device1';
+    const pushDevice = {
+      deviceId,
+      walletId,
+      pushProvider: PushProvider.ANDROID,
+      enablePush: true,
+      enableShowAmounts: false,
+    };
+
+    await storeTokenInformation(mysql, 'token1', 'token1', 'T1', TokenVersion.DEPOSIT);
+    await registerPushDevice(mysql, pushDevice);
+
+    const txId = 'txId1';
+
+    const sendEvent = buildEvent(walletId, txId, [
+      {
+        tokenId: 'token1',
+        tokenSymbol: 'T1',
+        lockExpires: 1709596800,
+        lockedAmount: 10,
+        lockedAuthorities: {
+          melt: false,
+          mint: false,
+        },
+        total: 10,
+        totalAmountSent: 10,
+        unlockedAmount: 0,
+        unlockedAuthorities: {
+          melt: false,
+          mint: false,
+        },
+      },
+    ]);
+    const sendContext = { awsRequestId: '123' } as Context;
+
+    const result = await handleRequest(sendEvent, sendContext, null) as { success: boolean, message?: string, details?: unknown };
+
+    expect(result.success).toStrictEqual(true);
+    expect(spyOnInvokeSendNotification).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('validation StringMap<WalletBalanceValue>', () => {
   it('should validate map format', async () => {
     expect.hasAssertions();
