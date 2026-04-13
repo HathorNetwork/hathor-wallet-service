@@ -477,7 +477,7 @@ describe('handleVoidedTx', () => {
           data: {
             hash: 'hashValue',
             outputs: 'outputsValue',
-            inputs: 'inputsValue',
+            inputs: [],
             tokens: 'tokensValue',
           },
           id: 'idValue',
@@ -508,7 +508,7 @@ describe('handleVoidedTx', () => {
           data: {
             hash: 'hashValue',
             outputs: 'outputsValue',
-            inputs: 'inputsValue',
+            inputs: [],
             tokens: 'tokensValue',
           },
           id: 'idValue',
@@ -544,7 +544,7 @@ describe('handleVoidedTx', () => {
           data: {
             hash: 'hashValue',
             outputs: 'outputsValue',
-            inputs: 'inputsValue',
+            inputs: [],
             tokens: 'tokensValue',
           },
           id: 'idValue',
@@ -601,7 +601,7 @@ describe('handleVertexAccepted', () => {
             version: 'versionValue',
             weight: 'weightValue',
             outputs: 'outputsValue',
-            inputs: 'inputsValue',
+            inputs: [],
             tokens: 'tokensValue',
             token_name: 'tokenName',
             token_symbol: 'tokenSymbol',
@@ -763,7 +763,7 @@ describe('handleVertexAccepted', () => {
           data: {
             hash: 'hashValue',
             outputs: 'outputsValue',
-            inputs: 'inputsValue',
+            inputs: [],
             tokens: 'tokensValue',
           },
           id: 'idValue',

@@ -14,9 +14,10 @@ export default createLogger({
   format: format.combine(
     format.colorize(),
     format.timestamp(),
-    format.printf(({ timestamp, level, message }) => (
-      `${timestamp} [${SERVICE_NAME}][${level}]: ${message}`
-    )),
+    format.printf(({ timestamp, level, message, trace_id, span_id }) => {
+      const traceInfo = trace_id ? ` [trace_id=${trace_id} span_id=${span_id}]` : '';
+      return `${timestamp} [${SERVICE_NAME}][${level}]${traceInfo}: ${message}`;
+    }),
   ),
   transports: [
     new transports.Console(),

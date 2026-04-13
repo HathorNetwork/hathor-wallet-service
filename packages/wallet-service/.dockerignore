@@ -1,7 +1,7 @@
 dist/
 __tests__/
 .git/
-../../.github/
+.github/
 .direnv/
 flake.*
 node_modules/

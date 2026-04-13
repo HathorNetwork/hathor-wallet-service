@@ -20,6 +20,7 @@ import { closeDbAndGetError } from '@src/api/utils';
 import middy from '@middy/core';
 import cors from '@middy/http-cors';
 import errorHandler from '@src/api/middlewares/errorHandler';
+import createDefaultLogger from '@src/logger';
 
 const mysql = getDbConnection();
 
@@ -70,6 +71,11 @@ export const destroy: APIGatewayProxyHandler = middy(walletIdProxyHandler(async 
 
     await commitTransaction(mysql);
   } catch (e) {
+    const logger = createDefaultLogger();
+    logger.error('Failed to destroy tx proposal', {
+      txProposalId,
+      error: e.message,
+    });
     await rollbackTransaction(mysql);
     return closeDbAndGetError(mysql, ApiError.UNKNOWN_ERROR, { message: e.message });
   }

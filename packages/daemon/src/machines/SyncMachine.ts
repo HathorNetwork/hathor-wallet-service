@@ -30,6 +30,7 @@ import {
   handleTokenCreated,
   checkForMissedEvents,
 } from '../services';
+
 import {
   hasNextChange,
   metadataChanged,

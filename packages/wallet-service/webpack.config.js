@@ -3,10 +3,20 @@ const path = require('path');
 const slsw = require('serverless-webpack');
 const nodeExternals = require('webpack-node-externals');
 
+// Prepend OTel tracing init to every handler entry so auto-instrumentation
+// patches libraries (mysql, redis, http, aws-sdk) before they are imported.
+const tracingEntry = path.resolve(__dirname, './src/tracing.ts');
+const entries = Object.fromEntries(
+  Object.entries(slsw.lib.entries).map(([key, val]) => [
+    key,
+    [tracingEntry, val],
+  ]),
+);
+
 module.exports = {
   context: __dirname,
   mode: slsw.lib.webpack.isLocal ? 'development' : 'production',
-  entry: slsw.lib.entries,
+  entry: entries,
   devtool: slsw.lib.webpack.isLocal ? 'eval-cheap-module-source-map' : 'source-map',
   resolve: {
     extensions: ['.js', '.mjs', '.json', '.ts'],
