@@ -864,6 +864,44 @@ export const addToVersionDataTable = async (mysql: ServerlessMysql, timestamp: n
   );
 };
 
+/**
+ * Default version data used as the cache seed in tests. Any test that invokes
+ * a handler which calls `getFullnodeData` (e.g. txProposalCreate, GET /version)
+ * must seed this row — otherwise `fullnode.version()` would try to make a real
+ * HTTP request to the fullnode. Use `seedFullnodeVersionData` below.
+ */
+export const DEFAULT_TEST_VERSION_DATA: FullNodeApiVersionResponse = {
+  version: '0.38.0',
+  network: process.env.NETWORK ?? 'mainnet',
+  min_weight: 14,
+  min_tx_weight: 14,
+  min_tx_weight_coefficient: 1.6,
+  min_tx_weight_k: 100,
+  token_deposit_percentage: 0.01,
+  reward_spend_min_blocks: 300,
+  max_number_inputs: 255,
+  max_number_outputs: 255,
+  decimal_places: 2,
+  nano_contracts_enabled: true,
+  genesis_block_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
+  genesis_tx1_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
+  genesis_tx2_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
+  native_token: { name: 'Hathor', symbol: 'HTR' },
+};
+
+/**
+ * Seeds the `version_data` table with sensible defaults so that
+ * `getFullnodeData` reads from the DB cache instead of making a real
+ * HTTP request to the fullnode. Pass `overrides` to tweak specific fields.
+ */
+export const seedFullnodeVersionData = async (
+  mysql: ServerlessMysql,
+  overrides: Partial<FullNodeApiVersionResponse> = {},
+): Promise<void> => {
+  const timestamp = Math.floor(Date.now() / 1000);
+  await addToVersionDataTable(mysql, timestamp, { ...DEFAULT_TEST_VERSION_DATA, ...overrides });
+};
+
 export const checkVersionDataTable = async (mysql: ServerlessMysql, versionData: FullNodeApiVersionResponse): Promise<boolean | Record<string, unknown>> => {
   // first check the total number of rows in the table
   let results: DbSelectResult = await mysql.query('SELECT * FROM `version_data`');
