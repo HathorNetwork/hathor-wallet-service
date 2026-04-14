@@ -52,6 +52,7 @@ import {
   addToWalletTable,
   addToWalletTxHistoryTable,
   addToTransactionTable,
+  addToVersionDataTable,
   cleanDatabase,
   makeGatewayEvent,
   makeGatewayEventWithAuthorizer,
@@ -1597,6 +1598,28 @@ test('GET /wallet/tx_outputs', async () => {
 
 test('POST /tx/proposal', async () => {
   expect.hasAssertions();
+
+  // Seed version data so txProposalCreate's getFullnodeData() reads from
+  // the DB cache and does not make a real HTTP call to the fullnode.
+  const versionData: FullNodeApiVersionResponse = {
+    version: '0.38.0',
+    network: 'mainnet',
+    nano_contracts_enabled: true,
+    min_weight: 14,
+    min_tx_weight: 14,
+    min_tx_weight_coefficient: 1.6,
+    min_tx_weight_k: 100,
+    token_deposit_percentage: 0.01,
+    reward_spend_min_blocks: 300,
+    max_number_inputs: 255,
+    max_number_outputs: 255,
+    decimal_places: 2,
+    genesis_block_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
+    genesis_tx1_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
+    genesis_tx2_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
+    native_token: { name: 'Hathor', symbol: 'HTR' },
+  };
+  await addToVersionDataTable(mysql, getUnixTimestamp(), versionData);
 
   await _testCORSHeaders(txProposalCreate, null, null);
 });
