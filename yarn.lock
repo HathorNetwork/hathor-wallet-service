@@ -8399,7 +8399,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@typescript-eslint/eslint-plugin@npm:^8.0.0":
+"@typescript-eslint/eslint-plugin@npm:8.58.2":
   version: 8.58.2
   resolution: "@typescript-eslint/eslint-plugin@npm:8.58.2"
   dependencies:
@@ -8482,7 +8482,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@typescript-eslint/parser@npm:^8.0.0":
+"@typescript-eslint/parser@npm:8.58.2":
   version: 8.58.2
   resolution: "@typescript-eslint/parser@npm:8.58.2"
   dependencies:
@@ -9939,7 +9939,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"bip32@npm:^4.0.0":
+"bip32@npm:4.0.0":
   version: 4.0.0
   resolution: "bip32@npm:4.0.0"
   dependencies:
@@ -9960,7 +9960,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"bitcoinjs-lib@npm:6.1.5, bitcoinjs-lib@npm:^6.1.5":
+"bitcoinjs-lib@npm:6.1.5":
   version: 6.1.5
   resolution: "bitcoinjs-lib@npm:6.1.5"
   dependencies:
@@ -9974,7 +9974,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"bitcoinjs-message@npm:2.2.0, bitcoinjs-message@npm:^2.2.0":
+"bitcoinjs-message@npm:2.2.0":
   version: 2.2.0
   resolution: "bitcoinjs-message@npm:2.2.0"
   dependencies:
@@ -11488,7 +11488,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"dotenv@npm:16.4.5, dotenv@npm:^16.4.5":
+"dotenv@npm:16.4.5":
   version: 16.4.5
   resolution: "dotenv@npm:16.4.5"
   checksum: 10/55a3134601115194ae0f924e54473459ed0d9fc340ae610b676e248cca45aa7c680d86365318ea964e6da4e2ea80c4514c1adab5adb43d6867fb57ff068f95c8
@@ -12138,7 +12138,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"eslint-config-airbnb-base@npm:15.0.0, eslint-config-airbnb-base@npm:^15.0.0":
+"eslint-config-airbnb-base@npm:15.0.0":
   version: 15.0.0
   resolution: "eslint-config-airbnb-base@npm:15.0.0"
   dependencies:
@@ -12222,7 +12222,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"eslint-plugin-import@npm:2.29.1, eslint-plugin-import@npm:^2.29.1":
+"eslint-plugin-import@npm:2.29.1":
   version: 2.29.1
   resolution: "eslint-plugin-import@npm:2.29.1"
   dependencies:
@@ -12278,7 +12278,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"eslint-plugin-jest@npm:^28.0.0":
+"eslint-plugin-jest@npm:28.14.0":
   version: 28.14.0
   resolution: "eslint-plugin-jest@npm:28.14.0"
   dependencies:
@@ -12480,7 +12480,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"eslint@npm:^9.26.0":
+"eslint@npm:9.39.4":
   version: 9.39.4
   resolution: "eslint@npm:9.39.4"
   dependencies:
@@ -14090,23 +14090,23 @@ __metadata:
     "@aws-sdk/client-sqs": "npm:3.540.0"
     "@hathor/wallet-lib": "npm:2.12.0"
     "@types/jest": "npm:29.5.13"
-    "@typescript-eslint/eslint-plugin": "npm:^8.0.0"
-    "@typescript-eslint/parser": "npm:^8.0.0"
+    "@typescript-eslint/eslint-plugin": "npm:8.58.2"
+    "@typescript-eslint/parser": "npm:8.58.2"
     "@wallet-service/common": "npm:1.5.0"
-    bip32: "npm:^4.0.0"
-    bitcoinjs-lib: "npm:^6.1.5"
-    bitcoinjs-message: "npm:^2.2.0"
-    dotenv: "npm:^16.4.5"
-    eslint: "npm:^9.26.0"
-    eslint-config-airbnb-base: "npm:^15.0.0"
-    eslint-plugin-import: "npm:^2.29.1"
-    eslint-plugin-jest: "npm:^28.0.0"
-    jest: "npm:^29.7.0"
-    mysql2: "npm:^3.9.8"
-    sequelize: "npm:^6.37.2"
-    sequelize-cli: "npm:^6.6.2"
-    tiny-secp256k1: "npm:^2.2.3"
-    typescript: "npm:^5.8.2"
+    bip32: "npm:4.0.0"
+    bitcoinjs-lib: "npm:6.1.5"
+    bitcoinjs-message: "npm:2.2.0"
+    dotenv: "npm:16.4.5"
+    eslint: "npm:9.39.4"
+    eslint-config-airbnb-base: "npm:15.0.0"
+    eslint-plugin-import: "npm:2.29.1"
+    eslint-plugin-jest: "npm:28.14.0"
+    jest: "npm:29.7.0"
+    mysql2: "npm:3.22.0"
+    sequelize: "npm:6.37.2"
+    sequelize-cli: "npm:6.6.2"
+    tiny-secp256k1: "npm:2.2.3"
+    typescript: "npm:5.8.2"
     winston: "npm:3.13.0"
   languageName: unknown
   linkType: soft
@@ -15448,7 +15448,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"jest@npm:29.7.0, jest@npm:^29.7.0":
+"jest@npm:29.7.0":
   version: 29.7.0
   resolution: "jest@npm:29.7.0"
   dependencies:
@@ -16773,23 +16773,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"mysql2@npm:3.9.8":
-  version: 3.9.8
-  resolution: "mysql2@npm:3.9.8"
-  dependencies:
-    denque: "npm:^2.1.0"
-    generate-function: "npm:^2.3.1"
-    iconv-lite: "npm:^0.6.3"
-    long: "npm:^5.2.1"
-    lru-cache: "npm:^8.0.0"
-    named-placeholders: "npm:^1.1.3"
-    seq-queue: "npm:^0.0.5"
-    sqlstring: "npm:^2.3.2"
-  checksum: 10/f4110e59ae222018d011254827ae63ff658a2e41e192f8d8b83590afb3a440d498fd6e69f406d94f60e3f08b62d57915d6bf8749044292b5266b2964b670ec50
-  languageName: node
-  linkType: hard
-
-"mysql2@npm:^3.9.8":
+"mysql2@npm:3.22.0":
   version: 3.22.0
   resolution: "mysql2@npm:3.22.0"
   dependencies:
@@ -16804,6 +16788,22 @@ __metadata:
   peerDependencies:
     "@types/node": ">= 8"
   checksum: 10/fbfa0665624f479eeef9d0a9027157f035f07f2f5e782a32ec8b74af95342d3deb8f22f39817e25476fb86d7f93b194a6a319b82ac3af273e011b7a6208ca14e
+  languageName: node
+  linkType: hard
+
+"mysql2@npm:3.9.8":
+  version: 3.9.8
+  resolution: "mysql2@npm:3.9.8"
+  dependencies:
+    denque: "npm:^2.1.0"
+    generate-function: "npm:^2.3.1"
+    iconv-lite: "npm:^0.6.3"
+    long: "npm:^5.2.1"
+    lru-cache: "npm:^8.0.0"
+    named-placeholders: "npm:^1.1.3"
+    seq-queue: "npm:^0.0.5"
+    sqlstring: "npm:^2.3.2"
+  checksum: 10/f4110e59ae222018d011254827ae63ff658a2e41e192f8d8b83590afb3a440d498fd6e69f406d94f60e3f08b62d57915d6bf8749044292b5266b2964b670ec50
   languageName: node
   linkType: hard
 
@@ -18724,7 +18724,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"sequelize-cli@npm:^6.6.2":
+"sequelize-cli@npm:6.6.2":
   version: 6.6.2
   resolution: "sequelize-cli@npm:6.6.2"
   dependencies:
@@ -18792,7 +18792,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"sequelize@npm:^6.37.2":
+"sequelize@npm:6.37.2":
   version: 6.37.2
   resolution: "sequelize@npm:6.37.2"
   dependencies:
@@ -20070,7 +20070,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"tiny-secp256k1@npm:^2.2.3":
+"tiny-secp256k1@npm:2.2.3":
   version: 2.2.3
   resolution: "tiny-secp256k1@npm:2.2.3"
   dependencies:
@@ -20610,7 +20610,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"typescript@npm:^5.8.2":
+"typescript@npm:5.8.2":
   version: 5.8.2
   resolution: "typescript@npm:5.8.2"
   bin:
@@ -20660,7 +20660,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"typescript@patch:typescript@npm%3A^5.8.2#optional!builtin<compat/typescript>":
+"typescript@patch:typescript@npm%3A5.8.2#optional!builtin<compat/typescript>":
   version: 5.8.2
   resolution: "typescript@patch:typescript@npm%3A5.8.2#optional!builtin<compat/typescript>::version=5.8.2&hash=5786d5"
   bin:
