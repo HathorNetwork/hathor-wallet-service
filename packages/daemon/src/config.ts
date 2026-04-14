@@ -100,6 +100,10 @@ export const RECONNECTION_STORM_WINDOW_MS = parseInt(process.env.RECONNECTION_ST
 // Other
 export const USE_SSL = process.env.USE_SSL === 'true';
 
+// Scheduled balance validation configuration
+export const BALANCE_VALIDATION_ENABLED = process.env.BALANCE_VALIDATION_ENABLED === 'true';
+export const BALANCE_VALIDATION_INTERVAL_MS = parseInt(process.env.BALANCE_VALIDATION_INTERVAL_MS ?? '600000', 10);  // 10 minutes
+
 // Reorg size thresholds for different alert levels
 export const REORG_SIZE_INFO = parseInt(process.env.REORG_SIZE_INFO ?? '1', 10);
 export const REORG_SIZE_MINOR = parseInt(process.env.REORG_SIZE_MINOR ?? '3', 10);
@@ -141,6 +145,8 @@ export default () => ({
   STUCK_PROCESSING_TIMEOUT_MS,
   RECONNECTION_STORM_THRESHOLD,
   RECONNECTION_STORM_WINDOW_MS,
+  BALANCE_VALIDATION_ENABLED,
+  BALANCE_VALIDATION_INTERVAL_MS,
   REORG_SIZE_INFO,
   REORG_SIZE_MINOR,
   REORG_SIZE_MAJOR,

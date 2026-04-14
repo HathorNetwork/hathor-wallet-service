@@ -9,6 +9,7 @@ import logger from '../logger';
 import getConfig from '../config';
 import { addAlert, Severity } from '@wallet-service/common';
 import { Event, EventTypes } from '../types';
+import { getDbConnection } from '../db';
 
 /**
  * MonitoringActor
@@ -33,6 +34,12 @@ import { Event, EventTypes } from '../types';
  *    reconnects more than RECONNECTION_STORM_THRESHOLD times within
  *    RECONNECTION_STORM_WINDOW_MS.  Duplicate alerts are suppressed for
  *    STORM_ALERT_COOLDOWN_MS (1 min) to avoid spamming the alerting system.
+ *
+ * 4. Scheduled balance validation — when BALANCE_VALIDATION_ENABLED is true,
+ *    periodically runs a single SQL query that joins address_balance against
+ *    SUM(address_tx_history.balance) and reports rows where the two disagree.
+ *    Bounded by LIMIT, so a catastrophic mismatch produces a sample, not a
+ *    flood. Errors never crash the daemon.
  */
 export default (callback: any, receive: any, config = getConfig()) => {
   logger.info('Starting monitoring actor');
@@ -150,6 +157,102 @@ export default (callback: any, receive: any, config = getConfig()) => {
     }
   };
 
+  // ── Scheduled balance validation ──────────────────────────────────────────────
+  //
+  // One SQL query per tick. The DB does the pairing (LEFT JOIN), the math
+  // (native BIGINT, no precision loss), and the consistency snapshot (single
+  // statement = one read view). The query is bounded by LIMIT so a catastrophic
+  // mismatch produces a sample, not a megabyte of payload.
+  //
+  // If a run exceeds the interval the in-flight guard skips the next tick
+  // rather than overlapping. DISCONNECTED clears the timer; an in-flight
+  // SELECT runs to completion and releases its connection — harmless.
+  //
+  // Sample size note: 100 is intentional. Any non-zero count means we'll dive
+  // into the data with our own queries anyway; the alert just needs to prove
+  // something is wrong and give a representative starting point.
+  const BALANCE_VALIDATION_SAMPLE_LIMIT = 100;
+  const BALANCE_VALIDATION_SQL = `
+    SELECT
+        ab.address,
+        ab.token_id                                                AS tokenId,
+        CAST(ab.unlocked_balance + ab.locked_balance AS SIGNED)    AS balanceSum,
+        CAST(COALESCE(SUM(h.balance), 0) AS SIGNED)                AS historySum
+    FROM \`address_balance\` ab
+    LEFT JOIN \`address_tx_history\` h
+           ON h.address  = ab.address
+          AND h.token_id = ab.token_id
+          AND h.voided   = FALSE
+    WHERE ab.transactions > 0
+    GROUP BY ab.address, ab.token_id
+    HAVING balanceSum != historySum
+    LIMIT ${BALANCE_VALIDATION_SAMPLE_LIMIT}
+  `;
+
+  let balanceValidationTimer: ReturnType<typeof setInterval> | null = null;
+  let isValidating = false;
+
+  const runBalanceValidation = async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let mysql: any;
+    try {
+      mysql = await getDbConnection();
+      const [rows] = await mysql.query(BALANCE_VALIDATION_SQL);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const samples = rows as any[];
+
+      if (samples.length > 0) {
+        const truncated = samples.length === BALANCE_VALIDATION_SAMPLE_LIMIT;
+        const countLabel = truncated ? `${BALANCE_VALIDATION_SAMPLE_LIMIT}+` : String(samples.length);
+        logger.error(`[monitoring] Balance validation found ${countLabel} mismatch(es)`, { samples });
+        await addAlert(
+          'Balance validation found mismatches',
+          `Found ${countLabel} balance mismatch(es)${truncated ? ' (sample capped)' : ''}`,
+          Severity.MAJOR,
+          { samples, truncated },
+          logger,
+        );
+      } else {
+        logger.info('[monitoring] Balance validation complete, no mismatches found');
+      }
+    } catch (err) {
+      logger.error(`[monitoring] Balance validation error: ${err}`);
+    } finally {
+      if (mysql) {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (mysql as any).release();
+        } catch (releaseErr) {
+          logger.warn(`[monitoring] Balance validation: connection release failed: ${releaseErr}`);
+        }
+      }
+    }
+  };
+
+  const startBalanceValidation = () => {
+    if (!config.BALANCE_VALIDATION_ENABLED) return;
+    stopBalanceValidation();
+
+    logger.info('[monitoring] Starting scheduled balance validation');
+    balanceValidationTimer = setInterval(async () => {
+      if (isValidating) return; // prior run still going — skip this tick
+      isValidating = true;
+      try {
+        await runBalanceValidation();
+      } finally {
+        isValidating = false;
+      }
+    }, config.BALANCE_VALIDATION_INTERVAL_MS);
+  };
+
+  const stopBalanceValidation = () => {
+    if (balanceValidationTimer) {
+      clearInterval(balanceValidationTimer);
+      balanceValidationTimer = null;
+    }
+  };
+
+
   // ── Event handling ────────────────────────────────────────────────────────────
   receive((event: Event) => {
     if (event.type !== EventTypes.MONITORING_EVENT) {
@@ -162,6 +265,7 @@ export default (callback: any, receive: any, config = getConfig()) => {
         logger.info('[monitoring] WebSocket connected — starting idle-event timer');
         isConnected = true;
         startIdleCheck();
+        startBalanceValidation();
         break;
 
       case 'DISCONNECTED':
@@ -169,6 +273,7 @@ export default (callback: any, receive: any, config = getConfig()) => {
         isConnected = false;
         stopIdleCheck();
         clearStuckTimer();
+        stopBalanceValidation();
         break;
 
       case 'EVENT_RECEIVED':
@@ -194,5 +299,6 @@ export default (callback: any, receive: any, config = getConfig()) => {
     logger.info('Stopping monitoring actor');
     stopIdleCheck();
     clearStuckTimer();
+    stopBalanceValidation();
   };
 };
