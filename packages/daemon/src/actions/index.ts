@@ -5,8 +5,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { assign, AssignAction, sendTo } from 'xstate';
-import { Context, Event, EventTypes, StandardFullNodeEvent } from '../types';
+import { assign, AssignAction, sendTo, choose } from 'xstate';
+import { Context, Event, EventTypes, MonitoringEvent, StandardFullNodeEvent } from '../types';
 import { get } from 'lodash';
 import logger from '../logger';
 import { hashTxData } from '../utils';
@@ -197,3 +197,28 @@ export const stopHealthcheckPing = sendTo(
  * Logs the event as an error log
  */
 export const logEventError = (_context: Context, event: Event) => logger.error(bigIntUtils.JSONBigInt.stringify(event));
+
+/*
+ * This is a helper to get the monitoring ref from the context and throw if it's not found.
+ */
+export const getMonitoringRefFromContext = (context: Context) => {
+  if (!context.monitoring) {
+    throw new Error('No monitoring actor in context');
+  }
+
+  return context.monitoring;
+};
+
+const monitoringIsPresent = (context: Context) => context.monitoring !== null;
+
+const makeMonitoringSender = (eventType: MonitoringEvent['type']) => choose([{
+  cond: monitoringIsPresent,
+  actions: sendTo(getMonitoringRefFromContext, { type: EventTypes.MONITORING_EVENT, event: { type: eventType } }),
+}]);
+
+export const sendMonitoringConnected = makeMonitoringSender('CONNECTED');
+export const sendMonitoringDisconnected = makeMonitoringSender('DISCONNECTED');
+export const sendMonitoringEventReceived = makeMonitoringSender('EVENT_RECEIVED');
+export const sendMonitoringReconnecting = makeMonitoringSender('RECONNECTING');
+export const sendMonitoringProcessingStarted = makeMonitoringSender('PROCESSING_STARTED');
+export const sendMonitoringProcessingCompleted = makeMonitoringSender('PROCESSING_COMPLETED');

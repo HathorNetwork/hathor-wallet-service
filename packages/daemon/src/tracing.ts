@@ -1,0 +1,73 @@
+/**
+ * Copyright (c) Hathor Labs and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+// Skip all OTel initialization when disabled — avoids module loading cost.
+if (process.env.OTEL_SDK_DISABLED !== 'true') {
+  // Use require() so that imports are fully skipped when disabled.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { NodeSDK } = require('@opentelemetry/sdk-node');
+  const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-http');
+  const { BatchSpanProcessor } = require('@opentelemetry/sdk-trace-node');
+  const { Resource } = require('@opentelemetry/resources');
+  const { HttpInstrumentation } = require('@opentelemetry/instrumentation-http');
+  const { MySQLInstrumentation } = require('@opentelemetry/instrumentation-mysql');
+  const { WinstonInstrumentation } = require('@opentelemetry/instrumentation-winston');
+
+  const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+
+  const spanProcessor = endpoint
+    ? new BatchSpanProcessor(
+        new OTLPTraceExporter(),
+        {
+          maxQueueSize: 2048,
+          maxExportBatchSize: 512,
+          scheduledDelayMillis: 5000,
+          exportTimeoutMillis: 5000,
+        },
+      )
+    : undefined;
+
+  const sdk = new NodeSDK({
+    resource: new Resource({
+      'service.name': process.env.OTEL_SERVICE_NAME || 'wallet-service-daemon',
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      // The daemon package.json has no "version" field — the monorepo root
+      // package.json is the single source of truth (kept in sync with git tags).
+      'service.version': process.env.SERVICE_VERSION || require('../../../package.json').version || 'unknown',
+      'deployment.environment': process.env.STAGE || 'local',
+    }),
+    ...(spanProcessor && { spanProcessor }),
+    instrumentations: [
+      new HttpInstrumentation(),
+      new MySQLInstrumentation(),
+      new WinstonInstrumentation(),
+    ],
+  });
+
+  sdk.start();
+
+  const shutdown = async () => {
+    // Losing buffered telemetry during shutdown is not a service failure.
+    // Swallow exporter flush failures (e.g. OTLP endpoint unreachable) so
+    // they don't cause a non-zero exit and don't trip the errors-in-logs
+    // alert pattern.
+    //
+    // Intentionally do NOT log the raw error object: its stack trace
+    // commonly contains strings like "AggregateError" / "Error:" which
+    // would be picked up by the log-based alert regex, defeating the
+    // purpose of this handler.
+    try {
+      await sdk.shutdown();
+    } catch {
+      console.warn('OTel flush skipped during shutdown (non-fatal)');
+    }
+    process.exit(0);
+  };
+
+  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', shutdown);
+}

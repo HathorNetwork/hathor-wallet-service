@@ -5,6 +5,9 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+// Must be imported before all other modules to patch libraries for auto-instrumentation
+import './tracing';
+
 import { interpret } from 'xstate';
 import { SyncMachine } from './machines';
 import logger from './logger';
@@ -17,7 +20,13 @@ const main = async () => {
   const machine = interpret(SyncMachine);
 
   machine.onTransition((state) => {
-    logger.info(`Transitioned to ${bigIntUtils.JSONBigInt.stringify(state.value)}`);
+    const stateValue = bigIntUtils.JSONBigInt.stringify(state.value);
+    logger.info(`Transitioned to ${stateValue}`);
+  });
+
+  machine.onDone(() => {
+    logger.error('Sync machine reached a final state — terminating process for Kubernetes restart');
+    process.exit(1);
   });
 
   machine.onEvent((event) => {

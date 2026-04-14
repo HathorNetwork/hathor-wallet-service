@@ -8,9 +8,8 @@
 import z from 'zod';
 import { bigIntUtils } from '@hathor/wallet-lib';
 
-export type WebSocketEvent =
-  | { type: 'CONNECTED' }
-  | { type: 'DISCONNECTED' };
+// Use type assertion to handle zod version compatibility
+const bigIntSchema = bigIntUtils.bigIntCoercibleSchema as unknown as z.ZodType<bigint>;
 
 export type WebSocketSendEvent =
   | {
@@ -24,27 +23,6 @@ export type WebSocketSendEvent =
     ack_event_id?: number;
   };
 
-export type HealthCheckEvent =
-  | { type: 'START' }
-  | { type: 'STOP' };
-
-export type MonitoringEvent =
-  | { type: 'CONNECTED' }
-  | { type: 'DISCONNECTED' }
-  | { type: 'EVENT_RECEIVED' }
-  | { type: 'RECONNECTING' }
-  | { type: 'PROCESSING_STARTED' }
-  | { type: 'PROCESSING_COMPLETED' };
-
-export enum EventTypes {
-  WEBSOCKET_EVENT = 'WEBSOCKET_EVENT',
-  FULLNODE_EVENT = 'FULLNODE_EVENT',
-  WEBSOCKET_SEND_EVENT = 'WEBSOCKET_SEND_EVENT',
-  HEALTHCHECK_EVENT = 'HEALTHCHECK_EVENT',
-  MONITORING_EVENT = 'MONITORING_EVENT',
-  MONITORING_IDLE_TIMEOUT = 'MONITORING_IDLE_TIMEOUT',
-}
-
 export enum FullNodeEventTypes {
   VERTEX_METADATA_CHANGED = 'VERTEX_METADATA_CHANGED',
   VERTEX_REMOVED = 'VERTEX_REMOVED',
@@ -54,7 +32,6 @@ export enum FullNodeEventTypes {
   REORG_STARTED = 'REORG_STARTED',
   REORG_FINISHED = 'REORG_FINISHED',
   NC_EVENT = 'NC_EVENT',
-  TOKEN_CREATED = 'TOKEN_CREATED',
   FULL_NODE_CRASHED = 'FULL_NODE_CRASHED',
 }
 
@@ -76,21 +53,6 @@ const EmptyDataFullNodeEvents = z.union([
   z.literal('FULL_NODE_CRASHED'),
 ]);
 
-export const FullNodeEventTypesSchema = z.nativeEnum(FullNodeEventTypes);
-
-export type Event =
-  | { type: EventTypes.WEBSOCKET_EVENT, event: WebSocketEvent }
-  | { type: EventTypes.FULLNODE_EVENT, event: FullNodeEvent }
-  | { type: EventTypes.WEBSOCKET_SEND_EVENT, event: WebSocketSendEvent }
-  | { type: EventTypes.HEALTHCHECK_EVENT, event: HealthCheckEvent }
-  | { type: EventTypes.MONITORING_EVENT, event: MonitoringEvent }
-  | { type: EventTypes.MONITORING_IDLE_TIMEOUT };
-
-
-export interface VertexRemovedEventData {
-  vertex_id: string;
-}
-
 export const FullNodeEventBaseSchema = z.object({
   stream_id: z.string(),
   peer_id: z.string(),
@@ -102,7 +64,7 @@ export const FullNodeEventBaseSchema = z.object({
 export type FullNodeEventBase = z.infer<typeof FullNodeEventBaseSchema>;
 
 export const EventTxOutputSchema = z.object({
-  value: bigIntUtils.bigIntCoercibleSchema,
+  value: bigIntSchema,
   token_data: z.number(),
   script: z.string(),
   locked: z.boolean().optional(),
@@ -136,21 +98,12 @@ export const EventTxNanoHeaderSchema = z.object({
 });
 export type EventTxNanoHeader = z.infer<typeof EventTxNanoHeaderSchema>;
 
-// EventTxHeaderSchema should be a union of all possible header schemas.
-// But currently only the nano header exists.
-export const EventTxHeaderSchema = EventTxNanoHeaderSchema;
-export type EventTxHeader = z.infer<typeof EventTxHeaderSchema>;
-
-export function isNanoHeader(header: EventTxHeader): header is EventTxNanoHeader {
-  return header.id === '10';
-}
-
 export const TxEventDataWithoutMetaSchema = z.object({
   hash: z.string(),
   timestamp: z.number(),
   version: z.number(),
   weight: z.number(),
-  nonce: bigIntUtils.bigIntCoercibleSchema,
+  nonce: bigIntSchema,
   inputs: EventTxInputSchema.array(),
   outputs: EventTxOutputSchema.array(),
   headers: EventTxNanoHeaderSchema.array().optional(),
@@ -167,34 +120,6 @@ export const TxEventDataSchema = TxEventDataWithoutMetaSchema.extend({
     voided_by: z.string().array(),
     first_block: z.string().nullable(),
     height: z.number(),
-    /**
-     * Nano contract execution state.
-     *
-     * This field indicates the execution status of nano contracts in this transaction:
-     * - 'pending': Nano contract is waiting to be executed (before first_block)
-     * - 'success': Nano contract executed successfully
-     * - 'failure': Nano contract execution failed
-     * - 'skipped': Nano contract execution was skipped
-     * - null/undefined: Not a nano contract transaction, or execution state not available
-     *
-     * Important: This field is INDEPENDENT of transaction voiding (voided_by):
-     * - A voided transaction might still have nc_execution = 'success'
-     * - A non-voided transaction might have nc_execution = 'failure'
-     *
-     * Token Creation Implications:
-     * - Tokens created by nano syscalls are only valid when nc_execution = 'success'
-     * - When nc_execution changes from 'success' to any other state (e.g., during reorg),
-     *   any tokens created by that nano execution must be deleted
-     * - This is separate from CREATE_TOKEN_TX tokens, which are deleted only on void
-     *
-     * See handleVertexAccepted in services/index.ts for the token deletion logic.
-     */
-    nc_execution: z.union([
-      z.literal('pending'),
-      z.literal('success'),
-      z.literal('failure'),
-      z.literal('skipped'),
-    ]).nullable().optional(),
   }),
 });
 
@@ -265,39 +190,11 @@ export const NcEventSchema = FullNodeEventBaseSchema.extend({
 });
 export type NcEvent = z.infer<typeof NcEventSchema>;
 
-export const TokenCreatedEventSchema = FullNodeEventBaseSchema.extend({
-  event: z.object({
-    id: z.number(),
-    timestamp: z.number(),
-    type: z.literal('TOKEN_CREATED'),
-    data: z.object({
-      token_uid: z.string(),
-      nc_exec_info: z.object({
-        nc_tx: z.string(),
-        nc_block: z.string(),
-      }).nullable(),
-      token_name: z.string(),
-      token_symbol: z.string(),
-      token_version: z.number(),
-      initial_amount: z.number().optional(),
-    }),
-    group_id: z.number().nullable(),
-  }),
-});
-export type TokenCreatedEvent = z.infer<typeof TokenCreatedEventSchema>;
-
 export const FullNodeEventSchema = z.union([
   TxDataWithoutMetaFullNodeEventSchema,
   StandardFullNodeEventSchema,
   ReorgFullNodeEventSchema,
   EmptyDataFullNodeEventSchema,
   NcEventSchema,
-  TokenCreatedEventSchema,
 ]);
 export type FullNodeEvent = z.infer<typeof FullNodeEventSchema>;
-
-export interface LastSyncedEvent {
-  id: number;
-  last_event_id: number;
-  updated_at: number;
-}
