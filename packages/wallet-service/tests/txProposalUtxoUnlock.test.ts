@@ -24,6 +24,7 @@ import {
   addToAddressTable,
   addToUtxoTable,
   addToWalletBalanceTable,
+  addToVersionDataTable,
   ADDRESSES,
   cleanDatabase,
   makeGatewayEventWithAuthorizer,
@@ -32,6 +33,7 @@ import {
 import {
   closeDbConnection,
   getDbConnection,
+  getUnixTimestamp,
 } from '@src/utils';
 
 import {
@@ -45,6 +47,29 @@ const mysql = getDbConnection();
 
 beforeEach(async () => {
   await cleanDatabase(mysql);
+
+  // Pre-populate version data so getFullnodeData does not make a real
+  // network call to the fullnode during these tests.
+  const versionData = {
+    version: '0.38.0',
+    network: process.env.NETWORK,
+    min_weight: 14,
+    min_tx_weight: 14,
+    min_tx_weight_coefficient: 1.6,
+    min_tx_weight_k: 100,
+    token_deposit_percentage: 0.01,
+    reward_spend_min_blocks: 300,
+    max_number_inputs: 255,
+    max_number_outputs: 255,
+    decimal_places: 2,
+    nano_contracts_enabled: true,
+    genesis_block_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
+    genesis_tx1_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
+    genesis_tx2_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
+    native_token: { name: 'Hathor', symbol: 'HTR' },
+  };
+
+  await addToVersionDataTable(mysql, getUnixTimestamp(), versionData);
 });
 
 afterAll(async () => {
