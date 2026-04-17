@@ -236,6 +236,9 @@ interface Summary {
   p95: number;
   max: number;
   mean: number;
+  /** Raw per-run values, retained so downstream tools (e.g. bench-compare)
+   *  can bootstrap confidence intervals on the median delta. */
+  samples: number[];
 }
 
 function summarize(values: number[]): Summary | null {
@@ -249,6 +252,7 @@ function summarize(values: number[]): Summary | null {
     p95: pick(0.95),
     max: sorted[sorted.length - 1],
     mean: values.reduce((a, b) => a + b, 0) / values.length,
+    samples: values,
   };
 }
 
