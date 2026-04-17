@@ -7,7 +7,7 @@
 
 import { trace, SpanStatusCode } from '@opentelemetry/api';
 import hathorLib from '@hathor/wallet-lib';
-import { Connection as MysqlConnection } from 'mysql2/promise';
+import { Connection as MysqlConnection, PoolConnection } from 'mysql2/promise';
 import axios from 'axios';
 import { get } from 'lodash';
 import { NftUtils } from '@wallet-service/common';
@@ -141,7 +141,7 @@ export const metadataDiff = async (_context: Context, event: Event) => {
     try {
       return await retryWithBackoff(
         async () => {
-          let mysql: MysqlConnection | undefined;
+          let mysql: PoolConnection | undefined;
           try {
             mysql = await getDbConnection();
             const dbTx: DbTransaction | null = await withSpan('getTransactionById', () => getTransactionById(mysql!, hash));
@@ -220,7 +220,7 @@ export const metadataDiff = async (_context: Context, event: Event) => {
             };
           } finally {
             if (mysql) {
-              mysql.destroy();
+              mysql.release();
             }
           }
         },
@@ -585,7 +585,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
       throw e;
     } finally {
-      mysql.destroy();
+      mysql.release();
       span.end();
     }
   });
@@ -640,7 +640,7 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
 
       throw e;
     } finally {
-      mysql.destroy();
+      mysql.release();
       span.end();
     }
   });
@@ -831,7 +831,7 @@ export const handleVoidedTx = async (context: Context) => {
 
       throw e;
     } finally {
-      mysql.destroy();
+      mysql.release();
       span.end();
     }
   });
@@ -863,7 +863,7 @@ export const handleUnvoidedTx = async (context: Context) => {
 
       throw e;
     } finally {
-      mysql.destroy();
+      mysql.release();
       span.end();
     }
   });
@@ -907,7 +907,7 @@ export const handleTxFirstBlock = async (context: Context) => {
       await mysql.rollback();
       throw e;
     } finally {
-      mysql.destroy();
+      mysql.release();
       span.end();
     }
   });
@@ -959,7 +959,7 @@ export const handleNcExecVoided = async (context: Context) => {
       await mysql.rollback();
       throw e;
     } finally {
-      mysql.destroy();
+      mysql.release();
       span.end();
     }
   });
@@ -982,12 +982,12 @@ export const updateLastSyncedEvent = async (context: Context) => {
       lastEventId,
       lastDbSyncedEvent: JSONBigInt.stringify(lastDbSyncedEvent),
     });
-    mysql.destroy();
+    mysql.release();
     throw new Error('Event lower than stored one.');
   }
   await dbUpdateLastSyncedEvent(mysql, lastEventId);
 
-  mysql.destroy();
+  mysql.release();
 };
 
 export const fetchMinRewardBlocks = async () => {
@@ -1012,7 +1012,7 @@ export const fetchInitialState = async () => {
   const lastEvent = await getLastSyncedEvent(mysql);
   const rewardMinBlocks = await fetchMinRewardBlocks();
 
-  mysql.destroy();
+  mysql.release();
 
   return {
     lastEventId: lastEvent?.last_event_id,
@@ -1156,7 +1156,7 @@ export const handleTokenCreated = async (context: Context) => {
       await mysql.rollback();
       throw e;
     } finally {
-      mysql.destroy();
+      mysql.release();
       span.end();
     }
   });

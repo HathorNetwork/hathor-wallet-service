@@ -4,7 +4,7 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
 */
-import mysql, { Connection as MysqlConnection, Pool, ResultSetHeader } from 'mysql2/promise';
+import mysql, { Connection as MysqlConnection, Pool, PoolConnection, ResultSetHeader } from 'mysql2/promise';
 import {
   DbTxOutput,
   StringMap,
@@ -49,7 +49,7 @@ let pool: Pool;
  *
  * @returns The database connection
  */
-export const getDbConnection = async (): Promise<MysqlConnection> => {
+export const getDbConnection = async (): Promise<PoolConnection> => {
   if (!pool) {
     const {
       DB_ENDPOINT,
