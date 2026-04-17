@@ -19,6 +19,7 @@
     "dev:migrate": "cd ../.. && DB_ENDPOINT=localhost DB_NAME=wallet_service DB_USER=hathor DB_PASS=hathor DB_PORT=3306 npx sequelize-cli db:migrate && DB_ENDPOINT=localhost DB_NAME=wallet_service DB_USER=hathor DB_PASS=hathor DB_PORT=3306 npx sequelize-cli db:seed:all",
     "dev:fetch-ids": "FULLNODE_WEBSOCKET_BASEURL=${FULLNODE_HOST} node ../../scripts/fetch-fullnode-ids.js",
     "replay-balance": "yarn dlx ts-node src/scripts/replay-balance.ts",
+    "bench:sync": "yarn dlx ts-node src/scripts/bench-sync.ts",
     "watch": "tsc -w",
     "test_images_up": "docker compose -f ./__tests__/integration/scripts/docker-compose.yml up -d",
     "test_images_down": "docker compose -f ./__tests__/integration/scripts/docker-compose.yml down",
