@@ -528,16 +528,15 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
           signal_bits: 0, // TODO: we should actually receive this and store in the database
         };
 
-        try {
-          if (seenWallets.length > 0) {
-            await sendRealtimeTx(
-              Array.from(seenWallets),
-              txData,
-            );
-          }
-        } catch (e) {
-          logger.error('Failed to send transaction to SQS queue');
-          logger.error(e);
+        // Fire-and-forget: SQS publish is a best-effort real-time
+        // notification and must not block the handler. Matches the pattern
+        // used for invokeOnTxPushNotificationRequestedLambda below.
+        if (seenWallets.length > 0) {
+          sendRealtimeTx(Array.from(seenWallets), txData)
+            .catch((err: Error) => {
+              logger.error('Failed to send transaction to SQS queue');
+              logger.error(err);
+            });
         }
 
         try {
