@@ -194,7 +194,7 @@ describe('fetchInitialState', () => {
 
   it('should return the last event id', async () => {
     // Mock the return values of the dependencies
-    const mockDb = { destroy: jest.fn() };
+    const mockDb = { release: jest.fn() };
 
     // @ts-ignore
     getDbConnection.mockReturnValue(mockDb);
@@ -211,12 +211,12 @@ describe('fetchInitialState', () => {
       lastEventId: 123,
       rewardMinBlocks: expect.any(Number),
     });
-    expect(mockDb.destroy).toHaveBeenCalled();
+    expect(mockDb.release).toHaveBeenCalled();
   });
 
   it('should return the fullnode\'s reward spend min blocks', async () => {
     // Mock the return values of the dependencies
-    const mockDb = { destroy: jest.fn() };
+    const mockDb = { release: jest.fn() };
 
     // @ts-ignore
     getDbConnection.mockReturnValue(mockDb);
@@ -234,12 +234,12 @@ describe('fetchInitialState', () => {
       rewardMinBlocks: 300,
     });
 
-    expect(mockDb.destroy).toHaveBeenCalled();
+    expect(mockDb.release).toHaveBeenCalled();
   });
 
   it('should not fail if reward spend min blocks is 0', async () => {
     // Mock the return values of the dependencies
-    const mockDb = { destroy: jest.fn() };
+    const mockDb = { release: jest.fn() };
 
     // @ts-ignore
     axios.get.mockResolvedValue({
@@ -274,11 +274,11 @@ describe('fetchInitialState', () => {
       rewardMinBlocks: 0,
     });
 
-    expect(mockDb.destroy).toHaveBeenCalled();
+    expect(mockDb.release).toHaveBeenCalled();
   });
 
   it('should return undefined if no last event is found', async () => {
-    const mockDb = { destroy: jest.fn() };
+    const mockDb = { release: jest.fn() };
     // @ts-ignore
     getDbConnection.mockResolvedValue(mockDb);
     // @ts-ignore
@@ -290,12 +290,12 @@ describe('fetchInitialState', () => {
       lastEventId: undefined,
       rewardMinBlocks: expect.any(Number),
     });
-    expect(mockDb.destroy).toHaveBeenCalled();
+    expect(mockDb.release).toHaveBeenCalled();
   });
 });
 
 describe('updateLastSyncedEvent', () => {
-  const mockDb = { destroy: jest.fn() };
+  const mockDb = { release: jest.fn() };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -309,7 +309,7 @@ describe('updateLastSyncedEvent', () => {
     await updateLastSyncedEvent({ event: { event: { id: 101 } } });
 
     expect(dbUpdateLastSyncedEvent).toHaveBeenCalledWith(mockDb, 101);
-    expect(mockDb.destroy).toHaveBeenCalled();
+    expect(mockDb.release).toHaveBeenCalled();
     expect(logger.error).not.toHaveBeenCalled();
   });
 
@@ -320,7 +320,7 @@ describe('updateLastSyncedEvent', () => {
     await expect(updateLastSyncedEvent({ event: { event: { id: 100 } } })).rejects.toThrow('Event lower than stored one.');
 
     expect(dbUpdateLastSyncedEvent).not.toHaveBeenCalled();
-    expect(mockDb.destroy).toHaveBeenCalled();
+    expect(mockDb.release).toHaveBeenCalled();
     expect(logger.error).toHaveBeenCalledWith('Tried to store an event lower than the one on the database', {
       lastEventId: 100,
       lastDbSyncedEvent: JSON.stringify({ last_event_id: 102 }),
@@ -333,7 +333,7 @@ describe('handleTxFirstBlock', () => {
     beginTransaction: jest.fn(),
     commit: jest.fn(),
     rollback: jest.fn(),
-    destroy: jest.fn(),
+    release: jest.fn(),
   };
 
   beforeEach(() => {
@@ -366,7 +366,7 @@ describe('handleTxFirstBlock', () => {
     expect(dbUpdateLastSyncedEvent).toHaveBeenCalledWith(mockDb, 'idValue');
     expect(logger.debug).toHaveBeenCalledWith('Confirmed tx hashValue in block blockHash123: idValue');
     expect(mockDb.commit).toHaveBeenCalled();
-    expect(mockDb.destroy).toHaveBeenCalled();
+    expect(mockDb.release).toHaveBeenCalled();
   });
 
   it('should handle tx going back to mempool (first_block is null)', async () => {
@@ -395,7 +395,7 @@ describe('handleTxFirstBlock', () => {
     expect(dbUpdateLastSyncedEvent).toHaveBeenCalledWith(mockDb, 'idValue');
     expect(logger.debug).toHaveBeenCalledWith('Tx hashValue back to mempool (first_block=null): idValue');
     expect(mockDb.commit).toHaveBeenCalled();
-    expect(mockDb.destroy).toHaveBeenCalled();
+    expect(mockDb.release).toHaveBeenCalled();
   });
 
   it('should handle tx going back to mempool (first_block is undefined)', async () => {
@@ -424,7 +424,7 @@ describe('handleTxFirstBlock', () => {
     expect(dbUpdateLastSyncedEvent).toHaveBeenCalledWith(mockDb, 'idValue');
     expect(logger.debug).toHaveBeenCalledWith('Tx hashValue back to mempool (first_block=null): idValue');
     expect(mockDb.commit).toHaveBeenCalled();
-    expect(mockDb.destroy).toHaveBeenCalled();
+    expect(mockDb.release).toHaveBeenCalled();
   });
 
   it('should rollback on error and rethrow', async () => {
@@ -451,7 +451,7 @@ describe('handleTxFirstBlock', () => {
     await expect(handleTxFirstBlock(context as any)).rejects.toThrow('Test error');
     expect(logger.error).toHaveBeenCalledWith('E: ', expect.any(Error));
     expect(mockDb.rollback).toHaveBeenCalled();
-    expect(mockDb.destroy).toHaveBeenCalled();
+    expect(mockDb.release).toHaveBeenCalled();
   });
 });
 
@@ -460,7 +460,7 @@ describe('handleVoidedTx', () => {
     beginTransaction: jest.fn(),
     commit: jest.fn(),
     rollback: jest.fn(),
-    destroy: jest.fn(),
+    release: jest.fn(),
   };
 
   beforeEach(() => {
@@ -496,7 +496,7 @@ describe('handleVoidedTx', () => {
     expect(logger.debug).toHaveBeenCalledWith('Voided tx hashValue');
     expect(mockDb.beginTransaction).toHaveBeenCalled();
     expect(mockDb.commit).toHaveBeenCalled();
-    expect(mockDb.destroy).toHaveBeenCalled();
+    expect(mockDb.release).toHaveBeenCalled();
   });
 
   it('should throw an error if transaction output is different from database output', async () => {
@@ -530,7 +530,7 @@ describe('handleVoidedTx', () => {
     // Now, when handleVoidedTx is called, it should throw the error because of the mismatch
     await expect(handleVoidedTx(context as any)).rejects.toThrow('Transaction output different from database output!');
     expect(mockDb.rollback).toHaveBeenCalled();
-    expect(mockDb.destroy).toHaveBeenCalled();
+    expect(mockDb.release).toHaveBeenCalled();
   });
 
   it('should rollback on error and rethrow', async () => {
@@ -554,7 +554,7 @@ describe('handleVoidedTx', () => {
     expect(logger.debug).toHaveBeenCalledWith(expect.any(Error));
     expect(mockDb.beginTransaction).toHaveBeenCalled();
     expect(mockDb.rollback).toHaveBeenCalled();
-    expect(mockDb.destroy).toHaveBeenCalled();
+    expect(mockDb.release).toHaveBeenCalled();
   });
 });
 
@@ -563,7 +563,7 @@ describe('handleVertexAccepted', () => {
     beginTransaction: jest.fn(),
     commit: jest.fn(),
     rollback: jest.fn(),
-    destroy: jest.fn(),
+    release: jest.fn(),
   };
 
   beforeEach(() => {
@@ -636,7 +636,7 @@ describe('handleVertexAccepted', () => {
     expect(getTransactionById).toHaveBeenCalledWith(mockDb, 'hashValue');
     expect(logger.debug).toHaveBeenCalledWith('Will add the tx with height', 123);
     expect(mockDb.commit).toHaveBeenCalled();
-    expect(mockDb.destroy).toHaveBeenCalled();
+    expect(mockDb.release).toHaveBeenCalled();
   });
 
   it('should handle call the push notification lambda if PUSH_NOTIFICATION_ENABLED is true', async () => {
@@ -693,7 +693,7 @@ describe('handleVertexAccepted', () => {
 
     expect(invokeOnTxPushNotificationRequestedLambda).toHaveBeenCalled();
     expect(mockDb.commit).toHaveBeenCalled();
-    expect(mockDb.destroy).toHaveBeenCalled();
+    expect(mockDb.release).toHaveBeenCalled();
   });
 
   it('should handle token creation tx without storing token info (tokens created via TOKEN_CREATED event)', async () => {
@@ -748,7 +748,7 @@ describe('handleVertexAccepted', () => {
 
     expect(storeTokenInformation).not.toHaveBeenCalled();
     expect(mockDb.commit).toHaveBeenCalled();
-    expect(mockDb.destroy).toHaveBeenCalled();
+    expect(mockDb.release).toHaveBeenCalled();
   });
 
   it('should rollback on error and rethrow', async () => {
@@ -772,7 +772,7 @@ describe('handleVertexAccepted', () => {
     await expect(handleVertexAccepted(context as any, {} as any)).rejects.toThrow('Test error');
     expect(mockDb.beginTransaction).toHaveBeenCalled();
     expect(mockDb.rollback).toHaveBeenCalled();
-    expect(mockDb.destroy).toHaveBeenCalled();
+    expect(mockDb.release).toHaveBeenCalled();
   });
 
   it('should handle PoA blocks with empty outputs without crashing', async () => {
@@ -837,7 +837,7 @@ describe('handleVertexAccepted', () => {
       null, // firstBlock
     );
     expect(mockDb.commit).toHaveBeenCalled();
-    expect(mockDb.destroy).toHaveBeenCalled();
+    expect(mockDb.release).toHaveBeenCalled();
   });
 
   it('should pass first_block when inserting transaction', async () => {
@@ -895,7 +895,7 @@ describe('handleVertexAccepted', () => {
 
 describe('metadataDiff', () => {
   const mockDb = {
-    destroy: jest.fn(),
+    release: jest.fn(),
   };
 
   beforeEach(() => {
@@ -1221,7 +1221,7 @@ describe('metadataDiff', () => {
     expect(result.types).toHaveLength(2);
   });
 
-  it('should handle errors and destroy the database connection', async () => {
+  it('should handle errors and release the database connection', async () => {
     const event = {
       event: {
         event: {
@@ -1236,7 +1236,7 @@ describe('metadataDiff', () => {
     (getTransactionById as jest.Mock).mockRejectedValue(new Error('Mock Error'));
 
     await expect(metadataDiff({} as any, event as any)).rejects.toThrow('Mock Error');
-    expect(mockDb.destroy).toHaveBeenCalled();
+    expect(mockDb.release).toHaveBeenCalled();
     expect(logger.error).toHaveBeenCalledWith('metadataDiff error', { eventId: 123, error: new Error('Mock Error') });
   });
 
@@ -1766,7 +1766,7 @@ describe('handleNcExecVoided', () => {
     beginTransaction: jest.fn(),
     commit: jest.fn(),
     rollback: jest.fn(),
-    destroy: jest.fn(),
+    release: jest.fn(),
   };
 
   const createContext = (txHash: string, firstBlock: string | null = null) => ({
