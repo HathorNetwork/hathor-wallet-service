@@ -16,3 +16,4 @@ packages/wallet-service/.warmup
 .yarn/
 .env.*
 *.tsbuildinfo
+packages/daemon/bench-results-*.json
