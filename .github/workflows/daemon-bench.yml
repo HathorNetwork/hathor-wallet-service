@@ -1,0 +1,184 @@
+name: daemon-bench
+
+on:
+  pull_request:
+    paths:
+      - 'packages/daemon/**'
+      - '.github/workflows/daemon-bench.yml'
+
+# Bench is informational — cancel in-flight runs when a new commit arrives
+# on the same PR so we don't queue up stale results.
+concurrency:
+  group: daemon-bench-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  bench:
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: baseline
+            ref: ${{ github.event.pull_request.base.ref }}
+          - name: candidate
+            ref: ${{ github.event.pull_request.head.ref }}
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout ${{ matrix.target.name }} (${{ matrix.target.ref }})
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ matrix.target.ref }}
+          fetch-depth: 0
+
+      - name: Overlay bench scripts from PR head
+        # Bench scripts come from the PR regardless of which side we're
+        # measuring — keeps the measurement tool constant, and lets the
+        # baseline job work before the harness has landed on master.
+        # refs/pull/<N>/head works uniformly for same-repo and fork PRs.
+        run: |
+          set -eux
+          git fetch origin refs/pull/${{ github.event.pull_request.number }}/head
+          git checkout FETCH_HEAD -- \
+            packages/daemon/src/scripts/bench-sync.ts \
+            packages/daemon/src/scripts/bench-compare.ts
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v20
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Cache Nix
+        uses: DeterminateSystems/magic-nix-cache-action@v2
+
+      - name: Install dependencies
+        run: nix develop . -c yarn install
+
+      - name: Start MySQL + simulators
+        working-directory: packages/daemon
+        run: |
+          nix develop ../.. -c yarn run test_images_up
+          nix develop ../.. -c yarn run test_images_wait_for_db
+          nix develop ../.. -c yarn run test_images_setup_database
+          nix develop ../.. -c yarn run test_images_migrate
+
+      - name: Bench
+        continue-on-error: true
+        working-directory: packages/daemon
+        run: |
+          nix develop ../.. -c yarn dlx ts-node src/scripts/bench-sync.ts \
+            --scenario VOIDED_TOKEN_AUTHORITY \
+            --runs 5 \
+            --warmup 1 \
+            --label ${{ matrix.target.name }} \
+            --out bench-${{ matrix.target.name }}.json
+
+      - name: Upload result
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-${{ matrix.target.name }}
+          path: packages/daemon/bench-${{ matrix.target.name }}.json
+          if-no-files-found: warn
+
+      - name: Tear down containers
+        if: always()
+        working-directory: packages/daemon
+        run: nix develop ../.. -c yarn run test_images_down || true
+
+  compare:
+    needs: bench
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v20
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Cache Nix
+        uses: DeterminateSystems/magic-nix-cache-action@v2
+
+      - name: Install dependencies
+        run: nix develop . -c yarn install
+
+      - name: Download baseline
+        uses: actions/download-artifact@v4
+        with:
+          name: bench-baseline
+          path: packages/daemon
+        continue-on-error: true
+
+      - name: Download candidate
+        uses: actions/download-artifact@v4
+        with:
+          name: bench-candidate
+          path: packages/daemon
+        continue-on-error: true
+
+      - name: Run comparator
+        id: compare
+        continue-on-error: true
+        working-directory: packages/daemon
+        run: |
+          set +e
+          if [ ! -f bench-baseline.json ] || [ ! -f bench-candidate.json ]; then
+            cat > bench-report.md <<EOF
+          _One or both bench runs failed — no comparison available. Check the "bench" job logs for details._
+          EOF
+            exit 0
+          fi
+          nix develop ../.. -c yarn dlx ts-node src/scripts/bench-compare.ts \
+            --baseline bench-baseline.json \
+            --candidate bench-candidate.json \
+            > bench-report.md
+
+      - name: Publish report to job summary
+        if: always()
+        working-directory: packages/daemon
+        run: |
+          if [ -f bench-report.md ]; then
+            cat bench-report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Post PR comment
+        # GITHUB_TOKEN has read-only perms on fork PRs regardless of the
+        # permissions block below, so skip the comment step in that case
+        # to avoid a misleading 403. The run summary still shows the report.
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        working-directory: packages/daemon
+        run: |
+          set -e
+          MARKER='<!-- daemon-bench-report -->'
+          # Print marker + body to a temp file so we can pass via --body-file
+          { echo "$MARKER"; echo; cat bench-report.md; } > comment.md
+
+          EXISTING_ID=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
+            --paginate \
+            --jq ".[] | select(.body | startswith(\"$MARKER\")) | .id" \
+            | head -1)
+
+          if [ -n "$EXISTING_ID" ]; then
+            gh api "repos/$REPO/issues/comments/$EXISTING_ID" \
+              -X PATCH \
+              --field body=@comment.md
+          else
+            gh pr comment "$PR_NUMBER" --body-file comment.md
+          fi

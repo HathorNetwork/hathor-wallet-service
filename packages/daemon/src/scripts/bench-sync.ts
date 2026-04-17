@@ -13,6 +13,12 @@
  * aggregated stats to JSON. Produces numbers that can be compared across
  * branches to reason about per-event sync performance.
  *
+ * WARNING: The `daemon-bench` CI workflow overlays this file onto master's
+ * production code to measure the baseline — so any symbol this file imports
+ * or references must also exist on master. If a future PR renames a span,
+ * removes an exported function, or changes a signature this script relies
+ * on, update the workflow (or this script) accordingly.
+ *
  * Prerequisites (run from packages/daemon):
  *   yarn test_images_up              # starts MySQL + all simulator containers
  *   yarn test_images_wait_for_db
