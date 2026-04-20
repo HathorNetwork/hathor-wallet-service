@@ -29,7 +29,7 @@ jest.mock('../../src/config', () => {
 
 jest.mock('../../src/utils/aws', () => {
   return {
-    sendRealtimeTx: jest.fn(),
+    sendRealtimeTx: jest.fn().mockResolvedValue(undefined),
     invokeOnTxPushNotificationRequestedLambda: jest.fn(),
   };
 });
