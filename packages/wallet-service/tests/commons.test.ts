@@ -548,7 +548,7 @@ test('getFullnodeData with an uninitialized version_data database should call th
   console.log(JSON.stringify(data));
 
   expect(spy).toHaveBeenCalledTimes(1);
-  expect(spy).toHaveBeenCalledWith('version', expect.any(Object));
+  expect(spy).toHaveBeenCalledWith('version');
 });
 
 test('getFullnodeData with an initialized version_data database should query data from the database', async () => {
