@@ -298,16 +298,16 @@ export function isNanoContract(headers: EventTxHeader[]) {
  */
 export const handleVertexAccepted = async (context: Context, _event: Event) => {
   return tracer.startActiveSpan('handleVertexAccepted', async (span) => {
-    const mysql = await getDbConnection();
-    await mysql.beginTransaction();
-    const {
-      NETWORK,
-      STAGE,
-      SERVERLESS_DEPLOY_PREFIX,
-      PUSH_NOTIFICATION_ENABLED,
-    } = getConfig();
-
+    let mysql: PoolConnection | undefined;
     try {
+      mysql = await getDbConnection();
+      const {
+        NETWORK,
+        STAGE,
+        SERVERLESS_DEPLOY_PREFIX,
+        PUSH_NOTIFICATION_ENABLED,
+      } = getConfig();
+
       const fullNodeEvent = context.event as StandardFullNodeEvent;
       const now = getUnixTimestamp();
       const blockRewardLock = context.rewardMinBlocks;
@@ -339,7 +339,9 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
       const isNano = isNanoContract(headers);
 
-      const dbTx: DbTransaction | null = await withSpan('getTransactionById', () => getTransactionById(mysql, hash));
+      // Duplicate check is a read-only lookup and runs outside the transaction
+      // so an early return cannot leave a BEGIN open on a pooled connection.
+      const dbTx: DbTransaction | null = await withSpan('getTransactionById', () => getTransactionById(mysql!, hash));
 
       if (dbTx) {
         const daemonUptime = getDaemonUptime();
@@ -356,236 +358,239 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         return;
       }
 
-      let height: number | null = metadata.height;
+      await mysql.beginTransaction();
+      try {
+        let height: number | null = metadata.height;
 
-      if (!isBlock(version) && !metadata.first_block) {
-        height = null;
-      }
-
-      const txOutputs: TxOutputWithIndex[] = prepareOutputs(outputs, tokens);
-      const txInputs: TxInput[] = prepareInputs(inputs, tokens);
-
-      let heightlock: number | null = null;
-      if (isBlock(version)) {
-        if (typeof height !== 'number' && !height) {
-          throw new Error('Block with no height set in metadata.');
+        if (!isBlock(version) && !metadata.first_block) {
+          height = null;
         }
 
-        // unlock older blocks
-        const utxos = await getUtxosLockedAtHeight(mysql, now, height);
+        const txOutputs: TxOutputWithIndex[] = prepareOutputs(outputs, tokens);
+        const txInputs: TxInput[] = prepareInputs(inputs, tokens);
 
-        if (utxos.length > 0) {
-          logger.debug(`Block transaction, unlocking ${utxos.length} locked utxos at height ${height}`);
-          await unlockUtxos(mysql, utxos, false);
-        }
-
-        // set heightlock
-        heightlock = height + blockRewardLock;
-
-        // get the first output address and add miner to the miners table
-        // PoA blocks may not have outputs, so we need to check first
-        if (outputs.length > 0) {
-          const blockRewardOutput = outputs[0];
-          if (isDecodedValid(blockRewardOutput.decoded, ['address'])) {
-            await addMiner(mysql, blockRewardOutput.decoded!.address, hash);
+        let heightlock: number | null = null;
+        if (isBlock(version)) {
+          if (typeof height !== 'number' && !height) {
+            throw new Error('Block with no height set in metadata.');
           }
-        }
 
-        // here we check if we have any utxos on our database that is locked but
-        // has its timelock < now
-        //
-        // we've decided to do this here considering that it is acceptable to have
-        // a delay between the actual timelock expiration time and the next block
-        // (that will unlock it). This delay is only perceived on the wallet as the
-        // sync mechanism will unlock the timelocked utxos as soon as they are seen
-        // on a received transaction.
-        await unlockTimelockedUtxos(mysql, now);
-      }
+          // unlock older blocks
+          const utxos = await getUtxosLockedAtHeight(mysql, now, height);
 
-      // check if any of the inputs are still marked as locked and update tables accordingly.
-      // See remarks on getLockedUtxoFromInputs for more explanation. It's important to perform this
-      // before updating the balances
-      const lockedInputs = await getLockedUtxoFromInputs(mysql, inputs);
-      await unlockUtxos(mysql, lockedInputs, true);
+          if (utxos.length > 0) {
+            logger.debug(`Block transaction, unlocking ${utxos.length} locked utxos at height ${height}`);
+            await unlockUtxos(mysql, utxos, false);
+          }
 
-      // add transaction outputs to the tx_outputs table
-      markLockedOutputs(txOutputs, now, heightlock !== null);
+          // set heightlock
+          heightlock = height + blockRewardLock;
 
-      // Add the transaction
-      const firstBlock: string | null = metadata.first_block ?? null;
-      logger.debug('Will add the tx with height', height);
-      // TODO: add is_nanocontract to transaction table?
-      await withSpan('addOrUpdateTx', () => addOrUpdateTx(
-        mysql,
-        hash,
-        height,
-        timestamp,
-        version,
-        weight,
-        firstBlock,
-      ));
-
-      // Add utxos
-      await withSpan('addUtxos', () => addUtxos(mysql, hash, txOutputs, heightlock));
-
-      // Mark tx utxos as spent
-      await withSpan('updateTxOutputSpentBy', () => updateTxOutputSpentBy(mysql, txInputs, hash));
-
-      // Genesis tx has no inputs and outputs, so nothing to be updated, avoid it
-      // Nano contracts are a special case since they can have an address to update even without inputs/outputs
-      if (inputs.length > 0 || outputs.length > 0 || isNano) {
-        const tokenList: string[] = getTokenListFromInputsAndOutputs(txInputs, txOutputs);
-
-        // Update transaction count with the new tx
-        await incrementTokensTxCount(mysql, tokenList);
-
-        const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputs, headers);
-
-        // update address tables (address, address_balance, address_tx_history)
-        await withSpan('updateAddressTablesWithTx', () => updateAddressTablesWithTx(mysql, hash, timestamp, addressBalanceMap));
-
-        // for the addresses present on the tx, check if there are any wallets associated
-        const addressWalletMap: StringMap<Wallet> = await withSpan('getAddressWalletInfo', () => getAddressWalletInfo(mysql, Object.keys(addressBalanceMap)));
-
-        const addressesPerWallet = Object.entries(addressWalletMap).reduce(
-          (result: StringMap<{ addresses: string[], walletDetails: Wallet }>, [address, wallet]: [string, Wallet]) => {
-            const { walletId } = wallet;
-
-            // Initialize the array if the walletId is not yet a key in result
-            if (!result[walletId]) {
-              result[walletId] = {
-                addresses: [],
-                walletDetails: wallet,
-              }
+          // get the first output address and add miner to the miners table
+          // PoA blocks may not have outputs, so we need to check first
+          if (outputs.length > 0) {
+            const blockRewardOutput = outputs[0];
+            if (isDecodedValid(blockRewardOutput.decoded, ['address'])) {
+              await addMiner(mysql, blockRewardOutput.decoded!.address, hash);
             }
-
-            // Add the current key to the array
-            result[walletId].addresses.push(address);
-
-            return result;
-          }, {});
-
-        const seenWallets = Object.keys(addressesPerWallet);
-
-        // Convert to array format expected by getMaxIndicesForWallets
-        const walletDataArray = Object.entries(addressesPerWallet).map(([walletId, data]) => ({
-          walletId,
-          addresses: data.addresses
-        }));
-
-        // Get all max indices in a single query
-        const walletIndices = await getMaxIndicesForWallets(mysql, walletDataArray);
-
-        // Process each wallet
-        for (const [walletId, data] of Object.entries(addressesPerWallet)) {
-          const { walletDetails } = data;
-          const indices = walletIndices.get(walletId);
-
-          if (!indices) {
-            // This is unexpected as we just queried for this wallet
-            logger.error('Failed to get indices for wallet', { walletId });
-            continue;
           }
 
-          const { maxAmongAddresses, maxWalletIndex } = indices;
-
-          if (!maxAmongAddresses || !maxWalletIndex) {
-            // Do nothing, wallet is most likely not loaded yet.
-            if (walletDetails.status === WalletStatus.READY) {
-              logger.error('[ERROR] A wallet marked as READY does not have a max wallet index or address index was not found in the database');
-            }
-            continue;
-          }
-
-          const diff = maxWalletIndex - maxAmongAddresses;
-
-          if (diff < walletDetails.maxGap) {
-            // We need to generate addresses
-            const addresses = await generateAddresses(NETWORK as string, walletDetails.xpubkey, maxWalletIndex + 1, walletDetails.maxGap - diff);
-            await addNewAddresses(mysql, walletId, addresses, maxAmongAddresses);
-          }
+          // here we check if we have any utxos on our database that is locked but
+          // has its timelock < now
+          //
+          // we've decided to do this here considering that it is acceptable to have
+          // a delay between the actual timelock expiration time and the next block
+          // (that will unlock it). This delay is only perceived on the wallet as the
+          // sync mechanism will unlock the timelocked utxos as soon as they are seen
+          // on a received transaction.
+          await unlockTimelockedUtxos(mysql, now);
         }
 
-        // update wallet_balance and wallet_tx_history tables
-        const walletBalanceMap: StringMap<TokenBalanceMap> = getWalletBalanceMap(addressWalletMap, addressBalanceMap);
-        await withSpan('updateWalletTablesWithTx', () => updateWalletTablesWithTx(mysql, hash, timestamp, walletBalanceMap));
+        // check if any of the inputs are still marked as locked and update tables accordingly.
+        // See remarks on getLockedUtxoFromInputs for more explanation. It's important to perform this
+        // before updating the balances
+        const lockedInputs = await getLockedUtxoFromInputs(mysql, inputs);
+        await unlockUtxos(mysql, lockedInputs, true);
 
-        // prepare the transaction data to be sent to the SQS queue
-        const txData: Transaction = {
-          tx_id: hash,
-          nonce,
+        // add transaction outputs to the tx_outputs table
+        markLockedOutputs(txOutputs, now, heightlock !== null);
+
+        // Add the transaction
+        const firstBlock: string | null = metadata.first_block ?? null;
+        logger.debug('Will add the tx with height', height);
+        // TODO: add is_nanocontract to transaction table?
+        await withSpan('addOrUpdateTx', () => addOrUpdateTx(
+          mysql,
+          hash,
+          height,
           timestamp,
           version,
-          voided: metadata.voided_by.length > 0,
           weight,
-          parents,
-          inputs: txInputs,
-          outputs: txOutputs,
-          headers,
-          height: metadata.height,
-          token_name,
-          token_symbol,
-          signal_bits: 0, // TODO: we should actually receive this and store in the database
-        };
+          firstBlock,
+        ));
 
-        try {
-          if (seenWallets.length > 0) {
-            await sendRealtimeTx(
-              Array.from(seenWallets),
-              txData,
-            );
-          }
-        } catch (e) {
-          logger.error('Failed to send transaction to SQS queue');
-          logger.error(e);
-        }
+        // Add utxos
+        await withSpan('addUtxos', () => addUtxos(mysql, hash, txOutputs, heightlock));
 
-        try {
-          if (PUSH_NOTIFICATION_ENABLED) {
-            const walletBalanceMap = await getWalletBalancesForTx(mysql, txData);
-            const { length: hasAffectWallets } = Object.keys(walletBalanceMap);
-            if (hasAffectWallets) {
-              invokeOnTxPushNotificationRequestedLambda(walletBalanceMap)
-                .catch((err: Error) => logger.error('Error on invokeOnTxPushNotificationRequestedLambda invocation', err));
+        // Mark tx utxos as spent
+        await withSpan('updateTxOutputSpentBy', () => updateTxOutputSpentBy(mysql, txInputs, hash));
+
+        // Genesis tx has no inputs and outputs, so nothing to be updated, avoid it
+        // Nano contracts are a special case since they can have an address to update even without inputs/outputs
+        if (inputs.length > 0 || outputs.length > 0 || isNano) {
+          const tokenList: string[] = getTokenListFromInputsAndOutputs(txInputs, txOutputs);
+
+          // Update transaction count with the new tx
+          await incrementTokensTxCount(mysql, tokenList);
+
+          const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputs, headers);
+
+          // update address tables (address, address_balance, address_tx_history)
+          await withSpan('updateAddressTablesWithTx', () => updateAddressTablesWithTx(mysql, hash, timestamp, addressBalanceMap));
+
+          // for the addresses present on the tx, check if there are any wallets associated
+          const addressWalletMap: StringMap<Wallet> = await withSpan('getAddressWalletInfo', () => getAddressWalletInfo(mysql!, Object.keys(addressBalanceMap)));
+
+          const addressesPerWallet = Object.entries(addressWalletMap).reduce(
+            (result: StringMap<{ addresses: string[], walletDetails: Wallet }>, [address, wallet]: [string, Wallet]) => {
+              const { walletId } = wallet;
+
+              // Initialize the array if the walletId is not yet a key in result
+              if (!result[walletId]) {
+                result[walletId] = {
+                  addresses: [],
+                  walletDetails: wallet,
+                }
+              }
+
+              // Add the current key to the array
+              result[walletId].addresses.push(address);
+
+              return result;
+            }, {});
+
+          const seenWallets = Object.keys(addressesPerWallet);
+
+          // Convert to array format expected by getMaxIndicesForWallets
+          const walletDataArray = Object.entries(addressesPerWallet).map(([walletId, data]) => ({
+            walletId,
+            addresses: data.addresses
+          }));
+
+          // Get all max indices in a single query
+          const walletIndices = await getMaxIndicesForWallets(mysql, walletDataArray);
+
+          // Process each wallet
+          for (const [walletId, data] of Object.entries(addressesPerWallet)) {
+            const { walletDetails } = data;
+            const indices = walletIndices.get(walletId);
+
+            if (!indices) {
+              // This is unexpected as we just queried for this wallet
+              logger.error('Failed to get indices for wallet', { walletId });
+              continue;
+            }
+
+            const { maxAmongAddresses, maxWalletIndex } = indices;
+
+            if (!maxAmongAddresses || !maxWalletIndex) {
+              // Do nothing, wallet is most likely not loaded yet.
+              if (walletDetails.status === WalletStatus.READY) {
+                logger.error('[ERROR] A wallet marked as READY does not have a max wallet index or address index was not found in the database');
+              }
+              continue;
+            }
+
+            const diff = maxWalletIndex - maxAmongAddresses;
+
+            if (diff < walletDetails.maxGap) {
+              // We need to generate addresses
+              const addresses = await generateAddresses(NETWORK as string, walletDetails.xpubkey, maxWalletIndex + 1, walletDetails.maxGap - diff);
+              await addNewAddresses(mysql, walletId, addresses, maxAmongAddresses);
             }
           }
-        } catch (e) {
-          logger.error('Failed to send push notification to wallet-service lambda');
-          logger.error(e);
+
+          // update wallet_balance and wallet_tx_history tables
+          const walletBalanceMap: StringMap<TokenBalanceMap> = getWalletBalanceMap(addressWalletMap, addressBalanceMap);
+          await withSpan('updateWalletTablesWithTx', () => updateWalletTablesWithTx(mysql!, hash, timestamp, walletBalanceMap));
+
+          // prepare the transaction data to be sent to the SQS queue
+          const txData: Transaction = {
+            tx_id: hash,
+            nonce,
+            timestamp,
+            version,
+            voided: metadata.voided_by.length > 0,
+            weight,
+            parents,
+            inputs: txInputs,
+            outputs: txOutputs,
+            headers,
+            height: metadata.height,
+            token_name,
+            token_symbol,
+            signal_bits: 0, // TODO: we should actually receive this and store in the database
+          };
+
+          try {
+            if (seenWallets.length > 0) {
+              await sendRealtimeTx(
+                Array.from(seenWallets),
+                txData,
+              );
+            }
+          } catch (e) {
+            logger.error('Failed to send transaction to SQS queue');
+            logger.error(e);
+          }
+
+          try {
+            if (PUSH_NOTIFICATION_ENABLED) {
+              const walletBalanceMap = await getWalletBalancesForTx(mysql, txData);
+              const { length: hasAffectWallets } = Object.keys(walletBalanceMap);
+              if (hasAffectWallets) {
+                invokeOnTxPushNotificationRequestedLambda(walletBalanceMap)
+                  .catch((err: Error) => logger.error('Error on invokeOnTxPushNotificationRequestedLambda invocation', err));
+              }
+            }
+          } catch (e) {
+            logger.error('Failed to send push notification to wallet-service lambda');
+            logger.error(e);
+          }
+
+          const network = new hathorLib.Network(NETWORK);
+
+          // Call to process the data for NFT handling (if applicable)
+          // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
+          NftUtils.processNftEvent(fullNodeData, STAGE, SERVERLESS_DEPLOY_PREFIX, network, logger)
+            .catch((err: unknown) => logger.error('[ALERT] Error processing NFT event', err));
         }
 
-        const network = new hathorLib.Network(NETWORK);
-
-        // Call to process the data for NFT handling (if applicable)
-        // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
-        NftUtils.processNftEvent(fullNodeData, STAGE, SERVERLESS_DEPLOY_PREFIX, network, logger)
-          .catch((err: unknown) => logger.error('[ALERT] Error processing NFT event', err));
-      }
-
-      // Need to check if there is a nano header and update the nc_address's seqnum if needed
-      for (const header of headers) {
-        if (isNanoHeader(header)) {
-          const txseqnum = header.nc_seqnum;
-          const cachedSeqnum = await getAddressSeqnum(mysql, header.nc_address);
-          if (txseqnum > cachedSeqnum) {
-            // The tx seqnum is higher than the cached one so we need to save the tx deqnum
-            await setAddressSeqnum(mysql, header.nc_address, header.nc_seqnum);
+        // Need to check if there is a nano header and update the nc_address's seqnum if needed
+        for (const header of headers) {
+          if (isNanoHeader(header)) {
+            const txseqnum = header.nc_seqnum;
+            const cachedSeqnum = await getAddressSeqnum(mysql, header.nc_address);
+            if (txseqnum > cachedSeqnum) {
+              // The tx seqnum is higher than the cached one so we need to save the tx deqnum
+              await setAddressSeqnum(mysql, header.nc_address, header.nc_seqnum);
+            }
           }
         }
+
+        await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
+
+        await mysql.commit();
+      } catch (e) {
+        try { await mysql.rollback(); } catch { /* swallow rollback error so the original is thrown */ }
+        span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
+        span.recordException(e as Error);
+        logger.error('Error handling vertex accepted', e);
+
+        throw e;
       }
-
-      await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
-
-      await mysql.commit();
-    } catch (e) {
-      await mysql.rollback();
-      span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
-      span.recordException(e as Error);
-      logger.error('Error handling vertex accepted', e);
-
-      throw e;
     } finally {
-      mysql.release();
+      if (mysql) mysql.release();
       span.end();
     }
   });
@@ -593,54 +598,57 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
 export const handleVertexRemoved = async (context: Context, _event: Event) => {
   return tracer.startActiveSpan('handleVertexRemoved', async (span) => {
-    const mysql = await getDbConnection();
-    await mysql.beginTransaction();
-
+    let mysql: PoolConnection | undefined;
     try {
-      const fullNodeEvent = context.event as StandardFullNodeEvent;
+      mysql = await getDbConnection();
+      await mysql.beginTransaction();
 
-      const {
-        hash,
-        outputs,
-        inputs,
-        tokens,
-        headers = [],
-        version,
-      } = fullNodeEvent.event.data;
+      try {
+        const fullNodeEvent = context.event as StandardFullNodeEvent;
 
-      span.setAttribute('tx.hash', hash);
+        const {
+          hash,
+          outputs,
+          inputs,
+          tokens,
+          headers = [],
+          version,
+        } = fullNodeEvent.event.data;
 
-      const dbTx: DbTransaction | null = await getTransactionById(mysql, hash);
+        span.setAttribute('tx.hash', hash);
 
-      if (!dbTx) {
-        throw new Error(`VERTEX_REMOVED event received, but transaction ${hash} was not in the database.`);
+        const dbTx: DbTransaction | null = await getTransactionById(mysql, hash);
+
+        if (!dbTx) {
+          throw new Error(`VERTEX_REMOVED event received, but transaction ${hash} was not in the database.`);
+        }
+
+        logger.info(`[VertexRemoved] Voiding tx: ${hash}`);
+
+        await voidTx(
+          mysql,
+          hash,
+          inputs,
+          outputs,
+          tokens,
+          headers,
+          version,
+        );
+
+        logger.info(`[VertexRemoved] Removing tx from database: ${hash}`);
+        await cleanupVoidedTx(mysql, hash);
+        await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
+        await mysql.commit();
+      } catch (e) {
+        try { await mysql.rollback(); } catch { /* swallow rollback error so the original is thrown */ }
+        span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
+        span.recordException(e as Error);
+        logger.debug(e);
+
+        throw e;
       }
-
-      logger.info(`[VertexRemoved] Voiding tx: ${hash}`);
-
-      await voidTx(
-        mysql,
-        hash,
-        inputs,
-        outputs,
-        tokens,
-        headers,
-        version,
-      );
-
-      logger.info(`[VertexRemoved] Removing tx from database: ${hash}`);
-      await cleanupVoidedTx(mysql, hash);
-      await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
-      await mysql.commit();
-    } catch (e) {
-      span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
-      span.recordException(e as Error);
-      logger.debug(e);
-      await mysql.rollback();
-
-      throw e;
     } finally {
-      mysql.release();
+      if (mysql) mysql.release();
       span.end();
     }
   });
@@ -794,44 +802,47 @@ export const voidTx = async (
 
 export const handleVoidedTx = async (context: Context) => {
   return tracer.startActiveSpan('handleVoidedTx', async (span) => {
-    const mysql = await getDbConnection();
-    await mysql.beginTransaction();
-
+    let mysql: PoolConnection | undefined;
     try {
-      const fullNodeEvent = context.event as StandardFullNodeEvent;
+      mysql = await getDbConnection();
+      await mysql.beginTransaction();
 
-      const {
-        hash,
-        outputs,
-        inputs,
-        tokens,
-        headers = [],
-        version,
-      } = fullNodeEvent.event.data;
+      try {
+        const fullNodeEvent = context.event as StandardFullNodeEvent;
 
-      span.setAttribute('tx.hash', hash);
-      logger.debug(`Will handle voided tx for ${hash}`);
-      await voidTx(
-        mysql,
-        hash,
-        inputs,
-        outputs,
-        tokens,
-        headers,
-        version,
-      );
-      logger.debug(`Voided tx ${hash}`);
-      await mysql.commit();
-      await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
-    } catch (e) {
-      span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
-      span.recordException(e as Error);
-      logger.debug(e);
-      await mysql.rollback();
+        const {
+          hash,
+          outputs,
+          inputs,
+          tokens,
+          headers = [],
+          version,
+        } = fullNodeEvent.event.data;
 
-      throw e;
+        span.setAttribute('tx.hash', hash);
+        logger.debug(`Will handle voided tx for ${hash}`);
+        await voidTx(
+          mysql,
+          hash,
+          inputs,
+          outputs,
+          tokens,
+          headers,
+          version,
+        );
+        logger.debug(`Voided tx ${hash}`);
+        await mysql.commit();
+        await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
+      } catch (e) {
+        try { await mysql.rollback(); } catch { /* swallow rollback error so the original is thrown */ }
+        span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
+        span.recordException(e as Error);
+        logger.debug(e);
+
+        throw e;
+      }
     } finally {
-      mysql.release();
+      if (mysql) mysql.release();
       span.end();
     }
   });
@@ -839,31 +850,34 @@ export const handleVoidedTx = async (context: Context) => {
 
 export const handleUnvoidedTx = async (context: Context) => {
   return tracer.startActiveSpan('handleUnvoidedTx', async (span) => {
-    const mysql = await getDbConnection();
-    await mysql.beginTransaction();
-
+    let mysql: PoolConnection | undefined;
     try {
-      const fullNodeEvent = context.event as StandardFullNodeEvent;
+      mysql = await getDbConnection();
+      await mysql.beginTransaction();
 
-      const { hash } = fullNodeEvent.event.data;
+      try {
+        const fullNodeEvent = context.event as StandardFullNodeEvent;
 
-      span.setAttribute('tx.hash', hash);
-      logger.debug(`Tx ${hash} got unvoided, cleaning up the database.`);
+        const { hash } = fullNodeEvent.event.data;
 
-      await cleanupVoidedTx(mysql, hash);
+        span.setAttribute('tx.hash', hash);
+        logger.debug(`Tx ${hash} got unvoided, cleaning up the database.`);
 
-      logger.debug(`Unvoided tx ${hash}`);
+        await cleanupVoidedTx(mysql, hash);
 
-      await mysql.commit();
-    } catch (e) {
-      span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
-      span.recordException(e as Error);
-      logger.debug(e);
-      await mysql.rollback();
+        logger.debug(`Unvoided tx ${hash}`);
 
-      throw e;
+        await mysql.commit();
+      } catch (e) {
+        try { await mysql.rollback(); } catch { /* swallow rollback error so the original is thrown */ }
+        span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
+        span.recordException(e as Error);
+        logger.debug(e);
+
+        throw e;
+      }
     } finally {
-      mysql.release();
+      if (mysql) mysql.release();
       span.end();
     }
   });
@@ -871,43 +885,46 @@ export const handleUnvoidedTx = async (context: Context) => {
 
 export const handleTxFirstBlock = async (context: Context) => {
   return tracer.startActiveSpan('handleTxFirstBlock', async (span) => {
-    const mysql = await getDbConnection();
-    await mysql.beginTransaction();
-
+    let mysql: PoolConnection | undefined;
     try {
-      const fullNodeEvent = context.event as StandardFullNodeEvent;
+      mysql = await getDbConnection();
+      await mysql.beginTransaction();
 
-      const {
-        hash,
-        metadata,
-        timestamp,
-        version,
-        weight,
-      } = fullNodeEvent.event.data;
+      try {
+        const fullNodeEvent = context.event as StandardFullNodeEvent;
 
-      span.setAttribute('tx.hash', hash);
-      const firstBlock: string | null = metadata.first_block ?? null;
-      // When first_block is null, height should also be null (tx back in mempool)
-      const height: number | null = firstBlock ? metadata.height : null;
+        const {
+          hash,
+          metadata,
+          timestamp,
+          version,
+          weight,
+        } = fullNodeEvent.event.data;
 
-      await addOrUpdateTx(mysql, hash, height, timestamp, version, weight, firstBlock);
-      await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
+        span.setAttribute('tx.hash', hash);
+        const firstBlock: string | null = metadata.first_block ?? null;
+        // When first_block is null, height should also be null (tx back in mempool)
+        const height: number | null = firstBlock ? metadata.height : null;
 
-      if (firstBlock) {
-        logger.debug(`Confirmed tx ${hash} in block ${firstBlock}: ${fullNodeEvent.event.id}`);
-      } else {
-        logger.debug(`Tx ${hash} back to mempool (first_block=null): ${fullNodeEvent.event.id}`);
+        await addOrUpdateTx(mysql, hash, height, timestamp, version, weight, firstBlock);
+        await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
+
+        if (firstBlock) {
+          logger.debug(`Confirmed tx ${hash} in block ${firstBlock}: ${fullNodeEvent.event.id}`);
+        } else {
+          logger.debug(`Tx ${hash} back to mempool (first_block=null): ${fullNodeEvent.event.id}`);
+        }
+
+        await mysql.commit();
+      } catch (e) {
+        try { await mysql.rollback(); } catch { /* swallow rollback error so the original is thrown */ }
+        span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
+        span.recordException(e as Error);
+        logger.error('E: ', e);
+        throw e;
       }
-
-      await mysql.commit();
-    } catch (e) {
-      span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
-      span.recordException(e as Error);
-      logger.error('E: ', e);
-      await mysql.rollback();
-      throw e;
     } finally {
-      mysql.release();
+      if (mysql) mysql.release();
       span.end();
     }
   });
@@ -927,67 +944,72 @@ export const handleTxFirstBlock = async (context: Context) => {
  */
 export const handleNcExecVoided = async (context: Context) => {
   return tracer.startActiveSpan('handleNcExecVoided', async (span) => {
-    const mysql = await getDbConnection();
-    await mysql.beginTransaction();
-
+    let mysql: PoolConnection | undefined;
     try {
-      const fullNodeEvent = context.event as StandardFullNodeEvent;
-      const { hash } = fullNodeEvent.event.data;
+      mysql = await getDbConnection();
+      await mysql.beginTransaction();
 
-      span.setAttribute('tx.hash', hash);
+      try {
+        const fullNodeEvent = context.event as StandardFullNodeEvent;
+        const { hash } = fullNodeEvent.event.data;
 
-      // Get all tokens created by this transaction
-      const tokensCreated = await getTokensCreatedByTx(mysql, hash);
+        span.setAttribute('tx.hash', hash);
 
-      if (tokensCreated.length > 0) {
-        // Filter out traditional CREATE_TOKEN_TX tokens (where token_id = tx_id)
-        // These should NOT be deleted because they're inherent to the transaction
-        const nanoTokens = tokensCreated.filter(tokenId => tokenId !== hash);
+        // Get all tokens created by this transaction
+        const tokensCreated = await getTokensCreatedByTx(mysql, hash);
 
-        if (nanoTokens.length > 0) {
-          logger.debug(`NC execution voided for tx ${hash}, deleting ${nanoTokens.length} nano-created tokens`);
-          await deleteTokens(mysql, nanoTokens);
+        if (tokensCreated.length > 0) {
+          // Filter out traditional CREATE_TOKEN_TX tokens (where token_id = tx_id)
+          // These should NOT be deleted because they're inherent to the transaction
+          const nanoTokens = tokensCreated.filter(tokenId => tokenId !== hash);
+
+          if (nanoTokens.length > 0) {
+            logger.debug(`NC execution voided for tx ${hash}, deleting ${nanoTokens.length} nano-created tokens`);
+            await deleteTokens(mysql, nanoTokens);
+          }
         }
-      }
 
-      await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
-      await mysql.commit();
-    } catch (e) {
-      span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
-      span.recordException(e as Error);
-      logger.error('handleNcExecVoided error: ', e);
-      await mysql.rollback();
-      throw e;
+        await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
+        await mysql.commit();
+      } catch (e) {
+        try { await mysql.rollback(); } catch { /* swallow rollback error so the original is thrown */ }
+        span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
+        span.recordException(e as Error);
+        logger.error('handleNcExecVoided error: ', e);
+        throw e;
+      }
     } finally {
-      mysql.release();
+      if (mysql) mysql.release();
       span.end();
     }
   });
 };
 
 export const updateLastSyncedEvent = async (context: Context) => {
-  const mysql = await getDbConnection();
+  let mysql: PoolConnection | undefined;
+  try {
+    mysql = await getDbConnection();
 
-  const lastDbSyncedEvent: LastSyncedEvent | null = await getLastSyncedEvent(mysql);
+    const lastDbSyncedEvent: LastSyncedEvent | null = await getLastSyncedEvent(mysql);
 
-  if (!context.event) {
-    throw new Error('Tried to update last synced event but no event in context');
+    if (!context.event) {
+      throw new Error('Tried to update last synced event but no event in context');
+    }
+
+    const lastEventId = context.event.event.id;
+
+    if (lastDbSyncedEvent
+      && lastDbSyncedEvent.last_event_id > lastEventId) {
+      logger.error('Tried to store an event lower than the one on the database', {
+        lastEventId,
+        lastDbSyncedEvent: JSONBigInt.stringify(lastDbSyncedEvent),
+      });
+      throw new Error('Event lower than stored one.');
+    }
+    await dbUpdateLastSyncedEvent(mysql, lastEventId);
+  } finally {
+    if (mysql) mysql.release();
   }
-
-  const lastEventId = context.event.event.id;
-
-  if (lastDbSyncedEvent
-    && lastDbSyncedEvent.last_event_id > lastEventId) {
-    logger.error('Tried to store an event lower than the one on the database', {
-      lastEventId,
-      lastDbSyncedEvent: JSONBigInt.stringify(lastDbSyncedEvent),
-    });
-    mysql.release();
-    throw new Error('Event lower than stored one.');
-  }
-  await dbUpdateLastSyncedEvent(mysql, lastEventId);
-
-  mysql.release();
 };
 
 export const fetchMinRewardBlocks = async () => {
@@ -1008,16 +1030,19 @@ export const fetchMinRewardBlocks = async () => {
 };
 
 export const fetchInitialState = async () => {
-  const mysql = await getDbConnection();
-  const lastEvent = await getLastSyncedEvent(mysql);
-  const rewardMinBlocks = await fetchMinRewardBlocks();
+  let mysql: PoolConnection | undefined;
+  try {
+    mysql = await getDbConnection();
+    const lastEvent = await getLastSyncedEvent(mysql);
+    const rewardMinBlocks = await fetchMinRewardBlocks();
 
-  mysql.release();
-
-  return {
-    lastEventId: lastEvent?.last_event_id,
-    rewardMinBlocks,
-  };
+    return {
+      lastEventId: lastEvent?.last_event_id,
+      rewardMinBlocks,
+    };
+  } finally {
+    if (mysql) mysql.release();
+  }
 };
 
 export const handleReorgStarted = async (context: Context): Promise<void> => {
@@ -1089,74 +1114,77 @@ export const handleReorgStarted = async (context: Context): Promise<void> => {
 
 export const handleTokenCreated = async (context: Context) => {
   return tracer.startActiveSpan('handleTokenCreated', async (span) => {
-    const mysql = await getDbConnection();
-    await mysql.beginTransaction();
-
+    let mysql: PoolConnection | undefined;
     try {
-      const fullNodeEvent = context.event;
-      if (!fullNodeEvent) {
-        throw new Error('No event in context');
+      mysql = await getDbConnection();
+      await mysql.beginTransaction();
+
+      try {
+        const fullNodeEvent = context.event;
+        if (!fullNodeEvent) {
+          throw new Error('No event in context');
+        }
+
+        if (fullNodeEvent.event.type !== FullNodeEventTypes.TOKEN_CREATED) {
+          throw new Error('Invalid event type for TOKEN_CREATED');
+        }
+
+        const {
+          token_uid,
+          token_name,
+          token_symbol,
+          token_version,
+          nc_exec_info,
+        } = fullNodeEvent.event.data;
+
+        span.setAttribute('token.uid', token_uid);
+
+        logger.debug(`Handling TOKEN_CREATED event for token ${token_uid}: ${token_name} (${token_symbol}) v${token_version}`);
+
+        // Store the mapping between token and the transaction that created it
+        // For regular CREATE_TOKEN_TX: nc_exec_info is null, token_uid equals tx_id
+        // For nano contract tokens: nc_exec_info.nc_tx contains the transaction hash
+        const txId = nc_exec_info?.nc_tx ?? token_uid;
+        const firstBlock = nc_exec_info?.nc_block ?? null;
+
+        /**
+         * Handle reorg scenario: first_block changed
+         *
+         * When a nano contract re-executes in a different block during a reorg,
+         * the token_id might change even though tx_id stays the same.
+         * Delete tokens with old first_block before inserting the new one.
+         */
+        const tokensWithOldBlock = await getReexecNanoTokens(mysql, txId, firstBlock);
+        if (tokensWithOldBlock.length > 0) {
+          logger.debug(`First block changed for tx ${txId}, deleting ${tokensWithOldBlock.length} tokens with old first_block`);
+          await deleteTokens(mysql, tokensWithOldBlock);
+        }
+
+        // Check if this exact token already exists
+        const existingToken = await getTokenInformation(mysql, token_uid);
+
+        if (!existingToken) {
+          // Insert the new token
+          await storeTokenInformation(mysql, token_uid, token_name, token_symbol, token_version);
+          await insertTokenCreation(mysql, token_uid, txId, firstBlock);
+          logger.debug(`Inserted new token ${token_uid} with first_block=${firstBlock}, version=${token_version}`);
+        } else {
+          logger.debug(`Token ${token_uid} already exists, skipping insertion`);
+        }
+
+        await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
+
+        await mysql.commit();
+        logger.debug(`Successfully stored token ${token_uid} created by tx ${txId}`);
+      } catch (e) {
+        try { await mysql.rollback(); } catch { /* swallow rollback error so the original is thrown */ }
+        span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
+        span.recordException(e as Error);
+        logger.error('Error handling TOKEN_CREATED event', e);
+        throw e;
       }
-
-      if (fullNodeEvent.event.type !== FullNodeEventTypes.TOKEN_CREATED) {
-        throw new Error('Invalid event type for TOKEN_CREATED');
-      }
-
-      const {
-        token_uid,
-        token_name,
-        token_symbol,
-        token_version,
-        nc_exec_info,
-      } = fullNodeEvent.event.data;
-
-      span.setAttribute('token.uid', token_uid);
-
-      logger.debug(`Handling TOKEN_CREATED event for token ${token_uid}: ${token_name} (${token_symbol}) v${token_version}`);
-
-      // Store the mapping between token and the transaction that created it
-      // For regular CREATE_TOKEN_TX: nc_exec_info is null, token_uid equals tx_id
-      // For nano contract tokens: nc_exec_info.nc_tx contains the transaction hash
-      const txId = nc_exec_info?.nc_tx ?? token_uid;
-      const firstBlock = nc_exec_info?.nc_block ?? null;
-
-      /**
-       * Handle reorg scenario: first_block changed
-       *
-       * When a nano contract re-executes in a different block during a reorg,
-       * the token_id might change even though tx_id stays the same.
-       * Delete tokens with old first_block before inserting the new one.
-       */
-      const tokensWithOldBlock = await getReexecNanoTokens(mysql, txId, firstBlock);
-      if (tokensWithOldBlock.length > 0) {
-        logger.debug(`First block changed for tx ${txId}, deleting ${tokensWithOldBlock.length} tokens with old first_block`);
-        await deleteTokens(mysql, tokensWithOldBlock);
-      }
-
-      // Check if this exact token already exists
-      const existingToken = await getTokenInformation(mysql, token_uid);
-
-      if (!existingToken) {
-        // Insert the new token
-        await storeTokenInformation(mysql, token_uid, token_name, token_symbol, token_version);
-        await insertTokenCreation(mysql, token_uid, txId, firstBlock);
-        logger.debug(`Inserted new token ${token_uid} with first_block=${firstBlock}, version=${token_version}`);
-      } else {
-        logger.debug(`Token ${token_uid} already exists, skipping insertion`);
-      }
-
-      await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
-
-      await mysql.commit();
-      logger.debug(`Successfully stored token ${token_uid} created by tx ${txId}`);
-    } catch (e) {
-      span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
-      span.recordException(e as Error);
-      logger.error('Error handling TOKEN_CREATED event', e);
-      await mysql.rollback();
-      throw e;
     } finally {
-      mysql.release();
+      if (mysql) mysql.release();
       span.end();
     }
   });
