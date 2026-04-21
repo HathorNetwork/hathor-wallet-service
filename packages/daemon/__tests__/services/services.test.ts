@@ -752,7 +752,12 @@ describe('handleVertexAccepted', () => {
   });
 
   it('should rollback on error and rethrow', async () => {
-    (getTransactionById as jest.Mock).mockRejectedValue(new Error('Test error'));
+    // getTransactionById runs BEFORE beginTransaction as a read-only duplicate check,
+    // so to exercise the rollback path we throw from a call that happens inside the
+    // transaction. getLockedUtxoFromInputs is the first DB call after beginTransaction
+    // for a non-block tx.
+    (getTransactionById as jest.Mock).mockResolvedValue(null);
+    (getLockedUtxoFromInputs as jest.Mock).mockRejectedValue(new Error('Test error'));
 
     const context = {
       rewardMinBlocks: 5,
@@ -760,9 +765,18 @@ describe('handleVertexAccepted', () => {
         event: {
           data: {
             hash: 'hashValue',
-            outputs: 'outputsValue',
-            inputs: 'inputsValue',
-            tokens: 'tokensValue',
+            metadata: { height: 1, first_block: null, voided_by: [] },
+            timestamp: 0,
+            version: 1,
+            weight: 0,
+            outputs: [],
+            inputs: [],
+            nonce: 0,
+            tokens: [],
+            token_name: null,
+            token_symbol: null,
+            parents: [],
+            headers: [],
           },
           id: 'idValue',
         },
