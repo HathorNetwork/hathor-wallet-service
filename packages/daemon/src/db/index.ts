@@ -213,7 +213,7 @@ export const getTxOutputsFromTx = async (
   mysql: any,
   txId: string,
 ): Promise<DbTxOutput[]> => {
-  const [results] = await mysql.query(
+  const [results] = await mysql.execute(
     `SELECT *
        FROM \`tx_output\`
       WHERE \`tx_id\` = ?`,
@@ -299,7 +299,7 @@ export const getTxOutput = async (
   index: number,
   skipSpent: boolean,
 ): Promise<DbTxOutput | null> => {
-  const [results] = await mysql.query<TxOutputRow[]>(
+  const [results] = await mysql.execute<TxOutputRow[]>(
     `SELECT *
        FROM \`tx_output\`
       WHERE \`tx_id\` = ?
@@ -332,7 +332,7 @@ export const getTxOutputsAtHeight = async (
   mysql: MysqlConnection,
   height: number,
 ): Promise<DbTxOutput[]> => {
-  const [results] = await mysql.query<TxOutputRow[]>(
+  const [results] = await mysql.execute<TxOutputRow[]>(
     `SELECT *
        FROM \`tx_output\`
       WHERE \`tx_id\` IN (
@@ -407,14 +407,14 @@ export const voidAddressTransaction = async (
   for (const [address, tokenMap] of Object.entries(addressBalanceMap)) {
     for (const [token, tokenBalance] of tokenMap.iterator()) {
       // Check if address_balance entry exists first
-      const [existingRows] = await mysql.query(
+      const [existingRows] = await mysql.execute(
         'SELECT * FROM address_balance WHERE address = ? AND token_id = ?',
         [address, token]
       );
 
       if (existingRows.length > 0) {
         // Entry exists, perform UPDATE to subtract values
-        await mysql.query(
+        await mysql.execute(
           `UPDATE address_balance
            SET total_received = total_received - ?,
                unlocked_balance = unlocked_balance - ?,
@@ -452,7 +452,7 @@ export const voidAddressTransaction = async (
       // an authority output in this tx without creating a new one, but it doesn't mean this address does not
       // have this authority anymore, as it might have other authority outputs
       if (!tokenBalance.unlockedAuthorities.hasNegativeValue()) {
-        await mysql.query(
+        await mysql.execute(
           `UPDATE \`address_balance\`
               SET \`unlocked_authorities\` = (
                 SELECT BIT_OR(\`authorities\`)
@@ -475,7 +475,7 @@ export const voidAddressTransaction = async (
       // If the address_balance is now zeroed and the number of transactions
       // is also zero, it means that the transaction was removed from address_tx_history
       // so we need to remove it from the `address_balance` table.
-      await mysql.query(
+      await mysql.execute(
         `DELETE FROM address_balance
           WHERE address = ?
             AND token_id = ?
@@ -491,7 +491,7 @@ export const voidAddressTransaction = async (
       if (isCreateTokenTx) {
         // The transaction that created the token was voided, so we can remove
         // it from the tokens table as well.
-        await mysql.query(
+        await mysql.execute(
           `DELETE FROM token
             WHERE id = ?`,
           [token]
@@ -500,7 +500,7 @@ export const voidAddressTransaction = async (
     }
   }
 
-  await mysql.query(
+  await mysql.execute(
     `DELETE FROM \`address_tx_history\`
       WHERE \`tx_id\` = ?`,
     [txId],
@@ -519,7 +519,7 @@ export const voidTransaction = async (
   mysql: any,
   txId: string,
 ): Promise<void> => {
-  const [result]: [ResultSetHeader] = await mysql.query(
+  const [result]: [ResultSetHeader] = await mysql.execute(
     `UPDATE \`transaction\`
         SET \`voided\` = TRUE
       WHERE \`tx_id\` = ?`,
@@ -574,7 +574,7 @@ export const voidWalletTransaction = async (
   for (const [walletId, tokenMap] of Object.entries(walletBalanceMap)) {
     for (const [token, tokenBalance] of tokenMap.iterator()) {
       // Update wallet_balance table by reversing the transaction's impact
-      await mysql.query(
+      await mysql.execute(
         `UPDATE \`wallet_balance\`
          SET total_received = total_received - ?,
              unlocked_balance = unlocked_balance - ?,
@@ -602,7 +602,7 @@ export const voidWalletTransaction = async (
       // NOTE: No need to do the same for locked authorities as they can't be
       // spent before being unlocked and we trust the fullnode
       if (!tokenBalance.unlockedAuthorities.hasNegativeValue()) {
-        await mysql.query(
+        await mysql.execute(
           `UPDATE \`wallet_balance\`
               SET \`unlocked_authorities\` = (
                 SELECT BIT_OR(\`unlocked_authorities\`)
@@ -621,7 +621,7 @@ export const voidWalletTransaction = async (
       // If the number of transactions is zero, it means that this transaction
       // was removed from the wallet_tx_history as well, so we must delete the
       // row
-      await mysql.query(
+      await mysql.execute(
         `DELETE FROM wallet_balance
           WHERE wallet_id = ?
             AND token_id = ?
@@ -637,7 +637,7 @@ export const voidWalletTransaction = async (
   }
 
   // Delete wallet transaction history entries for the voided transaction
-  await mysql.query(
+  await mysql.execute(
     `DELETE FROM \`wallet_tx_history\`
       WHERE \`tx_id\` = ?`,
     [txId],
@@ -727,7 +727,7 @@ export const updateAddressTablesWithTx = async (
       // an authority output in this tx without creating a new one, but it doesn't mean this address does not
       // have this authority anymore, as it might have other authority outputs
       if (tokenBalance.unlockedAuthorities.hasNegativeValue()) {
-        await mysql.query(
+        await mysql.execute(
           `UPDATE \`address_balance\`
               SET \`unlocked_authorities\` = (
                 SELECT BIT_OR(\`authorities\`)
@@ -772,7 +772,7 @@ export const getTransactionById = async (
   mysql: MysqlConnection,
   txId: string,
 ): Promise<DbTransaction | null> => {
-  const [result] = await mysql.query<TransactionRow[]>(`
+  const [result] = await mysql.execute<TransactionRow[]>(`
    SELECT *
      FROM transaction
     WHERE tx_id = ?
@@ -805,7 +805,7 @@ export const getUtxosLockedAtHeight = async (
 ): Promise<DbTxOutput[]> => {
   const utxos = [];
   if (height >= 0) {
-    const [results] = await mysql.query<TxOutputRow[]>(
+    const [results] = await mysql.execute<TxOutputRow[]>(
       `SELECT *
          FROM \`tx_output\`
         WHERE \`heightlock\` = ?
@@ -873,7 +873,7 @@ export const updateAddressLockedBalance = async (
 ): Promise<void> => {
   for (const [address, tokenBalanceMap] of Object.entries(addressBalanceMap)) {
     for (const [token, tokenBalance] of tokenBalanceMap.iterator()) {
-      await mysql.query(
+      await mysql.execute(
         `UPDATE \`address_balance\`
             SET \`unlocked_balance\` = \`unlocked_balance\` + ?,
                 \`locked_balance\` = \`locked_balance\` - ?,
@@ -890,7 +890,7 @@ export const updateAddressLockedBalance = async (
 
       // if any authority has been unlocked, we have to refresh the locked authorities
       if (tokenBalance.unlockedAuthorities.toInteger() > 0) {
-        await mysql.query(
+        await mysql.execute(
           `UPDATE \`address_balance\`
               SET \`locked_authorities\` = (
                 SELECT BIT_OR(\`authorities\`)
@@ -908,7 +908,7 @@ export const updateAddressLockedBalance = async (
 
       // if this is being unlocked due to a timelock, also update the timelock_expires column
       if (updateTimelocks) {
-        await mysql.query(`
+        await mysql.execute(`
           UPDATE \`address_balance\`
              SET \`timelock_expires\` = (
                SELECT MIN(\`timelock\`)
@@ -988,7 +988,7 @@ export const updateWalletLockedBalance = async (
 ): Promise<void> => {
   for (const [walletId, tokenBalanceMap] of Object.entries(walletBalanceMap)) {
     for (const [token, tokenBalance] of tokenBalanceMap.iterator()) {
-      await mysql.query(
+      await mysql.execute(
         `UPDATE \`wallet_balance\`
             SET \`unlocked_balance\` = \`unlocked_balance\` + ?,
                 \`locked_balance\` = \`locked_balance\` - ?,
@@ -1001,7 +1001,7 @@ export const updateWalletLockedBalance = async (
 
       // if any authority has been unlocked, we have to refresh the locked authorities
       if (tokenBalance.unlockedAuthorities.toInteger() > 0) {
-        await mysql.query(
+        await mysql.execute(
           `UPDATE \`wallet_balance\`
               SET \`locked_authorities\` = (
                 SELECT BIT_OR(\`locked_authorities\`)
@@ -1019,7 +1019,7 @@ export const updateWalletLockedBalance = async (
 
       // if this is being unlocked due to a timelock, also update the timelock_expires column
       if (updateTimelocks) {
-        await mysql.query(
+        await mysql.execute(
           `UPDATE \`wallet_balance\`
               SET \`timelock_expires\` = (
                 SELECT MIN(\`timelock_expires\`)
@@ -1048,7 +1048,7 @@ export const addMiner = async (
   address: string,
   txId: string,
 ): Promise<void> => {
-  await mysql.query(
+  await mysql.execute(
     `INSERT INTO \`miner\` (address, first_block, last_block, count)
      VALUES (?, ?, ?, 1)
          ON DUPLICATE KEY UPDATE last_block = ?, count = count + 1`,
@@ -1066,7 +1066,7 @@ export const addMiner = async (
 export const getMinersList = async (
   mysql: MysqlConnection,
 ): Promise<Miner[]> => {
-  const [results] = await mysql.query<MinerRow[]>(`
+  const [results] = await mysql.execute<MinerRow[]>(`
     SELECT address, first_block, last_block, count
       FROM miner;
   `);
@@ -1097,7 +1097,7 @@ export const getExpiredTimelocksUtxos = async (
   mysql: MysqlConnection,
   now: number,
 ): Promise<DbTxOutput[]> => {
-  const [results] = await mysql.query<TxOutputRow[]>(`
+  const [results] = await mysql.execute<TxOutputRow[]>(`
     SELECT *
       FROM tx_output
      WHERE locked = TRUE
@@ -1195,7 +1195,7 @@ export const getTokensCreatedByTx = async (
   mysql: MysqlConnection,
   txId: string,
 ): Promise<string[]> => {
-  const [rows] = await mysql.query<any[]>(
+  const [rows] = await mysql.execute<any[]>(
     'SELECT `token_id` FROM `token_creation` WHERE `tx_id` = ?',
     [txId],
   );
@@ -1222,7 +1222,7 @@ export const getReexecNanoTokens = async (
   txId: string,
   currentFirstBlock: string | null,
 ): Promise<string[]> => {
-  const [rows] = await mysql.query<any[]>(
+  const [rows] = await mysql.execute<any[]>(
     'SELECT `token_id` FROM `token_creation` WHERE `tx_id` = ? AND `token_id` != `tx_id` AND NOT (`first_block` <=> ?)',
     [txId, currentFirstBlock],
   );
@@ -1344,7 +1344,7 @@ export const addNewAddresses = async (
   );
 
   // Store on the wallet table the highest used index
-  await mysql.query(
+  await mysql.execute(
     `UPDATE \`wallet\`
         SET \`last_used_address_index\` = ?
       WHERE \`id\` = ?`,
@@ -1415,7 +1415,7 @@ export const updateWalletTablesWithTx = async (
         // value.
         // To do that, we get all unlocked_authorities from all addresses (querying by wallet and token_id) and
         // bitwise OR them with each other.
-        await mysql.query(
+        await mysql.execute(
           `UPDATE \`wallet_balance\`
               SET \`unlocked_authorities\` = (
                 SELECT BIT_OR(\`unlocked_authorities\`)
@@ -1523,7 +1523,7 @@ export const getUtxosSpentByTx = async (
   mysql: MysqlConnection,
   spendingTxId: string,
 ): Promise<DbTxOutput[]> => {
-  const [results] = await mysql.query<TxOutputRow[]>(
+  const [results] = await mysql.execute<TxOutputRow[]>(
     `SELECT *
      FROM \`tx_output\`
      WHERE \`spent_by\` = ?`,
@@ -1580,7 +1580,7 @@ export const updateLastSyncedEvent = async (
   mysql: MysqlConnection,
   lastEventId: number,
 ): Promise<void> => {
-  await mysql.query(`
+  await mysql.execute(`
      INSERT INTO \`sync_metadata\` (\`id\`, \`last_event_id\`)
           VALUES (0, ?)
 ON DUPLICATE KEY
@@ -1591,7 +1591,7 @@ ON DUPLICATE KEY
 export const getLastSyncedEvent = async (
   mysql: MysqlConnection,
 ): Promise<LastSyncedEvent | null> => {
-  const [results] = await mysql.query<LastSyncedEventRow[]>(
+  const [results] = await mysql.execute<LastSyncedEventRow[]>(
     `SELECT * FROM \`sync_metadata\` LIMIT 1`,
     [],
   );
@@ -1612,7 +1612,7 @@ export const getLastSyncedEvent = async (
 export const getBestBlockHeight = async (
   mysql: MysqlConnection,
 ): Promise<number> => {
-  const [results] = await mysql.query<BestBlockRow[]>(
+  const [results] = await mysql.execute<BestBlockRow[]>(
     `SELECT MAX(height) AS height
        FROM \`transaction\`
       LIMIT 1`,
@@ -1697,7 +1697,7 @@ export const getTxOutputsHeightUnlockedAtHeight = async (
   mysql: MysqlConnection,
   height: number,
 ): Promise<DbTxOutput[]> => {
-  const [results] = await mysql.query<TxOutputRow[]>(
+  const [results] = await mysql.execute<TxOutputRow[]>(
     `SELECT *
        FROM \`tx_output\`
       WHERE \`heightlock\` = ?
@@ -1738,7 +1738,7 @@ export const getTokenInformation = async (
   mysql: MysqlConnection,
   tokenId: string,
 ): Promise<TokenInfo | null> => {
-  const [results] = await mysql.query<TokenInformationRow[]>(
+  const [results] = await mysql.execute<TokenInformationRow[]>(
     'SELECT * FROM `token` WHERE `id` = ?',
     [tokenId],
   );
@@ -1765,28 +1765,28 @@ export const getTokenInformation = async (
  * @param txId - The transaction to clear from database
  */
 export const cleanupVoidedTx = async (mysql: MysqlConnection, txId: string): Promise<void> => {
-  await mysql.query(
+  await mysql.execute(
     `DELETE FROM \`transaction\`
       WHERE tx_id = ?
         AND voided = true`,
     [txId],
   );
 
-  await mysql.query(
+  await mysql.execute(
     `DELETE FROM \`tx_output\`
       WHERE tx_id = ?
         AND voided = true`,
     [txId],
   );
 
-  await mysql.query(
+  await mysql.execute(
     `DELETE FROM \`address_tx_history\`
       WHERE tx_id = ?
         AND voided = true`,
     [txId],
   );
 
-  await mysql.query(
+  await mysql.execute(
     `DELETE FROM \`wallet_tx_history\`
       WHERE tx_id = ?
         AND voided = true`,
@@ -1812,7 +1812,7 @@ export const clearTxProposalForVoidedTx = async (
   const whereClauses = txInputs.map(() => '(tx_id = ? AND `index` = ?)').join(' OR ');
   const params = txInputs.flatMap(input => [input.tx_id, input.index]);
 
-  await mysql.query(
+  await mysql.execute(
     `UPDATE \`tx_output\`
         SET \`tx_proposal\` = NULL,
             \`tx_proposal_index\` = NULL
@@ -1913,7 +1913,7 @@ export const getMaxIndicesForWallets = async (
  * @returns Address information if address is known or null
  */
 export async function getAddressInfo(mysql: MysqlConnection, address: string): Promise<AddressRow | null> {
-  const [results] = await mysql.query<AddressRow[]>(
+  const [results] = await mysql.execute<AddressRow[]>(
     'SELECT * FROM address WHERE address = ?', [address],
   );
 
