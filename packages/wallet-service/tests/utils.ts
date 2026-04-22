@@ -11,7 +11,7 @@ import {
   FullNodeApiVersionResponse,
 } from '@src/types';
 import { TxInput } from '@wallet-service/common/src/types';
-import { getWalletId } from '@src/utils';
+import { getUnixTimestamp, getWalletId } from '@src/utils';
 import { addressUtils, walletUtils, Network, network, HathorWalletServiceWallet } from '@hathor/wallet-lib';
 import {
   AddressTxHistoryTableEntry,
@@ -898,8 +898,7 @@ export const seedFullnodeVersionData = async (
   mysql: ServerlessMysql,
   overrides: Partial<FullNodeApiVersionResponse> = {},
 ): Promise<void> => {
-  const timestamp = Math.floor(Date.now() / 1000);
-  await addToVersionDataTable(mysql, timestamp, { ...DEFAULT_TEST_VERSION_DATA, ...overrides });
+  await addToVersionDataTable(mysql, getUnixTimestamp(), { ...DEFAULT_TEST_VERSION_DATA, ...overrides });
 };
 
 export const checkVersionDataTable = async (mysql: ServerlessMysql, versionData: FullNodeApiVersionResponse): Promise<boolean | Record<string, unknown>> => {

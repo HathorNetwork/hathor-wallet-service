@@ -26,6 +26,18 @@ const ALLOWED_HOSTS = new Set<string>([]);
 
 type RequestArg = string | URL | http.RequestOptions;
 
+const normalizeHost = (host: string | undefined): string => {
+  if (!host) return '<unknown>';
+  // `host` may include a port (e.g. `localhost:3000`) and IPv6 forms may be
+  // bracketed (e.g. `[::1]:3000`). Let URL parsing strip both consistently —
+  // ALLOWED_HOSTS is keyed by hostname only.
+  try {
+    return new URL(`http://${host}`).hostname;
+  } catch {
+    return host;
+  }
+};
+
 const extractHostname = (arg: RequestArg | undefined): string => {
   if (!arg) return '<unknown>';
   if (typeof arg === 'string') {
@@ -36,7 +48,7 @@ const extractHostname = (arg: RequestArg | undefined): string => {
     }
   }
   if (arg instanceof URL) return arg.hostname;
-  return arg.hostname || arg.host || '<unknown>';
+  return arg.hostname || normalizeHost(arg.host);
 };
 
 const describeRequest = (protocol: 'http' | 'https', arg: RequestArg | undefined): string => {
@@ -65,5 +77,23 @@ const blockRequest = (protocol: 'http' | 'https', originalRequest: typeof http.r
   }
 );
 
-http.request = blockRequest('http', http.request) as typeof http.request;
-https.request = blockRequest('https', https.request) as typeof https.request;
+// Node's `http.get` / `https.get` keep an internal reference to the original
+// `http.request`, so patching only `request` would leave `get` as a bypass.
+// Delegate `get` through the patched `request` and call `.end()` ourselves to
+// preserve the stock `get()` behavior for any allow-listed host.
+const blockGet = (blockedRequest: typeof http.request) => (
+  (...args: unknown[]) => {
+    // @ts-ignore - passthrough to wrapped request overloads
+    const req = blockedRequest(...args);
+    req.end();
+    return req;
+  }
+);
+
+const blockedHttpRequest = blockRequest('http', http.request) as typeof http.request;
+const blockedHttpsRequest = blockRequest('https', https.request) as typeof https.request;
+
+http.request = blockedHttpRequest;
+https.request = blockedHttpsRequest;
+http.get = blockGet(blockedHttpRequest) as typeof http.get;
+https.get = blockGet(blockedHttpsRequest) as typeof https.get;
