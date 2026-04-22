@@ -56,6 +56,7 @@ describe('MonitoringActor', () => {
     config['RECONNECTION_STORM_WINDOW_MS'] = 5 * 60 * 1000; // 5 min
     config['BALANCE_VALIDATION_ENABLED'] = false;
     config['BALANCE_VALIDATION_INTERVAL_MS'] = 5000;
+    config['BALANCE_VALIDATION_SAMPLE_LIMIT'] = 100;
 
     mockCallback = jest.fn();
     mockReceive = jest.fn().mockImplementation((cb: any) => {
@@ -473,6 +474,36 @@ describe('MonitoringActor', () => {
 
       expect(mockLoggerError).toHaveBeenCalledWith(
         expect.stringContaining('Balance validation error'),
+      );
+    });
+
+    it('should refuse to schedule validation when interval is NaN', () => {
+      config['BALANCE_VALIDATION_ENABLED'] = true;
+      config['BALANCE_VALIDATION_INTERVAL_MS'] = NaN;
+      const mockLoggerError = jest.spyOn(logger, 'error');
+
+      MonitoringActor(mockCallback, mockReceive, config);
+      sendEvent('CONNECTED');
+
+      // Only the idle-check interval should fire; the validation interval
+      // must NOT be scheduled because the config is invalid.
+      expect(setInterval).toHaveBeenCalledTimes(1);
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.stringContaining('BALANCE_VALIDATION_INTERVAL_MS=NaN is invalid'),
+      );
+    });
+
+    it('should refuse to schedule validation when interval is below the minimum', () => {
+      config['BALANCE_VALIDATION_ENABLED'] = true;
+      config['BALANCE_VALIDATION_INTERVAL_MS'] = 10; // below the 1000ms floor
+      const mockLoggerError = jest.spyOn(logger, 'error');
+
+      MonitoringActor(mockCallback, mockReceive, config);
+      sendEvent('CONNECTED');
+
+      expect(setInterval).toHaveBeenCalledTimes(1);
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.stringContaining('is invalid'),
       );
     });
   });

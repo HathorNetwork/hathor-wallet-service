@@ -164,14 +164,27 @@ export default (callback: any, receive: any, config = getConfig()) => {
   // statement = one read view). The query is bounded by LIMIT so a catastrophic
   // mismatch produces a sample, not a megabyte of payload.
   //
+  // Cost caveat: LIMIT bounds *result rows*, not execution cost. The LEFT JOIN
+  // + GROUP BY still scans every `address_balance` row and joins against
+  // `address_tx_history` on each tick. Operators should EXPLAIN this query
+  // against production-sized data before enabling — see the follow-up issue
+  // tracked for cursor-based batching if the scan cost is prohibitive.
+  //
+  // The `transactions > 0` filter is intentionally omitted: a row with
+  // `transactions = 0` AND non-zero balance is itself a bug (the void cleanup
+  // should have deleted it), and we want the validator to surface that.
+  // Genuinely-empty rows (transactions=0, balance=0) match `historySum=0`
+  // via the COALESCE and are filtered out by HAVING.
+  //
   // If a run exceeds the interval the in-flight guard skips the next tick
   // rather than overlapping. DISCONNECTED clears the timer; an in-flight
   // SELECT runs to completion and releases its connection — harmless.
   //
-  // Sample size note: 100 is intentional. Any non-zero count means we'll dive
-  // into the data with our own queries anyway; the alert just needs to prove
-  // something is wrong and give a representative starting point.
-  const BALANCE_VALIDATION_SAMPLE_LIMIT = 100;
+  // Sample limit is configurable via BALANCE_VALIDATION_SAMPLE_LIMIT (default
+  // 100). Any non-zero count means operators will dive into the data with
+  // their own queries anyway; the alert just needs to prove something is
+  // wrong and give a representative starting point.
+  const sampleLimit = config.BALANCE_VALIDATION_SAMPLE_LIMIT;
   const BALANCE_VALIDATION_SQL = `
     SELECT
         ab.address,
@@ -183,10 +196,9 @@ export default (callback: any, receive: any, config = getConfig()) => {
            ON h.address  = ab.address
           AND h.token_id = ab.token_id
           AND h.voided   = FALSE
-    WHERE ab.transactions > 0
     GROUP BY ab.address, ab.token_id
     HAVING balanceSum != historySum
-    LIMIT ${BALANCE_VALIDATION_SAMPLE_LIMIT}
+    LIMIT ${sampleLimit}
   `;
 
   let balanceValidationTimer: ReturnType<typeof setInterval> | null = null;
@@ -202,8 +214,8 @@ export default (callback: any, receive: any, config = getConfig()) => {
       const samples = rows as any[];
 
       if (samples.length > 0) {
-        const truncated = samples.length === BALANCE_VALIDATION_SAMPLE_LIMIT;
-        const countLabel = truncated ? `${BALANCE_VALIDATION_SAMPLE_LIMIT}+` : String(samples.length);
+        const truncated = samples.length === sampleLimit;
+        const countLabel = truncated ? `${sampleLimit}+` : String(samples.length);
         logger.error(`[monitoring] Balance validation found ${countLabel} mismatch(es)`, { samples });
         await addAlert(
           'Balance validation found mismatches',
@@ -216,21 +228,44 @@ export default (callback: any, receive: any, config = getConfig()) => {
         logger.info('[monitoring] Balance validation complete, no mismatches found');
       }
     } catch (err) {
-      logger.error(`[monitoring] Balance validation error: ${err}`);
+      const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
+      logger.error(`[monitoring] Balance validation error: ${detail}`);
     } finally {
       if (mysql) {
         try {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (mysql as any).release();
         } catch (releaseErr) {
-          logger.warn(`[monitoring] Balance validation: connection release failed: ${releaseErr}`);
+          const detail = releaseErr instanceof Error
+            ? (releaseErr.stack ?? releaseErr.message)
+            : String(releaseErr);
+          logger.warn(`[monitoring] Balance validation: connection release failed: ${detail}`);
         }
       }
     }
   };
 
+  // Minimum tick interval. Below this, we'd hammer the DB faster than a
+  // validation run can reasonably complete and risk cascading overruns.
+  const MIN_BALANCE_VALIDATION_INTERVAL_MS = 1000;
+
   const startBalanceValidation = () => {
     if (!config.BALANCE_VALIDATION_ENABLED) return;
+
+    const intervalMs = config.BALANCE_VALIDATION_INTERVAL_MS;
+    // Guard against misconfig: parseInt('abc') yields NaN, and setInterval(fn, NaN)
+    // behaves like delay=0 — a tight loop hammering the DB. Fail loud and stay
+    // disabled rather than silently substitute a default; operators should see
+    // this and fix the env var.
+    if (!Number.isFinite(intervalMs) || intervalMs < MIN_BALANCE_VALIDATION_INTERVAL_MS) {
+      logger.error(
+        `[monitoring] BALANCE_VALIDATION_INTERVAL_MS=${intervalMs} is invalid `
+        + `(must be a finite number >= ${MIN_BALANCE_VALIDATION_INTERVAL_MS}). `
+        + 'Scheduled balance validation will NOT run this session.',
+      );
+      return;
+    }
+
     stopBalanceValidation();
 
     logger.info('[monitoring] Starting scheduled balance validation');
@@ -242,7 +277,7 @@ export default (callback: any, receive: any, config = getConfig()) => {
       } finally {
         isValidating = false;
       }
-    }, config.BALANCE_VALIDATION_INTERVAL_MS);
+    }, intervalMs);
   };
 
   const stopBalanceValidation = () => {
