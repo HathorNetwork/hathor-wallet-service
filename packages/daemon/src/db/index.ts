@@ -108,8 +108,7 @@ function buildBatchCaseUpdate<T>(
   params.push(keyPairs);
 
   const sql = `UPDATE ${table}${alias} SET
-    ${setClauses.join(',\n    ')},
-    ${colPrefix}\`transactions\` = ${colPrefix}\`transactions\` - 1
+    ${setClauses.join(',\n    ')}
     WHERE (${colPrefix}${key1}, ${colPrefix}${key2}) IN (?)`;
 
   return { sql, params };
@@ -328,10 +327,14 @@ export const getTxOutputs = async (
 ): Promise<DbTxOutput[]> => {
   if (inputs.length <= 0) return [];
   const txIdIndexPair = inputs.map((utxo) => [utxo.txId, utxo.index]);
+  // `voided = FALSE` matches the semantics of the per-input `getTxOutput` this
+  // function replaced on the unspend-inputs path. Without it, `voidTx` could
+  // clear `spent_by` on rows that are already voided.
   const [results] = await mysql.query(
     `SELECT *
        FROM \`tx_output\`
-      WHERE (\`tx_id\`, \`index\`) IN (?)`,
+      WHERE (\`tx_id\`, \`index\`) IN (?)
+        AND \`voided\` = FALSE`,
     [txIdIndexPair],
   );
 
@@ -512,13 +515,30 @@ export const voidAddressTransaction = async (
       { column: '`unlocked_authorities`', op: 'bitor', getValue: (p) => p.balance.unlockedAuthorities.toUnsignedInteger() },
       // locked_authorities: OR only, no recalculation needed — locked authorities can't be spent before unlocking
       { column: '`locked_authorities`', op: 'bitor', getValue: (p) => p.balance.lockedAuthorities.toUnsignedInteger() },
+      // Decrement transactions by 1 for each voided (address, token) pair.
+      { column: '`transactions`', op: 'subtract', getValue: () => 1 },
     ],
   );
 
   const [updateResult]: [ResultSetHeader] = await mysql.query(updateSql, updateParams);
 
   if (updateResult.affectedRows < pairs.length) {
-    console.warn(`warning: Voiding transaction ${txId}: updated ${updateResult.affectedRows} address_balance rows but expected ${pairs.length}`);
+    // Each pair in `pairs` corresponds to an (address, token) whose balance
+    // row should exist — it was created when the tx was originally indexed.
+    // If we update fewer rows than expected, those rows were already gone:
+    //   - sync inconsistency (the original add was never applied), or
+    //   - the tx was already partially voided (duplicate / out-of-order event).
+    // Log the count and a truncated sample of the pairs checked so operators
+    // can diagnose without flooding logs on large txs.
+    const SAMPLE_LIMIT = 10;
+    const sample = pairs.slice(0, SAMPLE_LIMIT).map(getAddrKeys);
+    const truncated = pairs.length > SAMPLE_LIMIT ? ` (+${pairs.length - SAMPLE_LIMIT} more)` : '';
+    console.warn(
+      `[voidAddressTransaction] tx ${txId}: updated ${updateResult.affectedRows}/${pairs.length} address_balance rows. `
+      + 'This usually indicates a data inconsistency — the balance row was never added, '
+      + 'or the tx was already (partially) voided. '
+      + `Pairs checked: ${JSON.stringify(sample)}${truncated}`,
+    );
   }
 
   // Recalculate unlocked_authorities from tx_output for pairs that need it
@@ -650,7 +670,9 @@ export const voidWalletTransaction = async (
         { column: '`locked_balance`', op: 'subtract', getValue: (p) => p.balance.lockedAmount },
         { column: '`unlocked_authorities`', op: 'bitor', getValue: (p) => p.balance.unlockedAuthorities.toUnsignedInteger() },
         // locked_authorities: OR only, no recalculation needed — locked authorities can't be spent before unlocking
-      { column: '`locked_authorities`', op: 'bitor', getValue: (p) => p.balance.lockedAuthorities.toUnsignedInteger() },
+        { column: '`locked_authorities`', op: 'bitor', getValue: (p) => p.balance.lockedAuthorities.toUnsignedInteger() },
+        // Decrement transactions by 1 for each voided (wallet, token) pair.
+        { column: '`transactions`', op: 'subtract', getValue: () => 1 },
       ],
     );
 

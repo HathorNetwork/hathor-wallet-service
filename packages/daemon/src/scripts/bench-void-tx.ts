@@ -82,7 +82,7 @@ import { EventTxInput, EventTxOutput } from '../types';
 // -------------------------------------------------------------------
 function parseArgs() {
   const args = process.argv.slice(2);
-  const opts = { inputs: 200, pairs: 200, runs: 10, label: 'run', warmup: 1 };
+  const opts = { inputs: 200, pairs: 200, runs: 10, label: 'run', warmup: 1, dangerouslyResetDb: false };
   for (let i = 0; i < args.length; i++) {
     const [k, v] = [args[i], args[i + 1]];
     if (k === '--inputs') { opts.inputs = parseInt(v, 10); i++; }
@@ -90,8 +90,27 @@ function parseArgs() {
     else if (k === '--runs') { opts.runs = parseInt(v, 10); i++; }
     else if (k === '--label') { opts.label = v; i++; }
     else if (k === '--warmup') { opts.warmup = parseInt(v, 10); i++; }
+    else if (k === '--dangerously-reset-db') { opts.dangerouslyResetDb = true; }
   }
   return opts;
+}
+
+/**
+ * This harness runs `DELETE FROM` on every core table between iterations.
+ * Guard against pointing it at anything other than a throwaway local database:
+ * require an explicit opt-in flag AND reject any DB_ENDPOINT that isn't local
+ * (localhost / 127.0.0.1 / host.docker.internal).
+ */
+function assertSafeToResetDb() {
+  const endpoint = (process.env.DB_ENDPOINT || 'localhost').toLowerCase();
+  const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', 'host.docker.internal']);
+  if (!LOCAL_HOSTS.has(endpoint)) {
+    throw new Error(
+      `[bench] Refusing to reset DB: DB_ENDPOINT='${endpoint}' is not a recognized local host. `
+      + 'This script issues DELETE FROM on every core table — it is only safe against a throwaway '
+      + `local DB. Recognized local hosts: ${[...LOCAL_HOSTS].join(', ')}.`,
+    );
+  }
 }
 
 // -------------------------------------------------------------------
@@ -314,6 +333,14 @@ function stats(values: number[]) {
 // -------------------------------------------------------------------
 async function main() {
   const opts = parseArgs();
+  if (!opts.dangerouslyResetDb) {
+    throw new Error(
+      '[bench] This harness issues DELETE FROM on every core table between runs. '
+      + 'Re-run with --dangerously-reset-db to opt in. Never run it against a DB '
+      + 'that holds data you care about.',
+    );
+  }
+  assertSafeToResetDb();
   console.log(`[bench] label=${opts.label} inputs=${opts.inputs} pairs=${opts.pairs} runs=${opts.runs} warmup=${opts.warmup}`);
 
   const runs: Array<{
