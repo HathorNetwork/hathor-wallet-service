@@ -105,7 +105,9 @@ describe('transaction methods', () => {
     await addOrUpdateTx(mysql, 'txId1', null, 1, 1, 65.4321);
     const tx = await getTransactionById(mysql, 'txId1');
 
-    expect(tx?.weight).toStrictEqual(65.4321);
+    // `weight` is stored as FLOAT (32-bit); prepared statements return the
+    // true binary value rather than the text-protocol's rounded display.
+    expect(tx?.weight).toBeCloseTo(65.4321, 4);
   });
 
   test('db which is not on our database should return null', async () => {
