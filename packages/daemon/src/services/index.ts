@@ -584,7 +584,17 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
         await mysql.commit();
       } catch (e) {
-        try { await mysql.rollback(); } catch { /* swallow rollback error so the original is thrown */ }
+        try {
+          await mysql.rollback();
+        } catch (rollbackErr) {
+          // Rollback itself failed — the connection may still have an open
+          // transaction. Destroy it and null out the handle so the outer
+          // finally skips release(); otherwise the connection would go back
+          // to the pool with a pending BEGIN and contaminate the next caller.
+          logger.error('[ERROR] Rollback failed; destroying connection to avoid pool contamination', rollbackErr);
+          try { mysql.destroy(); } catch { /* ignore */ }
+          mysql = undefined;
+        }
         throw e;
       }
     } catch (e) {
@@ -646,7 +656,17 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
         await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
         await mysql.commit();
       } catch (e) {
-        try { await mysql.rollback(); } catch { /* swallow rollback error so the original is thrown */ }
+        try {
+          await mysql.rollback();
+        } catch (rollbackErr) {
+          // Rollback itself failed — the connection may still have an open
+          // transaction. Destroy it and null out the handle so the outer
+          // finally skips release(); otherwise the connection would go back
+          // to the pool with a pending BEGIN and contaminate the next caller.
+          logger.error('[ERROR] Rollback failed; destroying connection to avoid pool contamination', rollbackErr);
+          try { mysql.destroy(); } catch { /* ignore */ }
+          mysql = undefined;
+        }
         span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
         span.recordException(e as Error);
         logger.debug(e);
@@ -840,7 +860,17 @@ export const handleVoidedTx = async (context: Context) => {
         await mysql.commit();
         await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
       } catch (e) {
-        try { await mysql.rollback(); } catch { /* swallow rollback error so the original is thrown */ }
+        try {
+          await mysql.rollback();
+        } catch (rollbackErr) {
+          // Rollback itself failed — the connection may still have an open
+          // transaction. Destroy it and null out the handle so the outer
+          // finally skips release(); otherwise the connection would go back
+          // to the pool with a pending BEGIN and contaminate the next caller.
+          logger.error('[ERROR] Rollback failed; destroying connection to avoid pool contamination', rollbackErr);
+          try { mysql.destroy(); } catch { /* ignore */ }
+          mysql = undefined;
+        }
         span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
         span.recordException(e as Error);
         logger.debug(e);
@@ -875,7 +905,17 @@ export const handleUnvoidedTx = async (context: Context) => {
 
         await mysql.commit();
       } catch (e) {
-        try { await mysql.rollback(); } catch { /* swallow rollback error so the original is thrown */ }
+        try {
+          await mysql.rollback();
+        } catch (rollbackErr) {
+          // Rollback itself failed — the connection may still have an open
+          // transaction. Destroy it and null out the handle so the outer
+          // finally skips release(); otherwise the connection would go back
+          // to the pool with a pending BEGIN and contaminate the next caller.
+          logger.error('[ERROR] Rollback failed; destroying connection to avoid pool contamination', rollbackErr);
+          try { mysql.destroy(); } catch { /* ignore */ }
+          mysql = undefined;
+        }
         span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
         span.recordException(e as Error);
         logger.debug(e);
@@ -923,7 +963,17 @@ export const handleTxFirstBlock = async (context: Context) => {
 
         await mysql.commit();
       } catch (e) {
-        try { await mysql.rollback(); } catch { /* swallow rollback error so the original is thrown */ }
+        try {
+          await mysql.rollback();
+        } catch (rollbackErr) {
+          // Rollback itself failed — the connection may still have an open
+          // transaction. Destroy it and null out the handle so the outer
+          // finally skips release(); otherwise the connection would go back
+          // to the pool with a pending BEGIN and contaminate the next caller.
+          logger.error('[ERROR] Rollback failed; destroying connection to avoid pool contamination', rollbackErr);
+          try { mysql.destroy(); } catch { /* ignore */ }
+          mysql = undefined;
+        }
         span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
         span.recordException(e as Error);
         logger.error('E: ', e);
@@ -978,7 +1028,17 @@ export const handleNcExecVoided = async (context: Context) => {
         await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
         await mysql.commit();
       } catch (e) {
-        try { await mysql.rollback(); } catch { /* swallow rollback error so the original is thrown */ }
+        try {
+          await mysql.rollback();
+        } catch (rollbackErr) {
+          // Rollback itself failed — the connection may still have an open
+          // transaction. Destroy it and null out the handle so the outer
+          // finally skips release(); otherwise the connection would go back
+          // to the pool with a pending BEGIN and contaminate the next caller.
+          logger.error('[ERROR] Rollback failed; destroying connection to avoid pool contamination', rollbackErr);
+          try { mysql.destroy(); } catch { /* ignore */ }
+          mysql = undefined;
+        }
         span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
         span.recordException(e as Error);
         logger.error('handleNcExecVoided error: ', e);
@@ -1036,19 +1096,22 @@ export const fetchMinRewardBlocks = async () => {
 };
 
 export const fetchInitialState = async () => {
-  let mysql: PoolConnection | undefined;
+  // Release the pooled DB connection before the HTTP call to the fullnode
+  // so a slow fullnode response doesn't pin a pool slot while we wait.
+  let lastEvent: LastSyncedEvent | null;
+  const mysql = await getDbConnection();
   try {
-    mysql = await getDbConnection();
-    const lastEvent = await getLastSyncedEvent(mysql);
-    const rewardMinBlocks = await fetchMinRewardBlocks();
-
-    return {
-      lastEventId: lastEvent?.last_event_id,
-      rewardMinBlocks,
-    };
+    lastEvent = await getLastSyncedEvent(mysql);
   } finally {
-    if (mysql) mysql.release();
+    mysql.release();
   }
+
+  const rewardMinBlocks = await fetchMinRewardBlocks();
+
+  return {
+    lastEventId: lastEvent?.last_event_id,
+    rewardMinBlocks,
+  };
 };
 
 export const handleReorgStarted = async (context: Context): Promise<void> => {
@@ -1183,7 +1246,17 @@ export const handleTokenCreated = async (context: Context) => {
         await mysql.commit();
         logger.debug(`Successfully stored token ${token_uid} created by tx ${txId}`);
       } catch (e) {
-        try { await mysql.rollback(); } catch { /* swallow rollback error so the original is thrown */ }
+        try {
+          await mysql.rollback();
+        } catch (rollbackErr) {
+          // Rollback itself failed — the connection may still have an open
+          // transaction. Destroy it and null out the handle so the outer
+          // finally skips release(); otherwise the connection would go back
+          // to the pool with a pending BEGIN and contaminate the next caller.
+          logger.error('[ERROR] Rollback failed; destroying connection to avoid pool contamination', rollbackErr);
+          try { mysql.destroy(); } catch { /* ignore */ }
+          mysql = undefined;
+        }
         span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
         span.recordException(e as Error);
         logger.error('Error handling TOKEN_CREATED event', e);
