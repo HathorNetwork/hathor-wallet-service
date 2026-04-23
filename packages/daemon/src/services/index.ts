@@ -1094,22 +1094,19 @@ export const fetchMinRewardBlocks = async () => {
 };
 
 export const fetchInitialState = async () => {
-  // Release the pooled DB connection before the HTTP call to the fullnode
-  // so a slow fullnode response doesn't pin a pool slot while we wait.
-  let lastEvent: LastSyncedEvent | null;
-  const mysql = await getDbConnection();
+  let mysql: PoolConnection | undefined;
   try {
-    lastEvent = await getLastSyncedEvent(mysql);
+    mysql = await getDbConnection();
+    const lastEvent = await getLastSyncedEvent(mysql);
+    const rewardMinBlocks = await fetchMinRewardBlocks();
+
+    return {
+      lastEventId: lastEvent?.last_event_id,
+      rewardMinBlocks,
+    };
   } finally {
-    mysql.release();
+    if (mysql) mysql.release();
   }
-
-  const rewardMinBlocks = await fetchMinRewardBlocks();
-
-  return {
-    lastEventId: lastEvent?.last_event_id,
-    rewardMinBlocks,
-  };
 };
 
 export const handleReorgStarted = async (context: Context): Promise<void> => {
