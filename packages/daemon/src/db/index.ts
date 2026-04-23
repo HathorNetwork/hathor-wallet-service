@@ -944,12 +944,14 @@ export const getAddressWalletInfo = async (mysql: MysqlConnection, addresses: st
   }
 
   const addressWalletMap: StringMap<Wallet> = {};
+  // `address.address` is a unique key, so DISTINCT is redundant — it would
+  // only force MySQL to add a sort/dedup step on top of the join result.
   const [results, _] = await mysql.query<AddressesWalletsRow[]>(
-    `SELECT DISTINCT a.\`address\`,
-                     a.\`wallet_id\`,
-                     w.\`auth_xpubkey\`,
-                     w.\`xpubkey\`,
-                     w.\`max_gap\`
+    `SELECT a.\`address\`,
+            a.\`wallet_id\`,
+            w.\`auth_xpubkey\`,
+            w.\`xpubkey\`,
+            w.\`max_gap\`
        FROM \`address\` a
  INNER JOIN \`wallet\` w
          ON a.wallet_id = w.id
