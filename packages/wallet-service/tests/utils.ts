@@ -869,8 +869,12 @@ export const addToVersionDataTable = async (mysql: ServerlessMysql, timestamp: n
  * a handler which calls `getFullnodeData` (e.g. txProposalCreate, GET /version)
  * must seed this row — otherwise `fullnode.version()` would try to make a real
  * HTTP request to the fullnode. Use `seedFullnodeVersionData` below.
+ *
+ * Returned as a function so `process.env.NETWORK` is read at call time rather
+ * than at module load — tests that mutate the env before calling
+ * `seedFullnodeVersionData` see their value reflected in the seed.
  */
-export const DEFAULT_TEST_VERSION_DATA: FullNodeApiVersionResponse = {
+export const defaultTestVersionData = (): FullNodeApiVersionResponse => ({
   version: '0.38.0',
   network: process.env.NETWORK ?? 'mainnet',
   min_weight: 14,
@@ -887,7 +891,7 @@ export const DEFAULT_TEST_VERSION_DATA: FullNodeApiVersionResponse = {
   genesis_tx1_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
   genesis_tx2_hash: 'cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe',
   native_token: { name: 'Hathor', symbol: 'HTR' },
-};
+});
 
 /**
  * Seeds the `version_data` table with sensible defaults so that
@@ -898,7 +902,7 @@ export const seedFullnodeVersionData = async (
   mysql: ServerlessMysql,
   overrides: Partial<FullNodeApiVersionResponse> = {},
 ): Promise<void> => {
-  await addToVersionDataTable(mysql, getUnixTimestamp(), { ...DEFAULT_TEST_VERSION_DATA, ...overrides });
+  await addToVersionDataTable(mysql, getUnixTimestamp(), { ...defaultTestVersionData(), ...overrides });
 };
 
 export const checkVersionDataTable = async (mysql: ServerlessMysql, versionData: FullNodeApiVersionResponse): Promise<boolean | Record<string, unknown>> => {
