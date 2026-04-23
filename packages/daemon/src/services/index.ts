@@ -493,10 +493,8 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
             const { maxAmongAddresses, maxWalletIndex } = indices;
 
-            if (maxAmongAddresses == null || maxWalletIndex == null) {
-              // Indices missing — wallet most likely not loaded yet. Using
-              // `== null` (not `!value`) because address index 0 is valid:
-              // it's the first derived address.
+            if (!maxAmongAddresses || !maxWalletIndex) {
+              // Do nothing, wallet is most likely not loaded yet.
               if (walletDetails.status === WalletStatus.READY) {
                 logger.error('[ERROR] A wallet marked as READY does not have a max wallet index or address index was not found in the database');
               }
