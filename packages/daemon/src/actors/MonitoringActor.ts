@@ -183,15 +183,16 @@ export default (callback: any, receive: any, config = getConfig()) => {
   //   multi-second per-address cost even when only a handful of addresses
   //   updated in the window.
   //
-  //   Mitigation (separate migration): add a covering index
-  //   `(address, voided, token_id, balance)` to address_tx_history so the
-  //   aggregate becomes index-only. Until that ships, keep
-  //   BALANCE_VALIDATION_ENABLED=false in prod.
+  //   Because of this, `BALANCE_VALIDATION_ENABLED` is intended to stay
+  //   `false` in production. The actor + query are here for ad-hoc / on-demand
+  //   runs (local, testnet, or triggered manually), not for a scheduled
+  //   in-production job. See #404 for the covering-index perf improvement that
+  //   makes ad-hoc runs faster; it is not a prerequisite for "enabling" this
+  //   feature, because enabling isn't planned.
   //
   //   Long tail — slow drift on cold rows (balance changed long ago and the
-  //   row never touched since) goes undetected by this scheduled validator.
-  //   A separate once-a-week/month full-table sweep is the right mechanism
-  //   for that; out of scope for the scheduled job.
+  //   row never touched since) goes undetected by this validator. A separate
+  //   full-table sweep is the right mechanism for that; out of scope.
   //
   // The `transactions > 0` filter is intentionally omitted: a row with
   // `transactions = 0` AND non-zero balance is itself a bug (the void cleanup
