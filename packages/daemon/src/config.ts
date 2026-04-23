@@ -103,9 +103,12 @@ export const USE_SSL = process.env.USE_SSL === 'true';
 // Scheduled balance validation configuration
 export const BALANCE_VALIDATION_ENABLED = process.env.BALANCE_VALIDATION_ENABLED === 'true';
 export const BALANCE_VALIDATION_INTERVAL_MS = parseInt(process.env.BALANCE_VALIDATION_INTERVAL_MS ?? '600000', 10);  // 10 minutes
+// Lookback window for recently-changed address_balance rows. Should be >= the
+// tick interval so no row slips between ticks if one runs late. Default is
+// interval + 50% slack.
+export const BALANCE_VALIDATION_WINDOW_MS = parseInt(process.env.BALANCE_VALIDATION_WINDOW_MS ?? '900000', 10);  // 15 minutes
 // Max mismatch rows surfaced per tick. LIMIT bounds the alert payload size;
-// it does NOT reduce query execution cost (the LEFT JOIN + GROUP BY still
-// scans address_balance + address_tx_history per tick).
+// does NOT reduce query execution cost.
 export const BALANCE_VALIDATION_SAMPLE_LIMIT = parseInt(process.env.BALANCE_VALIDATION_SAMPLE_LIMIT ?? '100', 10);
 
 // Reorg size thresholds for different alert levels
@@ -151,6 +154,7 @@ export default () => ({
   RECONNECTION_STORM_WINDOW_MS,
   BALANCE_VALIDATION_ENABLED,
   BALANCE_VALIDATION_INTERVAL_MS,
+  BALANCE_VALIDATION_WINDOW_MS,
   BALANCE_VALIDATION_SAMPLE_LIMIT,
   REORG_SIZE_INFO,
   REORG_SIZE_MINOR,

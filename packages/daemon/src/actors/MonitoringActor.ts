@@ -159,32 +159,51 @@ export default (callback: any, receive: any, config = getConfig()) => {
 
   // ── Scheduled balance validation ──────────────────────────────────────────────
   //
-  // One SQL query per tick. The DB does the pairing (LEFT JOIN), the math
-  // (native BIGINT, no precision loss), and the consistency snapshot (single
-  // statement = one read view). The query is bounded by LIMIT so a catastrophic
-  // mismatch produces a sample, not a megabyte of payload.
+  // Each tick runs a single SQL query that compares address_balance against the
+  // sum of non-voided address_tx_history for rows whose `updated_at` falls
+  // within the configured lookback window. The DB does the pairing (LEFT JOIN),
+  // the math (native BIGINT, no precision loss), and the consistency snapshot
+  // (single statement = one read view).
   //
-  // Cost caveat: LIMIT bounds *result rows*, not execution cost. The LEFT JOIN
-  // + GROUP BY still scans every `address_balance` row and joins against
-  // `address_tx_history` on each tick. Operators should EXPLAIN this query
-  // against production-sized data before enabling — see the follow-up issue
-  // tracked for cursor-based batching if the scan cost is prohibitive.
+  // Why `updated_at > NOW() - INTERVAL :window SECOND`:
+  //   A full-table pass was benchmarked on production data (≈1.5M
+  //   address_balance rows, ≈8.3M address_tx_history rows) and took tens of
+  //   seconds per tick. The `updated_at` index scopes the outer set to recently
+  //   changed rows, which is what a scheduled monitor actually needs — drift
+  //   introduced by a bad write will be caught within one tick of the offending
+  //   change. updated_at is `ON UPDATE CURRENT_TIMESTAMP` in the schema, so any
+  //   write to the row bumps it; correctness of the scope is structural.
+  //
+  // Trade-off — hot addresses are still expensive:
+  //   Scoping limits WHICH addresses we check per tick; it does NOT limit HOW
+  //   MUCH history we sum per address. address_tx_history has no covering
+  //   index that includes `balance`, so MySQL fetches every non-voided history
+  //   row for each recently-changed address via a PK scan on `address`. For
+  //   whale addresses with hundreds of thousands of history rows this is a
+  //   multi-second per-address cost even when only a handful of addresses
+  //   updated in the window.
+  //
+  //   Mitigation (separate migration): add a covering index
+  //   `(address, voided, token_id, balance)` to address_tx_history so the
+  //   aggregate becomes index-only. Until that ships, keep
+  //   BALANCE_VALIDATION_ENABLED=false in prod.
+  //
+  //   Long tail — slow drift on cold rows (balance changed long ago and the
+  //   row never touched since) goes undetected by this scheduled validator.
+  //   A separate once-a-week/month full-table sweep is the right mechanism
+  //   for that; out of scope for the scheduled job.
   //
   // The `transactions > 0` filter is intentionally omitted: a row with
   // `transactions = 0` AND non-zero balance is itself a bug (the void cleanup
   // should have deleted it), and we want the validator to surface that.
-  // Genuinely-empty rows (transactions=0, balance=0) match `historySum=0`
-  // via the COALESCE and are filtered out by HAVING.
+  // Genuinely-empty rows match `historySum=0` via COALESCE and HAVING drops
+  // them.
   //
   // If a run exceeds the interval the in-flight guard skips the next tick
   // rather than overlapping. DISCONNECTED clears the timer; an in-flight
   // SELECT runs to completion and releases its connection — harmless.
-  //
-  // Sample limit is configurable via BALANCE_VALIDATION_SAMPLE_LIMIT (default
-  // 100). Any non-zero count means operators will dive into the data with
-  // their own queries anyway; the alert just needs to prove something is
-  // wrong and give a representative starting point.
   const sampleLimit = config.BALANCE_VALIDATION_SAMPLE_LIMIT;
+  const windowSeconds = Math.floor(config.BALANCE_VALIDATION_WINDOW_MS / 1000);
   const BALANCE_VALIDATION_SQL = `
     SELECT
         ab.address,
@@ -196,6 +215,7 @@ export default (callback: any, receive: any, config = getConfig()) => {
            ON h.address  = ab.address
           AND h.token_id = ab.token_id
           AND h.voided   = FALSE
+    WHERE ab.updated_at > NOW() - INTERVAL ${windowSeconds} SECOND
     GROUP BY ab.address, ab.token_id
     HAVING balanceSum != historySum
     LIMIT ${sampleLimit}

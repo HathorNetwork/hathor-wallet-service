@@ -56,6 +56,7 @@ describe('MonitoringActor', () => {
     config['RECONNECTION_STORM_WINDOW_MS'] = 5 * 60 * 1000; // 5 min
     config['BALANCE_VALIDATION_ENABLED'] = false;
     config['BALANCE_VALIDATION_INTERVAL_MS'] = 5000;
+    config['BALANCE_VALIDATION_WINDOW_MS'] = 900000;
     config['BALANCE_VALIDATION_SAMPLE_LIMIT'] = 100;
 
     mockCallback = jest.fn();
@@ -404,6 +405,9 @@ describe('MonitoringActor', () => {
       await flushPromises();
 
       expect(mockMysql.query).toHaveBeenCalledWith(expect.stringContaining('LEFT JOIN'));
+      // Scope-by-updated_at is load-bearing for perf (see follow-up #404);
+      // pin it so a future refactor doesn't silently drop the filter.
+      expect(mockMysql.query).toHaveBeenCalledWith(expect.stringContaining('ab.updated_at > NOW() - INTERVAL'));
       expect(mockAddAlert).toHaveBeenCalledWith(
         'Balance validation found mismatches',
         expect.stringContaining('1 balance mismatch'),
