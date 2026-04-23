@@ -493,8 +493,10 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
             const { maxAmongAddresses, maxWalletIndex } = indices;
 
-            if (!maxAmongAddresses || !maxWalletIndex) {
-              // Do nothing, wallet is most likely not loaded yet.
+            if (maxAmongAddresses == null || maxWalletIndex == null) {
+              // Indices missing — wallet most likely not loaded yet. Using
+              // `== null` (not `!value`) because address index 0 is valid:
+              // it's the first derived address.
               if (walletDetails.status === WalletStatus.READY) {
                 logger.error('[ERROR] A wallet marked as READY does not have a max wallet index or address index was not found in the database');
               }
@@ -583,12 +585,16 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         await mysql.commit();
       } catch (e) {
         try { await mysql.rollback(); } catch { /* swallow rollback error so the original is thrown */ }
-        span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
-        span.recordException(e as Error);
-        logger.error('Error handling vertex accepted', e);
-
         throw e;
       }
+    } catch (e) {
+      // Outer catch handles span error tracking for ALL failure paths —
+      // including errors thrown before beginTransaction (getDbConnection,
+      // getConfig, the duplicate check) that the inner catch never sees.
+      span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
+      span.recordException(e as Error);
+      logger.error('Error handling vertex accepted', e);
+      throw e;
     } finally {
       if (mysql) mysql.release();
       span.end();
