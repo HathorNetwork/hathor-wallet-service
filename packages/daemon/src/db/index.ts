@@ -324,17 +324,19 @@ export const getTxOutputsFromTx = async (
 export const getTxOutputs = async (
   mysql: any,
   inputs: { txId: string, index: number }[],
+  skipVoided: boolean = false,
 ): Promise<DbTxOutput[]> => {
   if (inputs.length <= 0) return [];
   const txIdIndexPair = inputs.map((utxo) => [utxo.txId, utxo.index]);
-  // `voided = FALSE` matches the semantics of the per-input `getTxOutput` this
-  // function replaced on the unspend-inputs path. Without it, `voidTx` could
-  // clear `spent_by` on rows that are already voided.
+  // Pass `skipVoided=true` to match the legacy per-input `getTxOutput(..., voided=FALSE)`
+  // semantics. The voidTx unspend-inputs path needs this — without it, `unspendUtxos`
+  // could clear `spent_by` on rows that are already voided. Other callers default to
+  // no filter so behavior stays identical to pre-opt-in signature.
   const [results] = await mysql.query(
     `SELECT *
        FROM \`tx_output\`
       WHERE (\`tx_id\`, \`index\`) IN (?)
-        AND \`voided\` = FALSE`,
+        ${skipVoided ? 'AND `voided` = FALSE' : ''}`,
     [txIdIndexPair],
   );
 

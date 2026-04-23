@@ -723,10 +723,13 @@ export const voidTx = async (
   // But only if they were actually spent by this transaction
   if (inputs.length > 0) {
     await withSpan('unspendInputs', async () => {
-      // Batch-fetch all input outputs in a single query, then filter by spentBy
+      // Batch-fetch all input outputs in a single query, then filter by spentBy.
+      // `skipVoided=true` preserves the legacy per-input `getTxOutput(..., voided=FALSE)`
+      // semantics — without it, unspendUtxos could clear `spent_by` on already-voided rows.
       const allInputOutputs = await getTxOutputs(
         mysql,
         inputs.map((input) => ({ txId: input.tx_id, index: input.index })),
+        true,
       );
       const inputsSpentByThisTx = allInputOutputs.filter((output) => output.spentBy === hash);
 
