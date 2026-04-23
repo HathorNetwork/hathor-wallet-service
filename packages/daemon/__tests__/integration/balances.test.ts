@@ -468,9 +468,7 @@ describe('voided token authority scenario', () => {
       ),
       (
           'cafecafe',
-          -- Sibling xpub (path /7 of deafbeef's xpub) so gap discovery derives a
-          -- disjoint address set from deafbeef. \`address\` is a global PK, so two
-          -- wallets sharing an xpub would collide on the first generated address.
+          -- Distinct xpub from deafbeef so gap discovery doesn't collide on the global address PK.
           'xpub6GwCmKUTKBzEWNM9Zt77NTTsu6DNx6uzQP4TJm7yH5UpaEJ2fKioET7MrXNp584rNDyJWHqeNdEAZU5shWzSDQYs8bNtXAbVw1T1HKj4QjW',
           'ready',
           20,
