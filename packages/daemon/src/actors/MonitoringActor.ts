@@ -205,12 +205,20 @@ export default (callback: any, receive: any, config = getConfig()) => {
   // SELECT runs to completion and releases its connection — harmless.
   const sampleLimit = config.BALANCE_VALIDATION_SAMPLE_LIMIT;
   const windowSeconds = Math.floor(config.BALANCE_VALIDATION_WINDOW_MS / 1000);
+  // Wrap the SIGNED BIGINT in CAST(... AS CHAR) so values transport to the
+  // client as strings. mysql2 returns BIGINT as JS Number by default, which
+  // loses precision above 2^53. HTR max supply is well below that, but we
+  // log this payload in alerts that humans and tools read — keeping the
+  // decimal string form avoids any silent rounding if the validator ever
+  // runs against a non-HTR token. HAVING compares the same CHAR expressions
+  // via `!=`, which is equivalent to numeric equality for canonical decimal
+  // strings produced by CAST(SIGNED AS CHAR).
   const BALANCE_VALIDATION_SQL = `
     SELECT
         ab.address,
-        ab.token_id                                                AS tokenId,
-        CAST(ab.unlocked_balance + ab.locked_balance AS SIGNED)    AS balanceSum,
-        CAST(COALESCE(SUM(h.balance), 0) AS SIGNED)                AS historySum
+        ab.token_id                                                          AS tokenId,
+        CAST(CAST(ab.unlocked_balance + ab.locked_balance AS SIGNED) AS CHAR) AS balanceSum,
+        CAST(CAST(COALESCE(SUM(h.balance), 0) AS SIGNED) AS CHAR)             AS historySum
     FROM \`address_balance\` ab
     LEFT JOIN \`address_tx_history\` h
            ON h.address  = ab.address
@@ -283,6 +291,18 @@ export default (callback: any, receive: any, config = getConfig()) => {
         `[monitoring] BALANCE_VALIDATION_INTERVAL_MS=${intervalMs} is invalid `
         + `(must be a finite number >= ${MIN_BALANCE_VALIDATION_INTERVAL_MS}). `
         + 'Scheduled balance validation will NOT run this session.',
+      );
+      return;
+    }
+
+    // Same guard for SAMPLE_LIMIT: it's interpolated directly into
+    // `LIMIT ${sampleLimit}`. NaN would produce a SQL syntax error; 0 or
+    // negative would return no rows and silently claim "no mismatches"
+    // without actually checking. Fail loud and stay disabled.
+    if (!Number.isFinite(sampleLimit) || sampleLimit < 1) {
+      logger.error(
+        `[monitoring] BALANCE_VALIDATION_SAMPLE_LIMIT=${sampleLimit} is invalid `
+        + '(must be a finite number >= 1). Scheduled balance validation will NOT run this session.',
       );
       return;
     }

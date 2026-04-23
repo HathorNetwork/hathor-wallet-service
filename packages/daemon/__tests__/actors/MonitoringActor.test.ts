@@ -510,5 +510,19 @@ describe('MonitoringActor', () => {
         expect.stringContaining('is invalid'),
       );
     });
+
+    it('should refuse to schedule validation when sample limit is invalid', () => {
+      config['BALANCE_VALIDATION_ENABLED'] = true;
+      config['BALANCE_VALIDATION_SAMPLE_LIMIT'] = 0; // 0 would silently skip every row
+      const mockLoggerError = jest.spyOn(logger, 'error');
+
+      MonitoringActor(mockCallback, mockReceive, config);
+      sendEvent('CONNECTED');
+
+      expect(setInterval).toHaveBeenCalledTimes(1);
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.stringContaining('BALANCE_VALIDATION_SAMPLE_LIMIT=0 is invalid'),
+      );
+    });
   });
 });
