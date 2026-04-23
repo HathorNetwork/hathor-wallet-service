@@ -328,10 +328,6 @@ export const getTxOutputs = async (
 ): Promise<DbTxOutput[]> => {
   if (inputs.length <= 0) return [];
   const txIdIndexPair = inputs.map((utxo) => [utxo.txId, utxo.index]);
-  // Pass `skipVoided=true` to match the legacy per-input `getTxOutput(..., voided=FALSE)`
-  // semantics. The voidTx unspend-inputs path needs this — without it, `unspendUtxos`
-  // could clear `spent_by` on rows that are already voided. Other callers default to
-  // no filter so behavior stays identical to pre-opt-in signature.
   const [results] = await mysql.query(
     `SELECT *
        FROM \`tx_output\`
