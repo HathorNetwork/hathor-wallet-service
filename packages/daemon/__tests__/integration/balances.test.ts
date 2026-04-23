@@ -550,7 +550,15 @@ describe('voided token authority scenario', () => {
 
     // Validate consistency
     validateVoidingConsistency(voidingChecks);
-  }, 30000); // 30 second timeout for voided token authority test
+    // Timeout bumped from 30s → 90s: the wallet fixture here (cafecafe, deafbeef)
+    // seeds only a handful of derived addresses at index 0, so when sync touches
+    // them the gap-discovery path in handleVertexAccepted now correctly fires
+    // (previously it was silently skipped when the highest touched or derived
+    // index was 0). Each fire derives up to maxGap addresses via pure-JS ECC,
+    // adding real time to the sync. The underlying perf concern is orthogonal
+    // to #399 and could be addressed by amortizing gap discovery across a
+    // sync — tracked separately if/when it becomes a bottleneck.
+  }, 90000);
 });
 
 describe('single voided create token transaction scenario', () => {
