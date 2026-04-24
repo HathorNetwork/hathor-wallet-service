@@ -24,6 +24,7 @@ import {
   addToAddressTable,
   addToUtxoTable,
   addToWalletBalanceTable,
+  seedFullnodeVersionData,
   ADDRESSES,
   cleanDatabase,
   makeGatewayEventWithAuthorizer,
@@ -45,6 +46,7 @@ const mysql = getDbConnection();
 
 beforeEach(async () => {
   await cleanDatabase(mysql);
+  await seedFullnodeVersionData(mysql);
 });
 
 afterAll(async () => {
