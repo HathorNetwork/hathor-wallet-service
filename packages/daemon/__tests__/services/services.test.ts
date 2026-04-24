@@ -122,6 +122,7 @@ jest.mock('../../src/utils', () => ({
   getFullnodeHttpUrl: jest.fn(),
   invokeOnTxPushNotificationRequestedLambda: jest.fn(),
   sendMessageSQS: jest.fn(),
+  sendRealtimeTx: jest.fn().mockResolvedValue(undefined),
   getWalletBalancesForTx: jest.fn(),
   generateAddresses: jest.fn(),
   retryWithBackoff: jest.fn((fn) => fn()),
