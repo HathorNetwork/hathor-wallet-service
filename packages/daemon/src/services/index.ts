@@ -83,10 +83,10 @@ import {
   getAddressSeqnum,
   unspendUtxos,
   voidWalletTransaction,
-  getTxOutput,
+  getTxOutputs,
   clearTxProposalForVoidedTx,
 } from '../db';
-import getConfig from '../config';
+import getConfig, { VALIDATE_ADDRESS_BALANCES } from '../config';
 import logger from '../logger';
 import { invokeOnTxPushNotificationRequestedLambda, getDaemonUptime, retryWithBackoff } from '../utils';
 import { addAlert, Severity } from '@wallet-service/common';
@@ -723,34 +723,19 @@ export const voidTx = async (
   // But only if they were actually spent by this transaction
   if (inputs.length > 0) {
     await withSpan('unspendInputs', async () => {
-    // First, check which inputs were actually spent by this transaction
-    const inputsSpentByThisTx: DbTxOutput[] = [];
+      // Batch-fetch all input outputs in a single query, then filter by spentBy.
+      // `skipVoided=true` preserves the legacy per-input `getTxOutput(..., voided=FALSE)`
+      // semantics — without it, unspendUtxos could clear `spent_by` on already-voided rows.
+      const allInputOutputs = await getTxOutputs(
+        mysql,
+        inputs.map((input) => ({ txId: input.tx_id, index: input.index })),
+        true,
+      );
+      const inputsSpentByThisTx = allInputOutputs.filter((output) => output.spentBy === hash);
 
-    for (const input of inputs) {
-      // Get the current state of this output to check if it's spent by our transaction
-      const currentOutput = await getTxOutput(mysql, input.tx_id, input.index, false);
-
-
-      if (currentOutput && currentOutput.spentBy === hash) {
-        inputsSpentByThisTx.push({
-          txId: input.tx_id,
-          index: input.index,
-          tokenId: '', // Not needed for unspending
-          address: '', // Not needed for unspending
-          value: BigInt(0), // Not needed for unspending
-          authorities: 0, // Not needed for unspending
-          timelock: null, // Not needed for unspending
-          heightlock: null, // Not needed for unspending
-          locked: false, // Not needed for unspending
-          spentBy: hash, // This is what we're unsetting
-          voided: false, // Not needed for unspending
-        });
+      if (inputsSpentByThisTx.length > 0) {
+        await unspendUtxos(mysql, inputsSpentByThisTx);
       }
-    }
-
-    if (inputsSpentByThisTx.length > 0) {
-      await unspendUtxos(mysql, inputsSpentByThisTx);
-    }
     });
   }
 
@@ -788,8 +773,10 @@ export const voidTx = async (
     await deleteTokens(mysql, tokensCreated);
   }
 
-  const addresses = Object.keys(addressBalanceMap);
-  await validateAddressBalances(mysql, addresses);
+  if (VALIDATE_ADDRESS_BALANCES) {
+    const addresses = Object.keys(addressBalanceMap);
+    await validateAddressBalances(mysql, addresses);
+  }
 };
 
 export const handleVoidedTx = async (context: Context) => {
