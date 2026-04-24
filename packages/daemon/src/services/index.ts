@@ -842,8 +842,8 @@ export const handleVoidedTx = async (context: Context) => {
           version,
         );
         logger.debug(`Voided tx ${hash}`);
-        await mysql.commit();
         await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
+        await mysql.commit();
       } catch (e) {
         try {
           await mysql.rollback();
