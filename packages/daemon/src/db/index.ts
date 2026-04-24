@@ -26,6 +26,7 @@ import {
   TxInput,
   TokenBalanceMap,
   TxOutputWithIndex,
+  Balance,
 } from '@wallet-service/common';
 import { isAuthority, toTokenVersion } from '@wallet-service/common';
 import { getWalletBalanceMap } from '../utils/wallet';
@@ -41,6 +42,77 @@ import {
 } from '../types';
 import getConfig from '../config';
 import { constants } from '@hathor/wallet-lib';
+
+/**
+ * Column definition for buildBatchCaseUpdate.
+ *
+ * - 'subtract': `column = column - CASE WHEN key1=? AND key2=? THEN ? ELSE 0 END`
+ * - 'bitor':    `column = column | CASE WHEN key1=? AND key2=? THEN ? ELSE 0 END`
+ * - 'custom':   `column = CASE WHEN key1=? AND key2=? THEN <customSql> ELSE column END`
+ *               (customSql uses `?` placeholders; getValue returns the params array for each pair)
+ */
+type BatchColumnDef<T> =
+  | { column: string; op: 'subtract' | 'bitor'; getValue: (item: T) => any }
+  | { column: string; op: 'custom'; customSql: string; getValue: (item: T) => any[] };
+
+/**
+ * Builds a single batched UPDATE statement using CASE WHEN expressions.
+ *
+ * Instead of running one UPDATE per (key1, key2) pair, this builds a single UPDATE
+ * that handles all pairs at once via CASE WHEN clauses.
+ *
+ * @param table - Table name (backtick-escaped)
+ * @param keyColumns - The two key column names used in WHERE and CASE WHEN
+ * @param pairs - Array of items to update
+ * @param getKeys - Extracts the two key values from each item
+ * @param columns - Column definitions describing how each column should be updated
+ * @param tableAlias - Optional table alias for the UPDATE statement
+ * @returns SQL string and params array ready for mysql.query()
+ */
+function buildBatchCaseUpdate<T>(
+  table: string,
+  keyColumns: [string, string],
+  pairs: T[],
+  getKeys: (item: T) => [any, any],
+  columns: BatchColumnDef<T>[],
+  tableAlias?: string,
+): { sql: string; params: any[] } {
+  const params: any[] = [];
+  const alias = tableAlias ? ` ${tableAlias}` : '';
+  const colPrefix = tableAlias ? `${tableAlias}.` : '';
+  const [key1, key2] = keyColumns;
+
+  const setClauses = columns.map((col) => {
+    let caseExpr = '';
+    for (const item of pairs) {
+      const [k1, k2] = getKeys(item);
+      if (col.op === 'custom') {
+        caseExpr += ` WHEN ${colPrefix}${key1} = ? AND ${colPrefix}${key2} = ? THEN ${col.customSql}`;
+        params.push(k1, k2, ...col.getValue(item));
+      } else {
+        caseExpr += ` WHEN ${colPrefix}${key1} = ? AND ${colPrefix}${key2} = ? THEN ?`;
+        params.push(k1, k2, col.getValue(item));
+      }
+    }
+
+    if (col.op === 'subtract') {
+      return `${colPrefix}${col.column} = ${colPrefix}${col.column} - CASE${caseExpr} ELSE 0 END`;
+    } else if (col.op === 'bitor') {
+      return `${colPrefix}${col.column} = ${colPrefix}${col.column} | CASE${caseExpr} ELSE 0 END`;
+    } else {
+      return `${colPrefix}${col.column} = CASE${caseExpr} ELSE ${colPrefix}${col.column} END`;
+    }
+  });
+
+  const keyPairs = pairs.map(getKeys);
+  params.push(keyPairs);
+
+  const sql = `UPDATE ${table}${alias} SET
+    ${setClauses.join(',\n    ')}
+    WHERE (${colPrefix}${key1}, ${colPrefix}${key2}) IN (?)`;
+
+  return { sql, params };
+}
 
 let pool: Pool;
 
@@ -213,7 +285,7 @@ export const getTxOutputsFromTx = async (
   mysql: any,
   txId: string,
 ): Promise<DbTxOutput[]> => {
-  const [results] = await mysql.query(
+  const [results] = await mysql.execute(
     `SELECT *
        FROM \`tx_output\`
       WHERE \`tx_id\` = ?`,
@@ -252,13 +324,15 @@ export const getTxOutputsFromTx = async (
 export const getTxOutputs = async (
   mysql: any,
   inputs: { txId: string, index: number }[],
+  skipVoided: boolean = false,
 ): Promise<DbTxOutput[]> => {
   if (inputs.length <= 0) return [];
   const txIdIndexPair = inputs.map((utxo) => [utxo.txId, utxo.index]);
   const [results] = await mysql.query(
     `SELECT *
        FROM \`tx_output\`
-      WHERE (\`tx_id\`, \`index\`) IN (?)`,
+      WHERE (\`tx_id\`, \`index\`) IN (?)
+        ${skipVoided ? 'AND `voided` = FALSE' : ''}`,
     [txIdIndexPair],
   );
 
@@ -299,7 +373,7 @@ export const getTxOutput = async (
   index: number,
   skipSpent: boolean,
 ): Promise<DbTxOutput | null> => {
-  const [results] = await mysql.query<TxOutputRow[]>(
+  const [results] = await mysql.execute<TxOutputRow[]>(
     `SELECT *
        FROM \`tx_output\`
       WHERE \`tx_id\` = ?
@@ -332,7 +406,7 @@ export const getTxOutputsAtHeight = async (
   mysql: MysqlConnection,
   height: number,
 ): Promise<DbTxOutput[]> => {
-  const [results] = await mysql.query<TxOutputRow[]>(
+  const [results] = await mysql.execute<TxOutputRow[]>(
     `SELECT *
        FROM \`tx_output\`
       WHERE \`tx_id\` IN (
@@ -388,7 +462,7 @@ export const voidAddressTransaction = async (
   mysql: any,
   txId: string,
   addressBalanceMap: StringMap<TokenBalanceMap>,
-  version: number,
+  _version: number,
 ): Promise<void> => {
   const addressEntries = Object.keys(addressBalanceMap).map((address) => [address, 0]);
 
@@ -401,104 +475,103 @@ export const voidAddressTransaction = async (
     );
   }
 
-  // Check if this is a token creation transaction
-  const isCreateTokenTx = version === constants.CREATE_TOKEN_TX_VERSION;
-
+  // Collect all (address, token) pairs and their balances
+  const pairs: { address: string; token: string; balance: Balance }[] = [];
   for (const [address, tokenMap] of Object.entries(addressBalanceMap)) {
     for (const [token, tokenBalance] of tokenMap.iterator()) {
-      // Check if address_balance entry exists first
-      const [existingRows] = await mysql.query(
-        'SELECT * FROM address_balance WHERE address = ? AND token_id = ?',
-        [address, token]
-      );
-
-      if (existingRows.length > 0) {
-        // Entry exists, perform UPDATE to subtract values
-        await mysql.query(
-          `UPDATE address_balance
-           SET total_received = total_received - ?,
-               unlocked_balance = unlocked_balance - ?,
-               locked_balance = locked_balance - ?,
-               transactions = transactions - 1,
-               timelock_expires = CASE
-                                    WHEN timelock_expires IS NULL THEN ?
-                                    WHEN ? IS NULL THEN timelock_expires
-                                    ELSE LEAST(timelock_expires, ?)
-                                  END,
-               unlocked_authorities = (unlocked_authorities | ?),
-               locked_authorities = locked_authorities | ?
-           WHERE address = ? AND token_id = ?`,
-          [
-            tokenBalance.totalAmountSent,
-            tokenBalance.unlockedAmount,
-            tokenBalance.lockedAmount,
-            tokenBalance.lockExpires,
-            tokenBalance.lockExpires,
-            tokenBalance.lockExpires,
-            tokenBalance.unlockedAuthorities.toUnsignedInteger(),
-            tokenBalance.lockedAuthorities.toUnsignedInteger(),
-            address,
-            token
-          ]
-        );
-      } else {
-        // Entry doesn't exist, this means the balance was never added in the first place
-        // This shouldn't happen since we receive events in order
-        console.warn(`warning: Trying to void transaction for address ${address} token ${token} but no balance entry exists`);
-      }
-
-      // if we're removing any of the authorities, we need to refresh the authority columns. Unlike the values,
-      // we cannot only sum/subtract, as authorities are binary: you have it or you don't. We might be spending
-      // an authority output in this tx without creating a new one, but it doesn't mean this address does not
-      // have this authority anymore, as it might have other authority outputs
-      if (!tokenBalance.unlockedAuthorities.hasNegativeValue()) {
-        await mysql.query(
-          `UPDATE \`address_balance\`
-              SET \`unlocked_authorities\` = (
-                SELECT BIT_OR(\`authorities\`)
-                  FROM \`tx_output\`
-                 WHERE \`address\` = ?
-                   AND \`token_id\` = ?
-                   AND \`locked\` = FALSE
-                   AND \`spent_by\` IS NULL
-                   AND \`voided\` = FALSE
-              )
-            WHERE \`address\` = ?
-              AND \`token_id\` = ?`,
-          [address, token, address, token],
-        );
-      }
-      // for locked authorities, it doesn't make sense to perform the same operation. The authority needs to be
-      // unlocked before it can be spent. In case we're just adding new locked authorities, this will be taken
-      // care by the first sql query.
-
-      // If the address_balance is now zeroed and the number of transactions
-      // is also zero, it means that the transaction was removed from address_tx_history
-      // so we need to remove it from the `address_balance` table.
-      await mysql.query(
-        `DELETE FROM address_balance
-          WHERE address = ?
-            AND token_id = ?
-            AND total_received = 0
-            AND unlocked_balance = 0
-            AND locked_balance = 0
-            AND unlocked_authorities = 0
-            AND locked_authorities = 0
-            AND transactions = 0`,
-        [address, token]
-      );
-
-      if (isCreateTokenTx) {
-        // The transaction that created the token was voided, so we can remove
-        // it from the tokens table as well.
-        await mysql.query(
-          `DELETE FROM token
-            WHERE id = ?`,
-          [token]
-        );
-      }
+      pairs.push({ address, token, balance: tokenBalance });
     }
   }
+
+  if (pairs.length === 0) {
+    await mysql.query(
+      `DELETE FROM \`address_tx_history\`
+        WHERE \`tx_id\` = ?`,
+      [txId],
+    );
+    return;
+  }
+
+  // Single batched UPDATE for all balance decrements (no-op if no row matches)
+  type AddrPair = { address: string; token: string; balance: Balance };
+  const getAddrKeys = (p: AddrPair): [string, string] => [p.address, p.token];
+
+  const { sql: updateSql, params: updateParams } = buildBatchCaseUpdate<AddrPair>(
+    '`address_balance`',
+    ['`address`', '`token_id`'],
+    pairs,
+    getAddrKeys,
+    [
+      { column: '`total_received`', op: 'subtract', getValue: (p) => p.balance.totalAmountSent },
+      { column: '`unlocked_balance`', op: 'subtract', getValue: (p) => p.balance.unlockedAmount },
+      { column: '`locked_balance`', op: 'subtract', getValue: (p) => p.balance.lockedAmount },
+      {
+        column: '`timelock_expires`', op: 'custom',
+        customSql: 'CASE WHEN `timelock_expires` IS NULL THEN ? WHEN ? IS NULL THEN `timelock_expires` ELSE LEAST(`timelock_expires`, ?) END',
+        getValue: (p) => [p.balance.lockExpires, p.balance.lockExpires, p.balance.lockExpires],
+      },
+      { column: '`unlocked_authorities`', op: 'bitor', getValue: (p) => p.balance.unlockedAuthorities.toUnsignedInteger() },
+      // locked_authorities: OR only, no recalculation needed — locked authorities can't be spent before unlocking
+      { column: '`locked_authorities`', op: 'bitor', getValue: (p) => p.balance.lockedAuthorities.toUnsignedInteger() },
+      // Decrement transactions by 1 for each voided (address, token) pair.
+      { column: '`transactions`', op: 'subtract', getValue: () => 1 },
+    ],
+  );
+
+  const [updateResult]: [ResultSetHeader] = await mysql.query(updateSql, updateParams);
+
+  if (updateResult.affectedRows < pairs.length) {
+    // Each pair in `pairs` corresponds to an (address, token) whose balance
+    // row should exist — it was created when the tx was originally indexed.
+    // If we update fewer rows than expected, those rows were already gone:
+    //   - sync inconsistency (the original add was never applied), or
+    //   - the tx was already partially voided (duplicate / out-of-order event).
+    // Log the count and a truncated sample of the pairs checked so operators
+    // can diagnose without flooding logs on large txs.
+    const SAMPLE_LIMIT = 10;
+    const sample = pairs.slice(0, SAMPLE_LIMIT).map(getAddrKeys);
+    const truncated = pairs.length > SAMPLE_LIMIT ? ` (+${pairs.length - SAMPLE_LIMIT} more)` : '';
+    console.warn(
+      `[voidAddressTransaction] tx ${txId}: updated ${updateResult.affectedRows}/${pairs.length} address_balance rows. `
+      + 'This usually indicates a data inconsistency — the balance row was never added, '
+      + 'or the tx was already (partially) voided. '
+      + `Pairs checked: ${JSON.stringify(sample)}${truncated}`,
+    );
+  }
+
+  // Recalculate unlocked_authorities from tx_output for pairs that need it
+  const authorityPairs = pairs.filter(({ balance }) => !balance.unlockedAuthorities.hasNegativeValue());
+  if (authorityPairs.length > 0) {
+    const authPairKeys = authorityPairs.map(getAddrKeys);
+    await mysql.query(
+      `UPDATE \`address_balance\` ab
+          SET ab.\`unlocked_authorities\` = (
+            SELECT COALESCE(BIT_OR(txo.\`authorities\`), 0)
+              FROM \`tx_output\` txo
+             WHERE txo.\`address\` = ab.\`address\`
+               AND txo.\`token_id\` = ab.\`token_id\`
+               AND txo.\`locked\` = FALSE
+               AND txo.\`spent_by\` IS NULL
+               AND txo.\`voided\` = FALSE
+          )
+        WHERE (ab.\`address\`, ab.\`token_id\`) IN (?)`,
+      [authPairKeys],
+    );
+  }
+
+  // Clean up fully-zeroed address_balance rows
+  const addressTokenPairs = pairs.map(getAddrKeys);
+  await mysql.query(
+    `DELETE FROM \`address_balance\`
+      WHERE (\`address\`, \`token_id\`) IN (?)
+        AND \`total_received\` = 0
+        AND \`unlocked_balance\` = 0
+        AND \`locked_balance\` = 0
+        AND \`unlocked_authorities\` = 0
+        AND \`locked_authorities\` = 0
+        AND \`transactions\` = 0`,
+    [addressTokenPairs],
+  );
 
   await mysql.query(
     `DELETE FROM \`address_tx_history\`
@@ -519,7 +592,7 @@ export const voidTransaction = async (
   mysql: any,
   txId: string,
 ): Promise<void> => {
-  const [result]: [ResultSetHeader] = await mysql.query(
+  const [result]: [ResultSetHeader] = await mysql.execute(
     `UPDATE \`transaction\`
         SET \`voided\` = TRUE
       WHERE \`tx_id\` = ?`,
@@ -571,73 +644,74 @@ export const voidWalletTransaction = async (
     return;
   }
 
+  // Collect all (walletId, token) pairs and their balances
+  const pairs: { walletId: string; token: string; balance: Balance }[] = [];
   for (const [walletId, tokenMap] of Object.entries(walletBalanceMap)) {
     for (const [token, tokenBalance] of tokenMap.iterator()) {
-      // Update wallet_balance table by reversing the transaction's impact
-      await mysql.query(
-        `UPDATE \`wallet_balance\`
-         SET total_received = total_received - ?,
-             unlocked_balance = unlocked_balance - ?,
-             locked_balance = locked_balance - ?,
-             transactions = transactions - 1,
-             unlocked_authorities = (unlocked_authorities | ?),
-             locked_authorities = locked_authorities | ?
-         WHERE wallet_id = ? AND token_id = ?`,
-        [
-          tokenBalance.totalAmountSent,
-          tokenBalance.unlockedAmount,
-          tokenBalance.lockedAmount,
-          tokenBalance.unlockedAuthorities.toUnsignedInteger(),
-          tokenBalance.lockedAuthorities.toUnsignedInteger(),
-          walletId,
-          token
-        ],
-      );
-
-      // If we're removing any of the authorities, we need to refresh the
-      // authority columns because we might have more than one, so we need to
-      // calculate the complete state from the complete wallet point of view,
-      // not just from a single transaction balance point of view.
-
-      // NOTE: No need to do the same for locked authorities as they can't be
-      // spent before being unlocked and we trust the fullnode
-      if (!tokenBalance.unlockedAuthorities.hasNegativeValue()) {
-        await mysql.query(
-          `UPDATE \`wallet_balance\`
-              SET \`unlocked_authorities\` = (
-                SELECT BIT_OR(\`unlocked_authorities\`)
-                  FROM \`address_balance\`
-                 WHERE \`address\` IN (
-                   SELECT \`address\`
-                     FROM \`address\`
-                    WHERE \`wallet_id\` = ?)
-                   AND \`token_id\` = ?)
-            WHERE \`wallet_id\` = ?
-              AND \`token_id\` = ?`,
-          [walletId, token, walletId, token],
-        );
-      }
-
-      // If the number of transactions is zero, it means that this transaction
-      // was removed from the wallet_tx_history as well, so we must delete the
-      // row
-      await mysql.query(
-        `DELETE FROM wallet_balance
-          WHERE wallet_id = ?
-            AND token_id = ?
-            AND total_received = 0
-            AND unlocked_balance = 0
-            AND locked_balance = 0
-            AND unlocked_authorities = 0
-            AND locked_authorities = 0
-            AND transactions = 0`,
-        [walletId, token]
-      );
+      pairs.push({ walletId, token, balance: tokenBalance });
     }
   }
 
+  if (pairs.length > 0) {
+    type WalletPair = { walletId: string; token: string; balance: Balance };
+    const getWalletKeys = (p: WalletPair): [string, string] => [p.walletId, p.token];
+
+    // Single batched UPDATE for all wallet balance decrements
+    const { sql: updateSql, params: updateParams } = buildBatchCaseUpdate<WalletPair>(
+      '`wallet_balance`',
+      ['`wallet_id`', '`token_id`'],
+      pairs,
+      getWalletKeys,
+      [
+        { column: '`total_received`', op: 'subtract', getValue: (p) => p.balance.totalAmountSent },
+        { column: '`unlocked_balance`', op: 'subtract', getValue: (p) => p.balance.unlockedAmount },
+        { column: '`locked_balance`', op: 'subtract', getValue: (p) => p.balance.lockedAmount },
+        { column: '`unlocked_authorities`', op: 'bitor', getValue: (p) => p.balance.unlockedAuthorities.toUnsignedInteger() },
+        // locked_authorities: OR only, no recalculation needed — locked authorities can't be spent before unlocking
+        { column: '`locked_authorities`', op: 'bitor', getValue: (p) => p.balance.lockedAuthorities.toUnsignedInteger() },
+        // Decrement transactions by 1 for each voided (wallet, token) pair.
+        { column: '`transactions`', op: 'subtract', getValue: () => 1 },
+      ],
+    );
+
+    await mysql.query(updateSql, updateParams);
+
+    // Recalculate unlocked_authorities from address_balance for pairs that need it
+    const authorityPairs = pairs.filter(({ balance }) => !balance.unlockedAuthorities.hasNegativeValue());
+    if (authorityPairs.length > 0) {
+      const authPairKeys = authorityPairs.map(getWalletKeys);
+      await mysql.query(
+        `UPDATE \`wallet_balance\` wb
+            SET wb.\`unlocked_authorities\` = (
+              SELECT COALESCE(BIT_OR(ab.\`unlocked_authorities\`), 0)
+                FROM \`address_balance\` ab
+               WHERE ab.\`address\` IN (
+                 SELECT a.\`address\`
+                   FROM \`address\` a
+                  WHERE a.\`wallet_id\` = wb.\`wallet_id\`)
+                 AND ab.\`token_id\` = wb.\`token_id\`)
+          WHERE (wb.\`wallet_id\`, wb.\`token_id\`) IN (?)`,
+        [authPairKeys],
+      );
+    }
+
+    // Clean up fully-zeroed wallet_balance rows
+    const walletTokenPairs = pairs.map(getWalletKeys);
+    await mysql.query(
+      `DELETE FROM \`wallet_balance\`
+        WHERE (\`wallet_id\`, \`token_id\`) IN (?)
+          AND \`total_received\` = 0
+          AND \`unlocked_balance\` = 0
+          AND \`locked_balance\` = 0
+          AND \`unlocked_authorities\` = 0
+          AND \`locked_authorities\` = 0
+          AND \`transactions\` = 0`,
+      [walletTokenPairs],
+    );
+  }
+
   // Delete wallet transaction history entries for the voided transaction
-  await mysql.query(
+  await mysql.execute(
     `DELETE FROM \`wallet_tx_history\`
       WHERE \`tx_id\` = ?`,
     [txId],
@@ -727,7 +801,7 @@ export const updateAddressTablesWithTx = async (
       // an authority output in this tx without creating a new one, but it doesn't mean this address does not
       // have this authority anymore, as it might have other authority outputs
       if (tokenBalance.unlockedAuthorities.hasNegativeValue()) {
-        await mysql.query(
+        await mysql.execute(
           `UPDATE \`address_balance\`
               SET \`unlocked_authorities\` = (
                 SELECT BIT_OR(\`authorities\`)
@@ -772,7 +846,7 @@ export const getTransactionById = async (
   mysql: MysqlConnection,
   txId: string,
 ): Promise<DbTransaction | null> => {
-  const [result] = await mysql.query<TransactionRow[]>(`
+  const [result] = await mysql.execute<TransactionRow[]>(`
    SELECT *
      FROM transaction
     WHERE tx_id = ?
@@ -805,7 +879,7 @@ export const getUtxosLockedAtHeight = async (
 ): Promise<DbTxOutput[]> => {
   const utxos = [];
   if (height >= 0) {
-    const [results] = await mysql.query<TxOutputRow[]>(
+    const [results] = await mysql.execute<TxOutputRow[]>(
       `SELECT *
          FROM \`tx_output\`
         WHERE \`heightlock\` = ?
@@ -873,7 +947,7 @@ export const updateAddressLockedBalance = async (
 ): Promise<void> => {
   for (const [address, tokenBalanceMap] of Object.entries(addressBalanceMap)) {
     for (const [token, tokenBalance] of tokenBalanceMap.iterator()) {
-      await mysql.query(
+      await mysql.execute(
         `UPDATE \`address_balance\`
             SET \`unlocked_balance\` = \`unlocked_balance\` + ?,
                 \`locked_balance\` = \`locked_balance\` - ?,
@@ -890,7 +964,7 @@ export const updateAddressLockedBalance = async (
 
       // if any authority has been unlocked, we have to refresh the locked authorities
       if (tokenBalance.unlockedAuthorities.toInteger() > 0) {
-        await mysql.query(
+        await mysql.execute(
           `UPDATE \`address_balance\`
               SET \`locked_authorities\` = (
                 SELECT BIT_OR(\`authorities\`)
@@ -908,7 +982,7 @@ export const updateAddressLockedBalance = async (
 
       // if this is being unlocked due to a timelock, also update the timelock_expires column
       if (updateTimelocks) {
-        await mysql.query(`
+        await mysql.execute(`
           UPDATE \`address_balance\`
              SET \`timelock_expires\` = (
                SELECT MIN(\`timelock\`)
@@ -988,7 +1062,7 @@ export const updateWalletLockedBalance = async (
 ): Promise<void> => {
   for (const [walletId, tokenBalanceMap] of Object.entries(walletBalanceMap)) {
     for (const [token, tokenBalance] of tokenBalanceMap.iterator()) {
-      await mysql.query(
+      await mysql.execute(
         `UPDATE \`wallet_balance\`
             SET \`unlocked_balance\` = \`unlocked_balance\` + ?,
                 \`locked_balance\` = \`locked_balance\` - ?,
@@ -1001,7 +1075,7 @@ export const updateWalletLockedBalance = async (
 
       // if any authority has been unlocked, we have to refresh the locked authorities
       if (tokenBalance.unlockedAuthorities.toInteger() > 0) {
-        await mysql.query(
+        await mysql.execute(
           `UPDATE \`wallet_balance\`
               SET \`locked_authorities\` = (
                 SELECT BIT_OR(\`locked_authorities\`)
@@ -1019,7 +1093,7 @@ export const updateWalletLockedBalance = async (
 
       // if this is being unlocked due to a timelock, also update the timelock_expires column
       if (updateTimelocks) {
-        await mysql.query(
+        await mysql.execute(
           `UPDATE \`wallet_balance\`
               SET \`timelock_expires\` = (
                 SELECT MIN(\`timelock_expires\`)
@@ -1048,7 +1122,7 @@ export const addMiner = async (
   address: string,
   txId: string,
 ): Promise<void> => {
-  await mysql.query(
+  await mysql.execute(
     `INSERT INTO \`miner\` (address, first_block, last_block, count)
      VALUES (?, ?, ?, 1)
          ON DUPLICATE KEY UPDATE last_block = ?, count = count + 1`,
@@ -1066,7 +1140,7 @@ export const addMiner = async (
 export const getMinersList = async (
   mysql: MysqlConnection,
 ): Promise<Miner[]> => {
-  const [results] = await mysql.query<MinerRow[]>(`
+  const [results] = await mysql.execute<MinerRow[]>(`
     SELECT address, first_block, last_block, count
       FROM miner;
   `);
@@ -1097,7 +1171,7 @@ export const getExpiredTimelocksUtxos = async (
   mysql: MysqlConnection,
   now: number,
 ): Promise<DbTxOutput[]> => {
-  const [results] = await mysql.query<TxOutputRow[]>(`
+  const [results] = await mysql.execute<TxOutputRow[]>(`
     SELECT *
       FROM tx_output
      WHERE locked = TRUE
@@ -1195,7 +1269,7 @@ export const getTokensCreatedByTx = async (
   mysql: MysqlConnection,
   txId: string,
 ): Promise<string[]> => {
-  const [rows] = await mysql.query<any[]>(
+  const [rows] = await mysql.execute<any[]>(
     'SELECT `token_id` FROM `token_creation` WHERE `tx_id` = ?',
     [txId],
   );
@@ -1222,7 +1296,7 @@ export const getReexecNanoTokens = async (
   txId: string,
   currentFirstBlock: string | null,
 ): Promise<string[]> => {
-  const [rows] = await mysql.query<any[]>(
+  const [rows] = await mysql.execute<any[]>(
     'SELECT `token_id` FROM `token_creation` WHERE `tx_id` = ? AND `token_id` != `tx_id` AND NOT (`first_block` <=> ?)',
     [txId, currentFirstBlock],
   );
@@ -1344,7 +1418,7 @@ export const addNewAddresses = async (
   );
 
   // Store on the wallet table the highest used index
-  await mysql.query(
+  await mysql.execute(
     `UPDATE \`wallet\`
         SET \`last_used_address_index\` = ?
       WHERE \`id\` = ?`,
@@ -1415,7 +1489,7 @@ export const updateWalletTablesWithTx = async (
         // value.
         // To do that, we get all unlocked_authorities from all addresses (querying by wallet and token_id) and
         // bitwise OR them with each other.
-        await mysql.query(
+        await mysql.execute(
           `UPDATE \`wallet_balance\`
               SET \`unlocked_authorities\` = (
                 SELECT BIT_OR(\`unlocked_authorities\`)
@@ -1523,7 +1597,7 @@ export const getUtxosSpentByTx = async (
   mysql: MysqlConnection,
   spendingTxId: string,
 ): Promise<DbTxOutput[]> => {
-  const [results] = await mysql.query<TxOutputRow[]>(
+  const [results] = await mysql.execute<TxOutputRow[]>(
     `SELECT *
      FROM \`tx_output\`
      WHERE \`spent_by\` = ?`,
@@ -1580,7 +1654,7 @@ export const updateLastSyncedEvent = async (
   mysql: MysqlConnection,
   lastEventId: number,
 ): Promise<void> => {
-  await mysql.query(`
+  await mysql.execute(`
      INSERT INTO \`sync_metadata\` (\`id\`, \`last_event_id\`)
           VALUES (0, ?)
 ON DUPLICATE KEY
@@ -1591,7 +1665,7 @@ ON DUPLICATE KEY
 export const getLastSyncedEvent = async (
   mysql: MysqlConnection,
 ): Promise<LastSyncedEvent | null> => {
-  const [results] = await mysql.query<LastSyncedEventRow[]>(
+  const [results] = await mysql.execute<LastSyncedEventRow[]>(
     `SELECT * FROM \`sync_metadata\` LIMIT 1`,
     [],
   );
@@ -1612,7 +1686,7 @@ export const getLastSyncedEvent = async (
 export const getBestBlockHeight = async (
   mysql: MysqlConnection,
 ): Promise<number> => {
-  const [results] = await mysql.query<BestBlockRow[]>(
+  const [results] = await mysql.execute<BestBlockRow[]>(
     `SELECT MAX(height) AS height
        FROM \`transaction\`
       LIMIT 1`,
@@ -1697,7 +1771,7 @@ export const getTxOutputsHeightUnlockedAtHeight = async (
   mysql: MysqlConnection,
   height: number,
 ): Promise<DbTxOutput[]> => {
-  const [results] = await mysql.query<TxOutputRow[]>(
+  const [results] = await mysql.execute<TxOutputRow[]>(
     `SELECT *
        FROM \`tx_output\`
       WHERE \`heightlock\` = ?
@@ -1738,7 +1812,7 @@ export const getTokenInformation = async (
   mysql: MysqlConnection,
   tokenId: string,
 ): Promise<TokenInfo | null> => {
-  const [results] = await mysql.query<TokenInformationRow[]>(
+  const [results] = await mysql.execute<TokenInformationRow[]>(
     'SELECT * FROM `token` WHERE `id` = ?',
     [tokenId],
   );
@@ -1765,28 +1839,28 @@ export const getTokenInformation = async (
  * @param txId - The transaction to clear from database
  */
 export const cleanupVoidedTx = async (mysql: MysqlConnection, txId: string): Promise<void> => {
-  await mysql.query(
+  await mysql.execute(
     `DELETE FROM \`transaction\`
       WHERE tx_id = ?
         AND voided = true`,
     [txId],
   );
 
-  await mysql.query(
+  await mysql.execute(
     `DELETE FROM \`tx_output\`
       WHERE tx_id = ?
         AND voided = true`,
     [txId],
   );
 
-  await mysql.query(
+  await mysql.execute(
     `DELETE FROM \`address_tx_history\`
       WHERE tx_id = ?
         AND voided = true`,
     [txId],
   );
 
-  await mysql.query(
+  await mysql.execute(
     `DELETE FROM \`wallet_tx_history\`
       WHERE tx_id = ?
         AND voided = true`,
@@ -1812,7 +1886,7 @@ export const clearTxProposalForVoidedTx = async (
   const whereClauses = txInputs.map(() => '(tx_id = ? AND `index` = ?)').join(' OR ');
   const params = txInputs.flatMap(input => [input.tx_id, input.index]);
 
-  await mysql.query(
+  await mysql.execute(
     `UPDATE \`tx_output\`
         SET \`tx_proposal\` = NULL,
             \`tx_proposal_index\` = NULL
@@ -1913,7 +1987,7 @@ export const getMaxIndicesForWallets = async (
  * @returns Address information if address is known or null
  */
 export async function getAddressInfo(mysql: MysqlConnection, address: string): Promise<AddressRow | null> {
-  const [results] = await mysql.query<AddressRow[]>(
+  const [results] = await mysql.execute<AddressRow[]>(
     'SELECT * FROM address WHERE address = ?', [address],
   );
 

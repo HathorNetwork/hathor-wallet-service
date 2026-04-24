@@ -26,10 +26,7 @@ export const create = (baseURL = BASE_URL) => {
   });
 
   const version = async (): Promise<FullNodeApiVersionResponse> => {
-    const response = await api.get('version', {
-      data: null,
-      headers: { 'content-type': 'application/json' },
-    });
+    const response = await api.get('version');
     const { value, error } = FullnodeVersionSchema.validate(response.data);
     if (error) {
       throw new Error(error.message);
@@ -39,19 +36,13 @@ export const create = (baseURL = BASE_URL) => {
   };
 
   const downloadTx = async (txId: string) => {
-    const response = await api.get(`transaction?id=${txId}`, {
-      data: null,
-      headers: { 'content-type': 'application/json' },
-    });
+    const response = await api.get(`transaction?id=${txId}`);
 
     return response.data;
   };
 
   const getConfirmationData = async (txId: string) => {
-    const response = await api.get(`transaction_acc_weight?id=${txId}`, {
-      data: null,
-      headers: { 'content-type': 'application/json' },
-    });
+    const response = await api.get(`transaction_acc_weight?id=${txId}`);
 
     return response.data;
   };
@@ -62,57 +53,38 @@ export const create = (baseURL = BASE_URL) => {
     maxLevel: number,
   ) => {
     const url = `graphviz/neighbours.dot/?tx=${txId}&graph_type=${graphType}&max_level=${maxLevel}`;
-    const response = await api.get(url, {
-      data: null,
-      headers: { 'content-type': 'application/json' },
-    });
+    const response = await api.get(url);
 
     return response.data;
   };
 
   const getStatus = async () => {
-    const response = await api.get('status', {
-      data: null,
-      headers: { 'content-type': 'application/json' },
-    });
+    const response = await api.get('status');
 
     return response.data;
   }
 
   const getHealth = async () => {
-    const response = await api.get('health', {
-      data: null,
-      headers: { 'content-type': 'application/json' },
-    });
+    const response = await api.get('health');
 
     return response.data;
   }
 
   const getNCState = async (params: FullnodeGetNCStateAPIParams) => {
-    const response = await api.get('nano_contract/state', {
-      data: null,
-      params,
-      headers: { 'content-type': 'application/json' },
-    });
+    const response = await api.get('nano_contract/state', { params });
 
     return response.data;
   }
 
   const getNCHistory = async (params: FullnodeGetNCHistoryAPIParams) => {
-    const response = await api.get('nano_contract/history', {
-      data: null,
-      params,
-      headers: { 'content-type': 'application/json' },
-    });
+    const response = await api.get('nano_contract/history', { params });
 
     return response.data;
   }
 
   const getNCBlueprintInfo = async (blueprintId: string) => {
     const response = await api.get('nano_contract/blueprint/info', {
-      data: null,
       params: { blueprint_id: blueprintId },
-      headers: { 'content-type': 'application/json' },
     });
 
     return response.data;
@@ -120,9 +92,7 @@ export const create = (baseURL = BASE_URL) => {
 
   const getTokenDetails = async (tokenId: string) => {
     const response = await api.get('thin_wallet/token', {
-      data: null,
       params: { id: tokenId },
-      headers: { 'content-type': 'application/json' },
     });
 
     return response.data;

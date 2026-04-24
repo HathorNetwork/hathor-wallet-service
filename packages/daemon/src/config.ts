@@ -100,6 +100,9 @@ export const RECONNECTION_STORM_WINDOW_MS = parseInt(process.env.RECONNECTION_ST
 // Other
 export const USE_SSL = process.env.USE_SSL === 'true';
 
+// When false, skips the address balance validation after voiding transactions
+export const VALIDATE_ADDRESS_BALANCES = process.env.VALIDATE_ADDRESS_BALANCES !== 'false';
+
 // Reorg size thresholds for different alert levels
 export const REORG_SIZE_INFO = parseInt(process.env.REORG_SIZE_INFO ?? '1', 10);
 export const REORG_SIZE_MINOR = parseInt(process.env.REORG_SIZE_MINOR ?? '3', 10);
@@ -145,4 +148,5 @@ export default () => ({
   REORG_SIZE_MINOR,
   REORG_SIZE_MAJOR,
   REORG_SIZE_CRITICAL,
+  VALIDATE_ADDRESS_BALANCES,
 });
