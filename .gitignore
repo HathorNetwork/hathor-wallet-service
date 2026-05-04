@@ -16,3 +16,6 @@ packages/wallet-service/.warmup
 .yarn/
 .env.*
 *.tsbuildinfo
+
+# Local benchmark output (produced by packages/daemon/src/scripts/bench-void-tx.ts)
+bench-results-*.json

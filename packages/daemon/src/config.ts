@@ -100,6 +100,20 @@ export const RECONNECTION_STORM_WINDOW_MS = parseInt(process.env.RECONNECTION_ST
 // Other
 export const USE_SSL = process.env.USE_SSL === 'true';
 
+// Scheduled balance validation configuration
+export const BALANCE_VALIDATION_ENABLED = process.env.BALANCE_VALIDATION_ENABLED === 'true';
+export const BALANCE_VALIDATION_INTERVAL_MS = parseInt(process.env.BALANCE_VALIDATION_INTERVAL_MS ?? '600000', 10);  // 10 minutes
+// Lookback window for recently-changed address_balance rows. Should be >= the
+// tick interval so no row slips between ticks if one runs late. Default is
+// interval + 50% slack.
+export const BALANCE_VALIDATION_WINDOW_MS = parseInt(process.env.BALANCE_VALIDATION_WINDOW_MS ?? '900000', 10);  // 15 minutes
+// Max mismatch rows surfaced per tick. LIMIT bounds the alert payload size;
+// does NOT reduce query execution cost.
+export const BALANCE_VALIDATION_SAMPLE_LIMIT = parseInt(process.env.BALANCE_VALIDATION_SAMPLE_LIMIT ?? '100', 10);
+
+// When false, skips the address balance validation after voiding transactions
+export const VALIDATE_ADDRESS_BALANCES = process.env.VALIDATE_ADDRESS_BALANCES !== 'false';
+
 // Reorg size thresholds for different alert levels
 export const REORG_SIZE_INFO = parseInt(process.env.REORG_SIZE_INFO ?? '1', 10);
 export const REORG_SIZE_MINOR = parseInt(process.env.REORG_SIZE_MINOR ?? '3', 10);
@@ -141,8 +155,13 @@ export default () => ({
   STUCK_PROCESSING_TIMEOUT_MS,
   RECONNECTION_STORM_THRESHOLD,
   RECONNECTION_STORM_WINDOW_MS,
+  BALANCE_VALIDATION_ENABLED,
+  BALANCE_VALIDATION_INTERVAL_MS,
+  BALANCE_VALIDATION_WINDOW_MS,
+  BALANCE_VALIDATION_SAMPLE_LIMIT,
   REORG_SIZE_INFO,
   REORG_SIZE_MINOR,
   REORG_SIZE_MAJOR,
   REORG_SIZE_CRITICAL,
+  VALIDATE_ADDRESS_BALANCES,
 });
