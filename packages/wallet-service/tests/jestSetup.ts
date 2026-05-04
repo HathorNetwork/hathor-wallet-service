@@ -18,12 +18,11 @@ config();
  * a direct `axios.get(...)` without a `jest.spyOn` / `jest.mock`). We throw
  * a loud, explanatory error instead of silently hitting the public internet.
  *
- * Hosts listed in `ALLOWED_HOSTS` are permitted — the list is intentionally
- * empty for the wallet-service unit suite. Integration tests use a separate
- * jest config and should opt in explicitly if they need real connections.
+ * Hosts listed in `process.env.ALLOWED_HOSTS` are permitted. The value is a
+ * comma-separated allow-list of hostnames; by default it is empty for the
+ * wallet-service unit suite. Integration tests use a separate jest config and
+ * can opt in explicitly if they need real connections.
  */
-const ALLOWED_HOSTS = new Set<string>([]);
-
 type RequestArg = string | URL | http.RequestOptions;
 
 const normalizeHost = (host: string | undefined): string => {
@@ -37,6 +36,13 @@ const normalizeHost = (host: string | undefined): string => {
     return host;
   }
 };
+
+const ALLOWED_HOSTS = new Set<string>(
+  (process.env.ALLOWED_HOSTS ?? '')
+    .split(',')
+    .map((host) => normalizeHost(host.trim()))
+    .filter((host) => host && host !== '<unknown>'),
+);
 
 const extractHostname = (arg: RequestArg | undefined): string => {
   if (!arg) return '<unknown>';

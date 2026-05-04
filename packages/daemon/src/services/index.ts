@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { trace, SpanStatusCode } from '@opentelemetry/api';
+import { trace, SpanStatusCode, type Span } from '@opentelemetry/api';
 import hathorLib from '@hathor/wallet-lib';
 import { Connection as MysqlConnection, PoolConnection } from 'mysql2/promise';
 import axios from 'axios';
@@ -94,13 +94,17 @@ import { JSONBigInt } from '@hathor/wallet-lib/lib/utils/bigint';
 
 const tracer = trace.getTracer('wallet-service-daemon');
 
+function recordSpanError(span: Span, error: unknown): void {
+  span.setStatus({ code: SpanStatusCode.ERROR, message: String(error) });
+  span.recordException(error as Error);
+}
+
 async function withSpan<T>(name: string, fn: () => Promise<T>): Promise<T> {
   return tracer.startActiveSpan(name, async (s) => {
     try {
       return await fn();
     } catch (e) {
-      s.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
-      s.recordException(e as Error);
+      recordSpanError(s, e);
       throw e;
     } finally {
       s.end();
@@ -666,11 +670,13 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
           mysql = undefined;
         }
         span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
-        span.recordException(e as Error);
         logger.debug(e);
 
         throw e;
       }
+    } catch (e) {
+      recordSpanError(span, e);
+      throw e;
     } finally {
       if (mysql) mysql.release();
       span.end();
@@ -856,12 +862,13 @@ export const handleVoidedTx = async (context: Context) => {
           try { mysql.destroy(); } catch { /* ignore */ }
           mysql = undefined;
         }
-        span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
-        span.recordException(e as Error);
         logger.debug(e);
 
         throw e;
       }
+    } catch (e) {
+      recordSpanError(span, e);
+      throw e;
     } finally {
       if (mysql) mysql.release();
       span.end();
@@ -901,12 +908,13 @@ export const handleUnvoidedTx = async (context: Context) => {
           try { mysql.destroy(); } catch { /* ignore */ }
           mysql = undefined;
         }
-        span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
-        span.recordException(e as Error);
         logger.debug(e);
 
         throw e;
       }
+    } catch (e) {
+      recordSpanError(span, e);
+      throw e;
     } finally {
       if (mysql) mysql.release();
       span.end();
@@ -959,11 +967,12 @@ export const handleTxFirstBlock = async (context: Context) => {
           try { mysql.destroy(); } catch { /* ignore */ }
           mysql = undefined;
         }
-        span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
-        span.recordException(e as Error);
         logger.error('E: ', e);
         throw e;
       }
+    } catch (e) {
+      recordSpanError(span, e);
+      throw e;
     } finally {
       if (mysql) mysql.release();
       span.end();
@@ -1024,11 +1033,12 @@ export const handleNcExecVoided = async (context: Context) => {
           try { mysql.destroy(); } catch { /* ignore */ }
           mysql = undefined;
         }
-        span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
-        span.recordException(e as Error);
         logger.error('handleNcExecVoided error: ', e);
         throw e;
       }
+    } catch (e) {
+      recordSpanError(span, e);
+      throw e;
     } finally {
       if (mysql) mysql.release();
       span.end();
@@ -1239,11 +1249,12 @@ export const handleTokenCreated = async (context: Context) => {
           try { mysql.destroy(); } catch { /* ignore */ }
           mysql = undefined;
         }
-        span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
-        span.recordException(e as Error);
         logger.error('Error handling TOKEN_CREATED event', e);
         throw e;
       }
+    } catch (e) {
+      recordSpanError(span, e);
+      throw e;
     } finally {
       if (mysql) mysql.release();
       span.end();
