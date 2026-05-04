@@ -11,6 +11,7 @@ import { get } from 'lodash';
 import logger from '../logger';
 import { getFullnodeWsUrl } from '../utils';
 import { bigIntUtils } from '@hathor/wallet-lib';
+import { buildErrorLogMessage } from '../utils/error';
 
 const PING_TIMEOUT = 30000; // 30s timeout
 const PING_INTERVAL = 5000; // Will ping every 5s
@@ -73,7 +74,7 @@ export default (callback: any, receive: any) => {
     );
     if (!parseResult.success) {
       logger.error(`Could not parse event: ${socketEvent.data.toString()}`);
-      throw new Error(parseResult.error.message);
+      throw parseResult.error;
     }
     const event = parseResult.data;
     const type = get(event, 'event.type');
@@ -92,8 +93,7 @@ export default (callback: any, receive: any) => {
   };
 
   socket.onerror = (e) => {
-    logger.error('Socket erroed');
-    logger.error(e);
+    logger.error(buildErrorLogMessage('Socket errored', e));
   };
 
   socket.onclose = () => {
