@@ -12,7 +12,7 @@ module.exports = {
     `);
 
     // Only create if it doesn't exist
-    if (indexes[0].count === 0) {
+    if (Number(indexes[0].count) === 0) {
       await queryInterface.sequelize.query(`
         CREATE INDEX idx_tx_output_locked_heightlock
         ON tx_output (locked, heightlock);
@@ -30,7 +30,7 @@ module.exports = {
         AND index_name = 'idx_tx_output_locked_heightlock';
     `);
 
-    if (indexes[0].count > 0) {
+    if (Number(indexes[0].count) > 0) {
       await queryInterface.sequelize.query(`
         DROP INDEX idx_tx_output_locked_heightlock ON tx_output;
       `);
