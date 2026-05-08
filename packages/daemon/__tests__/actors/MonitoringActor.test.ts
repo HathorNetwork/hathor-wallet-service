@@ -468,7 +468,9 @@ describe('MonitoringActor', () => {
       config['BALANCE_VALIDATION_ENABLED'] = true;
       const mockLoggerError = jest.spyOn(logger, 'error');
 
-      (db.getDbConnection as jest.Mock).mockRejectedValueOnce(new Error('DB connection failed'));
+      const error = new Error('DB connection failed');
+      error.stack = 'Error: DB connection failed\n    at runBalanceValidation (MonitoringActor.ts:1:1)';
+      (db.getDbConnection as jest.Mock).mockRejectedValueOnce(error);
 
       MonitoringActor(mockCallback, mockReceive, config);
       sendEvent('CONNECTED');
@@ -477,7 +479,7 @@ describe('MonitoringActor', () => {
       await flushPromises();
 
       expect(mockLoggerError).toHaveBeenCalledWith(
-        expect.stringContaining('Balance validation error'),
+        '[monitoring] Balance validation error: Error: DB connection failed | at runBalanceValidation (MonitoringActor.ts:1:1)',
       );
     });
 

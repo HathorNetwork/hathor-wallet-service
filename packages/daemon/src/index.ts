@@ -13,6 +13,9 @@ import { SyncMachine } from './machines';
 import logger from './logger';
 import { checkEnvVariables } from './config';
 import { bigIntUtils } from '@hathor/wallet-lib';
+import { registerProcessErrorHandlers } from './utils/error';
+
+registerProcessErrorHandlers(process, logger, (code) => process.exit(code));
 
 const main = async () => {
   checkEnvVariables();

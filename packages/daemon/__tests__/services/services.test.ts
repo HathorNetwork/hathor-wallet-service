@@ -122,6 +122,7 @@ jest.mock('../../src/utils', () => ({
   getFullnodeHttpUrl: jest.fn(),
   invokeOnTxPushNotificationRequestedLambda: jest.fn(),
   sendMessageSQS: jest.fn(),
+  sendRealtimeTx: jest.fn().mockResolvedValue(undefined),
   getWalletBalancesForTx: jest.fn(),
   generateAddresses: jest.fn(),
   retryWithBackoff: jest.fn((fn) => fn()),
@@ -696,6 +697,67 @@ describe('handleVertexAccepted', () => {
     expect(invokeOnTxPushNotificationRequestedLambda).toHaveBeenCalled();
     expect(mockDb.commit).toHaveBeenCalled();
     expect(mockDb.release).toHaveBeenCalled();
+  });
+
+  it('should log push notification failures on a single line', async () => {
+    const context = {
+      event: {
+        event: {
+          data: {
+            hash: 'hashValue',
+            metadata: {
+              height: 123,
+              first_block: true,
+              voided_by: [],
+            },
+            timestamp: new Date().getTime(),
+            version: 1,
+            weight: 17.17,
+            outputs: [],
+            inputs: [1],
+            tokens: [],
+          },
+          id: 'idValue',
+        },
+      },
+      rewardMinBlocks: 300,
+      txCache: {
+        get: jest.fn(),
+        set: jest.fn(),
+      },
+    };
+
+    (getConfig as jest.Mock).mockReturnValue({
+      PUSH_NOTIFICATION_ENABLED: true,
+      NEW_TX_SQS: 'http://nowhere.com',
+    });
+
+    (addOrUpdateTx as jest.Mock).mockReturnValue(Promise.resolve());
+    (getTransactionById as jest.Mock).mockResolvedValue(null);
+    (prepareOutputs as jest.Mock).mockReturnValue([]);
+    (prepareInputs as jest.Mock).mockReturnValue([]);
+    (getAddressBalanceMap as jest.Mock).mockReturnValue({});
+    (getUtxosLockedAtHeight as jest.Mock).mockResolvedValue([]);
+    (hashTxData as jest.Mock).mockReturnValue('hashedData');
+    (getAddressWalletInfo as jest.Mock).mockResolvedValue({
+      'address1': {
+        walletId: 'wallet1',
+        xpubkey: 'xpubkey1',
+        maxGap: 10
+      },
+    });
+    (getWalletBalancesForTx as jest.Mock).mockResolvedValue({ 'mockWallet': {} });
+
+    const error = new Error('push notification failure');
+    error.stack = 'Error: push notification failure\n    at invoke (lambda.ts:1:1)';
+    (invokeOnTxPushNotificationRequestedLambda as jest.Mock).mockRejectedValue(error);
+
+    await handleVertexAccepted(context as any, {} as any);
+    await Promise.resolve();
+
+    expect(logger.error).toHaveBeenCalledWith(
+      'Error on invokeOnTxPushNotificationRequestedLambda invocation: Error: push notification failure | at invoke (lambda.ts:1:1)'
+    );
   });
 
   it('should handle token creation tx without storing token info (tokens created via TOKEN_CREATED event)', async () => {
