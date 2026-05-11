@@ -20872,21 +20872,21 @@ __metadata:
   languageName: node
   linkType: hard
 
+"uuid@npm:14.0.0":
+  version: 14.0.0
+  resolution: "uuid@npm:14.0.0"
+  bin:
+    uuid: dist-node/bin/uuid
+  checksum: 10/8ee9b98f9650e25555515f7a28d3c3ae9364e72f7bb19b9e08b681bc135338beba5509b2830f6ae1cfaba4d45401da0d16d4d109b977097bc3d6ba0c5583341b
+  languageName: node
+  linkType: hard
+
 "uuid@npm:8.0.0":
   version: 8.0.0
   resolution: "uuid@npm:8.0.0"
   bin:
     uuid: dist/bin/uuid
   checksum: 10/5086c43bbe11e2337d9bb9a3b3a156311e5f5ba5da2de8152da9e00cfd5fbbf626d36e6a2838dde06e2105ac563bc298470acc0e4800c96fa2d50565c5782f8a
-  languageName: node
-  linkType: hard
-
-"uuid@npm:8.3.0":
-  version: 8.3.0
-  resolution: "uuid@npm:8.3.0"
-  bin:
-    uuid: dist/bin/uuid
-  checksum: 10/a9760cd58e2cec7015d5e1a615f6c4ed8d0bf47574558fb49ccb7fd6021f50311cc8a091099ee1f9ead3e823b95f1a661be3b0dcdd5ff15cd8d4e23b53430308
   languageName: node
   linkType: hard
 
@@ -21061,7 +21061,7 @@ __metadata:
     ts-loader: "npm:9.4.4"
     typescript: "npm:4.9.3"
     typescript-eslint: "npm:0.0.1-alpha.0"
-    uuid: "npm:8.3.0"
+    uuid: "npm:14.0.0"
     webpack: "npm:5.104.1"
     webpack-node-externals: "npm:3.0.0"
     winston: "npm:3.13.0"
