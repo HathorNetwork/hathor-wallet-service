@@ -12,7 +12,7 @@ module.exports = {
     `);
 
     // Only create if it doesn't exist
-    if (indexes[0].count === 0) {
+    if (Number(indexes[0].count) === 0) {
       await queryInterface.sequelize.query(`
         CREATE INDEX idx_address_tx_history_addr_voided_token
         ON address_tx_history (address, voided, token_id);
@@ -30,7 +30,7 @@ module.exports = {
         AND index_name = 'idx_address_tx_history_addr_voided_token';
     `);
 
-    if (indexes[0].count > 0) {
+    if (Number(indexes[0].count) > 0) {
       await queryInterface.sequelize.query(`
         DROP INDEX idx_address_tx_history_addr_voided_token ON address_tx_history;
       `);

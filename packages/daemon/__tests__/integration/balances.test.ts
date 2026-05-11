@@ -468,13 +468,14 @@ describe('voided token authority scenario', () => {
       ),
       (
           'cafecafe',
-          'xpub6F81iNtH5HVknoJ65cK2XAGA5F3okdJK7WHwVAAPZnSir2sfwbhvB9ffNKQ4wLor75QxPe9p12tqt8xUZSG8i8AAPMpkFho7fbWkBJQ5s1x',
+          -- Distinct xpub from deafbeef so gap discovery doesn't collide on the global address PK.
+          'xpub6GwCmKUTKBzEWNM9Zt77NTTsu6DNx6uzQP4TJm7yH5UpaEJ2fKioET7MrXNp584rNDyJWHqeNdEAZU5shWzSDQYs8bNtXAbVw1T1HKj4QjW',
           'ready',
           20,
           UNIX_TIMESTAMP(),
           UNIX_TIMESTAMP(),
           0,
-          'xpub6F81iNtH5HVknoJ65cK2XAGA5F3okdJK7WHwVAAPZnSir2sfwbhvB9ffNKQ4wLor75QxPe9p12tqt8xUZSG8i8AAPMpkFho7fbWkBJQ5s1x',
+          'xpub6GwCmKUTKBzEWNM9Zt77NTTsu6DNx6uzQP4TJm7yH5UpaEJ2fKioET7MrXNp584rNDyJWHqeNdEAZU5shWzSDQYs8bNtXAbVw1T1HKj4QjW',
           -1
       )`;
 

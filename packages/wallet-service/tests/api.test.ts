@@ -52,6 +52,7 @@ import {
   addToWalletTable,
   addToWalletTxHistoryTable,
   addToTransactionTable,
+  seedFullnodeVersionData,
   cleanDatabase,
   makeGatewayEvent,
   makeGatewayEventWithAuthorizer,
@@ -1597,6 +1598,10 @@ test('GET /wallet/tx_outputs', async () => {
 
 test('POST /tx/proposal', async () => {
   expect.hasAssertions();
+
+  // Seed version data so txProposalCreate's getFullnodeData() reads from
+  // the DB cache and does not make a real HTTP call to the fullnode.
+  await seedFullnodeVersionData(mysql);
 
   await _testCORSHeaders(txProposalCreate, null, null);
 });
