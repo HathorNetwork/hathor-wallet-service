@@ -1,37 +1,55 @@
 import fullnode from '@src/fullnode';
 import { defaultTestVersionData } from '@tests/utils';
 
-test('version returns parsed payload when the response matches the schema', async () => {
-  expect.hasAssertions();
+describe('version', () => {
+  test('returns parsed payload when native_token includes the version field', async () => {
+    expect.hasAssertions();
 
-  const payload = {
-    ...defaultTestVersionData(),
-    native_token: { name: 'Hathor', symbol: 'HTR', version: 0 },
-  };
-  const apiGetSpy = jest.spyOn(fullnode.api, 'get');
-  apiGetSpy.mockImplementation(() => Promise.resolve({
-    status: 200,
-    data: payload,
-  }));
+    const payload = {
+      ...defaultTestVersionData(),
+      native_token: { name: 'Hathor', symbol: 'HTR', version: 0 },
+    };
+    const apiGetSpy = jest.spyOn(fullnode.api, 'get');
+    apiGetSpy.mockImplementation(() => Promise.resolve({
+      status: 200,
+      data: payload,
+    }));
 
-  const response = await fullnode.version();
-  expect(response).toStrictEqual(payload);
-});
+    const response = await fullnode.version();
+    expect(response).toStrictEqual(payload);
+  });
 
-test('version throws when the response fails schema validation', async () => {
-  expect.hasAssertions();
+  test('returns parsed payload when native_token omits the version field', async () => {
+    expect.hasAssertions();
 
-  const invalidPayload = {
-    ...defaultTestVersionData(),
-    native_token: { name: 'Hathor', symbol: 'HTR', version: 1.5 },
-  };
-  const apiGetSpy = jest.spyOn(fullnode.api, 'get');
-  apiGetSpy.mockImplementation(() => Promise.resolve({
-    status: 200,
-    data: invalidPayload,
-  }));
+    // defaultTestVersionData() returns a payload whose native_token has no `version`.
+    const payload = defaultTestVersionData();
+    const apiGetSpy = jest.spyOn(fullnode.api, 'get');
+    apiGetSpy.mockImplementation(() => Promise.resolve({
+      status: 200,
+      data: payload,
+    }));
 
-  await expect(fullnode.version()).rejects.toThrow(/native_token\.version/);
+    const response = await fullnode.version();
+    expect(response).toStrictEqual(payload);
+    expect(response.native_token).not.toHaveProperty('version');
+  });
+
+  test('throws when the response fails schema validation', async () => {
+    expect.hasAssertions();
+
+    const invalidPayload = {
+      ...defaultTestVersionData(),
+      native_token: { name: 'Hathor', symbol: 'HTR', version: 1.5 },
+    };
+    const apiGetSpy = jest.spyOn(fullnode.api, 'get');
+    apiGetSpy.mockImplementation(() => Promise.resolve({
+      status: 200,
+      data: invalidPayload,
+    }));
+
+    await expect(fullnode.version()).rejects.toThrow(/native_token\.version/);
+  });
 });
 
 test('downloadTx', async () => {
