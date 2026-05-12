@@ -2,6 +2,10 @@ import fullnode from '@src/fullnode';
 import { defaultTestVersionData } from '@tests/utils';
 
 describe('version', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   test('returns parsed payload when native_token includes the version field', async () => {
     expect.hasAssertions();
 
