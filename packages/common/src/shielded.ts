@@ -1,4 +1,11 @@
 /**
+ * Copyright (c) Hathor Labs and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+/**
  * Output mode discriminator. Maps directly to tx_output.mode (TINYINT)
  * and to the `mode` field on shielded outputs delivered by the fullnode.
  */
