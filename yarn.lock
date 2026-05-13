@@ -2,7 +2,7 @@
 # Manual changes might be lost - proceed with caution!
 
 __metadata:
-  version: 8
+  version: 9
   cacheKey: 10
 
 "2-thenable@npm:^1.0.0":
@@ -3731,6 +3731,14 @@ __metadata:
     "@hapi/bourne": "npm:^3.0.0"
     "@hapi/hoek": "npm:^11.0.2"
   checksum: 10/456b9d056f71bef9cb4449e1d32bbfbdf4d0f010281b1138225050c3eac3e5194b5d57ba3dd7a18d538199b5cc2284343ccd254079a8ac8cf6776b46f1a0addb
+  languageName: node
+  linkType: hard
+
+"@hathor/ct-crypto-node@npm:0.4.0":
+  version: 0.4.0
+  resolution: "@hathor/ct-crypto-node@npm:0.4.0"
+  checksum: 10/02e1be61799966d31af9df7984b312ae8cf5867a998a75a02944a337b31c218ec879a5d4747918f057621a183e1d133902ea82994a56fe687c281b7ad3572184
+  conditions: (os=darwin | os=linux | os=win32) & (cpu=x64 | cpu=arm64)
   languageName: node
   linkType: hard
 
@@ -19831,6 +19839,7 @@ __metadata:
   dependencies:
     "@aws-sdk/client-lambda": "npm:3.540.0"
     "@aws-sdk/client-sqs": "npm:3.540.0"
+    "@hathor/ct-crypto-node": "npm:0.4.0"
     "@opentelemetry/api": "npm:1.9.0"
     "@opentelemetry/auto-instrumentations-node": "npm:0.56.1"
     "@opentelemetry/exporter-trace-otlp-http": "npm:0.57.2"
