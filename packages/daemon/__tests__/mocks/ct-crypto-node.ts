@@ -63,7 +63,7 @@ export const mockCtCrypto = {
       throw new Error('mock: no AmountShielded priming for (commitment, ephemeralPubkey)');
     }
     return {
-      value: p.value,
+      value: p.value.toString(),
       blindingFactor: Buffer.alloc(32),
     };
   },
@@ -80,7 +80,7 @@ export const mockCtCrypto = {
       throw new Error('mock: no FullyShielded priming for (commitment, ephemeralPubkey)');
     }
     return {
-      value: p.value,
+      value: p.value.toString(),
       blindingFactor: Buffer.alloc(32),
       tokenUid: p.tokenUid,
       assetBlindingFactor: Buffer.alloc(32),
