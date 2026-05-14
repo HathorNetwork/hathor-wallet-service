@@ -2625,6 +2625,7 @@ export const getTotalSupply = async (
        AND token_id = ?
        AND voided = FALSE
        AND address != '${BURN_ADDRESS}'
+       AND mode = 0
   `, [tokenId]);
 
   if (!results.length) {
@@ -2660,6 +2661,7 @@ export const getExpiredTimelocksUtxos = async (
      WHERE locked = TRUE
        AND timelock IS NOT NULL
        AND timelock < ?
+       AND mode = 0
   `, [now]);
 
   const lockedUtxos: DbTxOutput[] = results.map(mapDbResultToDbTxOutput);
@@ -2728,6 +2730,7 @@ export const getAvailableAuthorities = async (
      AND voided = FALSE
      AND locked = FALSE
      AND spent_by IS NULL
+     AND mode = 0
   `, [tokenId]);
 
   const utxos = results.map(mapDbResultToDbTxOutput);
@@ -2819,6 +2822,7 @@ export const getAffectedAddressTotalReceivedFromTxList = async (
       FROM tx_output
      WHERE tx_id IN (?)
        AND voided = TRUE
+       AND mode = 0
   GROUP BY address, token_id
   `, [txList]);
 

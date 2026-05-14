@@ -2538,6 +2538,32 @@ test('getTotalSupply', async () => {
   );
 });
 
+test('getTotalSupply ignores shielded tx_output rows', async () => {
+  expect.hasAssertions();
+
+  // Transparent row (mode defaults to 0 via addToUtxoTable).
+  await addToUtxoTable(mysql, [{
+    txId: 'tx_transparent',
+    index: 0,
+    tokenId: '00',
+    address: 'a1',
+    value: 100n,
+    authorities: 0,
+    timelock: null,
+    heightlock: null,
+    locked: false,
+    spentBy: null,
+  }]);
+
+  // Shielded row for the same token; insert raw to set mode=1.
+  await mysql.query(`
+    INSERT INTO tx_output (tx_id, \`index\`, mode, token_id, address, value, authorities, locked, voided)
+    VALUES ('tx_shielded', 0, 1, '00', 'a2', 999, 0, FALSE, FALSE)
+  `);
+
+  expect(await getTotalSupply(mysql, '00')).toStrictEqual(100n);
+});
+
 test('getExpiredTimelocksUtxos', async () => {
   expect.hasAssertions();
 
