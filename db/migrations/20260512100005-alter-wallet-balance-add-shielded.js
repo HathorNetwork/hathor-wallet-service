@@ -3,7 +3,7 @@
 module.exports = {
   up: async (queryInterface, Sequelize) => {
     await queryInterface.addColumn('wallet_balance', 'unlocked_shielded_balance', {
-      type: Sequelize.BIGINT,
+      type: Sequelize.BIGINT.UNSIGNED,
       allowNull: false,
       defaultValue: 0,
     });
