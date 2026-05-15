@@ -2822,7 +2822,6 @@ export const getAffectedAddressTotalReceivedFromTxList = async (
       FROM tx_output
      WHERE tx_id IN (?)
        AND voided = TRUE
-       AND mode = 0
   GROUP BY address, token_id
   `, [txList]);
 
