@@ -389,6 +389,50 @@ export async function upsertShieldedAddressObservation(
 }
 
 /**
+ * Ownership info for a shielded address that has been claimed by a wallet.
+ */
+export interface ShieldedAddressOwnership {
+  wallet_id: string;
+  shielded_index: number;
+  scan_privkey: Buffer;
+}
+
+/**
+ * Look up ownership info for a shielded address.
+ *
+ * Returns the ownership fields (`wallet_id`, `shielded_index`, `scan_privkey`)
+ * only when a wallet has claimed the address (i.e. `wallet_id IS NOT NULL`).
+ *
+ * Unowned rows created by `upsertShieldedAddressObservation` have NULL
+ * ownership and cause this helper to return `null`. Addresses with no row at
+ * all also return `null`.
+ *
+ * Used during recovery to look up the scan key associated with an observed
+ * shielded output.
+ *
+ * @param conn - Database connection
+ * @param address - The shielded address to look up
+ * @returns Ownership info when the address is owned by a wallet, otherwise null
+ */
+export async function findShieldedAddressOwnership(
+  conn: any,
+  address: string,
+): Promise<ShieldedAddressOwnership | null> {
+  const [rows] = await conn.query(
+    `SELECT wallet_id, shielded_index, scan_privkey
+       FROM shielded_address
+      WHERE address = ? AND wallet_id IS NOT NULL`,
+    [address],
+  );
+  if (!rows || rows.length === 0) return null;
+  return {
+    wallet_id: rows[0].wallet_id,
+    shielded_index: rows[0].shielded_index,
+    scan_privkey: rows[0].scan_privkey,
+  };
+}
+
+/**
  * Remove a tx inputs from the utxo table.
  *
  * @param mysql - Database connection
