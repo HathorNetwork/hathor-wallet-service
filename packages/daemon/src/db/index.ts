@@ -360,6 +360,35 @@ export const insertShieldedTxOutputData = async (
 };
 
 /**
+ * Record an observation of a shielded address.
+ *
+ * Used at observation time: the daemon has seen a shielded `tx_output` whose
+ * destination address it does not (yet) own. The row is inserted with NULL
+ * ownership fields (`wallet_id`, `scan_privkey`, `shielded_index`,
+ * `shielded_address`, `catchup_state`) and `transactions = 1`. If a row for
+ * the address already exists, `transactions` is incremented by 1.
+ *
+ * Ownership fields are preserved on subsequent observations: only
+ * `transactions` appears in the `ON DUPLICATE KEY UPDATE` clause, so any
+ * registration data attached to the row (after a wallet later claims the
+ * address) is untouched by repeated observations.
+ *
+ * @param conn - Database connection
+ * @param address - The shielded address observed in a `tx_output`
+ */
+export async function upsertShieldedAddressObservation(
+  conn: any,
+  address: string,
+): Promise<void> {
+  await conn.query(
+    `INSERT INTO \`shielded_address\` (\`address\`, \`transactions\`, \`created_at\`)
+     VALUES (?, 1, CURRENT_TIMESTAMP)
+     ON DUPLICATE KEY UPDATE \`transactions\` = \`transactions\` + 1`,
+    [address],
+  );
+}
+
+/**
  * Remove a tx inputs from the utxo table.
  *
  * @param mysql - Database connection
