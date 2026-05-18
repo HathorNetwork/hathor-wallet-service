@@ -126,7 +126,7 @@ export interface FullNodeApiVersionResponse {
   genesis_block_hash?: string,
   genesis_tx1_hash?: string,
   genesis_tx2_hash?: string,
-  native_token?: { name: string, symbol: string };
+  native_token?: { name: string, symbol: string, version?: number };
 }
 
 export interface TxProposal {
