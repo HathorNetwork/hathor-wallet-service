@@ -296,6 +296,70 @@ export const insertTxOutput = async (
 };
 
 /**
+ * Arguments for inserting a single `shielded_tx_output_data` satellite row.
+ *
+ * The satellite carries the per-output cryptographic payload that accompanies a
+ * shielded `tx_output`. The parent `tx_output(tx_id, index)` row must exist
+ * first — the foreign key is `ON DELETE CASCADE`, so cleanup follows the parent.
+ *
+ * Per-mode field conventions:
+ * - mode=1 (AmountShielded): `token_data` carries the plaintext token index;
+ *   `asset_commitment` and `surjection_proof` are NULL.
+ * - mode=2 (FullyShielded): `asset_commitment` and `surjection_proof` carry the
+ *   per-output asset proofs; `token_data` is NULL.
+ */
+export interface InsertShieldedDataArgs {
+  tx_id: string;
+  output_index: number;
+  mode: 1 | 2;
+  commitment: Buffer;
+  range_proof: Buffer;
+  script: Buffer;
+  ephemeral_pubkey: Buffer;
+  token_data?: number | null;
+  asset_commitment?: Buffer | null;
+  surjection_proof?: Buffer | null;
+}
+
+/**
+ * Insert a single row into `shielded_tx_output_data`.
+ *
+ * Idempotent against re-ingest of the same vertex via
+ * `ON DUPLICATE KEY UPDATE commitment = VALUES(commitment)` (a no-op rewrite
+ * when the (tx_id, output_index) primary key already exists).
+ *
+ * The caller is responsible for inserting the parent `tx_output` row first;
+ * this helper assumes the FK target exists.
+ *
+ * @param conn - Database connection
+ * @param args - The satellite row to insert
+ */
+export const insertShieldedTxOutputData = async (
+  conn: any,
+  args: InsertShieldedDataArgs,
+): Promise<void> => {
+  await conn.query(
+    `INSERT INTO \`shielded_tx_output_data\`
+       (\`tx_id\`, \`output_index\`, \`commitment\`, \`range_proof\`, \`script\`, \`ephemeral_pubkey\`,
+        \`token_data\`, \`asset_commitment\`, \`surjection_proof\`)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       commitment = VALUES(commitment)`,
+    [
+      args.tx_id,
+      args.output_index,
+      args.commitment,
+      args.range_proof,
+      args.script,
+      args.ephemeral_pubkey,
+      args.token_data ?? null,
+      args.asset_commitment ?? null,
+      args.surjection_proof ?? null,
+    ],
+  );
+};
+
+/**
  * Remove a tx inputs from the utxo table.
  *
  * @param mysql - Database connection
