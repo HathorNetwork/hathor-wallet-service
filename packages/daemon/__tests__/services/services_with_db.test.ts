@@ -7,7 +7,7 @@
 
 import { TokenVersion } from '@hathor/wallet-lib';
 import * as db from '../../src/db';
-import { handleVoidedTx, voidTx, handleTokenCreated } from '../../src/services';
+import { handleVoidedTx, voidTx, handleTokenCreated, handleVertexAccepted } from '../../src/services';
 import { LRU } from '../../src/utils';
 import {
   addOrUpdateTx,
@@ -29,6 +29,7 @@ import {
 } from '../utils';
 import { DbTxOutput, EventTxInput } from '../../src/types';
 import { Connection } from 'mysql2/promise';
+import eventsFixture from '../__fixtures__/events';
 
 /**
  * @jest-environment node
@@ -2105,5 +2106,72 @@ describe('handleTokenCreated with TokenVersion.FEE (token_version: 2)', () => {
     );
     expect(rows).toHaveLength(1);
     expect(rows[0].first_block).toBe(newBlock);
+  });
+});
+
+describe('handleVertexAccepted with shielded outputs', () => {
+  beforeEach(async () => {
+    // `shielded_address` and `shielded_tx_output_data` are not yet part of the
+    // shared cleanDatabase TABLES list; wipe them manually to keep this test
+    // isolated from neighbouring suites.
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+    await mysql.query('DELETE FROM shielded_address');
+  });
+
+  afterEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+    await mysql.query('DELETE FROM shielded_address');
+  });
+
+  it('writes the shielded tx_output, satellite, and shielded_address observation', async () => {
+    expect.hasAssertions();
+
+    const fixture = eventsFixture.VERTEX_WITH_SHIELDED;
+    const txHash = fixture.event.data.hash;
+    const shieldedOutput = fixture.event.data.shielded_outputs[0];
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    // The fixture has 1 transparent output and 1 shielded mode=1 output.
+    // Concatenated index of the shielded entry: 1 (after 1 transparent at idx 0).
+    const txOutput = await getTxOutput(mysql, txHash, 1, false);
+    expect(txOutput).not.toBeNull();
+    expect(txOutput!.mode).toBe(1);
+    expect(txOutput!.recoveryState).toBe('unowned');
+    expect(txOutput!.value).toBeNull();
+
+    // Verify satellite row.
+    const [satelliteRows] = await mysql.query<any[]>(
+      'SELECT * FROM `shielded_tx_output_data` WHERE `tx_id` = ? AND `output_index` = ?',
+      [txHash, 1],
+    );
+    expect(satelliteRows).toHaveLength(1);
+    expect(satelliteRows[0].token_data).toBe(shieldedOutput.token_data);
+
+    // Verify shielded_address observation row.
+    const [shieldedAddrRows] = await mysql.query<any[]>(
+      'SELECT * FROM `shielded_address` WHERE `address` = ?',
+      [shieldedOutput.decoded.address],
+    );
+    expect(shieldedAddrRows).toHaveLength(1);
+    expect(shieldedAddrRows[0].wallet_id).toBeNull();
+    expect(shieldedAddrRows[0].transactions).toBe(1);
+
+    // Transparent output at concatenated index 0 is still written by the existing
+    // addUtxos path with mode=0 and recovery_state=NULL.
+    const transparentOutput = await getTxOutput(mysql, txHash, 0, false);
+    expect(transparentOutput).not.toBeNull();
+    expect(transparentOutput!.mode).toBe(0);
+    expect(transparentOutput!.recoveryState).toBeNull();
   });
 });

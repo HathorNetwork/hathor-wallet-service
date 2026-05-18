@@ -129,6 +129,11 @@ jest.mock('../../src/utils', () => ({
 
 jest.mock('@wallet-service/common', () => {
   const addAlertMock = jest.fn();
+  const ShieldedOutputMode = {
+    Transparent: 0,
+    AmountShielded: 1,
+    FullyShielded: 2,
+  };
   return {
     addAlert: addAlertMock,
     Severity: {
@@ -142,6 +147,15 @@ jest.mock('@wallet-service/common', () => {
       invokeNftHandlerLambda: jest.fn(),
       processNftEvent: jest.fn().mockReturnValue(Promise.resolve()),
     },
+    ShieldedOutputMode,
+    RecoveryState: {
+      Unowned: 'unowned',
+      Recovered: 'recovered',
+      RecoveryFailed: 'recovery_failed',
+    },
+    isShieldedMode: (mode: number) =>
+      mode === ShieldedOutputMode.AmountShielded
+        || mode === ShieldedOutputMode.FullyShielded,
   };
 });
 

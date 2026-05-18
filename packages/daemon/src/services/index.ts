@@ -10,7 +10,7 @@ import hathorLib from '@hathor/wallet-lib';
 import { Connection as MysqlConnection, PoolConnection } from 'mysql2/promise';
 import axios from 'axios';
 import { get } from 'lodash';
-import { NftUtils } from '@wallet-service/common';
+import { NftUtils, ShieldedOutputMode, RecoveryState, isShieldedMode } from '@wallet-service/common';
 import {
   StringMap,
   Wallet,
@@ -85,6 +85,9 @@ import {
   voidWalletTransaction,
   getTxOutputs,
   clearTxProposalForVoidedTx,
+  insertTxOutput,
+  insertShieldedTxOutputData,
+  upsertShieldedAddressObservation,
 } from '../db';
 import getConfig, { VALIDATE_ADDRESS_BALANCES } from '../config';
 import logger from '../logger';
@@ -432,6 +435,60 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         // Add utxos
         await withSpan('addUtxos', () => addUtxos(mysql, hash, txOutputs, heightlock));
 
+        // Resolve a shielded output's token_data to the matching token UID.
+        // Mirrors the transparent-path logic in `prepareOutputs`: a token_data
+        // of 0 selects the native token; otherwise it indexes into `vertex.tokens[]`.
+        const shieldedOutputs = fullNodeEvent.event.data.shielded_outputs ?? [];
+        const transparentCount = txOutputs.length;
+        const resolveShieldedTokenId = (tokenData: number): string | null => {
+          const idx = (tokenData & hathorLib.constants.TOKEN_INDEX_MASK) - 1;
+          if (idx < 0) {
+            return hathorLib.constants.NATIVE_TOKEN_UID;
+          }
+          return tokens[idx] ?? null;
+        };
+
+        // Walk shielded_outputs[] with concatenated index = transparentCount + i.
+        // Each shielded output produces three rows: the unified `tx_output`, the
+        // `shielded_tx_output_data` satellite carrying the per-output crypto payload,
+        // and a `shielded_address` observation. Ownership recovery is wired in a
+        // follow-up, so every row lands in `recovery_state = 'unowned'`.
+        for (let i = 0; i < shieldedOutputs.length; i++) {
+          const so = shieldedOutputs[i];
+          const idx = transparentCount + i;
+          const isAmount = so.mode === ShieldedOutputMode.AmountShielded;
+
+          await insertTxOutput(mysql, {
+            tx_id: hash,
+            index: idx,
+            mode: so.mode,
+            address: so.decoded.address,
+            value: null,
+            token_id: isAmount ? resolveShieldedTokenId(so.token_data) : null,
+            authorities: 0,
+            timelock: null,
+            heightlock,
+            locked: false,
+            voided: false,
+            recovery_state: RecoveryState.Unowned,
+          });
+
+          await insertShieldedTxOutputData(mysql, {
+            tx_id: hash,
+            output_index: idx,
+            mode: so.mode,
+            commitment: Buffer.from(so.commitment, 'hex'),
+            range_proof: Buffer.from(so.range_proof, 'hex'),
+            script: Buffer.from(so.script, 'hex'),
+            ephemeral_pubkey: Buffer.from(so.ephemeral_pubkey, 'hex'),
+            token_data: isAmount ? so.token_data : null,
+            asset_commitment: !isAmount ? Buffer.from(so.asset_commitment, 'hex') : null,
+            surjection_proof: !isAmount ? Buffer.from(so.surjection_proof, 'hex') : null,
+          });
+
+          await upsertShieldedAddressObservation(mysql, so.decoded.address);
+        }
+
         // Mark tx utxos as spent
         await withSpan('updateTxOutputSpentBy', () => updateTxOutputSpentBy(mysql, txInputs, hash));
 
@@ -558,12 +615,25 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             logger.error(e);
           }
 
-          const network = new hathorLib.Network(NETWORK);
+          // NFT detection on transactions that touch shielded data is deferred —
+          // shielded NFT detection is technical debt, so skip the handler when the
+          // vertex carries any shielded outputs OR spends any shielded input.
+          // Inputs are typed as transparent today (the `spent_output.mode`
+          // discriminator switchover is a follow-up), so we read `mode`
+          // defensively at runtime and let `isShieldedMode` recognise it.
+          const hasShieldedInputs = inputs.some(
+            (input) => isShieldedMode(
+              ((input?.spent_output as { mode?: number } | undefined)?.mode) ?? 0,
+            ),
+          );
+          if (shieldedOutputs.length === 0 && !hasShieldedInputs) {
+            const network = new hathorLib.Network(NETWORK);
 
-          // Call to process the data for NFT handling (if applicable)
-          // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
-          NftUtils.processNftEvent(fullNodeData, STAGE, SERVERLESS_DEPLOY_PREFIX, network, logger)
-            .catch((err: unknown) => logger.error('[ALERT] Error processing NFT event', err));
+            // Call to process the data for NFT handling (if applicable)
+            // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
+            NftUtils.processNftEvent(fullNodeData, STAGE, SERVERLESS_DEPLOY_PREFIX, network, logger)
+              .catch((err: unknown) => logger.error('[ALERT] Error processing NFT event', err));
+          }
         }
 
         // Need to check if there is a nano header and update the nc_address's seqnum if needed
