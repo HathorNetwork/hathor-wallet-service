@@ -1,10 +1,8 @@
 import { FullnodeVersionSchema } from '@src/schemas';
 import { defaultTestVersionData } from '@tests/utils';
 
-// Regression guard for the testnet outage that motivated PR 420: the
-// fullnode added `native_token.version` and the lambda crashed because the
-// nested object did not allow it. Locking the modern payload in as a
-// passing case prevents that fix from being reverted by accident.
+// Regression guard: the `native_token.version` is not available in all live fullnode instances.
+// The Wallet Service must be able to handle both cases.
 test('FullnodeVersionSchema regression: native_token.version is accepted', () => {
   const payload = {
     ...defaultTestVersionData(),
