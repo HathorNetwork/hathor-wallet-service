@@ -544,9 +544,9 @@ describe('unspentTxOutputs function', () => {
 
     // Now unspent them
     const txOutputsToUnspent: DbTxOutput[] = [
-      { txId: txIdA, index: 0, tokenId, address, value: 50n, authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: spendingTx, txProposalId: null, txProposalIndex: null },
-      { txId: txIdB, index: 0, tokenId, address, value: 75n, authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: spendingTx, txProposalId: null, txProposalIndex: null },
-      { txId: txIdC, index: 0, tokenId, address, value: 100n, authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: spendingTx, txProposalId: null, txProposalIndex: null },
+      { txId: txIdA, index: 0, tokenId, address, value: 50n, authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: spendingTx, txProposalId: null, txProposalIndex: null, mode: 0, recoveryState: null },
+      { txId: txIdB, index: 0, tokenId, address, value: 75n, authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: spendingTx, txProposalId: null, txProposalIndex: null, mode: 0, recoveryState: null },
+      { txId: txIdC, index: 0, tokenId, address, value: 100n, authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: spendingTx, txProposalId: null, txProposalIndex: null, mode: 0, recoveryState: null },
     ];
 
     await unspendUtxos(mysql, txOutputsToUnspent);

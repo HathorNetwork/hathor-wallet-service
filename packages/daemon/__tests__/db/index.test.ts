@@ -268,6 +268,8 @@ describe('tx output methods', () => {
       spentBy: null,
       txProposalId: null,
       txProposalIndex: null,
+      mode: 0,
+      recoveryState: null,
     });
 
     // empty list should be fine
@@ -292,6 +294,8 @@ describe('tx output methods', () => {
       spentBy: txId,
       txProposalId: null,
       txProposalIndex: null,
+      mode: 0,
+      recoveryState: null,
     });
 
     // if the tx output is not found, it should return null
@@ -309,6 +313,8 @@ describe('tx output methods', () => {
       heightlock: null,
       timelock: null,
       index,
+      mode: 0,
+      recoveryState: null,
     }));
 
     await unspendUtxos(mysql, txOutputs);
@@ -379,19 +385,20 @@ describe('tx output methods', () => {
 
     const txId = 'txId';
     const utxos: DbTxOutput[] = [
-      { txId, index: 0, tokenId: 'token1', address: 'address1', value: 5n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null },
-      { txId, index: 1, tokenId: 'token1', address: 'address1', value: 15n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null},
-      { txId, index: 2, tokenId: 'token1', address: 'address1', value: 25n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null },
-      { txId, index: 3, tokenId: 'token1', address: 'address1', value: 1n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null },
-      { txId, index: 4, tokenId: 'token1', address: 'address1', value: 3n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null },
+      { txId, index: 0, tokenId: 'token1', address: 'address1', value: 5n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null, mode: 0, recoveryState: null },
+      { txId, index: 1, tokenId: 'token1', address: 'address1', value: 15n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null, mode: 0, recoveryState: null },
+      { txId, index: 2, tokenId: 'token1', address: 'address1', value: 25n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null, mode: 0, recoveryState: null },
+      { txId, index: 3, tokenId: 'token1', address: 'address1', value: 1n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null, mode: 0, recoveryState: null },
+      { txId, index: 4, tokenId: 'token1', address: 'address1', value: 3n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null, mode: 0, recoveryState: null },
     ];
 
     // add to utxo table
     const outputs = utxos.map((utxo, index) => createOutput(
       index,
-      utxo.value,
+      // transparent fixture: value and tokenId are non-null
+      utxo.value!,
       utxo.address,
-      utxo.tokenId,
+      utxo.tokenId!,
       utxo.timelock,
       utxo.locked,
       0,
@@ -411,16 +418,17 @@ describe('tx output methods', () => {
     await addOrUpdateTx(mysql, txId, 0, 1, 1, 65);
 
     const utxos: DbTxOutput[] = [
-      { txId, index: 0, tokenId: 'token1', address: 'address1', value: 5n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null },
-      { txId, index: 1, tokenId: 'token1', address: 'address1', value: 15n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null},
+      { txId, index: 0, tokenId: 'token1', address: 'address1', value: 5n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null, mode: 0, recoveryState: null },
+      { txId, index: 1, tokenId: 'token1', address: 'address1', value: 15n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null, mode: 0, recoveryState: null },
     ];
 
     // add to utxo table
     const outputs = utxos.map((utxo, index) => createOutput(
       index,
-      utxo.value,
+      // transparent fixture: value and tokenId are non-null
+      utxo.value!,
       utxo.address,
-      utxo.tokenId,
+      utxo.tokenId!,
       utxo.timelock,
       utxo.locked,
       0,
@@ -679,6 +687,8 @@ describe('address and wallet related tests', () => {
       heightlock: null,
       locked: true,
       spentBy: null,
+      mode: 0,
+      recoveryState: null,
     }]);
     const newMap = TokenBalanceMap.fromStringMap({ [tokenId]: { unlocked: 0, locked: 0, unlockedAuthorities: new Authorities(0b10) } });
     await updateAddressLockedBalance(mysql, { [addr1]: newMap });

@@ -235,6 +235,67 @@ export const addUtxos = async (
 };
 
 /**
+ * Arguments for inserting a single tx_output row.
+ *
+ * Supports transparent (mode=0), AmountShielded (mode=1) and FullyShielded (mode=2) rows.
+ * `value` and `token_id` are nullable to accommodate unrecovered shielded outputs where
+ * either the amount, the token, or both are not yet known.
+ */
+export interface InsertTxOutputArgs {
+  tx_id: string;
+  index: number;
+  mode: number;
+  address: string;
+  value: bigint | null;
+  token_id: string | null;
+  authorities: number;
+  timelock: number | null;
+  heightlock: number | null;
+  locked: boolean;
+  voided: boolean;
+  spent_by?: string | null;
+  recovery_state: 'unowned' | 'recovered' | 'recovery_failed' | null;
+}
+
+/**
+ * Insert a single row into `tx_output`.
+ *
+ * Idempotent against re-ingest of the same vertex: `ON DUPLICATE KEY UPDATE address = VALUES(address)`
+ * re-writes a no-op same value when the (tx_id, index) primary key already exists.
+ *
+ * @param mysql - Database connection
+ * @param args - The row to insert
+ */
+export const insertTxOutput = async (
+  mysql: any,
+  args: InsertTxOutputArgs,
+): Promise<void> => {
+  await mysql.query(
+    `INSERT INTO \`tx_output\`
+       (\`tx_id\`, \`index\`, \`mode\`, \`address\`, \`value\`, \`token_id\`, \`authorities\`,
+        \`timelock\`, \`heightlock\`, \`locked\`, \`voided\`, \`spent_by\`, \`recovery_state\`)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       address = VALUES(address)`,
+    [
+      args.tx_id,
+      args.index,
+      args.mode,
+      args.address,
+      args.value,
+      args.token_id,
+      args.authorities,
+      args.timelock,
+      args.heightlock,
+      args.locked,
+      args.voided,
+      args.spent_by ?? null,
+      args.recovery_state,
+    ],
+  );
+};
+
+/**
  * Remove a tx inputs from the utxo table.
  *
  * @param mysql - Database connection
@@ -297,9 +358,9 @@ export const getTxOutputsFromTx = async (
     const utxo: DbTxOutput = {
       txId: result.tx_id as string,
       index: result.index as number,
-      tokenId: result.token_id as string,
+      tokenId: result.token_id as string | null,
       address: result.address as string,
-      value: BigInt(result.value),
+      value: result.value === null || result.value === undefined ? null : BigInt(result.value),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
@@ -307,6 +368,8 @@ export const getTxOutputsFromTx = async (
       txProposalId: result.tx_proposal as string,
       txProposalIndex: result.tx_proposal_index as number,
       spentBy: result.spent_by ? result.spent_by as string : null,
+      mode: result.mode as number,
+      recoveryState: (result.recovery_state ?? null) as string | null,
     };
     utxos.push(utxo);
   }
@@ -341,9 +404,9 @@ export const getTxOutputs = async (
     const utxo: DbTxOutput = {
       txId: result.tx_id as string,
       index: result.index as number,
-      tokenId: result.token_id as string,
+      tokenId: result.token_id as string | null,
       address: result.address as string,
-      value: BigInt(result.value),
+      value: result.value === null || result.value === undefined ? null : BigInt(result.value),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
@@ -351,6 +414,8 @@ export const getTxOutputs = async (
       txProposalId: result.tx_proposal as string,
       txProposalIndex: result.tx_proposal_index as number,
       spentBy: result.spent_by ? result.spent_by as string : null,
+      mode: result.mode as number,
+      recoveryState: (result.recovery_state ?? null) as string | null,
     };
     utxos.push(utxo);
   }
@@ -424,9 +489,9 @@ export const getTxOutputsAtHeight = async (
     const utxo: DbTxOutput = {
       txId: result.tx_id as string,
       index: result.index as number,
-      tokenId: result.token_id as string,
+      tokenId: result.token_id as string | null,
       address: result.address as string,
-      value: BigInt(result.value),
+      value: result.value === null || result.value === undefined ? null : BigInt(result.value),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
@@ -434,6 +499,8 @@ export const getTxOutputsAtHeight = async (
       spentBy: result.spent_by as string,
       txProposalId: result.tx_proposal as string,
       txProposalIndex: result.tx_proposal_index as number,
+      mode: result.mode as number,
+      recoveryState: (result.recovery_state ?? null) as string | null,
     };
     utxos.push(utxo);
   }
@@ -897,13 +964,15 @@ export const getUtxosLockedAtHeight = async (
       const utxo: DbTxOutput = {
         txId: result.tx_id as string,
         index: result.index as number,
-        tokenId: result.token_id as string,
+        tokenId: result.token_id as string | null,
         address: result.address as string,
-        value: BigInt(result.value),
+        value: result.value === null || result.value === undefined ? null : BigInt(result.value),
         authorities: result.authorities as number,
         timelock: result.timelock as number,
         heightlock: result.heightlock as number,
         locked: Number(result.locked) > 0,
+        mode: result.mode as number,
+        recoveryState: (result.recovery_state ?? null) as string | null,
       };
       utxos.push(utxo);
     }
@@ -1194,9 +1263,9 @@ export const getExpiredTimelocksUtxos = async (
 export const mapDbResultToDbTxOutput = (result: TxOutputRow): DbTxOutput => ({
   txId: result.tx_id as string,
   index: result.index as number,
-  tokenId: result.token_id as string,
+  tokenId: result.token_id as string | null,
   address: result.address as string,
-  value: BigInt(result.value),
+  value: result.value === null || result.value === undefined ? null : BigInt(result.value),
   authorities: result.authorities as number,
   timelock: result.timelock as number,
   heightlock: result.heightlock as number,
@@ -1204,6 +1273,8 @@ export const mapDbResultToDbTxOutput = (result: TxOutputRow): DbTxOutput => ({
   txProposalId: result.tx_proposal as string,
   txProposalIndex: result.tx_proposal_index as number,
   spentBy: result.spent_by as string,
+  mode: result.mode as number,
+  recoveryState: (result.recovery_state ?? null) as string | null,
 });
 
 /**
@@ -1356,13 +1427,15 @@ export const getLockedUtxoFromInputs = async (mysql: MysqlConnection, inputs: Ev
     return results.map((utxo) => ({
       txId: utxo.tx_id as string,
       index: utxo.index as number,
-      tokenId: utxo.token_id as string,
+      tokenId: utxo.token_id as string | null,
       address: utxo.address as string,
-      value: BigInt(utxo.value),
+      value: utxo.value === null || utxo.value === undefined ? null : BigInt(utxo.value),
       authorities: utxo.authorities as number,
       timelock: utxo.timelock as number,
       heightlock: utxo.heightlock as number,
       locked: utxo.locked ? Boolean(utxo.locked) : false,
+      mode: utxo.mode as number,
+      recoveryState: (utxo.recovery_state ?? null) as string | null,
     }));
   }
 
@@ -1569,9 +1642,9 @@ export const getTxOutputsBySpent = async (
     const utxo: DbTxOutput = {
       txId: result.tx_id as string,
       index: result.index as number,
-      tokenId: result.token_id as string,
+      tokenId: result.token_id as string | null,
       address: result.address as string,
-      value: BigInt(result.value),
+      value: result.value === null || result.value === undefined ? null : BigInt(result.value),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
@@ -1579,6 +1652,8 @@ export const getTxOutputsBySpent = async (
       txProposalId: result.tx_proposal as string,
       txProposalIndex: result.tx_proposal_index as number,
       spentBy: result.spent_by ? result.spent_by as string : null,
+      mode: result.mode as number,
+      recoveryState: (result.recovery_state ?? null) as string | null,
     };
 
     utxos.push(utxo);
@@ -1785,9 +1860,9 @@ export const getTxOutputsHeightUnlockedAtHeight = async (
     const utxo: DbTxOutput = {
       txId: result.tx_id as string,
       index: result.index as number,
-      tokenId: result.token_id as string,
+      tokenId: result.token_id as string | null,
       address: result.address as string,
-      value: BigInt(result.value),
+      value: result.value === null || result.value === undefined ? null : BigInt(result.value),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
@@ -1795,6 +1870,8 @@ export const getTxOutputsHeightUnlockedAtHeight = async (
       txProposalId: result.tx_proposal as string,
       txProposalIndex: result.tx_proposal_index as number,
       spentBy: result.spent_by ? result.spent_by as string : null,
+      mode: result.mode as number,
+      recoveryState: (result.recovery_state ?? null) as string | null,
     };
     utxos.push(utxo);
   }

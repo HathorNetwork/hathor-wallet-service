@@ -199,8 +199,9 @@ export const unlockUtxos = async (mysql: MysqlConnection, utxos: DbTxOutput[], u
     };
 
     return {
-      value: utxo.authorities > 0 ? BigInt(utxo.authorities) : utxo.value,
-      token: utxo.tokenId,
+      // transparent path: value and tokenId are non-null
+      value: utxo.authorities > 0 ? BigInt(utxo.authorities) : utxo.value!,
+      token: utxo.tokenId!,
       decoded,
       locked: false,
       // set authority bit if necessary
@@ -215,10 +216,11 @@ export const unlockUtxos = async (mysql: MysqlConnection, utxos: DbTxOutput[], u
   await dbUnlockUtxos(mysql, utxos.map((utxo: DbTxOutput): TxInput => ({
     tx_id: utxo.txId,
     index: utxo.index,
-    value: utxo.value,
+    // transparent path: value and tokenId are non-null
+    value: utxo.value!,
     token_data: 0,
     script: '',
-    token: utxo.tokenId,
+    token: utxo.tokenId!,
     decoded: null,
   })));
 
