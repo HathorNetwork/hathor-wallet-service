@@ -551,6 +551,33 @@ export async function applyShieldedWalletBalance(
 }
 
 /**
+ * Record a recovered shielded output's contribution to wallet_tx_history.
+ *
+ * One wallet_tx_history row per (wallet_id, tx_id, token_id) carries both
+ * the transparent `balance` (written by updateWalletTablesWithTx) and the
+ * `shielded_balance_delta` (written by this helper). On conflict the
+ * shielded delta accumulates; the transparent `balance` is left untouched
+ * here because the transparent path owns that column.
+ */
+export async function applyShieldedWalletTxHistory(
+  conn: any,
+  walletId: string,
+  txId: string,
+  tokenId: string,
+  value: bigint,
+  timestamp: number,
+): Promise<void> {
+  await conn.query(
+    `INSERT INTO wallet_tx_history
+       (wallet_id, tx_id, token_id, balance, shielded_balance_delta, timestamp, voided)
+     VALUES (?, ?, ?, 0, ?, ?, FALSE)
+     ON DUPLICATE KEY UPDATE
+       shielded_balance_delta = shielded_balance_delta + VALUES(shielded_balance_delta)`,
+    [walletId, txId, tokenId, value.toString(), timestamp],
+  );
+}
+
+/**
  * Remove a tx inputs from the utxo table.
  *
  * @param mysql - Database connection
@@ -1843,7 +1870,8 @@ export const updateWalletTablesWithTx = async (
       `INSERT INTO \`wallet_tx_history\` (\`wallet_id\`, \`token_id\`,
                                           \`tx_id\`, \`balance\`,
                                           \`timestamp\`)
-            VALUES ?`,
+            VALUES ?
+       ON DUPLICATE KEY UPDATE \`balance\` = VALUES(\`balance\`)`,
       [entries],
     );
   }

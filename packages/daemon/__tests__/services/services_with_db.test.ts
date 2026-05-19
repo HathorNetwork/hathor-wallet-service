@@ -2394,6 +2394,77 @@ describe('handleVertexAccepted with shielded outputs', () => {
     expect(rows).toHaveLength(0);
   });
 
+  it('writes wallet_tx_history with shielded_balance_delta for recovered shielded outputs', async () => {
+    expect.hasAssertions();
+
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0].token_data = 0;
+    const txHash = fixture.event.data.hash;
+    const so = fixture.event.data.shielded_outputs[0];
+    const shieldedAddress = so.decoded.address;
+
+    await mysql.query(
+      `INSERT INTO shielded_address (address, wallet_id, shielded_index, scan_privkey, transactions, created_at)
+       VALUES (?, 'wallet_alice', 7, ?, 0, CURRENT_TIMESTAMP)`,
+      [shieldedAddress, Buffer.alloc(32, 0x42)],
+    );
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+    primeAmountRewind({
+      commitment: Buffer.from(so.commitment, 'hex'),
+      ephemeralPubkey: Buffer.from(so.ephemeral_pubkey, 'hex'),
+      value: 150n,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    const [rows] = await mysql.query<any[]>(
+      `SELECT balance, shielded_balance_delta
+         FROM wallet_tx_history
+        WHERE wallet_id = ? AND tx_id = ?`,
+      ['wallet_alice', txHash],
+    );
+    expect(rows).toHaveLength(1);
+    expect(BigInt(rows[0].balance)).toBe(0n);
+    expect(BigInt(rows[0].shielded_balance_delta)).toBe(150n);
+  });
+
+  it('does NOT write wallet_tx_history for unrecovered shielded outputs', async () => {
+    expect.hasAssertions();
+
+    const fixture = eventsFixture.VERTEX_WITH_SHIELDED;
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    const [rows] = await mysql.query<any[]>(
+      `SELECT * FROM wallet_tx_history WHERE wallet_id = ?`,
+      ['wallet_alice'],
+    );
+    expect(rows).toHaveLength(0);
+  });
+
   it('marks recovery_failed and emits an alert when the rewind throws', async () => {
     expect.hasAssertions();
 
