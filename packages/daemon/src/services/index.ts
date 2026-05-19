@@ -92,6 +92,7 @@ import {
   markTxOutputRecovered,
   markTxOutputRecoveryFailed,
   applyShieldedAddressBalance,
+  applyShieldedWalletBalance,
 } from '../db';
 import { rewindAmount, rewindFully } from '../crypto/ctRewind';
 import getConfig, { VALIDATE_ADDRESS_BALANCES } from '../config';
@@ -522,6 +523,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
                   token_id: tokenIdHex,
                 });
                 await applyShieldedAddressBalance(mysql, so.decoded.address, tokenIdHex, r.value, false);
+                await applyShieldedWalletBalance(mysql, owned.wallet_id, tokenIdHex, r.value, false);
               } else {
                 const assetCommit = Buffer.from(so.asset_commitment, 'hex');
                 const r = rewindFully({
@@ -537,6 +539,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
                   token_id: tokenIdHexFull,
                 });
                 await applyShieldedAddressBalance(mysql, so.decoded.address, tokenIdHexFull, r.value, false);
+                await applyShieldedWalletBalance(mysql, owned.wallet_id, tokenIdHexFull, r.value, false);
               }
             } catch (e) {
               await markTxOutputRecoveryFailed(mysql, hash, idx);

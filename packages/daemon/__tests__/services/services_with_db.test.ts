@@ -2317,6 +2317,83 @@ describe('handleVertexAccepted with shielded outputs', () => {
     expect(rows).toHaveLength(0);
   });
 
+  it('writes wallet_balance shielded columns for recovered shielded outputs', async () => {
+    expect.hasAssertions();
+
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0].token_data = 0;
+    const so = fixture.event.data.shielded_outputs[0];
+    const shieldedAddress = so.decoded.address;
+
+    await mysql.query(
+      `INSERT INTO shielded_address (address, wallet_id, shielded_index, scan_privkey, transactions, created_at)
+       VALUES (?, 'wallet_alice', 7, ?, 0, CURRENT_TIMESTAMP)`,
+      [shieldedAddress, Buffer.alloc(32, 0x42)],
+    );
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+    primeAmountRewind({
+      commitment: Buffer.from(so.commitment, 'hex'),
+      ephemeralPubkey: Buffer.from(so.ephemeral_pubkey, 'hex'),
+      value: 150n,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    const [rows] = await mysql.query<any[]>(
+      `SELECT unlocked_balance, locked_balance,
+              unlocked_shielded_balance, locked_shielded_balance,
+              total_received, total_shielded_received, transactions
+         FROM wallet_balance
+        WHERE wallet_id = ? AND token_id = ?`,
+      ['wallet_alice', '00'],
+    );
+    expect(rows).toHaveLength(1);
+    expect(BigInt(rows[0].unlocked_balance)).toBe(0n);
+    expect(BigInt(rows[0].locked_balance)).toBe(0n);
+    expect(BigInt(rows[0].unlocked_shielded_balance)).toBe(150n);
+    expect(BigInt(rows[0].locked_shielded_balance)).toBe(0n);
+    expect(BigInt(rows[0].total_received)).toBe(0n);
+    expect(BigInt(rows[0].total_shielded_received)).toBe(150n);
+    expect(rows[0].transactions).toBe(1);
+  });
+
+  it('does NOT write wallet_balance for unrecovered shielded outputs', async () => {
+    expect.hasAssertions();
+
+    const fixture = eventsFixture.VERTEX_WITH_SHIELDED;
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    const [rows] = await mysql.query<any[]>(
+      `SELECT * FROM wallet_balance WHERE wallet_id = ?`,
+      ['wallet_alice'],
+    );
+    expect(rows).toHaveLength(0);
+  });
+
   it('marks recovery_failed and emits an alert when the rewind throws', async () => {
     expect.hasAssertions();
 

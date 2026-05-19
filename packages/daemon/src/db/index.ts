@@ -508,6 +508,49 @@ export async function applyShieldedAddressBalance(
 }
 
 /**
+ * Apply a recovered shielded output's contribution to wallet_balance.
+ *
+ * This is the shielded sibling of the existing INSERT inside
+ * updateWalletTablesWithTx. Writes the *_shielded_balance and
+ * total_shielded_received columns only; transparent columns are untouched
+ * (the transparent path handles those).
+ *
+ * Authority columns are not touched (shielded outputs cannot carry
+ * authority bits). timelock_expires is not touched here; shielded
+ * timelock handling is a follow-up.
+ *
+ * Note: if a single vertex has both transparent and shielded outputs
+ * owned by the same (wallet_id, token_id), both this helper and
+ * updateWalletTablesWithTx will increment `transactions`, yielding 2
+ * instead of 1. This is a known follow-up; for v1 the metric drift is
+ * accepted.
+ */
+export async function applyShieldedWalletBalance(
+  conn: any,
+  walletId: string,
+  tokenId: string,
+  value: bigint,
+  locked: boolean,
+): Promise<void> {
+  const unlockedDelta = locked ? 0n : value;
+  const lockedDelta = locked ? value : 0n;
+  await conn.query(
+    `INSERT INTO wallet_balance
+       (wallet_id, token_id,
+        unlocked_balance, locked_balance, total_received,
+        unlocked_shielded_balance, locked_shielded_balance,
+        total_shielded_received, transactions)
+     VALUES (?, ?, 0, 0, 0, ?, ?, ?, 1)
+     ON DUPLICATE KEY UPDATE
+       unlocked_shielded_balance = unlocked_shielded_balance + VALUES(unlocked_shielded_balance),
+       locked_shielded_balance   = locked_shielded_balance + VALUES(locked_shielded_balance),
+       total_shielded_received   = total_shielded_received + VALUES(total_shielded_received),
+       transactions              = transactions + 1`,
+    [walletId, tokenId, unlockedDelta.toString(), lockedDelta.toString(), value.toString()],
+  );
+}
+
+/**
  * Remove a tx inputs from the utxo table.
  *
  * @param mysql - Database connection
