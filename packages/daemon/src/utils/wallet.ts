@@ -36,11 +36,13 @@ import {
   fetchAddressTxHistorySum,
   getAddressWalletInfo,
   getExpiredTimelocksUtxos,
+  getShieldedAddressWalletInfo,
   getTokenSymbols,
   unlockUtxos as dbUnlockUtxos,
   updateAddressLockedBalance,
   updateWalletLockedBalance,
 } from '../db';
+import { ShieldedOutputMode, RecoveryState, isShieldedMode } from '@wallet-service/common';
 import logger from '../logger';
 import { stringMapIterator } from './helpers';
 
@@ -184,6 +186,14 @@ export const getAddressBalanceMap = (
 /**
  * Update the unlocked/locked balances for addresses and wallets connected to the given UTXOs.
  *
+ * Row-level `locked = FALSE` is flipped for every UTXO, regardless of mode or recovery state.
+ * Balance accounting then dispatches by `(mode, recovery_state)`:
+ * - transparent rows update transparent balance columns;
+ * - shielded rows in `recovered` state update shielded balance columns;
+ * - shielded rows in `unowned` / `recovery_failed` contribute no balance (the value is unknown
+ *   to this node), so they are skipped from balance updates while still getting their lock flag
+ *   flipped.
+ *
  * @param mysql - Database connection
  * @param utxos - List of UTXOs that are unlocked by height
  * @param updateTimelocks - If this update is triggered by a timelock expiring, update the next lock expiration
@@ -191,6 +201,43 @@ export const getAddressBalanceMap = (
 export const unlockUtxos = async (mysql: MysqlConnection, utxos: DbTxOutput[], updateTimelocks: boolean): Promise<void> => {
   if (utxos.length === 0) return;
 
+  // Row-level lock flip applies to every row regardless of mode. `dbUnlockUtxos` only reads
+  // `tx_id` and `index` to issue the UPDATE, so populating the other fields with placeholders
+  // (including the null `value` of unowned shielded rows) is safe.
+  await dbUnlockUtxos(mysql, utxos.map((utxo: DbTxOutput): TxInput => ({
+    tx_id: utxo.txId,
+    index: utxo.index,
+    value: utxo.value ?? 0n,
+    token_data: 0,
+    script: '',
+    token: utxo.tokenId ?? '',
+    decoded: null,
+  })));
+
+  // Partition by kind for balance dispatch.
+  const transparent = utxos.filter((u) => u.mode === ShieldedOutputMode.Transparent);
+  const shieldedRecovered = utxos.filter((u) =>
+    isShieldedMode(u.mode) && u.recoveryState === RecoveryState.Recovered,
+  );
+
+  if (transparent.length > 0) {
+    await applyBatchedUnlockBalance(mysql, transparent, 'transparent', updateTimelocks);
+  }
+  if (shieldedRecovered.length > 0) {
+    await applyBatchedUnlockBalance(mysql, shieldedRecovered, 'shielded', updateTimelocks);
+  }
+};
+
+/**
+ * Apply the unlocked balance delta for a homogeneous batch of UTXOs (all transparent or all
+ * shielded-recovered). Used by {@link unlockUtxos} after partitioning by kind.
+ */
+async function applyBatchedUnlockBalance(
+  mysql: MysqlConnection,
+  utxos: DbTxOutput[],
+  kind: 'transparent' | 'shielded',
+  updateTimelocks: boolean,
+): Promise<void> {
   const outputs: TxOutput[] = utxos.map((utxo) => {
     const decoded: DecodedOutput = {
       type: 'P2PKH',
@@ -199,42 +246,27 @@ export const unlockUtxos = async (mysql: MysqlConnection, utxos: DbTxOutput[], u
     };
 
     return {
-      // transparent path: value and tokenId are non-null
       value: utxo.authorities > 0 ? BigInt(utxo.authorities) : utxo.value!,
       token: utxo.tokenId!,
       decoded,
       locked: false,
-      // set authority bit if necessary
       token_data: utxo.authorities > 0 ? constants.TOKEN_AUTHORITY_MASK : 0,
-      // we don't care about spent_by and script
       spent_by: null,
       script: '',
     };
   });
 
-  // mark as unlocked in database (this just changes the 'locked' flag)
-  await dbUnlockUtxos(mysql, utxos.map((utxo: DbTxOutput): TxInput => ({
-    tx_id: utxo.txId,
-    index: utxo.index,
-    // transparent path: value and tokenId are non-null
-    value: utxo.value!,
-    token_data: 0,
-    script: '',
-    token: utxo.tokenId!,
-    decoded: null,
-  })));
-
   const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap([], outputs, []);
-  // update address_balance table
-  await updateAddressLockedBalance(mysql, addressBalanceMap, updateTimelocks);
+  await updateAddressLockedBalance(mysql, addressBalanceMap, updateTimelocks, kind);
 
-  // check if addresses belong to any started wallet
-  const addressWalletMap: StringMap<Wallet> = await getAddressWalletInfo(mysql, Object.keys(addressBalanceMap));
+  // Wallet ownership lookup uses the appropriate address table per kind.
+  const addressWalletMap: StringMap<Wallet> = kind === 'transparent'
+    ? await getAddressWalletInfo(mysql, Object.keys(addressBalanceMap))
+    : await getShieldedAddressWalletInfo(mysql, Object.keys(addressBalanceMap));
 
-  // update wallet_balance table
   const walletBalanceMap: StringMap<TokenBalanceMap> = getWalletBalanceMap(addressWalletMap, addressBalanceMap);
-  await updateWalletLockedBalance(mysql, walletBalanceMap, updateTimelocks);
-};
+  await updateWalletLockedBalance(mysql, walletBalanceMap, updateTimelocks, kind);
+}
 
 /**
  * Get the map of token balances for each wallet.

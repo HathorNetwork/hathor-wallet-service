@@ -4,7 +4,7 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
 */
-import mysql, { Connection as MysqlConnection, Pool, PoolConnection, ResultSetHeader } from 'mysql2/promise';
+import mysql, { Connection as MysqlConnection, Pool, PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import {
   DbTxOutput,
   StringMap,
@@ -1287,14 +1287,24 @@ export const unlockUtxos = async (mysql: MysqlConnection, utxos: TxInput[]): Pro
  * The balance of an address might change as a locked amount becomes unlocked. This function updates
  * the address_balance table, subtracting from the locked column and adding to the unlocked column.
  *
+ * Shielded note: the shielded sibling row lives in the same `address_balance` table, discriminated
+ * by the `kind` column. Address spaces for transparent and shielded are disjoint, so updating
+ * by `(address, token_id)` alone targets the correct row regardless of `kind`. The `kind`
+ * parameter is therefore only consulted on INSERT-shape operations (none here); the UPDATE
+ * statements stay identical.
+ *
  * @param mysql - Database connection
  * @param addressBalanceMap - A map of addresses and the unlocked balances
  * @param updateTimelock - If this update is triggered by a timelock expiring, update the next expire timestamp
+ * @param kind - Whether the addresses are transparent or shielded. Defaults to `'transparent'`
+ *   for backward compatibility. Reserved for future INSERT-shape extensions; currently does not
+ *   change the issued SQL.
  */
 export const updateAddressLockedBalance = async (
   mysql: MysqlConnection,
   addressBalanceMap: StringMap<TokenBalanceMap>,
   updateTimelocks = false,
+  _kind: 'transparent' | 'shielded' = 'transparent',
 ): Promise<void> => {
   for (const [address, tokenBalanceMap] of Object.entries(addressBalanceMap)) {
     for (const [token, tokenBalance] of tokenBalanceMap.iterator()) {
@@ -1396,54 +1406,121 @@ export const getAddressWalletInfo = async (mysql: MysqlConnection, addresses: st
 };
 
 /**
+ * Shielded sibling of {@link getAddressWalletInfo}.
+ *
+ * Queries `shielded_address` (rather than `address`) for the given list of shielded addresses
+ * and returns those that are tied to a wallet (`wallet_id IS NOT NULL`). Used by the unified
+ * unlock dispatch to look up wallet ownership for shielded UTXOs.
+ *
+ * Only `walletId` is populated on the returned `Wallet` records. The `shielded_address` table
+ * does not join to `wallet` here (xpub / authXpub / maxGap are not needed by the unlock path),
+ * so those fields are filled with sensible defaults to satisfy the type. If a future caller
+ * needs them, add the join then.
+ *
+ * @param mysql - Database connection
+ * @param addresses - Shielded addresses to fetch wallet information for
+ * @returns A map of shielded address to its owning wallet (walletId only)
+ */
+export const getShieldedAddressWalletInfo = async (
+  mysql: MysqlConnection,
+  addresses: string[],
+): Promise<StringMap<Wallet>> => {
+  if (addresses.length === 0) {
+    return {};
+  }
+
+  const addressWalletMap: StringMap<Wallet> = {};
+  const [results] = await mysql.query<(RowDataPacket & { address: string; wallet_id: string })[]>(
+    `SELECT \`address\`, \`wallet_id\`
+       FROM \`shielded_address\`
+      WHERE \`address\` IN (?)
+        AND \`wallet_id\` IS NOT NULL`,
+    [addresses],
+  );
+
+  for (const entry of results) {
+    addressWalletMap[entry.address] = {
+      walletId: entry.wallet_id,
+      authXpubkey: '',
+      xpubkey: '',
+      maxGap: 0,
+    };
+  }
+  return addressWalletMap;
+};
+
+/**
  * Update the unlocked and locked balances for wallets.
  *
  * @remarks
  * The balance of a wallet might change as a locked amount becomes unlocked. This function updates
  * the wallet_balance table, subtracting from the locked column and adding to the unlocked column.
  *
+ * The transparent path targets `unlocked_balance` / `locked_balance` and maintains authority
+ * columns. The shielded path targets `unlocked_shielded_balance` / `locked_shielded_balance`
+ * instead and does not touch authority columns (shielded outputs cannot carry authority bits).
+ *
  * @param mysql - Database connection
  * @param walletBalanceMap - A map of walletId and the unlocked balances
  * @param updateTimelocks - If this update is triggered by a timelock expiring, update the next lock expiration
+ * @param kind - Whether the wallet balance rows being updated correspond to transparent or
+ *   shielded outputs. Defaults to `'transparent'` for backward compatibility with existing
+ *   callers.
  */
 export const updateWalletLockedBalance = async (
   mysql: MysqlConnection,
   walletBalanceMap: StringMap<TokenBalanceMap>,
   updateTimelocks = false,
+  kind: 'transparent' | 'shielded' = 'transparent',
 ): Promise<void> => {
+  const isShielded = kind === 'shielded';
+
   for (const [walletId, tokenBalanceMap] of Object.entries(walletBalanceMap)) {
     for (const [token, tokenBalance] of tokenBalanceMap.iterator()) {
-      await mysql.execute(
-        `UPDATE \`wallet_balance\`
-            SET \`unlocked_balance\` = \`unlocked_balance\` + ?,
-                \`locked_balance\` = \`locked_balance\` - ?,
-                \`unlocked_authorities\` = (\`unlocked_authorities\` | ?)
-          WHERE \`wallet_id\` = ?
-            AND \`token_id\` = ?`,
-        [tokenBalance.unlockedAmount, tokenBalance.unlockedAmount,
-        tokenBalance.unlockedAuthorities.toInteger(), walletId, token],
-      );
-
-      // if any authority has been unlocked, we have to refresh the locked authorities
-      if (tokenBalance.unlockedAuthorities.toInteger() > 0) {
+      if (isShielded) {
+        // Shielded outputs cannot carry authority bits, so authority columns are untouched.
         await mysql.execute(
           `UPDATE \`wallet_balance\`
-              SET \`locked_authorities\` = (
-                SELECT BIT_OR(\`locked_authorities\`)
-                  FROM \`address_balance\`
-                 WHERE \`address\` IN (
-                   SELECT \`address\`
-                     FROM \`address\`
-                    WHERE \`wallet_id\` = ?)
-                    AND \`token_id\` = ?)
+              SET \`unlocked_shielded_balance\` = \`unlocked_shielded_balance\` + ?,
+                  \`locked_shielded_balance\` = \`locked_shielded_balance\` - ?
             WHERE \`wallet_id\` = ?
               AND \`token_id\` = ?`,
-          [walletId, token, walletId, token],
+          [tokenBalance.unlockedAmount, tokenBalance.unlockedAmount, walletId, token],
         );
+      } else {
+        await mysql.execute(
+          `UPDATE \`wallet_balance\`
+              SET \`unlocked_balance\` = \`unlocked_balance\` + ?,
+                  \`locked_balance\` = \`locked_balance\` - ?,
+                  \`unlocked_authorities\` = (\`unlocked_authorities\` | ?)
+            WHERE \`wallet_id\` = ?
+              AND \`token_id\` = ?`,
+          [tokenBalance.unlockedAmount, tokenBalance.unlockedAmount,
+          tokenBalance.unlockedAuthorities.toInteger(), walletId, token],
+        );
+
+        // if any authority has been unlocked, we have to refresh the locked authorities
+        if (tokenBalance.unlockedAuthorities.toInteger() > 0) {
+          await mysql.execute(
+            `UPDATE \`wallet_balance\`
+                SET \`locked_authorities\` = (
+                  SELECT BIT_OR(\`locked_authorities\`)
+                    FROM \`address_balance\`
+                   WHERE \`address\` IN (
+                     SELECT \`address\`
+                       FROM \`address\`
+                      WHERE \`wallet_id\` = ?)
+                      AND \`token_id\` = ?)
+              WHERE \`wallet_id\` = ?
+                AND \`token_id\` = ?`,
+            [walletId, token, walletId, token],
+          );
+        }
       }
 
-      // if this is being unlocked due to a timelock, also update the timelock_expires column
-      if (updateTimelocks) {
+      // if this is being unlocked due to a timelock, also update the timelock_expires column.
+      // Shielded timelock handling is a follow-up; only the transparent path refreshes here.
+      if (updateTimelocks && !isShielded) {
         await mysql.execute(
           `UPDATE \`wallet_balance\`
               SET \`timelock_expires\` = (
@@ -1528,7 +1605,6 @@ export const getExpiredTimelocksUtxos = async (
      WHERE locked = TRUE
        AND timelock IS NOT NULL
        AND timelock < ?
-       AND mode = 0
   `, [now]);
 
   const lockedUtxos: DbTxOutput[] = results.map(mapDbResultToDbTxOutput);

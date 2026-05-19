@@ -2661,7 +2661,6 @@ export const getExpiredTimelocksUtxos = async (
      WHERE locked = TRUE
        AND timelock IS NOT NULL
        AND timelock < ?
-       AND mode = 0
   `, [now]);
 
   const lockedUtxos: DbTxOutput[] = results.map(mapDbResultToDbTxOutput);
