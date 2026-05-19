@@ -475,6 +475,39 @@ export async function markTxOutputRecoveryFailed(
 }
 
 /**
+ * Apply a recovered shielded output's contribution to address_balance.
+ *
+ * This is the shielded sibling of the transparent INSERT inside
+ * updateAddressTablesWithTx. Called from handleVertexAccepted's
+ * recovery block once the rewind has succeeded and we know the
+ * value + token_id.
+ *
+ * Authority columns are not touched (shielded outputs cannot carry
+ * authority bits).
+ */
+export async function applyShieldedAddressBalance(
+  conn: any,
+  address: string,
+  tokenId: string,
+  value: bigint,
+  locked: boolean,
+): Promise<void> {
+  const unlockedDelta = locked ? 0n : value;
+  const lockedDelta = locked ? value : 0n;
+  await conn.query(
+    `INSERT INTO address_balance
+       (address, token_id, kind, unlocked_balance, locked_balance, total_received, transactions)
+     VALUES (?, ?, 'shielded', ?, ?, ?, 1)
+     ON DUPLICATE KEY UPDATE
+       unlocked_balance = unlocked_balance + VALUES(unlocked_balance),
+       locked_balance   = locked_balance + VALUES(locked_balance),
+       total_received   = total_received + VALUES(total_received),
+       transactions     = transactions + 1`,
+    [address, tokenId, unlockedDelta.toString(), lockedDelta.toString(), value.toString()],
+  );
+}
+
+/**
  * Remove a tx inputs from the utxo table.
  *
  * @param mysql - Database connection
