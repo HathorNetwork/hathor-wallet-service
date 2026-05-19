@@ -5,6 +5,22 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+// Redirect the ct-crypto NAPI binding to the deterministic mock for ALL tests
+// in this file. The shielded recovery tests prime the mock; everything else
+// never touches it, so existing tests are unaffected.
+jest.mock('@hathor/ct-crypto-node', () => require('../mocks/ct-crypto-node').mockCtCrypto);
+
+// Stub addAlert so the recovery-failed path doesn't reach SQS; keep the rest
+// of @wallet-service/common live by spreading the real module.
+const mockAddAlert = jest.fn();
+jest.mock('@wallet-service/common', () => {
+  const actual = jest.requireActual('@wallet-service/common');
+  return {
+    ...actual,
+    addAlert: mockAddAlert,
+  };
+});
+
 import { TokenVersion } from '@hathor/wallet-lib';
 import * as db from '../../src/db';
 import { handleVoidedTx, voidTx, handleTokenCreated, handleVertexAccepted } from '../../src/services';
@@ -30,6 +46,8 @@ import {
 import { DbTxOutput, EventTxInput } from '../../src/types';
 import { Connection } from 'mysql2/promise';
 import eventsFixture from '../__fixtures__/events';
+import { primeAmountRewind, resetCtCryptoMock } from '../mocks/ct-crypto-node';
+import { Severity } from '@wallet-service/common';
 
 /**
  * @jest-environment node
@@ -2173,5 +2191,97 @@ describe('handleVertexAccepted with shielded outputs', () => {
     expect(transparentOutput).not.toBeNull();
     expect(transparentOutput!.mode).toBe(0);
     expect(transparentOutput!.recoveryState).toBeNull();
+  });
+
+  it('recovers a matched AmountShielded output via in-line rewind', async () => {
+    expect.hasAssertions();
+
+    // Clone the fixture and set token_data=0 so resolveShieldedTokenId() maps
+    // it to the native token (HTR). The default fixture uses token_data=1 with
+    // an empty `tokens[]`, which resolves to null and would force the failure
+    // path — that's the second test below.
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0].token_data = 0;
+    const txHash = fixture.event.data.hash;
+    const so = fixture.event.data.shielded_outputs[0];
+
+    // Seed an owned shielded_address row so findShieldedAddressOwnership picks
+    // it up after upsertShieldedAddressObservation runs. The unique
+    // (wallet_id, shielded_index) index is satisfied by a single row here.
+    await mysql.query(
+      `INSERT INTO shielded_address (address, wallet_id, shielded_index, scan_privkey, transactions, created_at)
+       VALUES (?, 'wallet_alice', 7, ?, 0, CURRENT_TIMESTAMP)`,
+      [so.decoded.address, Buffer.alloc(32, 0x42)],
+    );
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+    primeAmountRewind({
+      commitment: Buffer.from(so.commitment, 'hex'),
+      ephemeralPubkey: Buffer.from(so.ephemeral_pubkey, 'hex'),
+      value: 150n,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    const txOutput = await getTxOutput(mysql, txHash, 1, false);
+    expect(txOutput).not.toBeNull();
+    expect(txOutput!.recoveryState).toBe('recovered');
+    expect(txOutput!.value).toBe(150n);
+    expect(txOutput!.tokenId).toBe('00');
+    expect(mockAddAlert).not.toHaveBeenCalled();
+  });
+
+  it('marks recovery_failed and emits an alert when the rewind throws', async () => {
+    expect.hasAssertions();
+
+    // Use the fixture as-is: token_data=1 with empty tokens[] makes
+    // resolveShieldedTokenId() return null, which the recovery block treats
+    // as a hard failure (throws inside the try, jumping to the catch).
+    const fixture = eventsFixture.VERTEX_WITH_SHIELDED;
+    const txHash = fixture.event.data.hash;
+    const so = fixture.event.data.shielded_outputs[0];
+
+    await mysql.query(
+      `INSERT INTO shielded_address (address, wallet_id, shielded_index, scan_privkey, transactions, created_at)
+       VALUES (?, 'wallet_alice', 7, ?, 0, CURRENT_TIMESTAMP)`,
+      [so.decoded.address, Buffer.alloc(32, 0x42)],
+    );
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    const txOutput = await getTxOutput(mysql, txHash, 1, false);
+    expect(txOutput).not.toBeNull();
+    expect(txOutput!.recoveryState).toBe('recovery_failed');
+
+    expect(mockAddAlert).toHaveBeenCalledTimes(1);
+    const [title, , severity, metadata] = mockAddAlert.mock.calls[0];
+    expect(title).toBe('Shielded recovery failed');
+    expect(severity).toBe(Severity.MAJOR);
+    expect(metadata).toMatchObject({ tx_id: txHash, output_index: 1 });
   });
 });

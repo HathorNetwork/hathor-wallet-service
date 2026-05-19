@@ -88,7 +88,11 @@ import {
   insertTxOutput,
   insertShieldedTxOutputData,
   upsertShieldedAddressObservation,
+  findShieldedAddressOwnership,
+  markTxOutputRecovered,
+  markTxOutputRecoveryFailed,
 } from '../db';
+import { rewindAmount, rewindFully } from '../crypto/ctRewind';
 import getConfig, { VALIDATE_ADDRESS_BALANCES } from '../config';
 import logger from '../logger';
 import { invokeOnTxPushNotificationRequestedLambda, getDaemonUptime, retryWithBackoff } from '../utils';
@@ -451,8 +455,9 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         // Walk shielded_outputs[] with concatenated index = transparentCount + i.
         // Each shielded output produces three rows: the unified `tx_output`, the
         // `shielded_tx_output_data` satellite carrying the per-output crypto payload,
-        // and a `shielded_address` observation. Ownership recovery is wired in a
-        // follow-up, so every row lands in `recovery_state = 'unowned'`.
+        // and a `shielded_address` observation. Every row lands in
+        // `recovery_state = 'unowned'` and is then promoted in-line below when a
+        // wallet has claimed the spend address.
         for (let i = 0; i < shieldedOutputs.length; i++) {
           const so = shieldedOutputs[i];
           const idx = transparentCount + i;
@@ -487,6 +492,59 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
           });
 
           await upsertShieldedAddressObservation(mysql, so.decoded.address);
+
+          // If a wallet has claimed this shielded address, attempt the rewind
+          // in line. Success → mark the output recovered with the revealed
+          // value/token; failure → mark it recovery_failed and emit an alert.
+          const owned = await findShieldedAddressOwnership(mysql, so.decoded.address);
+          if (owned) {
+            try {
+              const ephem = Buffer.from(so.ephemeral_pubkey, 'hex');
+              const commit = Buffer.from(so.commitment, 'hex');
+              const range = Buffer.from(so.range_proof, 'hex');
+
+              if (isAmount) {
+                const tokenIdHex = resolveShieldedTokenId(so.token_data);
+                if (tokenIdHex === null) {
+                  throw new Error('AmountShielded token_data does not resolve to a known token');
+                }
+                const tokenUid = Buffer.from(tokenIdHex, 'hex');
+                const r = rewindAmount({
+                  scanPrivkey: owned.scan_privkey,
+                  ephemeralPubkey: ephem,
+                  commitment: commit,
+                  rangeProof: range,
+                  tokenUid,
+                });
+                await markTxOutputRecovered(mysql, hash, idx, {
+                  value: r.value,
+                  token_id: tokenIdHex,
+                });
+              } else {
+                const assetCommit = Buffer.from(so.asset_commitment, 'hex');
+                const r = rewindFully({
+                  scanPrivkey: owned.scan_privkey,
+                  ephemeralPubkey: ephem,
+                  commitment: commit,
+                  rangeProof: range,
+                  assetCommitment: assetCommit,
+                });
+                await markTxOutputRecovered(mysql, hash, idx, {
+                  value: r.value,
+                  token_id: r.tokenUid.toString('hex'),
+                });
+              }
+            } catch (e) {
+              await markTxOutputRecoveryFailed(mysql, hash, idx);
+              await addAlert(
+                'Shielded recovery failed',
+                `Failed to rewind shielded output ${hash}:${idx} for owned address`,
+                Severity.MAJOR,
+                { tx_id: hash, output_index: idx, error: String(e) },
+                logger,
+              );
+            }
+          }
         }
 
         // Mark tx utxos as spent

@@ -92,6 +92,15 @@ export function rewindAmount(args: AmountRewindArgs): AmountRewindResult {
  * shielded output that includes an asset commitment (both-blindings form).
  *
  * Throws RewindError on any binding failure.
+ *
+ * NOTE: Independent asset-commitment verification (checking that the recovered
+ * tokenUid + assetBlindingFactor reconstruct the on-chain asset_commitment) is
+ * deferred. The current `@hathor/ct-crypto-node` binding exposes
+ * `createAssetCommitment(tagBytes, rAsset)` — its first parameter is an asset
+ * *tag*, not a tokenUid, so reconstructing the commitment requires an extra
+ * `deriveAssetTag(tokenUid)` call and a mock surface for tests we don't yet
+ * have. Until that helper lands we rely on the rewind itself to throw on a
+ * mismatched scan key or corrupted payload.
  */
 export function rewindFully(args: FullyRewindArgs): FullyRewindResult {
   try {
