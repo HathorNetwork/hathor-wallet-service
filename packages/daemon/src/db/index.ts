@@ -433,6 +433,48 @@ export async function findShieldedAddressOwnership(
 }
 
 /**
+ * Promote a shielded tx_output from 'unowned' to 'recovered' once the
+ * wallet's scan key has successfully rewound the commitment, revealing
+ * the value (and the token id, for AmountShielded outputs).
+ *
+ * The UPDATE is guarded on the current recovery_state being 'unowned'
+ * so a re-ingest of the same vertex is a no-op (returns affectedRows = 0).
+ * Callers can use affectedRows to detect the idempotent case.
+ */
+export async function markTxOutputRecovered(
+  conn: any,
+  txId: string,
+  index: number,
+  recovered: { value: bigint; token_id: string },
+): Promise<{ affectedRows: number }> {
+  const [r] = await conn.query(
+    `UPDATE tx_output
+        SET value = ?, token_id = ?, recovery_state = 'recovered'
+      WHERE tx_id = ? AND \`index\` = ? AND recovery_state = 'unowned'`,
+    [recovered.value.toString(), recovered.token_id, txId, index],
+  );
+  return { affectedRows: r.affectedRows };
+}
+
+/**
+ * Record that the rewind threw for an output we believed we owned.
+ * Terminal state — we don't keep retrying. Same idempotency guard as
+ * markTxOutputRecovered.
+ */
+export async function markTxOutputRecoveryFailed(
+  conn: any,
+  txId: string,
+  index: number,
+): Promise<void> {
+  await conn.query(
+    `UPDATE tx_output
+        SET recovery_state = 'recovery_failed'
+      WHERE tx_id = ? AND \`index\` = ? AND recovery_state = 'unowned'`,
+    [txId, index],
+  );
+}
+
+/**
  * Remove a tx inputs from the utxo table.
  *
  * @param mysql - Database connection
