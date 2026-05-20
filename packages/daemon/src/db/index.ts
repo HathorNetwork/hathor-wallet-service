@@ -578,6 +578,44 @@ export async function applyShieldedWalletTxHistory(
 }
 
 /**
+ * Set `token.total_supply` to an absolute value.
+ *
+ * Used at token creation time to record the initial mint amount.
+ */
+export async function setTokenTotalSupply(
+  conn: any,
+  tokenId: string,
+  value: bigint,
+): Promise<void> {
+  await conn.execute(
+    'UPDATE token SET total_supply = ? WHERE id = ?',
+    [value.toString(), tokenId],
+  );
+}
+
+/**
+ * Apply a signed delta to `token.total_supply`.
+ *
+ * MySQL handles signed arithmetic against an UNSIGNED column as long as the
+ * result is non-negative. A correctly-tracked supply can never go below zero;
+ * any negative result is a bug worth surfacing (the UPDATE would error).
+ *
+ * Used by mint/melt detection, the burn-address sweep, and block-reward
+ * dispatch in `handleVertexAccepted`. Void/unvoid sign-reversal is wired in
+ * a follow-up phase.
+ */
+export async function incrementTokenTotalSupply(
+  conn: any,
+  tokenId: string,
+  delta: bigint,
+): Promise<void> {
+  await conn.execute(
+    'UPDATE token SET total_supply = total_supply + ? WHERE id = ?',
+    [delta.toString(), tokenId],
+  );
+}
+
+/**
  * Remove a tx inputs from the utxo table.
  *
  * @param mysql - Database connection

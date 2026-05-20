@@ -34,6 +34,7 @@ import {
   TokenBalanceMap,
   TxOutputWithIndex,
   isDecodedValid,
+  isAuthority,
 } from '@wallet-service/common';
 import {
   prepareOutputs,
@@ -94,6 +95,8 @@ import {
   applyShieldedAddressBalance,
   applyShieldedWalletBalance,
   applyShieldedWalletTxHistory,
+  setTokenTotalSupply,
+  incrementTokenTotalSupply,
 } from '../db';
 import { rewindAmount, rewindFully } from '../crypto/ctRewind';
 import getConfig, { VALIDATE_ADDRESS_BALANCES } from '../config';
@@ -256,6 +259,92 @@ export const metadataDiff = async (_context: Context, event: Event) => {
 export const isBlock = (version: number): boolean => version === hathorLib.constants.BLOCK_VERSION
   || version === hathorLib.constants.MERGED_MINED_BLOCK_VERSION
   || version === hathorLib.constants.POA_BLOCK_VERSION;
+
+// Sentinel burn address. Outputs sent here are non-spendable and reduce supply
+// when accounted in `applyTokenSupplyUpdates`. Duplicated locally — the
+// wallet-service has its own copy; the constant has not been promoted to
+// `@wallet-service/common` to keep this change minimal.
+const BURN_ADDRESS = 'HDeadDeadDeadDeadDeadDeadDeagTPgmn';
+
+/**
+ * Apply mint/melt/burn/block-reward deltas to `token.total_supply` for a
+ * single accepted vertex.
+ *
+ * Two independent code paths:
+ *  - Block reward: every block with value-bearing outputs increases HTR
+ *    supply by the sum of those outputs. Blocks never carry shielded outputs
+ *    in v1, so this path is not gated on `shieldedOutputCount`.
+ *  - Supply delta: gated on the vertex having NO shielded outputs. Computes
+ *    `sum(outputs) - sum(inputs)` per token, with outputs to BURN_ADDRESS
+ *    EXCLUDED from the outputs sum and authority rows excluded from both
+ *    sums. Applies the signed delta — positive for mint, negative for melt,
+ *    and negative for any burn-address loss (since the burned value
+ *    contributes to the inputs side but not the outputs side, naturally
+ *    appearing as a supply decrease).
+ *
+ * Reads from the prepared (transparent) `TxInput[]` / `TxOutputWithIndex[]`,
+ * which already carry resolved `token` UIDs.
+ *
+ * Void/unvoid reversal is wired in a follow-up phase.
+ */
+async function applyTokenSupplyUpdates(
+  mysql: any,
+  version: number,
+  txOutputs: TxOutputWithIndex[],
+  txInputs: TxInput[],
+  shieldedOutputCount: number,
+): Promise<void> {
+  const HTR = hathorLib.constants.NATIVE_TOKEN_UID;
+
+  // Block reward (not gated on shielded).
+  // The coinbase mints HTR; typically a single output but sum them for safety.
+  // Blocks have no real inputs to balance against the coinbase, so the
+  // generic supply-delta loop below would double-count if it ran for blocks —
+  // short out here once the block reward is recorded.
+  if (isBlock(version) && txOutputs.length > 0) {
+    let blockReward = 0n;
+    for (const o of txOutputs) {
+      blockReward += BigInt(o.value);
+    }
+    if (blockReward > 0n) {
+      await incrementTokenTotalSupply(mysql, HTR, blockReward);
+    }
+    return;
+  }
+
+  // Per-token supply delta. Gated on absence of shielded outputs.
+  if (shieldedOutputCount !== 0) return;
+
+  const outSumByToken = new Map<string, bigint>();
+  for (const o of txOutputs) {
+    // `prepareOutputs` does NOT zero authority values; the authority flag is
+    // still encoded in `token_data`. Exclude authority rows from the sum so
+    // their bit-pattern values don't pollute mint/melt accounting.
+    if (isAuthority(o.token_data)) continue;
+    // Outputs to the burn sentinel address are excluded from the outputs sum;
+    // their value naturally drops out of `total_supply` because the inputs
+    // funding them remain in the inputs sum.
+    if (o.decoded?.address === BURN_ADDRESS) continue;
+    outSumByToken.set(o.token, (outSumByToken.get(o.token) ?? 0n) + BigInt(o.value));
+  }
+
+  const inSumByToken = new Map<string, bigint>();
+  for (const i of txInputs) {
+    if (isAuthority(i.token_data)) continue;
+    inSumByToken.set(i.token, (inSumByToken.get(i.token) ?? 0n) + BigInt(i.value));
+  }
+
+  const touchedTokens = new Set<string>([
+    ...outSumByToken.keys(),
+    ...inSumByToken.keys(),
+  ]);
+  for (const tokenId of touchedTokens) {
+    const delta = (outSumByToken.get(tokenId) ?? 0n) - (inSumByToken.get(tokenId) ?? 0n);
+    if (delta !== 0n) {
+      await incrementTokenTotalSupply(mysql, tokenId, delta);
+    }
+  }
+}
 
 export function isNanoContract(headers: EventTxHeader[]) {
   for (const header of headers) {
@@ -715,6 +804,17 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             }
           }
         }
+
+        // Apply token.total_supply deltas: block reward (HTR, every block) and
+        // the per-token sum(outputs except burn) - sum(inputs) (gated on no
+        // shielded outputs).
+        await applyTokenSupplyUpdates(
+          mysql,
+          version,
+          txOutputs,
+          txInputs,
+          shieldedOutputs.length,
+        );
 
         await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
 
@@ -1356,7 +1456,23 @@ export const handleTokenCreated = async (context: Context) => {
           // Insert the new token
           await storeTokenInformation(mysql, token_uid, token_name, token_symbol, token_version);
           await insertTokenCreation(mysql, token_uid, txId, firstBlock);
-          logger.debug(`Inserted new token ${token_uid} with first_block=${firstBlock}, version=${token_version}`);
+
+          // Record the initial mint amount as the token's starting total_supply.
+          // SUM-from-tx_output is robust across both regular CREATE_TOKEN_TX and
+          // nano-contract creation: NEW_VERTEX_ACCEPTED for the creation tx is
+          // processed before TOKEN_CREATED, so the transparent outputs are
+          // guaranteed to be in place. Authority outputs are excluded via
+          // `authorities = 0`; `addUtxos` zeroes their `value`.
+          const [supplyRows] = await mysql.query<any[]>(
+            `SELECT COALESCE(SUM(value), 0) AS initial_supply
+               FROM tx_output
+              WHERE tx_id = ? AND token_id = ? AND authorities = 0 AND voided = FALSE AND mode = 0`,
+            [txId, token_uid],
+          );
+          const initialSupply = BigInt(supplyRows[0]?.initial_supply ?? 0);
+          await setTokenTotalSupply(mysql, token_uid, initialSupply);
+
+          logger.debug(`Inserted new token ${token_uid} with first_block=${firstBlock}, version=${token_version}, initial_supply=${initialSupply}`);
         } else {
           logger.debug(`Token ${token_uid} already exists, skipping insertion`);
         }

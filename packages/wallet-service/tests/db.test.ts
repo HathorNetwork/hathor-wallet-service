@@ -2494,74 +2494,18 @@ test('getMinersList', async () => {
   ]));
 });
 
-test('getTotalSupply', async () => {
+test('getTotalSupply reads from token.total_supply', async () => {
   expect.hasAssertions();
 
-  const txId = 'txId';
-  const utxos = [
-    { value: 500n, address: 'HDeadDeadDeadDeadDeadDeadDeagTPgmn', tokenId: '00', locked: false },
-    { value: 5n, address: 'address1', tokenId: '00', locked: false },
-    { value: 15n, address: 'address1', tokenId: '00', locked: false },
-    { value: 25n, address: 'address2', tokenId: 'token2', timelock: 500, locked: true },
-    { value: 35n, address: 'address2', tokenId: 'token1', locked: false },
-    // authority utxo
-    { value: 0b11n, address: 'address1', tokenId: 'token1', locked: false, tokenData: 129 },
-  ];
+  await mysql.query(`INSERT INTO token (id, name, symbol, total_supply) VALUES ('00', 'Hathor', 'HTR', 12345)`);
 
-  // add to utxo table
-  const outputs = utxos.map((utxo, index) => createOutput(
-    index,
-    utxo.value,
-    utxo.address,
-    utxo.tokenId,
-    utxo.timelock || null,
-    utxo.locked,
-    utxo.tokenData || 0,
-  ));
-
-  await addUtxos(mysql, txId, outputs);
-
-  expect(await getTotalSupply(mysql, '00')).toStrictEqual(20n);
-  expect(await getTotalSupply(mysql, 'token2')).toStrictEqual(25n);
-  expect(await getTotalSupply(mysql, 'token1')).toStrictEqual(35n);
-
-  const mysqlQuerySpy = jest.spyOn(mysql, 'query');
-  mysqlQuerySpy.mockImplementationOnce(() => Promise.resolve({ length: null }));
-
-  await expect(getTotalSupply(mysql, 'undefined-token')).rejects.toThrow('Total supply query returned no results');
-  expect(mockedAddAlert).toHaveBeenCalledWith(
-    'Total supply query returned no results',
-    '-',
-    Severity.MINOR,
-    { tokenId: 'undefined-token' },
-    logger,
-  );
+  expect(await getTotalSupply(mysql, '00')).toStrictEqual(12345n);
 });
 
-test('getTotalSupply ignores shielded tx_output rows', async () => {
+test('getTotalSupply throws when token does not exist', async () => {
   expect.hasAssertions();
 
-  // Transparent row (mode defaults to 0 via addToUtxoTable).
-  await addToUtxoTable(mysql, [{
-    txId: 'tx_transparent',
-    index: 0,
-    tokenId: '00',
-    address: 'a1',
-    value: 100n,
-    authorities: 0,
-    timelock: null,
-    heightlock: null,
-    locked: false,
-    spentBy: null,
-  }]);
-
-  // Shielded row for the same token; insert raw to set mode=1.
-  await mysql.query(`
-    INSERT INTO tx_output (tx_id, \`index\`, mode, token_id, address, value, authorities, locked, voided)
-    VALUES ('tx_shielded', 0, 1, '00', 'a2', 999, 0, FALSE, FALSE)
-  `);
-
-  expect(await getTotalSupply(mysql, '00')).toStrictEqual(100n);
+  await expect(getTotalSupply(mysql, 'nonexistent')).rejects.toThrow('Total supply query returned no results');
 });
 
 test('getExpiredTimelocksUtxos', async () => {

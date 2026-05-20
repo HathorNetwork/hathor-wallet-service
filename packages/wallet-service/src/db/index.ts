@@ -2608,25 +2608,25 @@ export const getMinersList = async (
 };
 
 /**
- * Get the total sum of a token's utxos, excluding the burned and voided ones
+ * Get a token's total supply.
+ *
+ * Reads the value tracked by the daemon's mint/melt/burn/block-reward dispatch
+ * directly from `token.total_supply`. The previous implementation summed
+ * `tx_output.value` per-call; that approach is structurally wrong once
+ * shielded outputs are in play (their `value` may be NULL on the shielded
+ * row) and is also slower as the table grows.
  *
  * @param mysql - Database connection
-
- * @returns The calculated sum
+ * @returns The token's total supply
  */
 export const getTotalSupply = async (
   mysql: ServerlessMysql,
   tokenId: string,
 ): Promise<bigint> => {
-  const results: DbSelectResult = await mysql.query(`
-    SELECT SUM(value) as value
-      FROM tx_output
-     WHERE spent_by IS NULL
-       AND token_id = ?
-       AND voided = FALSE
-       AND address != '${BURN_ADDRESS}'
-       AND mode = 0
-  `, [tokenId]);
+  const results: DbSelectResult = await mysql.query(
+    `SELECT total_supply AS value FROM token WHERE id = ?`,
+    [tokenId],
+  );
 
   if (!results.length) {
     // This should never happen.
