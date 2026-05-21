@@ -32,7 +32,7 @@ export const create = (baseURL = BASE_URL) => {
       throw new Error(error.message);
     }
 
-    return value as FullNodeApiVersionResponse;
+    return value;
   };
 
   const downloadTx = async (txId: string) => {
