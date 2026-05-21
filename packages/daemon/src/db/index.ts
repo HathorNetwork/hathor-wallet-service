@@ -551,6 +551,69 @@ export async function applyShieldedWalletBalance(
 }
 
 /**
+ * Reverse a shielded UTXO's contribution to address_balance when the UTXO is
+ * spent. Mirror of applyShieldedAddressBalance, but subtracts (UPDATE-only,
+ * no INSERT) and never touches total_received.
+ *
+ * Why UPDATE-only instead of an INSERT...ON DUPLICATE KEY UPDATE with a
+ * negative VALUES(): under STRICT_TRANS_TABLES (MySQL 8 default) the server
+ * validates the literal in VALUES(...) against the UNSIGNED column type
+ * BEFORE choosing the update branch, so a negative operand crashes with
+ * ER_WARN_DATA_OUT_OF_RANGE even when the row already exists and the final
+ * arithmetic would be non-negative.
+ *
+ * Why total_received is left alone: it's a lifetime accumulator of credits,
+ * not a balance. The transparent path only ever increments it on credits;
+ * the shielded path matches that semantics here.
+ *
+ * The row is expected to exist (the recovery path that originally credited
+ * the balance created it). If it doesn't, this is a silent no-op, which is
+ * the correct behaviour: there is no credit to reverse, and we should not
+ * crash on a degraded state.
+ *
+ * Authority columns and locked_balance are not touched (shielded outputs
+ * cannot carry authority bits, and v1 routes shielded credits to
+ * unlocked_balance unconditionally because shielded outputs don't carry
+ * timelock info).
+ */
+export async function reverseShieldedAddressBalanceOnSpend(
+  conn: any,
+  address: string,
+  tokenId: string,
+  value: bigint,
+): Promise<void> {
+  await conn.query(
+    `UPDATE address_balance
+        SET unlocked_balance = unlocked_balance - ?,
+            transactions     = transactions + 1
+      WHERE address = ? AND token_id = ? AND kind = 'shielded'`,
+    [value.toString(), address, tokenId],
+  );
+}
+
+/**
+ * Reverse a shielded UTXO's contribution to wallet_balance when the UTXO is
+ * spent. Mirror of applyShieldedWalletBalance — same rationale as
+ * reverseShieldedAddressBalanceOnSpend: UPDATE-only (to avoid the strict-mode
+ * UNSIGNED rejection of a negative VALUES literal), and total_shielded_received
+ * is left untouched because it's a lifetime credit accumulator, not a balance.
+ */
+export async function reverseShieldedWalletBalanceOnSpend(
+  conn: any,
+  walletId: string,
+  tokenId: string,
+  value: bigint,
+): Promise<void> {
+  await conn.query(
+    `UPDATE wallet_balance
+        SET unlocked_shielded_balance = unlocked_shielded_balance - ?,
+            transactions              = transactions + 1
+      WHERE wallet_id = ? AND token_id = ?`,
+    [value.toString(), walletId, tokenId],
+  );
+}
+
+/**
  * Record a recovered shielded output's contribution to wallet_tx_history.
  *
  * One wallet_tx_history row per (wallet_id, tx_id, token_id) carries both

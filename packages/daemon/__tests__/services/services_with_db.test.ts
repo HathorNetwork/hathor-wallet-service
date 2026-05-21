@@ -2507,3 +2507,262 @@ describe('handleVertexAccepted with shielded outputs', () => {
     expect(metadata).toMatchObject({ tx_id: txHash, output_index: 1 });
   });
 });
+
+describe('handleVertexAccepted with shielded spends', () => {
+  // The previously-recovered shielded UTXO that the spending vertex consumes.
+  const PREV_TX_ID = '1'.repeat(64);
+  const PREV_INDEX = 5;
+  const SHIELDED_ADDRESS = 'WShieldedSpendAddr';
+  const SPEND_TX_ID = '2'.repeat(64);
+  const TOKEN_ID = '00';
+  const SEEDED_VALUE = 400n;
+
+  // Build a NEW_VERTEX_ACCEPTED event that spends PREV_TX_ID:PREV_INDEX as an
+  // AmountShielded input with no outputs / shielded_outputs. The shielded
+  // fields just need to be valid hex; the reversal path doesn't crack them
+  // (it only reads spent_output.mode and the local tx_output row).
+  const buildSpendingVertex = () => ({
+    type: 'EVENT',
+    event: {
+      stream_id: 'stream-shielded-spend',
+      network: 'mainnet',
+      peer_id: 'peer-shielded-spend',
+      id: 200,
+      timestamp: 1700000100.0,
+      type: 'NEW_VERTEX_ACCEPTED',
+      data: {
+        hash: SPEND_TX_ID,
+        nonce: 12345,
+        timestamp: 1700000000,
+        version: 1,
+        weight: 21.5,
+        signal_bits: 0,
+        inputs: [{
+          tx_id: PREV_TX_ID,
+          index: PREV_INDEX,
+          spent_output: {
+            mode: 1,
+            commitment: '02'.repeat(33),
+            range_proof: '03'.repeat(64),
+            script: '04'.repeat(20),
+            ephemeral_pubkey: '05'.repeat(33),
+            token_data: 0,
+            decoded: {
+              address: SHIELDED_ADDRESS,
+            },
+          },
+        }],
+        outputs: [],
+        shielded_outputs: [],
+        parents: [
+          '16ba3dbe424c443e571b00840ca54b9ff4cff467e10b6a15536e718e2008f952',
+          '33e14cb555a96967841dcbe0f95e9eab5810481d01de8f4f73afb8cce365e869',
+        ],
+        tokens: [],
+        token_name: null,
+        token_symbol: null,
+        metadata: {
+          hash: SPEND_TX_ID,
+          voided_by: [],
+          first_block: null,
+          height: 101,
+        },
+        aux_pow: null,
+      },
+      group_id: null,
+    },
+    latest_event_id: 201,
+  });
+
+  // Seed the previously-recovered shielded UTXO: a tx_output row in mode=1 /
+  // recovered state plus the address_balance row that earlier recovery would
+  // have written. The wallet_balance row is seeded separately because the
+  // unowned-path test still wants it (to assert it stays untouched).
+  const seedRecoveredShieldedUtxo = async () => {
+    await mysql.query(
+      `INSERT INTO tx_output
+         (tx_id, \`index\`, mode, address, value, token_id, authorities,
+          timelock, heightlock, locked, voided, spent_by, recovery_state)
+       VALUES (?, ?, 1, ?, ?, ?, 0, NULL, NULL, FALSE, FALSE, NULL, 'recovered')`,
+      [PREV_TX_ID, PREV_INDEX, SHIELDED_ADDRESS, SEEDED_VALUE.toString(), TOKEN_ID],
+    );
+
+    await mysql.query(
+      `INSERT INTO address_balance
+         (address, token_id, kind, unlocked_balance, locked_balance,
+          total_received, transactions)
+       VALUES (?, ?, 'shielded', ?, 0, ?, 1)`,
+      [SHIELDED_ADDRESS, TOKEN_ID, SEEDED_VALUE.toString(), SEEDED_VALUE.toString()],
+    );
+  };
+
+  const seedWalletBalance = async () => {
+    await mysql.query(
+      `INSERT INTO wallet_balance
+         (wallet_id, token_id,
+          unlocked_balance, locked_balance, total_received,
+          unlocked_shielded_balance, locked_shielded_balance,
+          total_shielded_received, transactions)
+       VALUES ('wallet_alice', ?, 0, 0, 0, ?, 0, ?, 1)`,
+      [TOKEN_ID, SEEDED_VALUE.toString(), SEEDED_VALUE.toString()],
+    );
+  };
+
+  beforeEach(async () => {
+    // `shielded_address` and `shielded_tx_output_data` are not in the shared
+    // cleanDatabase TABLES list; wipe them manually to stay isolated from
+    // neighbouring suites.
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+    await mysql.query('DELETE FROM shielded_address');
+  });
+
+  afterEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+    await mysql.query('DELETE FROM shielded_address');
+  });
+
+  it('reverses the shielded balance when a shielded UTXO is spent', async () => {
+    expect.hasAssertions();
+
+    // Owned shielded_address row so findShieldedAddressOwnership returns the
+    // owning wallet for SHIELDED_ADDRESS.
+    await mysql.query(
+      `INSERT INTO shielded_address (address, wallet_id, shielded_index, scan_privkey, transactions, created_at)
+       VALUES (?, 'wallet_alice', 7, ?, 1, CURRENT_TIMESTAMP)`,
+      [SHIELDED_ADDRESS, Buffer.alloc(32, 0x42)],
+    );
+    await seedRecoveredShieldedUtxo();
+    await seedWalletBalance();
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildSpendingVertex(),
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    // wallet_balance: shielded balance decremented by 400 → 0, but
+    // total_shielded_received is a lifetime credit accumulator and must NOT
+    // be decremented by a spend; it stays at the seeded 400. The wallet's
+    // transactions counter ticks up by 1 (1 from seed + 1 from spend).
+    const [walletBalanceRows] = await mysql.query<any[]>(
+      `SELECT unlocked_balance, locked_balance,
+              unlocked_shielded_balance, locked_shielded_balance,
+              total_shielded_received, transactions
+         FROM wallet_balance
+        WHERE wallet_id = ? AND token_id = ?`,
+      ['wallet_alice', TOKEN_ID],
+    );
+    expect(walletBalanceRows).toHaveLength(1);
+    expect(BigInt(walletBalanceRows[0].unlocked_shielded_balance)).toBe(0n);
+    expect(BigInt(walletBalanceRows[0].locked_shielded_balance)).toBe(0n);
+    expect(BigInt(walletBalanceRows[0].total_shielded_received)).toBe(SEEDED_VALUE);
+    expect(Number(walletBalanceRows[0].transactions)).toBe(2);
+
+    // address_balance (kind=shielded): unlocked_balance decremented to 0;
+    // total_received untouched (lifetime credits, not balance).
+    //
+    // transactions lands at 3, not 2: address_balance's PK is (address,
+    // token_id) — `kind` is NOT in the PK — so a spend vertex bumps the
+    // shielded row twice. Once by the transparent input bookkeeping in
+    // updateAddressTablesWithTx (the shielded input is emitted as a stub
+    // input with the same address+token_id and ON DUPLICATE KEY UPDATE
+    // collides into the shielded row), and once by the reversal helper.
+    // That double-bump is a pre-existing schema gap (PK should include
+    // `kind`), tracked separately; not what this test exercises.
+    const [addrBalanceRows] = await mysql.query<any[]>(
+      `SELECT kind, unlocked_balance, locked_balance,
+              total_received, transactions
+         FROM address_balance
+        WHERE address = ? AND token_id = ? AND kind = 'shielded'`,
+      [SHIELDED_ADDRESS, TOKEN_ID],
+    );
+    expect(addrBalanceRows).toHaveLength(1);
+    expect(BigInt(addrBalanceRows[0].unlocked_balance)).toBe(0n);
+    expect(BigInt(addrBalanceRows[0].locked_balance)).toBe(0n);
+    expect(BigInt(addrBalanceRows[0].total_received)).toBe(SEEDED_VALUE);
+    expect(Number(addrBalanceRows[0].transactions)).toBe(3);
+
+    // wallet_tx_history: a new row tied to the spending tx with
+    // shielded_balance_delta = -400 and timestamp = the spending vertex's
+    // own timestamp (this row is created by the spend, so the INSERT path
+    // sets the timestamp column).
+    const [historyRows] = await mysql.query<any[]>(
+      `SELECT balance, shielded_balance_delta, timestamp
+         FROM wallet_tx_history
+        WHERE wallet_id = ? AND tx_id = ? AND token_id = ?`,
+      ['wallet_alice', SPEND_TX_ID, TOKEN_ID],
+    );
+    expect(historyRows).toHaveLength(1);
+    expect(BigInt(historyRows[0].shielded_balance_delta)).toBe(-SEEDED_VALUE);
+    expect(Number(historyRows[0].timestamp)).toBe(
+      buildSpendingVertex().event.data.timestamp,
+    );
+
+    // The consumed tx_output is now marked spent by the spending vertex.
+    const prevOutput = await getTxOutput(mysql, PREV_TX_ID, PREV_INDEX, false);
+    expect(prevOutput).not.toBeNull();
+    expect(prevOutput!.spentBy).toBe(SPEND_TX_ID);
+  });
+
+  it('does NOT reverse when the spent shielded row is unowned', async () => {
+    expect.hasAssertions();
+
+    // No `shielded_address` ownership row → findShieldedAddressOwnership
+    // returns null and the reversal branch is skipped.
+    await seedRecoveredShieldedUtxo();
+    await seedWalletBalance();
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildSpendingVertex(),
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    // wallet_balance untouched.
+    const [walletBalanceRows] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, locked_shielded_balance,
+              total_shielded_received
+         FROM wallet_balance
+        WHERE wallet_id = ? AND token_id = ?`,
+      ['wallet_alice', TOKEN_ID],
+    );
+    expect(walletBalanceRows).toHaveLength(1);
+    expect(BigInt(walletBalanceRows[0].unlocked_shielded_balance)).toBe(SEEDED_VALUE);
+    expect(BigInt(walletBalanceRows[0].locked_shielded_balance)).toBe(0n);
+    expect(BigInt(walletBalanceRows[0].total_shielded_received)).toBe(SEEDED_VALUE);
+
+    // address_balance (kind=shielded) untouched.
+    const [addrBalanceRows] = await mysql.query<any[]>(
+      `SELECT unlocked_balance, locked_balance
+         FROM address_balance
+        WHERE address = ? AND token_id = ? AND kind = 'shielded'`,
+      [SHIELDED_ADDRESS, TOKEN_ID],
+    );
+    expect(addrBalanceRows).toHaveLength(1);
+    expect(BigInt(addrBalanceRows[0].unlocked_balance)).toBe(SEEDED_VALUE);
+
+    // No wallet_tx_history row written for the spend.
+    const [historyRows] = await mysql.query<any[]>(
+      `SELECT * FROM wallet_tx_history WHERE tx_id = ?`,
+      [SPEND_TX_ID],
+    );
+    expect(historyRows).toHaveLength(0);
+
+    // The kind-agnostic spent_by marking still ran.
+    const prevOutput = await getTxOutput(mysql, PREV_TX_ID, PREV_INDEX, false);
+    expect(prevOutput).not.toBeNull();
+    expect(prevOutput!.spentBy).toBe(SPEND_TX_ID);
+  });
+});

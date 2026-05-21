@@ -96,6 +96,8 @@ import {
   applyShieldedAddressBalance,
   applyShieldedWalletBalance,
   applyShieldedWalletTxHistory,
+  reverseShieldedAddressBalanceOnSpend,
+  reverseShieldedWalletBalanceOnSpend,
   setTokenTotalSupply,
   incrementTokenTotalSupply,
 } from '../db';
@@ -360,24 +362,27 @@ async function applyTokenSupplyUpdates(
  * rows as spent in a kind-agnostic way. This helper only adjusts the
  * shielded balance accounting on top of that.
  *
- * The shielded balance helpers (`applyShieldedAddressBalance`,
- * `applyShieldedWalletBalance`, `applyShieldedWalletTxHistory`) are called
- * with a NEGATIVE value to subtract. The underlying SQL adds `VALUES(...)` to
- * the existing column, so a negative value performs the reversal. The
- * UNSIGNED MySQL columns will raise an error if the result would go below
- * zero — that is correct behaviour: a balance tracked properly cannot be
- * overspent.
+ * Balance reversal uses dedicated UPDATE-only helpers
+ * (`reverseShieldedAddressBalanceOnSpend`, `reverseShieldedWalletBalanceOnSpend`)
+ * rather than reusing the credit helpers with a negative value. Two reasons:
+ *   - The credit helpers issue `INSERT ... ON DUPLICATE KEY UPDATE` and MySQL's
+ *     STRICT_TRANS_TABLES (default in 8.0) rejects a negative literal in
+ *     VALUES(...) against UNSIGNED columns BEFORE choosing the update branch.
+ *   - The credit helpers also bump `total_received` / `total_shielded_received`,
+ *     which are lifetime credit accumulators and must not be decremented on
+ *     spends. The transparent path treats them the same way.
  *
- * Known follow-up: the `wallet_tx_history` reversal passes `timestamp = 0`
- * because the helper is shared with the recovery path that wants the
- * vertex's own timestamp. The PK is (wallet_id, tx_id, token_id), so the
- * row lookup is independent of timestamp; the timestamp column is only set
- * on initial INSERT and never overwritten.
+ * `wallet_tx_history` still goes through `applyShieldedWalletTxHistory`: its
+ * `shielded_balance_delta` column is signed BIGINT, so a negative INSERT
+ * literal is valid, and on spend-only vertices this call is the first writer
+ * for `(wallet_id, txId, token_id)` — passing the real vertex timestamp
+ * ensures the row's timestamp column reflects when the spend happened.
  */
 async function applyShieldedSpendReversal(
   mysql: any,
   eventInputs: EventTxInput[],
-  _txId: string,
+  txId: string,
+  timestamp: number,
 ): Promise<void> {
   for (const input of eventInputs) {
     if (!input?.spent_output || !isShieldedMode(input.spent_output.mode)) continue;
@@ -390,10 +395,9 @@ async function applyShieldedSpendReversal(
     const owned = await findShieldedAddressOwnership(mysql, row.address);
     if (!owned) continue;
 
-    const negValue = -row.value;
-    await applyShieldedAddressBalance(mysql, row.address, row.tokenId, negValue, false);
-    await applyShieldedWalletBalance(mysql, owned.wallet_id, row.tokenId, negValue, false);
-    await applyShieldedWalletTxHistory(mysql, owned.wallet_id, _txId, row.tokenId, negValue, 0);
+    await reverseShieldedAddressBalanceOnSpend(mysql, row.address, row.tokenId, row.value);
+    await reverseShieldedWalletBalanceOnSpend(mysql, owned.wallet_id, row.tokenId, row.value);
+    await applyShieldedWalletTxHistory(mysql, owned.wallet_id, txId, row.tokenId, -row.value, timestamp);
   }
 }
 
@@ -705,7 +709,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         // discriminated `spent_output.mode`), AFTER the kind-agnostic
         // spent_by marking above. Transparent input reversal is handled by
         // the existing address/wallet balance accounting further down.
-        await applyShieldedSpendReversal(mysql, inputs, hash);
+        await applyShieldedSpendReversal(mysql, inputs, hash, timestamp);
 
         // Genesis tx has no inputs and outputs, so nothing to be updated, avoid it
         // Nano contracts are a special case since they can have an address to update even without inputs/outputs
