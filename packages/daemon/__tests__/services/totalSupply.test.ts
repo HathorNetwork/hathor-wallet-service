@@ -131,6 +131,7 @@ const transparentInput = (
   tx_id: parentTxId,
   index,
   spent_output: {
+    mode: 0,
     value,
     script: SCRIPT_B64,
     token_data: tokenData,

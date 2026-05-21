@@ -334,6 +334,43 @@ export const unlockTimelockedUtxos = async (mysql: MysqlConnection, now: number)
 export const prepareInputs = (inputs: EventTxInput[], tokens: string[]): TxInput[] => {
   const preparedInputs: TxInput[] = inputs.reduce((newInputs: TxInput[], _input: EventTxInput): TxInput[] => {
     const output = _input.spent_output;
+
+    if (output.mode !== 0) {
+      // Shielded input. The wire payload doesn't carry the recovered value
+      // or a transparent script, so we emit a stub TxInput with tx_id+index
+      // plus the metadata that IS on the wire (script, decoded.address; and
+      // for AmountShielded also token_data and the resolved token UID).
+      // updateTxOutputSpentBy still marks the spent_by uniformly via this
+      // stub, while shielded balance reversal happens separately by looking
+      // up the local tx_output row.
+      let stubTokenData = 0;
+      let stubToken = '';
+      if (output.mode === ShieldedOutputMode.AmountShielded) {
+        stubTokenData = output.token_data;
+        const tokenIndex = (output.token_data & hathorLib.constants.TOKEN_INDEX_MASK) - 1;
+        stubToken = tokenIndex < 0
+          ? hathorLib.constants.NATIVE_TOKEN_UID
+          : (tokens[tokenIndex] ?? '');
+      }
+      const stub: TxInput = {
+        tx_id: _input.tx_id,
+        index: _input.index,
+        value: 0n,
+        token_data: stubTokenData,
+        script: output.script,
+        token: stubToken,
+        decoded: {
+          type: 'P2PKH',
+          address: output.decoded.address,
+          timelock: null,
+        },
+      };
+      return [...newInputs, stub];
+    }
+
+    // Transparent input — TS narrows `output` to the mode=0 variant, so
+    // `output.value`, `output.token_data`, `output.script`, `output.decoded`
+    // are accessible without further guards.
     const utxo: Output = new Output(output.value, Buffer.from(output.script, 'base64'), {
       tokenData: output.token_data,
     });

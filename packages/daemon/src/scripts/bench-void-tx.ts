@@ -203,6 +203,7 @@ async function seedScenario(
       tx_id: prevHash,
       index: 0,
       spent_output: {
+        mode: 0,
         value: value,
         token_data: 0,
         script: 'dqkUCEboPJo9txn548FA/NLLaMLsfsSIrA==',

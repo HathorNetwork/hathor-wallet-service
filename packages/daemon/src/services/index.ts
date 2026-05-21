@@ -84,6 +84,7 @@ import {
   getAddressSeqnum,
   unspendUtxos,
   voidWalletTransaction,
+  getTxOutput,
   getTxOutputs,
   clearTxProposalForVoidedTx,
   insertTxOutput,
@@ -343,6 +344,56 @@ async function applyTokenSupplyUpdates(
     if (delta !== 0n) {
       await incrementTokenTotalSupply(mysql, tokenId, delta);
     }
+  }
+}
+
+/**
+ * Reverse shielded balance contributions for outputs spent by this vertex.
+ *
+ * The shielded `spent_output` wire payload doesn't carry the recovered value,
+ * so we look up the local `tx_output` row to learn what was credited at
+ * recovery time. Only rows whose `recovery_state = 'recovered'` ever
+ * contributed to a balance; `unowned` and `recovery_failed` rows are skipped
+ * because nothing was credited and there is nothing to subtract.
+ *
+ * Runs after `updateTxOutputSpentBy`, which has already marked the consumed
+ * rows as spent in a kind-agnostic way. This helper only adjusts the
+ * shielded balance accounting on top of that.
+ *
+ * The shielded balance helpers (`applyShieldedAddressBalance`,
+ * `applyShieldedWalletBalance`, `applyShieldedWalletTxHistory`) are called
+ * with a NEGATIVE value to subtract. The underlying SQL adds `VALUES(...)` to
+ * the existing column, so a negative value performs the reversal. The
+ * UNSIGNED MySQL columns will raise an error if the result would go below
+ * zero — that is correct behaviour: a balance tracked properly cannot be
+ * overspent.
+ *
+ * Known follow-up: the `wallet_tx_history` reversal passes `timestamp = 0`
+ * because the helper is shared with the recovery path that wants the
+ * vertex's own timestamp. The PK is (wallet_id, tx_id, token_id), so the
+ * row lookup is independent of timestamp; the timestamp column is only set
+ * on initial INSERT and never overwritten.
+ */
+async function applyShieldedSpendReversal(
+  mysql: any,
+  eventInputs: EventTxInput[],
+  _txId: string,
+): Promise<void> {
+  for (const input of eventInputs) {
+    if (!input?.spent_output || !isShieldedMode(input.spent_output.mode)) continue;
+
+    const row = await getTxOutput(mysql, input.tx_id, input.index, false);
+    if (!row) continue;
+    if (row.recoveryState !== RecoveryState.Recovered) continue;
+    if (row.value === null || row.tokenId === null) continue;
+
+    const owned = await findShieldedAddressOwnership(mysql, row.address);
+    if (!owned) continue;
+
+    const negValue = -row.value;
+    await applyShieldedAddressBalance(mysql, row.address, row.tokenId, negValue, false);
+    await applyShieldedWalletBalance(mysql, owned.wallet_id, row.tokenId, negValue, false);
+    await applyShieldedWalletTxHistory(mysql, owned.wallet_id, _txId, row.tokenId, negValue, 0);
   }
 }
 
@@ -649,6 +700,13 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         // Mark tx utxos as spent
         await withSpan('updateTxOutputSpentBy', () => updateTxOutputSpentBy(mysql, txInputs, hash));
 
+        // Reverse shielded balance contributions for any shielded UTXOs this
+        // vertex spends. Runs on the raw event inputs (which carry the
+        // discriminated `spent_output.mode`), AFTER the kind-agnostic
+        // spent_by marking above. Transparent input reversal is handled by
+        // the existing address/wallet balance accounting further down.
+        await applyShieldedSpendReversal(mysql, inputs, hash);
+
         // Genesis tx has no inputs and outputs, so nothing to be updated, avoid it
         // Nano contracts are a special case since they can have an address to update even without inputs/outputs
         if (inputs.length > 0 || outputs.length > 0 || isNano) {
@@ -775,19 +833,15 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
           // NFT detection on transactions that touch shielded data is deferred —
           // shielded NFT detection is technical debt, so skip the handler when the
           // vertex carries any shielded outputs OR spends any shielded input.
-          // Inputs are typed as transparent today (the `spent_output.mode`
-          // discriminator switchover is a follow-up), so we read `mode`
-          // defensively at runtime and let `isShieldedMode` recognise it.
           const hasShieldedInputs = inputs.some(
-            (input) => isShieldedMode(
-              ((input?.spent_output as { mode?: number } | undefined)?.mode) ?? 0,
-            ),
+            (input) => input?.spent_output && isShieldedMode(input.spent_output.mode),
           );
           if (shieldedOutputs.length === 0 && !hasShieldedInputs) {
             const network = new hathorLib.Network(NETWORK);
 
             // Call to process the data for NFT handling (if applicable)
             // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
+            // @ts-ignore - wallet-lib's FullNodeTransaction will be updated to know about the new spent_output union in the next release
             NftUtils.processNftEvent(fullNodeData, STAGE, SERVERLESS_DEPLOY_PREFIX, network, logger)
               .catch((err: unknown) => logger.error('[ALERT] Error processing NFT event', err));
           }

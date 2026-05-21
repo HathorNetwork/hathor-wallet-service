@@ -175,7 +175,7 @@ export type SpentOutput = z.infer<typeof SpentOutputSchema>;
 export const EventTxInputSchema = z.object({
   tx_id: z.string(),
   index: z.number(),
-  spent_output: EventTxOutputSchema,
+  spent_output: SpentOutputSchema,
 });
 export type EventTxInput = z.infer<typeof EventTxInputSchema>;
 
