@@ -360,29 +360,28 @@ export const insertShieldedTxOutputData = async (
 };
 
 /**
- * Record an observation of a shielded address.
+ * Record an observation of a shielded address in the unified `address` table.
  *
  * Used at observation time: the daemon has seen a shielded `tx_output` whose
- * destination address it does not (yet) own. The row is inserted with NULL
- * ownership fields (`wallet_id`, `scan_privkey`, `shielded_index`,
- * `shielded_address`, `catchup_state`) and `transactions = 1`. If a row for
- * the address already exists, `transactions` is incremented by 1.
+ * destination address it does not (yet) own. The row is inserted with
+ * `bip32_account = 1` (marking it as shielded-derived) and `transactions = 1`.
+ * Ownership fields (`wallet_id`, `index`, `scan_privkey`, `catchup_state`)
+ * stay NULL until a wallet claims this address.
  *
- * Ownership fields are preserved on subsequent observations: only
- * `transactions` appears in the `ON DUPLICATE KEY UPDATE` clause, so any
- * registration data attached to the row (after a wallet later claims the
- * address) is untouched by repeated observations.
+ * On conflict (`address` PK), only `transactions` is bumped; any
+ * registration data attached to the row by a previous wallet claim is
+ * preserved across repeated observations.
  *
  * @param conn - Database connection
- * @param address - The shielded address observed in a `tx_output`
+ * @param address - The shielded P2PKH spend address observed in a `tx_output`
  */
 export async function upsertShieldedAddressObservation(
   conn: any,
   address: string,
 ): Promise<void> {
   await conn.query(
-    `INSERT INTO \`shielded_address\` (\`address\`, \`transactions\`, \`created_at\`)
-     VALUES (?, 1, CURRENT_TIMESTAMP)
+    `INSERT INTO \`address\` (\`address\`, \`bip32_account\`, \`transactions\`)
+     VALUES (?, 1, 1)
      ON DUPLICATE KEY UPDATE \`transactions\` = \`transactions\` + 1`,
     [address],
   );
@@ -398,20 +397,20 @@ export interface ShieldedAddressOwnership {
 }
 
 /**
- * Look up ownership info for a shielded address.
+ * Look up ownership info for a shielded address on the unified `address`
+ * table.
  *
- * Returns the ownership fields (`wallet_id`, `shielded_index`, `scan_privkey`)
- * only when a wallet has claimed the address (i.e. `wallet_id IS NOT NULL`).
- *
- * Unowned rows created by `upsertShieldedAddressObservation` have NULL
- * ownership and cause this helper to return `null`. Addresses with no row at
- * all also return `null`.
+ * Filters on `bip32_account = 1` so the shielded scan-path row is isolated
+ * from any transparent row that might exist for the same P2PKH address.
+ * Returns ownership only when a wallet has claimed the address
+ * (`wallet_id IS NOT NULL`) and the scan key has been recorded
+ * (`scan_privkey IS NOT NULL`).
  *
  * Used during recovery to look up the scan key associated with an observed
  * shielded output.
  *
  * @param conn - Database connection
- * @param address - The shielded address to look up
+ * @param address - The shielded P2PKH spend address to look up
  * @returns Ownership info when the address is owned by a wallet, otherwise null
  */
 export async function findShieldedAddressOwnership(
@@ -419,9 +418,12 @@ export async function findShieldedAddressOwnership(
   address: string,
 ): Promise<ShieldedAddressOwnership | null> {
   const [rows] = await conn.query(
-    `SELECT wallet_id, shielded_index, scan_privkey
-       FROM shielded_address
-      WHERE address = ? AND wallet_id IS NOT NULL`,
+    `SELECT wallet_id, \`index\` AS shielded_index, scan_privkey
+       FROM address
+      WHERE address = ?
+        AND bip32_account = 1
+        AND wallet_id IS NOT NULL
+        AND scan_privkey IS NOT NULL`,
     [address],
   );
   if (!rows || rows.length === 0) return null;
@@ -477,10 +479,16 @@ export async function markTxOutputRecoveryFailed(
 /**
  * Apply a recovered shielded output's contribution to address_balance.
  *
- * This is the shielded sibling of the transparent INSERT inside
- * updateAddressTablesWithTx. Called from handleVertexAccepted's
- * recovery block once the rewind has succeeded and we know the
- * value + token_id.
+ * Writes the shielded amount columns on the unified (address, token_id)
+ * row, leaving the transparent columns at zero on first insert. Mirrors
+ * how wallet_balance carries both kinds on the same row.
+ *
+ * Does NOT bump `transactions`: the canonical (address, tx) bump is
+ * issued centrally by `updateAddressTablesWithTx` against the
+ * shielded-touched address map, so that shielded-credit-only vertices and
+ * mixed transparent+shielded vertices each get exactly one bump.
+ * Bumping here would double-count whenever the same vertex also touches
+ * the transparent path.
  *
  * Authority columns are not touched (shielded outputs cannot carry
  * authority bits).
@@ -496,13 +504,15 @@ export async function applyShieldedAddressBalance(
   const lockedDelta = locked ? value : 0n;
   await conn.query(
     `INSERT INTO address_balance
-       (address, token_id, kind, unlocked_balance, locked_balance, total_received, transactions)
-     VALUES (?, ?, 'shielded', ?, ?, ?, 1)
+       (address, token_id,
+        unlocked_balance, locked_balance, total_received,
+        unlocked_shielded_balance, locked_shielded_balance, total_shielded_received,
+        transactions)
+     VALUES (?, ?, 0, 0, 0, ?, ?, ?, 0)
      ON DUPLICATE KEY UPDATE
-       unlocked_balance = unlocked_balance + VALUES(unlocked_balance),
-       locked_balance   = locked_balance + VALUES(locked_balance),
-       total_received   = total_received + VALUES(total_received),
-       transactions     = transactions + 1`,
+       unlocked_shielded_balance = unlocked_shielded_balance + VALUES(unlocked_shielded_balance),
+       locked_shielded_balance   = locked_shielded_balance + VALUES(locked_shielded_balance),
+       total_shielded_received   = total_shielded_received + VALUES(total_shielded_received)`,
     [address, tokenId, unlockedDelta.toString(), lockedDelta.toString(), value.toString()],
   );
 }
@@ -510,20 +520,20 @@ export async function applyShieldedAddressBalance(
 /**
  * Apply a recovered shielded output's contribution to wallet_balance.
  *
- * This is the shielded sibling of the existing INSERT inside
- * updateWalletTablesWithTx. Writes the *_shielded_balance and
- * total_shielded_received columns only; transparent columns are untouched
- * (the transparent path handles those).
+ * Writes the *_shielded_balance and total_shielded_received columns only;
+ * transparent columns stay at zero on insert and are not touched on
+ * update (the transparent path owns those).
+ *
+ * Does NOT bump `transactions`: the canonical (wallet, tx) bump is
+ * issued centrally by `updateWalletTablesWithTx` against the
+ * shielded-touched wallet map, so that shielded-credit-only vertices and
+ * mixed transparent+shielded vertices each get exactly one bump.
+ * Bumping here would double-count whenever the same vertex also touches
+ * the transparent path.
  *
  * Authority columns are not touched (shielded outputs cannot carry
  * authority bits). timelock_expires is not touched here; shielded
  * timelock handling is a follow-up.
- *
- * Note: if a single vertex has both transparent and shielded outputs
- * owned by the same (wallet_id, token_id), both this helper and
- * updateWalletTablesWithTx will increment `transactions`, yielding 2
- * instead of 1. This is a known follow-up; for v1 the metric drift is
- * accepted.
  */
 export async function applyShieldedWalletBalance(
   conn: any,
@@ -540,12 +550,11 @@ export async function applyShieldedWalletBalance(
         unlocked_balance, locked_balance, total_received,
         unlocked_shielded_balance, locked_shielded_balance,
         total_shielded_received, transactions)
-     VALUES (?, ?, 0, 0, 0, ?, ?, ?, 1)
+     VALUES (?, ?, 0, 0, 0, ?, ?, ?, 0)
      ON DUPLICATE KEY UPDATE
        unlocked_shielded_balance = unlocked_shielded_balance + VALUES(unlocked_shielded_balance),
        locked_shielded_balance   = locked_shielded_balance + VALUES(locked_shielded_balance),
-       total_shielded_received   = total_shielded_received + VALUES(total_shielded_received),
-       transactions              = transactions + 1`,
+       total_shielded_received   = total_shielded_received + VALUES(total_shielded_received)`,
     [walletId, tokenId, unlockedDelta.toString(), lockedDelta.toString(), value.toString()],
   );
 }
@@ -553,7 +562,7 @@ export async function applyShieldedWalletBalance(
 /**
  * Reverse a shielded UTXO's contribution to address_balance when the UTXO is
  * spent. Mirror of applyShieldedAddressBalance, but subtracts (UPDATE-only,
- * no INSERT) and never touches total_received.
+ * no INSERT) and never touches total_shielded_received.
  *
  * Why UPDATE-only instead of an INSERT...ON DUPLICATE KEY UPDATE with a
  * negative VALUES(): under STRICT_TRANS_TABLES (MySQL 8 default) the server
@@ -562,9 +571,9 @@ export async function applyShieldedWalletBalance(
  * ER_WARN_DATA_OUT_OF_RANGE even when the row already exists and the final
  * arithmetic would be non-negative.
  *
- * Why total_received is left alone: it's a lifetime accumulator of credits,
- * not a balance. The transparent path only ever increments it on credits;
- * the shielded path matches that semantics here.
+ * Why total_shielded_received is left alone: it's a lifetime accumulator of
+ * credits, not a balance. The transparent path only ever increments
+ * total_received on credits; the shielded path matches that semantics here.
  *
  * The row is expected to exist (the recovery path that originally credited
  * the balance created it). If it doesn't, this is a silent no-op, which is
@@ -576,6 +585,11 @@ export async function applyShieldedWalletBalance(
  * passes `false` (shielded outputs don't carry timelock info), so the
  * locked branch is dead code today — kept for symmetry so the credit and
  * reversal paths stay aligned when shielded timelock handling lands.
+ *
+ * Does NOT bump `transactions`: the canonical (address, tx) bump is
+ * issued by `updateAddressTablesWithTx`, which sees this vertex via the
+ * transparent stub that `prepareInputs` emits for shielded inputs. Bumping
+ * here would double-count.
  *
  * Authority columns are not touched (shielded outputs cannot carry
  * authority bits).
@@ -591,10 +605,9 @@ export async function reverseShieldedAddressBalanceOnSpend(
   const lockedDelta = locked ? value : 0n;
   await conn.query(
     `UPDATE address_balance
-        SET unlocked_balance = unlocked_balance - ?,
-            locked_balance   = locked_balance   - ?,
-            transactions     = transactions + 1
-      WHERE address = ? AND token_id = ? AND kind = 'shielded'`,
+        SET unlocked_shielded_balance = unlocked_shielded_balance - ?,
+            locked_shielded_balance   = locked_shielded_balance   - ?
+      WHERE address = ? AND token_id = ?`,
     [unlockedDelta.toString(), lockedDelta.toString(), address, tokenId],
   );
 }
@@ -606,6 +619,11 @@ export async function reverseShieldedAddressBalanceOnSpend(
  * UNSIGNED rejection of a negative VALUES literal), and total_shielded_received
  * is left untouched because it's a lifetime credit accumulator, not a balance.
  * `locked` routes the delta to the same shielded column the credit landed in.
+ *
+ * Does NOT bump `transactions`: the canonical (wallet, tx) bump is
+ * issued by `updateWalletTablesWithTx`, which sees this vertex via the
+ * transparent stub that `prepareInputs` emits for shielded inputs. Bumping
+ * here would double-count.
  */
 export async function reverseShieldedWalletBalanceOnSpend(
   conn: any,
@@ -619,10 +637,40 @@ export async function reverseShieldedWalletBalanceOnSpend(
   await conn.query(
     `UPDATE wallet_balance
         SET unlocked_shielded_balance = unlocked_shielded_balance - ?,
-            locked_shielded_balance   = locked_shielded_balance   - ?,
-            transactions              = transactions + 1
+            locked_shielded_balance   = locked_shielded_balance   - ?
       WHERE wallet_id = ? AND token_id = ?`,
     [unlockedDelta.toString(), lockedDelta.toString(), walletId, tokenId],
+  );
+}
+
+/**
+ * Record a recovered shielded output's contribution to address_tx_history.
+ *
+ * One address_tx_history row per (address, tx_id, token_id) carries both
+ * the transparent `balance` (written by updateAddressTablesWithTx) and the
+ * `shielded_balance_delta` (written by this helper). On conflict the
+ * shielded delta accumulates; the transparent `balance` is left untouched
+ * here because the transparent path owns that column.
+ *
+ * Mirrors applyShieldedWalletTxHistory on the address grain. `voided`
+ * defaults to FALSE on insert; the existing void/unvoid plumbing keeps
+ * both columns in sync via the same row.
+ */
+export async function applyShieldedAddressTxHistory(
+  conn: any,
+  address: string,
+  txId: string,
+  tokenId: string,
+  value: bigint,
+  timestamp: number,
+): Promise<void> {
+  await conn.query(
+    `INSERT INTO address_tx_history
+       (address, tx_id, token_id, balance, shielded_balance_delta, timestamp, voided)
+     VALUES (?, ?, ?, 0, ?, ?, FALSE)
+     ON DUPLICATE KEY UPDATE
+       shielded_balance_delta = shielded_balance_delta + VALUES(shielded_balance_delta)`,
+    [address, txId, tokenId, value.toString(), timestamp],
   );
 }
 
@@ -1401,17 +1449,17 @@ export const unlockUtxos = async (mysql: MysqlConnection, utxos: TxInput[]): Pro
  * The balance of an address might change as a locked amount becomes unlocked. This function updates
  * the address_balance table, subtracting from the locked column and adding to the unlocked column.
  *
- * Shielded note: the shielded sibling row lives in the same `address_balance` table, discriminated
- * by the `kind` column. Address spaces for transparent and shielded are disjoint, so updating
- * by `(address, token_id)` alone targets the correct row regardless of `kind`. The `kind`
- * parameter is therefore only consulted on INSERT-shape operations (none here); the UPDATE
- * statements stay identical.
+ * Shielded note: shielded amounts live as additional columns on the same `address_balance`
+ * row (no discriminator). Shielded outputs can carry timelock info too, so the `kind` parameter
+ * is reserved for a follow-up that will route the unlock delta to the `*_shielded_balance`
+ * columns when `kind = 'shielded'`. Today the transparent path is the only writer; the SQL
+ * issued here always targets the transparent columns.
  *
  * @param mysql - Database connection
  * @param addressBalanceMap - A map of addresses and the unlocked balances
  * @param updateTimelock - If this update is triggered by a timelock expiring, update the next expire timestamp
  * @param kind - Whether the addresses are transparent or shielded. Defaults to `'transparent'`
- *   for backward compatibility. Reserved for future INSERT-shape extensions; currently does not
+ *   for backward compatibility. Reserved for the shielded-unlock follow-up; currently does not
  *   change the issued SQL.
  */
 export const updateAddressLockedBalance = async (
@@ -1522,14 +1570,16 @@ export const getAddressWalletInfo = async (mysql: MysqlConnection, addresses: st
 /**
  * Shielded sibling of {@link getAddressWalletInfo}.
  *
- * Queries `shielded_address` (rather than `address`) for the given list of shielded addresses
- * and returns those that are tied to a wallet (`wallet_id IS NOT NULL`). Used by the unified
- * unlock dispatch to look up wallet ownership for shielded UTXOs.
+ * Queries the unified `address` table filtered on `bip32_account = 1` to
+ * isolate the shielded scan-path row from any transparent row that might
+ * exist for the same P2PKH address. Returns rows tied to a wallet
+ * (`wallet_id IS NOT NULL`). Used by the unified unlock dispatch to look
+ * up wallet ownership for shielded UTXOs.
  *
- * Only `walletId` is populated on the returned `Wallet` records. The `shielded_address` table
- * does not join to `wallet` here (xpub / authXpub / maxGap are not needed by the unlock path),
- * so those fields are filled with sensible defaults to satisfy the type. If a future caller
- * needs them, add the join then.
+ * Only `walletId` is populated on the returned `Wallet` records;
+ * xpub / authXpub / maxGap are not needed by the unlock path, so the join
+ * to `wallet` is skipped and those fields are filled with sensible defaults
+ * to satisfy the type. If a future caller needs them, add the join then.
  *
  * @param mysql - Database connection
  * @param addresses - Shielded addresses to fetch wallet information for
@@ -1546,8 +1596,9 @@ export const getShieldedAddressWalletInfo = async (
   const addressWalletMap: StringMap<Wallet> = {};
   const [results] = await mysql.query<(RowDataPacket & { address: string; wallet_id: string })[]>(
     `SELECT \`address\`, \`wallet_id\`
-       FROM \`shielded_address\`
+       FROM \`address\`
       WHERE \`address\` IN (?)
+        AND \`bip32_account\` = 1
         AND \`wallet_id\` IS NOT NULL`,
     [addresses],
   );
