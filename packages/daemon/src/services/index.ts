@@ -94,6 +94,7 @@ import {
   markTxOutputRecovered,
   markTxOutputRecoveryFailed,
   applyShieldedAddressBalance,
+  applyShieldedAddressTxHistory,
   applyShieldedWalletBalance,
   applyShieldedWalletTxHistory,
   reverseShieldedAddressBalanceOnSpend,
@@ -372,11 +373,12 @@ async function applyTokenSupplyUpdates(
  *     which are lifetime credit accumulators and must not be decremented on
  *     spends. The transparent path treats them the same way.
  *
- * `wallet_tx_history` still goes through `applyShieldedWalletTxHistory`: its
- * `shielded_balance_delta` column is signed BIGINT, so a negative INSERT
- * literal is valid, and on spend-only vertices this call is the first writer
- * for `(wallet_id, txId, token_id)` — passing the real vertex timestamp
- * ensures the row's timestamp column reflects when the spend happened.
+ * `address_tx_history` and `wallet_tx_history` still go through their
+ * respective `applyShielded*TxHistory` helpers: both `shielded_balance_delta`
+ * columns are signed BIGINT, so a negative INSERT literal is valid, and on
+ * spend-only vertices these calls are the first writer for their respective
+ * row keys — passing the real vertex timestamp ensures the row's timestamp
+ * column reflects when the spend happened.
  */
 async function applyShieldedSpendReversal(
   mysql: any,
@@ -397,6 +399,7 @@ async function applyShieldedSpendReversal(
 
     await reverseShieldedAddressBalanceOnSpend(mysql, row.address, row.tokenId, row.value, row.locked);
     await reverseShieldedWalletBalanceOnSpend(mysql, owned.wallet_id, row.tokenId, row.value, row.locked);
+    await applyShieldedAddressTxHistory(mysql, row.address, txId, row.tokenId, -row.value, timestamp);
     await applyShieldedWalletTxHistory(mysql, owned.wallet_id, txId, row.tokenId, -row.value, timestamp);
   }
 }
@@ -669,6 +672,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
                 });
                 await applyShieldedAddressBalance(mysql, so.decoded.address, tokenIdHex, r.value, false);
                 await applyShieldedWalletBalance(mysql, owned.wallet_id, tokenIdHex, r.value, false);
+                await applyShieldedAddressTxHistory(mysql, so.decoded.address, hash, tokenIdHex, r.value, timestamp);
                 await applyShieldedWalletTxHistory(mysql, owned.wallet_id, hash, tokenIdHex, r.value, timestamp);
               } else {
                 const assetCommit = Buffer.from(so.asset_commitment, 'hex');
@@ -686,6 +690,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
                 });
                 await applyShieldedAddressBalance(mysql, so.decoded.address, tokenIdHexFull, r.value, false);
                 await applyShieldedWalletBalance(mysql, owned.wallet_id, tokenIdHexFull, r.value, false);
+                await applyShieldedAddressTxHistory(mysql, so.decoded.address, hash, tokenIdHexFull, r.value, timestamp);
                 await applyShieldedWalletTxHistory(mysql, owned.wallet_id, hash, tokenIdHexFull, r.value, timestamp);
               }
             } catch (e) {
