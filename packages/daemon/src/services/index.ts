@@ -395,8 +395,8 @@ async function applyShieldedSpendReversal(
     const owned = await findShieldedAddressOwnership(mysql, row.address);
     if (!owned) continue;
 
-    await reverseShieldedAddressBalanceOnSpend(mysql, row.address, row.tokenId, row.value);
-    await reverseShieldedWalletBalanceOnSpend(mysql, owned.wallet_id, row.tokenId, row.value);
+    await reverseShieldedAddressBalanceOnSpend(mysql, row.address, row.tokenId, row.value, row.locked);
+    await reverseShieldedWalletBalanceOnSpend(mysql, owned.wallet_id, row.tokenId, row.value, row.locked);
     await applyShieldedWalletTxHistory(mysql, owned.wallet_id, txId, row.tokenId, -row.value, timestamp);
   }
 }

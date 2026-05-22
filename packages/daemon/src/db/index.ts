@@ -571,23 +571,31 @@ export async function applyShieldedWalletBalance(
  * the correct behaviour: there is no credit to reverse, and we should not
  * crash on a degraded state.
  *
- * Authority columns and locked_balance are not touched (shielded outputs
- * cannot carry authority bits, and v1 routes shielded credits to
- * unlocked_balance unconditionally because shielded outputs don't carry
- * timelock info).
+ * `locked` mirrors applyShieldedAddressBalance: the delta is routed to the
+ * same column (unlocked vs locked) that the credit landed in. v1 always
+ * passes `false` (shielded outputs don't carry timelock info), so the
+ * locked branch is dead code today — kept for symmetry so the credit and
+ * reversal paths stay aligned when shielded timelock handling lands.
+ *
+ * Authority columns are not touched (shielded outputs cannot carry
+ * authority bits).
  */
 export async function reverseShieldedAddressBalanceOnSpend(
   conn: any,
   address: string,
   tokenId: string,
   value: bigint,
+  locked: boolean,
 ): Promise<void> {
+  const unlockedDelta = locked ? 0n : value;
+  const lockedDelta = locked ? value : 0n;
   await conn.query(
     `UPDATE address_balance
         SET unlocked_balance = unlocked_balance - ?,
+            locked_balance   = locked_balance   - ?,
             transactions     = transactions + 1
       WHERE address = ? AND token_id = ? AND kind = 'shielded'`,
-    [value.toString(), address, tokenId],
+    [unlockedDelta.toString(), lockedDelta.toString(), address, tokenId],
   );
 }
 
@@ -597,19 +605,24 @@ export async function reverseShieldedAddressBalanceOnSpend(
  * reverseShieldedAddressBalanceOnSpend: UPDATE-only (to avoid the strict-mode
  * UNSIGNED rejection of a negative VALUES literal), and total_shielded_received
  * is left untouched because it's a lifetime credit accumulator, not a balance.
+ * `locked` routes the delta to the same shielded column the credit landed in.
  */
 export async function reverseShieldedWalletBalanceOnSpend(
   conn: any,
   walletId: string,
   tokenId: string,
   value: bigint,
+  locked: boolean,
 ): Promise<void> {
+  const unlockedDelta = locked ? 0n : value;
+  const lockedDelta = locked ? value : 0n;
   await conn.query(
     `UPDATE wallet_balance
         SET unlocked_shielded_balance = unlocked_shielded_balance - ?,
+            locked_shielded_balance   = locked_shielded_balance   - ?,
             transactions              = transactions + 1
       WHERE wallet_id = ? AND token_id = ?`,
-    [value.toString(), walletId, tokenId],
+    [unlockedDelta.toString(), lockedDelta.toString(), walletId, tokenId],
   );
 }
 
