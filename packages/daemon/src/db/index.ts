@@ -364,13 +364,20 @@ export const insertShieldedTxOutputData = async (
  *
  * Used at observation time: the daemon has seen a shielded `tx_output` whose
  * destination address it does not (yet) own. The row is inserted with
- * `bip32_account = 1` (marking it as shielded-derived) and `transactions = 1`.
+ * `bip32_account = 1` (marking it as shielded-derived) and `transactions = 0`.
  * Ownership fields (`wallet_id`, `index`, `scan_privkey`, `catchup_state`)
  * stay NULL until a wallet claims this address.
  *
- * On conflict (`address` PK), only `transactions` is bumped; any
+ * This helper does NOT bump `transactions`. The single canonical
+ * `transactions` bump per `(address, tx)` lives exclusively in
+ * `updateAddressTablesWithTx`, which sees every address that appears in the
+ * vertex's balance map. Unowned shielded observations contribute no balance
+ * entry, so their row stays at `transactions = 0`; owned shielded credits
+ * route through the central path via the seeded zero-delta entries in
+ * `seedShieldedAddressBalanceEntries`. Using `INSERT IGNORE` makes the
+ * observation a row-existence guarantee with no on-conflict side effect — any
  * registration data attached to the row by a previous wallet claim is
- * preserved across repeated observations.
+ * preserved untouched across repeated observations.
  *
  * @param conn - Database connection
  * @param address - The shielded P2PKH spend address observed in a `tx_output`
@@ -380,9 +387,8 @@ export async function upsertShieldedAddressObservation(
   address: string,
 ): Promise<void> {
   await conn.query(
-    `INSERT INTO \`address\` (\`address\`, \`bip32_account\`, \`transactions\`)
-     VALUES (?, 1, 1)
-     ON DUPLICATE KEY UPDATE \`transactions\` = \`transactions\` + 1`,
+    `INSERT IGNORE INTO \`address\` (\`address\`, \`bip32_account\`, \`transactions\`)
+     VALUES (?, 1, 0)`,
     [address],
   );
 }

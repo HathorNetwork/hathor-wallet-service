@@ -2179,14 +2179,18 @@ describe('handleVertexAccepted with shielded outputs', () => {
 
     // Verify the shielded address observation row landed on the unified
     // `address` table with bip32_account = 1, unowned (wallet_id NULL), and
-    // transactions = 1.
+    // transactions = 0 — observation never bumps the counter; the single
+    // canonical bump per (address, tx) lives in updateAddressTablesWithTx,
+    // which only sees addresses present in the vertex's balance map. An
+    // unowned shielded observation contributes no balance entry, so the
+    // counter stays at zero.
     const [shieldedAddrRows] = await mysql.query<any[]>(
       'SELECT * FROM `address` WHERE `address` = ? AND `bip32_account` = 1',
       [shieldedOutput.decoded.address],
     );
     expect(shieldedAddrRows).toHaveLength(1);
     expect(shieldedAddrRows[0].wallet_id).toBeNull();
-    expect(shieldedAddrRows[0].transactions).toBe(1);
+    expect(shieldedAddrRows[0].transactions).toBe(0);
 
     // Transparent output at concatenated index 0 is still written by the existing
     // addUtxos path with mode=0 and recovery_state=NULL.
@@ -2299,6 +2303,16 @@ describe('handleVertexAccepted with shielded outputs', () => {
     expect(BigInt(rows[0].locked_shielded_balance)).toBe(0n);
     expect(BigInt(rows[0].total_shielded_received)).toBe(150n);
     expect(rows[0].transactions).toBe(1);
+
+    // The unified `address` row gets exactly ONE transactions bump from the
+    // single central path in updateAddressTablesWithTx. The observation
+    // upsert that ran earlier in handleVertexAccepted must not bump it.
+    const [addrRows] = await mysql.query<any[]>(
+      'SELECT `transactions` FROM `address` WHERE `address` = ? AND `bip32_account` = 1',
+      [shieldedAddress],
+    );
+    expect(addrRows).toHaveLength(1);
+    expect(addrRows[0].transactions).toBe(1);
   });
 
   it('does NOT write address_balance for unrecovered shielded outputs', async () => {
