@@ -43,7 +43,7 @@ interface AddressRow {
 }
 
 describe('upsertShieldedAddressObservation', () => {
-  test('first observation inserts a unified address row with bip32_account=1 and transactions=1', async () => {
+  test('first observation inserts a unified address row with bip32_account=1 and transactions=0', async () => {
     expect.hasAssertions();
 
     await upsertShieldedAddressObservation(mysql, 'WT4nNEW');
@@ -63,10 +63,14 @@ describe('upsertShieldedAddressObservation', () => {
     expect(row.shielded_address).toBeNull();
     expect(row.scan_privkey).toBeNull();
     expect(row.catchup_state).toBeNull();
-    expect(row.transactions).toBe(1);
+    // Observation no longer bumps transactions; the single canonical
+    // `transactions` bump per (address, tx) lives in
+    // `updateAddressTablesWithTx`, which only sees addresses that appear in
+    // the vertex's balance map.
+    expect(row.transactions).toBe(0);
   });
 
-  test('second observation increments transactions while preserving ownership fields', async () => {
+  test('second observation preserves ownership fields and does not bump transactions', async () => {
     expect.hasAssertions();
 
     await upsertShieldedAddressObservation(mysql, 'WT4nEXIST');
@@ -89,7 +93,10 @@ describe('upsertShieldedAddressObservation', () => {
 
     expect(result).toHaveLength(1);
     const row = result[0];
-    expect(row.transactions).toBe(2);
+    // Observation never bumps transactions; the row stays at 0 until
+    // `updateAddressTablesWithTx` increments it for vertices the address
+    // actually participates in.
+    expect(row.transactions).toBe(0);
     expect(row.bip32_account).toBe(1);
     expect(row.wallet_id).toBe('wallet_alice');
     expect(row.index).toBe(7);
