@@ -676,6 +676,15 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
           const idx = transparentCount + i;
           const isAmount = so.mode === ShieldedOutputMode.AmountShielded;
 
+          // Shielded outputs don't carry a wire-level `locked` flag, so the
+          // daemon derives it locally from `decoded.timelock` (if present) and
+          // the vertex's `heightlock`. Mirrors the transparent path
+          // (`markLockedOutputs` in utils/wallet): locked iff any heightlock
+          // is in effect, or the explicit timelock is still in the future.
+          const shieldedTimelock = so.decoded.timelock ?? null;
+          const shieldedLocked = heightlock !== null
+            || (shieldedTimelock !== null && shieldedTimelock > now);
+
           await insertTxOutput(mysql, {
             tx_id: hash,
             index: idx,
@@ -684,9 +693,9 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             value: null,
             token_id: isAmount ? resolveShieldedTokenId(so.token_data) : null,
             authorities: 0,
-            timelock: null,
+            timelock: shieldedTimelock,
             heightlock,
-            locked: false,
+            locked: shieldedLocked,
             voided: false,
             recovery_state: RecoveryState.Unowned,
           });
@@ -733,8 +742,8 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
                   value: r.value,
                   token_id: tokenIdHex,
                 });
-                await applyShieldedAddressBalance(mysql, so.decoded.address, tokenIdHex, r.value, false);
-                await applyShieldedWalletBalance(mysql, owned.wallet_id, tokenIdHex, r.value, false);
+                await applyShieldedAddressBalance(mysql, so.decoded.address, tokenIdHex, r.value, shieldedLocked);
+                await applyShieldedWalletBalance(mysql, owned.wallet_id, tokenIdHex, r.value, shieldedLocked);
                 await applyShieldedAddressTxHistory(mysql, so.decoded.address, hash, tokenIdHex, r.value, timestamp);
                 await applyShieldedWalletTxHistory(mysql, owned.wallet_id, hash, tokenIdHex, r.value, timestamp);
                 recordShieldedCredit(shieldedCreditedAddrTokens, so.decoded.address, tokenIdHex);
@@ -752,8 +761,8 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
                   value: r.value,
                   token_id: tokenIdHexFull,
                 });
-                await applyShieldedAddressBalance(mysql, so.decoded.address, tokenIdHexFull, r.value, false);
-                await applyShieldedWalletBalance(mysql, owned.wallet_id, tokenIdHexFull, r.value, false);
+                await applyShieldedAddressBalance(mysql, so.decoded.address, tokenIdHexFull, r.value, shieldedLocked);
+                await applyShieldedWalletBalance(mysql, owned.wallet_id, tokenIdHexFull, r.value, shieldedLocked);
                 await applyShieldedAddressTxHistory(mysql, so.decoded.address, hash, tokenIdHexFull, r.value, timestamp);
                 await applyShieldedWalletTxHistory(mysql, owned.wallet_id, hash, tokenIdHexFull, r.value, timestamp);
                 recordShieldedCredit(shieldedCreditedAddrTokens, so.decoded.address, tokenIdHexFull);

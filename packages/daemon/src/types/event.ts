@@ -124,6 +124,11 @@ const HexStringSchema = z.string().regex(/^([0-9a-fA-F]{2})*$/);
 
 const ShieldedDecodedSchema = z.object({
   address: z.string(),
+  // unix seconds; absent ⇒ no timelock. Mirrors the transparent
+  // `decoded.timelock` shape; the daemon derives `locked` locally from this
+  // plus `vertex.heightlock` (shielded outputs don't carry an on-wire
+  // `locked` flag).
+  timelock: z.number().int().nullish(),
 }).passthrough();
 
 const BaseShieldedFieldsSchema = z.object({

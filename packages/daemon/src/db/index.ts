@@ -538,8 +538,9 @@ export async function applyShieldedAddressBalance(
  * the transparent path.
  *
  * Authority columns are not touched (shielded outputs cannot carry
- * authority bits). timelock_expires is not touched here; shielded
- * timelock handling is a follow-up.
+ * authority bits). `timelock_expires` is not refreshed here: that column
+ * is owned by the transparent earliest-timelock tracker and shielded
+ * timelocks live in the per-output row instead.
  */
 export async function applyShieldedWalletBalance(
   conn: any,
@@ -587,10 +588,10 @@ export async function applyShieldedWalletBalance(
  * crash on a degraded state.
  *
  * `locked` mirrors applyShieldedAddressBalance: the delta is routed to the
- * same column (unlocked vs locked) that the credit landed in. v1 always
- * passes `false` (shielded outputs don't carry timelock info), so the
- * locked branch is dead code today — kept for symmetry so the credit and
- * reversal paths stay aligned when shielded timelock handling lands.
+ * same column (unlocked vs locked) that the credit landed in. Callers
+ * derive this from the spent output's `locked` flag at spend time so
+ * credit and reversal stay aligned even when the UTXO was timelocked at
+ * receive.
  *
  * Does NOT bump `transactions`: the canonical (address, tx) bump is
  * issued by `updateAddressTablesWithTx`, which sees this vertex via the
@@ -1700,7 +1701,9 @@ export const updateWalletLockedBalance = async (
       }
 
       // if this is being unlocked due to a timelock, also update the timelock_expires column.
-      // Shielded timelock handling is a follow-up; only the transparent path refreshes here.
+      // Only the transparent path refreshes here; `timelock_expires` is owned by the
+      // transparent earliest-timelock tracker. Shielded timelock state lives on the
+      // per-output row rather than being collapsed into a per-balance pointer.
       if (updateTimelocks && !isShielded) {
         await mysql.execute(
           `UPDATE \`wallet_balance\`

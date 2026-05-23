@@ -2315,6 +2315,88 @@ describe('handleVertexAccepted with shielded outputs', () => {
     expect(addrRows[0].transactions).toBe(1);
   });
 
+  it('routes timelocked shielded credits to the locked_shielded_balance column', async () => {
+    expect.hasAssertions();
+
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0].token_data = 0;
+    // Set a timelock well in the future so `isOutputLocked` deterministically
+    // returns true regardless of test wall-clock timing.
+    const futureTimelock = Math.floor(Date.now() / 1000) + 3600;
+    fixture.event.data.shielded_outputs[0].decoded.timelock = futureTimelock;
+
+    const so = fixture.event.data.shielded_outputs[0];
+    const txHash = fixture.event.data.hash;
+    const shieldedAddress = so.decoded.address;
+
+    // Seed wallet + owned shielded address so the recovery path runs and the
+    // wallet_balance credit lands. The wallet row also unblocks the central
+    // `updateWalletTablesWithTx` bump for the seeded shielded-credit entry.
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES ('wallet_alice', ?, ?, 'ready', 20, ?, ?)`,
+      [XPUBKEY, XPUBKEY, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
+    );
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 1, ?, 0)`,
+      [shieldedAddress, Buffer.alloc(32, 0x42)],
+    );
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+    primeAmountRewind({
+      commitment: Buffer.from(so.commitment, 'hex'),
+      ephemeralPubkey: Buffer.from(so.ephemeral_pubkey, 'hex'),
+      value: 150n,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    // The shielded `tx_output` row carries the timelock verbatim and `locked = 1`.
+    const txOutput = await getTxOutput(mysql, txHash, 1, false);
+    expect(txOutput).not.toBeNull();
+    expect(txOutput!.locked).toBe(true);
+    expect(txOutput!.timelock).toBe(futureTimelock);
+
+    // The credit lands in the locked_shielded_balance column on
+    // address_balance — the unlocked column stays at zero.
+    const [addrBalRows] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, locked_shielded_balance, total_shielded_received
+         FROM address_balance
+        WHERE address = ? AND token_id = ?`,
+      [shieldedAddress, '00'],
+    );
+    expect(addrBalRows).toHaveLength(1);
+    expect(BigInt(addrBalRows[0].unlocked_shielded_balance)).toBe(0n);
+    expect(BigInt(addrBalRows[0].locked_shielded_balance)).toBe(150n);
+    expect(BigInt(addrBalRows[0].total_shielded_received)).toBe(150n);
+
+    // wallet_balance mirrors the same split: locked column carries the
+    // credit, unlocked stays at zero.
+    const [walletBalRows] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, locked_shielded_balance, total_shielded_received
+         FROM wallet_balance
+        WHERE wallet_id = ? AND token_id = ?`,
+      ['wallet_alice', '00'],
+    );
+    expect(walletBalRows).toHaveLength(1);
+    expect(BigInt(walletBalRows[0].unlocked_shielded_balance)).toBe(0n);
+    expect(BigInt(walletBalRows[0].locked_shielded_balance)).toBe(150n);
+    expect(BigInt(walletBalRows[0].total_shielded_received)).toBe(150n);
+  });
+
   it('does NOT write address_balance for unrecovered shielded outputs', async () => {
     expect.hasAssertions();
 
