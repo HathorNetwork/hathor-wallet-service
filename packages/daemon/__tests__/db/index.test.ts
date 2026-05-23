@@ -764,11 +764,15 @@ describe('address and wallet related tests', () => {
       addr3: wallet2,
     };
 
-    // populate address table
+    // populate address table; assign unique per-wallet indices so the
+    // (wallet_id, bip32_account, index) unique constraint isn't violated.
+    const walletIndexCounter: Record<string, number> = {};
     for (const [address, wallet] of Object.entries(finalMap)) {
+      const idx = walletIndexCounter[wallet.walletId] ?? 0;
+      walletIndexCounter[wallet.walletId] = idx + 1;
       await addToAddressTable(mysql, [{
         address,
-        index: 0,
+        index: idx,
         walletId: wallet.walletId,
         transactions: 0,
       }]);
@@ -1008,10 +1012,12 @@ describe('address and wallet related tests', () => {
       walletId2: TokenBalanceMap.fromStringMap({ token2: { unlocked: 10, locked: 0 } }),
     };
     // the tx above removes an authority, which will trigger a "refresh" on the available authorities.
-    // Let's pretend there's another utxo with some authorities as well
+    // Let's pretend there's another utxo with some authorities as well. The
+    // (walletId, bip32_account=0, index) unique constraint requires a fresh
+    // index since addr1..addr3 already occupy 0..2.
     await addToAddressTable(mysql, [{
       address: 'address1',
-      index: 0,
+      index: 3,
       walletId,
       transactions: 1,
     }]);

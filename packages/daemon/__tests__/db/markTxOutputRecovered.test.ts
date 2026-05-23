@@ -33,7 +33,6 @@ afterAll(() => {
 
 beforeEach(async () => {
   await cleanDatabase(mysql);
-  await mysql.query('DELETE FROM shielded_address');
   await mysql.query('DELETE FROM shielded_tx_output_data');
 });
 

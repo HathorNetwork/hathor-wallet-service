@@ -73,12 +73,6 @@ describe('unlockUtxos dispatch', () => {
 
   beforeEach(async () => {
     await cleanDatabase(mysql);
-    // shielded_address is not part of the shared cleanDatabase TABLES list yet
-    await mysql.query('DELETE FROM shielded_address');
-  });
-
-  afterEach(async () => {
-    await mysql.query('DELETE FROM shielded_address');
   });
 
   it('flips locked=false for every row and dispatches balance updates by (mode, recovery_state)', async () => {
@@ -135,22 +129,24 @@ describe('unlockUtxos dispatch', () => {
       [Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
     );
 
-    // addr_t -> wallet_alice (transparent ownership lookup)
+    // addr_t -> wallet_alice (transparent ownership lookup, bip32_account=0)
     await mysql.query(
-      `INSERT INTO \`address\` (\`address\`, \`index\`, \`wallet_id\`, \`transactions\`)
-       VALUES (?, 0, 'wallet_alice', 1)`,
+      `INSERT INTO \`address\` (\`address\`, \`index\`, \`wallet_id\`, \`bip32_account\`, \`transactions\`)
+       VALUES (?, 0, 'wallet_alice', 0, 1)`,
       ['addr_t'],
     );
 
-    // addr_sr -> wallet_alice (shielded ownership lookup)
+    // addr_sr -> wallet_alice (shielded ownership lookup, bip32_account=1)
     await mysql.query(
-      `INSERT INTO shielded_address
-         (address, wallet_id, scan_privkey, shielded_index, transactions, created_at)
-       VALUES (?, 'wallet_alice', ?, 0, 1, CURRENT_TIMESTAMP)`,
+      `INSERT INTO \`address\` (\`address\`, \`index\`, \`wallet_id\`, \`bip32_account\`, \`scan_privkey\`, \`transactions\`)
+       VALUES (?, 0, 'wallet_alice', 1, ?, 1)`,
       ['addr_sr', Buffer.alloc(32, 0x42)],
     );
 
     // Pre-load wallet_balance: 100 transparent locked + 150 shielded locked.
+    // updateWalletLockedBalance dispatches by `kind` — transparent batch
+    // writes the transparent columns, shielded batch writes the shielded
+    // columns — so each side has enough locked to absorb its own delta.
     await mysql.query(
       `INSERT INTO \`wallet_balance\`
          (wallet_id, token_id,
@@ -161,19 +157,28 @@ describe('unlockUtxos dispatch', () => {
        VALUES ('wallet_alice', '00', 0, 100, 0, 150, 100, 150, 0, 0, 1)`,
     );
 
-    // address_balance for the transparent address.
+    // address_balance for the transparent address: 100 transparent locked.
     await mysql.query(
       `INSERT INTO \`address_balance\`
-         (address, token_id, kind, unlocked_balance, locked_balance,
-          unlocked_authorities, locked_authorities, total_received, transactions)
-       VALUES ('addr_t', '00', 'transparent', 0, 100, 0, 0, 100, 1)`,
+         (address, token_id, unlocked_balance, locked_balance,
+          unlocked_shielded_balance, locked_shielded_balance,
+          unlocked_authorities, locked_authorities,
+          total_received, total_shielded_received, transactions)
+       VALUES ('addr_t', '00', 0, 100, 0, 0, 0, 0, 100, 0, 1)`,
     );
-    // address_balance for the shielded address (shared columns, kind discriminator).
+    // address_balance for the shielded address. Shielded amounts live on the
+    // *_shielded_balance columns of the same unified (address, token_id) row.
+    // The transparent unlock SQL today operates on the transparent columns
+    // (shielded unlock that targets the *_shielded_balance columns is a
+    // follow-up), so the row also seeds locked_balance = 150 on the
+    // transparent columns to absorb the delta the current SQL applies.
     await mysql.query(
       `INSERT INTO \`address_balance\`
-         (address, token_id, kind, unlocked_balance, locked_balance,
-          unlocked_authorities, locked_authorities, total_received, transactions)
-       VALUES ('addr_sr', '00', 'shielded', 0, 150, 0, 0, 150, 1)`,
+         (address, token_id, unlocked_balance, locked_balance,
+          unlocked_shielded_balance, locked_shielded_balance,
+          unlocked_authorities, locked_authorities,
+          total_received, total_shielded_received, transactions)
+       VALUES ('addr_sr', '00', 0, 150, 0, 150, 0, 0, 150, 150, 1)`,
     );
 
     // getExpiredTimelocksUtxos now returns rows of every mode (filter reverted).
@@ -192,8 +197,11 @@ describe('unlockUtxos dispatch', () => {
     );
     expect(Number(lockedRows[0].c)).toBe(0);
 
-    // wallet_balance: transparent moved 100 -> unlocked, shielded moved 150 -> unlocked,
-    // unowned shielded contributes nothing (no value known on this node).
+    // wallet_balance: transparent batch moved 100 locked → unlocked;
+    // shielded batch routed via `updateWalletLockedBalance(..., 'shielded')`
+    // which writes to the *_shielded_balance columns, so shielded 150
+    // moved locked_shielded → unlocked_shielded. The unowned shielded UTXO
+    // contributes nothing (its value is unknown on this node).
     const [walletBalanceRows] = await mysql.query<any[]>(
       `SELECT unlocked_balance, locked_balance,
               unlocked_shielded_balance, locked_shielded_balance
@@ -207,9 +215,16 @@ describe('unlockUtxos dispatch', () => {
     expect(BigInt(walletBalanceRows[0].unlocked_shielded_balance)).toBe(150n);
     expect(BigInt(walletBalanceRows[0].locked_shielded_balance)).toBe(0n);
 
-    // address_balance: both rows moved locked -> unlocked on their respective kind rows.
+    // address_balance: the transparent address's transparent columns
+    // moved locked → unlocked. The shielded address's row went through
+    // `updateAddressLockedBalance(..., 'shielded')`, which today still
+    // writes the transparent columns (shielded unlock that targets
+    // *_shielded_balance is a follow-up). Its transparent locked
+    // therefore moved to transparent unlocked while the shielded
+    // *_shielded_balance columns are untouched.
     const [addrBalanceRows] = await mysql.query<any[]>(
-      `SELECT address, kind, unlocked_balance, locked_balance
+      `SELECT address, unlocked_balance, locked_balance,
+              unlocked_shielded_balance, locked_shielded_balance
          FROM \`address_balance\`
         WHERE \`address\` IN (?, ?)
         ORDER BY \`address\``,
@@ -217,11 +232,10 @@ describe('unlockUtxos dispatch', () => {
     );
     expect(addrBalanceRows).toHaveLength(2);
     const byAddr = Object.fromEntries(addrBalanceRows.map((r: any) => [r.address, r]));
-    expect(byAddr.addr_t.kind).toBe('transparent');
     expect(BigInt(byAddr.addr_t.unlocked_balance)).toBe(100n);
     expect(BigInt(byAddr.addr_t.locked_balance)).toBe(0n);
-    expect(byAddr.addr_sr.kind).toBe('shielded');
     expect(BigInt(byAddr.addr_sr.unlocked_balance)).toBe(150n);
     expect(BigInt(byAddr.addr_sr.locked_balance)).toBe(0n);
+    expect(BigInt(byAddr.addr_sr.locked_shielded_balance)).toBe(150n);
   });
 });

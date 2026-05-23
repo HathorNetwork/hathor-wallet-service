@@ -42,6 +42,7 @@ import {
   getWalletBalance,
   insertWalletBalance,
   getWalletTxHistoryCount,
+  XPUBKEY,
 } from '../utils';
 import { DbTxOutput, EventTxInput } from '../../src/types';
 import { Connection } from 'mysql2/promise';
@@ -2129,19 +2130,19 @@ describe('handleTokenCreated with TokenVersion.FEE (token_version: 2)', () => {
 
 describe('handleVertexAccepted with shielded outputs', () => {
   beforeEach(async () => {
-    // `shielded_address` and `shielded_tx_output_data` are not yet part of the
-    // shared cleanDatabase TABLES list; wipe them manually to keep this test
-    // isolated from neighbouring suites.
+    // `shielded_tx_output_data` is not yet part of the shared cleanDatabase
+    // TABLES list; wipe it manually to keep this test isolated from
+    // neighbouring suites. Address rows live in the unified `address` table
+    // (with bip32_account = 1 for shielded entries) and are cleaned up by
+    // cleanDatabase.
     await mysql.query('DELETE FROM shielded_tx_output_data');
-    await mysql.query('DELETE FROM shielded_address');
   });
 
   afterEach(async () => {
     await mysql.query('DELETE FROM shielded_tx_output_data');
-    await mysql.query('DELETE FROM shielded_address');
   });
 
-  it('writes the shielded tx_output, satellite, and shielded_address observation', async () => {
+  it('writes the shielded tx_output, satellite, and unified address observation row', async () => {
     expect.hasAssertions();
 
     const fixture = eventsFixture.VERTEX_WITH_SHIELDED;
@@ -2176,9 +2177,11 @@ describe('handleVertexAccepted with shielded outputs', () => {
     expect(satelliteRows).toHaveLength(1);
     expect(satelliteRows[0].token_data).toBe(shieldedOutput.token_data);
 
-    // Verify shielded_address observation row.
+    // Verify the shielded address observation row landed on the unified
+    // `address` table with bip32_account = 1, unowned (wallet_id NULL), and
+    // transactions = 1.
     const [shieldedAddrRows] = await mysql.query<any[]>(
-      'SELECT * FROM `shielded_address` WHERE `address` = ?',
+      'SELECT * FROM `address` WHERE `address` = ? AND `bip32_account` = 1',
       [shieldedOutput.decoded.address],
     );
     expect(shieldedAddrRows).toHaveLength(1);
@@ -2205,12 +2208,14 @@ describe('handleVertexAccepted with shielded outputs', () => {
     const txHash = fixture.event.data.hash;
     const so = fixture.event.data.shielded_outputs[0];
 
-    // Seed an owned shielded_address row so findShieldedAddressOwnership picks
-    // it up after upsertShieldedAddressObservation runs. The unique
-    // (wallet_id, shielded_index) index is satisfied by a single row here.
+    // Seed an owned shielded address row on the unified `address` table so
+    // findShieldedAddressOwnership picks it up after
+    // upsertShieldedAddressObservation runs. `bip32_account = 1` discriminates
+    // the shielded scan-path row from any transparent row that might share
+    // the same P2PKH address.
     await mysql.query(
-      `INSERT INTO shielded_address (address, wallet_id, shielded_index, scan_privkey, transactions, created_at)
-       VALUES (?, 'wallet_alice', 7, ?, 0, CURRENT_TIMESTAMP)`,
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 1, ?, 0)`,
       [so.decoded.address, Buffer.alloc(32, 0x42)],
     );
 
@@ -2243,7 +2248,7 @@ describe('handleVertexAccepted with shielded outputs', () => {
     expect(mockAddAlert).not.toHaveBeenCalled();
   });
 
-  it('writes address_balance with kind=shielded for recovered shielded outputs', async () => {
+  it('writes shielded amount columns on the unified address_balance row for recovered shielded outputs', async () => {
     expect.hasAssertions();
 
     const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
@@ -2252,8 +2257,8 @@ describe('handleVertexAccepted with shielded outputs', () => {
     const shieldedAddress = so.decoded.address;
 
     await mysql.query(
-      `INSERT INTO shielded_address (address, wallet_id, shielded_index, scan_privkey, transactions, created_at)
-       VALUES (?, 'wallet_alice', 7, ?, 0, CURRENT_TIMESTAMP)`,
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 1, ?, 0)`,
       [shieldedAddress, Buffer.alloc(32, 0x42)],
     );
 
@@ -2279,16 +2284,20 @@ describe('handleVertexAccepted with shielded outputs', () => {
     await handleVertexAccepted(context as any, undefined as any);
 
     const [rows] = await mysql.query<any[]>(
-      `SELECT kind, unlocked_balance, locked_balance, total_received, transactions
+      `SELECT unlocked_balance, locked_balance, total_received,
+              unlocked_shielded_balance, locked_shielded_balance,
+              total_shielded_received, transactions
          FROM address_balance
         WHERE address = ? AND token_id = ?`,
       [shieldedAddress, '00'],
     );
     expect(rows).toHaveLength(1);
-    expect(rows[0].kind).toBe('shielded');
-    expect(BigInt(rows[0].unlocked_balance)).toBe(150n);
+    expect(BigInt(rows[0].unlocked_balance)).toBe(0n);
     expect(BigInt(rows[0].locked_balance)).toBe(0n);
-    expect(BigInt(rows[0].total_received)).toBe(150n);
+    expect(BigInt(rows[0].total_received)).toBe(0n);
+    expect(BigInt(rows[0].unlocked_shielded_balance)).toBe(150n);
+    expect(BigInt(rows[0].locked_shielded_balance)).toBe(0n);
+    expect(BigInt(rows[0].total_shielded_received)).toBe(150n);
     expect(rows[0].transactions).toBe(1);
   });
 
@@ -2325,9 +2334,19 @@ describe('handleVertexAccepted with shielded outputs', () => {
     const so = fixture.event.data.shielded_outputs[0];
     const shieldedAddress = so.decoded.address;
 
+    // wallet_alice must exist for getAddressWalletInfo's INNER JOIN to find
+    // the shielded address. The seedShieldedAddressBalanceEntries augmentation
+    // routes the shielded credit through the central transactions bump, which
+    // needs the wallet row to resolve.
     await mysql.query(
-      `INSERT INTO shielded_address (address, wallet_id, shielded_index, scan_privkey, transactions, created_at)
-       VALUES (?, 'wallet_alice', 7, ?, 0, CURRENT_TIMESTAMP)`,
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES ('wallet_alice', ?, ?, 'ready', 20, ?, ?)`,
+      [XPUBKEY, XPUBKEY, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
+    );
+
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 1, ?, 0)`,
       [shieldedAddress, Buffer.alloc(32, 0x42)],
     );
 
@@ -2404,8 +2423,14 @@ describe('handleVertexAccepted with shielded outputs', () => {
     const shieldedAddress = so.decoded.address;
 
     await mysql.query(
-      `INSERT INTO shielded_address (address, wallet_id, shielded_index, scan_privkey, transactions, created_at)
-       VALUES (?, 'wallet_alice', 7, ?, 0, CURRENT_TIMESTAMP)`,
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES ('wallet_alice', ?, ?, 'ready', 20, ?, ?)`,
+      [XPUBKEY, XPUBKEY, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
+    );
+
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 1, ?, 0)`,
       [shieldedAddress, Buffer.alloc(32, 0x42)],
     );
 
@@ -2465,6 +2490,81 @@ describe('handleVertexAccepted with shielded outputs', () => {
     expect(rows).toHaveLength(0);
   });
 
+  it('bumps address_balance and wallet_balance transactions for shielded-credit-only vertices', async () => {
+    // A shielded-credit-only vertex (no transparent inputs/outputs) must
+    // still bump `address_balance.transactions` and `wallet_balance.transactions`
+    // for the credited (address, token) pair. The shielded credit helpers
+    // themselves no longer carry that bump — the canonical single bump per
+    // (address, tx) / (wallet, tx) lives in updateAddressTablesWithTx /
+    // updateWalletTablesWithTx, which only see addresses in the balance map.
+    // handleVertexAccepted seeds zero-delta entries for shielded-credited
+    // addresses so the central bump fires; this test pins that behaviour.
+    expect.hasAssertions();
+
+    // Clone the fixture and strip the transparent output so the vertex's
+    // only owned touch is the shielded credit. token_data=0 routes the
+    // primed rewind to the native token.
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.outputs = [];
+    fixture.event.data.shielded_outputs[0].token_data = 0;
+    const so = fixture.event.data.shielded_outputs[0];
+    const shieldedAddress = so.decoded.address;
+
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES ('wallet_alice', ?, ?, 'ready', 20, ?, ?)`,
+      [XPUBKEY, XPUBKEY, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
+    );
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 1, ?, 0)`,
+      [shieldedAddress, Buffer.alloc(32, 0x42)],
+    );
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+    primeAmountRewind({
+      commitment: Buffer.from(so.commitment, 'hex'),
+      ephemeralPubkey: Buffer.from(so.ephemeral_pubkey, 'hex'),
+      value: 150n,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    const [addrRows] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, total_shielded_received, transactions
+         FROM address_balance
+        WHERE address = ? AND token_id = ?`,
+      [shieldedAddress, '00'],
+    );
+    expect(addrRows).toHaveLength(1);
+    expect(BigInt(addrRows[0].unlocked_shielded_balance)).toBe(150n);
+    expect(BigInt(addrRows[0].total_shielded_received)).toBe(150n);
+    expect(addrRows[0].transactions).toBe(1);
+
+    const [walletRows] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, total_shielded_received, transactions
+         FROM wallet_balance
+        WHERE wallet_id = ? AND token_id = ?`,
+      ['wallet_alice', '00'],
+    );
+    expect(walletRows).toHaveLength(1);
+    expect(BigInt(walletRows[0].unlocked_shielded_balance)).toBe(150n);
+    expect(BigInt(walletRows[0].total_shielded_received)).toBe(150n);
+    expect(walletRows[0].transactions).toBe(1);
+  });
+
   it('marks recovery_failed and emits an alert when the rewind throws', async () => {
     expect.hasAssertions();
 
@@ -2476,8 +2576,8 @@ describe('handleVertexAccepted with shielded outputs', () => {
     const so = fixture.event.data.shielded_outputs[0];
 
     await mysql.query(
-      `INSERT INTO shielded_address (address, wallet_id, shielded_index, scan_privkey, transactions, created_at)
-       VALUES (?, 'wallet_alice', 7, ?, 0, CURRENT_TIMESTAMP)`,
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 1, ?, 0)`,
       [so.decoded.address, Buffer.alloc(32, 0x42)],
     );
 
@@ -2578,6 +2678,11 @@ describe('handleVertexAccepted with shielded spends', () => {
   // recovered state plus the address_balance row that earlier recovery would
   // have written. The wallet_balance row is seeded separately because the
   // unowned-path test still wants it (to assert it stays untouched).
+  //
+  // The seeded address_balance row carries the shielded amount on the
+  // *_shielded_balance columns of the unified (address, token_id) row;
+  // transparent columns stay at zero (the recovery path on a fresh receive
+  // never writes the transparent columns).
   const seedRecoveredShieldedUtxo = async () => {
     await mysql.query(
       `INSERT INTO tx_output
@@ -2589,9 +2694,11 @@ describe('handleVertexAccepted with shielded spends', () => {
 
     await mysql.query(
       `INSERT INTO address_balance
-         (address, token_id, kind, unlocked_balance, locked_balance,
-          total_received, transactions)
-       VALUES (?, ?, 'shielded', ?, 0, ?, 1)`,
+         (address, token_id,
+          unlocked_balance, locked_balance, total_received,
+          unlocked_shielded_balance, locked_shielded_balance, total_shielded_received,
+          transactions)
+       VALUES (?, ?, 0, 0, 0, ?, 0, ?, 1)`,
       [SHIELDED_ADDRESS, TOKEN_ID, SEEDED_VALUE.toString(), SEEDED_VALUE.toString()],
     );
   };
@@ -2609,26 +2716,35 @@ describe('handleVertexAccepted with shielded spends', () => {
   };
 
   beforeEach(async () => {
-    // `shielded_address` and `shielded_tx_output_data` are not in the shared
-    // cleanDatabase TABLES list; wipe them manually to stay isolated from
-    // neighbouring suites.
+    // `shielded_tx_output_data` is not in the shared cleanDatabase TABLES
+    // list; wipe it manually to stay isolated from neighbouring suites.
+    // Shielded address rows live in the unified `address` table now and
+    // are cleaned up by cleanDatabase.
     await mysql.query('DELETE FROM shielded_tx_output_data');
-    await mysql.query('DELETE FROM shielded_address');
   });
 
   afterEach(async () => {
     await mysql.query('DELETE FROM shielded_tx_output_data');
-    await mysql.query('DELETE FROM shielded_address');
   });
 
   it('reverses the shielded balance when a shielded UTXO is spent', async () => {
     expect.hasAssertions();
 
-    // Owned shielded_address row so findShieldedAddressOwnership returns the
-    // owning wallet for SHIELDED_ADDRESS.
+    // wallet_alice must exist for getAddressWalletInfo's INNER JOIN to find
+    // the shielded address row. The central transactions bump for the spend
+    // vertex flows through that lookup.
     await mysql.query(
-      `INSERT INTO shielded_address (address, wallet_id, shielded_index, scan_privkey, transactions, created_at)
-       VALUES (?, 'wallet_alice', 7, ?, 1, CURRENT_TIMESTAMP)`,
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES ('wallet_alice', ?, ?, 'ready', 20, ?, ?)`,
+      [XPUBKEY, XPUBKEY, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
+    );
+
+    // Owned shielded address row (bip32_account = 1) on the unified `address`
+    // table so findShieldedAddressOwnership returns the owning wallet for
+    // SHIELDED_ADDRESS.
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 1, ?, 1)`,
       [SHIELDED_ADDRESS, Buffer.alloc(32, 0x42)],
     );
     await seedRecoveredShieldedUtxo();
@@ -2649,7 +2765,9 @@ describe('handleVertexAccepted with shielded spends', () => {
     // wallet_balance: shielded balance decremented by 400 → 0, but
     // total_shielded_received is a lifetime credit accumulator and must NOT
     // be decremented by a spend; it stays at the seeded 400. The wallet's
-    // transactions counter ticks up by 1 (1 from seed + 1 from spend).
+    // transactions counter ticks up by 1 (1 from seed + 1 canonical bump
+    // for the spend vertex, driven by the transparent stub `prepareInputs`
+    // emits for the shielded input).
     const [walletBalanceRows] = await mysql.query<any[]>(
       `SELECT unlocked_balance, locked_balance,
               unlocked_shielded_balance, locked_shielded_balance,
@@ -2664,29 +2782,26 @@ describe('handleVertexAccepted with shielded spends', () => {
     expect(BigInt(walletBalanceRows[0].total_shielded_received)).toBe(SEEDED_VALUE);
     expect(Number(walletBalanceRows[0].transactions)).toBe(2);
 
-    // address_balance (kind=shielded): unlocked_balance decremented to 0;
-    // total_received untouched (lifetime credits, not balance).
-    //
-    // transactions lands at 3, not 2: address_balance's PK is (address,
-    // token_id) — `kind` is NOT in the PK — so a spend vertex bumps the
-    // shielded row twice. Once by the transparent input bookkeeping in
-    // updateAddressTablesWithTx (the shielded input is emitted as a stub
-    // input with the same address+token_id and ON DUPLICATE KEY UPDATE
-    // collides into the shielded row), and once by the reversal helper.
-    // That double-bump is a pre-existing schema gap (PK should include
-    // `kind`), tracked separately; not what this test exercises.
+    // address_balance: shielded unlocked decremented to 0;
+    // total_shielded_received untouched (lifetime credits, not balance).
+    // transactions = 2 (1 from seed + 1 canonical bump for the spend
+    // vertex via the transparent stub).
     const [addrBalanceRows] = await mysql.query<any[]>(
-      `SELECT kind, unlocked_balance, locked_balance,
-              total_received, transactions
+      `SELECT unlocked_balance, locked_balance,
+              unlocked_shielded_balance, locked_shielded_balance,
+              total_received, total_shielded_received, transactions
          FROM address_balance
-        WHERE address = ? AND token_id = ? AND kind = 'shielded'`,
+        WHERE address = ? AND token_id = ?`,
       [SHIELDED_ADDRESS, TOKEN_ID],
     );
     expect(addrBalanceRows).toHaveLength(1);
     expect(BigInt(addrBalanceRows[0].unlocked_balance)).toBe(0n);
     expect(BigInt(addrBalanceRows[0].locked_balance)).toBe(0n);
-    expect(BigInt(addrBalanceRows[0].total_received)).toBe(SEEDED_VALUE);
-    expect(Number(addrBalanceRows[0].transactions)).toBe(3);
+    expect(BigInt(addrBalanceRows[0].unlocked_shielded_balance)).toBe(0n);
+    expect(BigInt(addrBalanceRows[0].locked_shielded_balance)).toBe(0n);
+    expect(BigInt(addrBalanceRows[0].total_received)).toBe(0n);
+    expect(BigInt(addrBalanceRows[0].total_shielded_received)).toBe(SEEDED_VALUE);
+    expect(Number(addrBalanceRows[0].transactions)).toBe(2);
 
     // wallet_tx_history: a new row tied to the spending tx with
     // shielded_balance_delta = -400 and timestamp = the spending vertex's
@@ -2704,6 +2819,20 @@ describe('handleVertexAccepted with shielded spends', () => {
       buildSpendingVertex().event.data.timestamp,
     );
 
+    // address_tx_history mirror: same (address, tx_id, token_id) row
+    // carries the signed shielded_balance_delta = -400 on the address grain.
+    const [addrHistoryRows] = await mysql.query<any[]>(
+      `SELECT balance, shielded_balance_delta, timestamp
+         FROM address_tx_history
+        WHERE address = ? AND tx_id = ? AND token_id = ?`,
+      [SHIELDED_ADDRESS, SPEND_TX_ID, TOKEN_ID],
+    );
+    expect(addrHistoryRows).toHaveLength(1);
+    expect(BigInt(addrHistoryRows[0].shielded_balance_delta)).toBe(-SEEDED_VALUE);
+    expect(Number(addrHistoryRows[0].timestamp)).toBe(
+      buildSpendingVertex().event.data.timestamp,
+    );
+
     // The consumed tx_output is now marked spent by the spending vertex.
     const prevOutput = await getTxOutput(mysql, PREV_TX_ID, PREV_INDEX, false);
     expect(prevOutput).not.toBeNull();
@@ -2713,8 +2842,9 @@ describe('handleVertexAccepted with shielded spends', () => {
   it('does NOT reverse when the spent shielded row is unowned', async () => {
     expect.hasAssertions();
 
-    // No `shielded_address` ownership row → findShieldedAddressOwnership
-    // returns null and the reversal branch is skipped.
+    // No shielded ownership row on the `address` table →
+    // findShieldedAddressOwnership returns null and the reversal branch
+    // is skipped.
     await seedRecoveredShieldedUtxo();
     await seedWalletBalance();
 
@@ -2743,15 +2873,17 @@ describe('handleVertexAccepted with shielded spends', () => {
     expect(BigInt(walletBalanceRows[0].locked_shielded_balance)).toBe(0n);
     expect(BigInt(walletBalanceRows[0].total_shielded_received)).toBe(SEEDED_VALUE);
 
-    // address_balance (kind=shielded) untouched.
+    // address_balance shielded columns untouched on the unified row.
     const [addrBalanceRows] = await mysql.query<any[]>(
-      `SELECT unlocked_balance, locked_balance
+      `SELECT unlocked_balance, locked_balance,
+              unlocked_shielded_balance, locked_shielded_balance
          FROM address_balance
-        WHERE address = ? AND token_id = ? AND kind = 'shielded'`,
+        WHERE address = ? AND token_id = ?`,
       [SHIELDED_ADDRESS, TOKEN_ID],
     );
     expect(addrBalanceRows).toHaveLength(1);
-    expect(BigInt(addrBalanceRows[0].unlocked_balance)).toBe(SEEDED_VALUE);
+    expect(BigInt(addrBalanceRows[0].unlocked_shielded_balance)).toBe(SEEDED_VALUE);
+    expect(BigInt(addrBalanceRows[0].locked_shielded_balance)).toBe(0n);
 
     // No wallet_tx_history row written for the spend.
     const [historyRows] = await mysql.query<any[]>(

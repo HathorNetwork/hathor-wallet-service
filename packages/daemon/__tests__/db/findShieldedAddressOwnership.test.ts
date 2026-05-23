@@ -30,9 +30,6 @@ afterAll(() => {
 
 beforeEach(async () => {
   await cleanDatabase(mysql);
-  // `shielded_address` is not yet part of the shared cleanDatabase TABLES list;
-  // wipe it manually to keep these tests isolated.
-  await mysql.query('DELETE FROM shielded_address');
 });
 
 describe('findShieldedAddressOwnership', () => {
@@ -44,7 +41,7 @@ describe('findShieldedAddressOwnership', () => {
     expect(result).toBeNull();
   });
 
-  test('returns null when the address exists but ownership is NULL (unowned)', async () => {
+  test('returns null when the address exists but ownership / scan_privkey is NULL (unowned)', async () => {
     expect.hasAssertions();
 
     await upsertShieldedAddressObservation(mysql, 'WT4nUNOWNED');
@@ -54,16 +51,30 @@ describe('findShieldedAddressOwnership', () => {
     expect(result).toBeNull();
   });
 
-  test('returns ownership info when the address has been claimed by a wallet', async () => {
+  test('returns null when only a transparent (bip32_account=0) row exists for the address', async () => {
+    expect.hasAssertions();
+
+    await mysql.query(
+      `INSERT INTO address (address, bip32_account, \`index\`, wallet_id, transactions)
+       VALUES (?, 0, 0, 'wallet_alice', 1)`,
+      ['WT4nTRANSPARENT'],
+    );
+
+    const result = await findShieldedAddressOwnership(mysql, 'WT4nTRANSPARENT');
+
+    expect(result).toBeNull();
+  });
+
+  test('returns ownership info when the shielded row has been claimed by a wallet', async () => {
     expect.hasAssertions();
 
     await upsertShieldedAddressObservation(mysql, 'WT4nOWNED');
 
     const scanPrivkey = Buffer.alloc(32, 0x42);
     await mysql.query(
-      `UPDATE shielded_address
-         SET wallet_id = ?, shielded_index = ?, scan_privkey = ?
-       WHERE address = ?`,
+      `UPDATE address
+         SET wallet_id = ?, \`index\` = ?, scan_privkey = ?
+       WHERE address = ? AND bip32_account = 1`,
       ['wallet_alice', 7, scanPrivkey, 'WT4nOWNED'],
     );
 
