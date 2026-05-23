@@ -1,7 +1,24 @@
 'use strict';
 
+/**
+ * Extends `tx_output` for shielded-output support:
+ *
+ *   - Widens `index` from TINYINT UNSIGNED (0-255) to SMALLINT UNSIGNED
+ *     (0-65535). A vertex's concatenated transparent + shielded output
+ *     count can exceed 255 (255 transparent + up to 15 shielded), so the
+ *     existing TINYINT cap is too tight.
+ *   - Adds `mode` (0=transparent, 1=AMOUNT_SHIELDED, 2=FULLY_SHIELDED)
+ *     and `recovery_state` (NULL for transparent rows).
+ *   - Relaxes `value` and `token_id` to NULL — both are unknown for
+ *     unrecovered shielded outputs at insert time.
+ */
 module.exports = {
   up: async (queryInterface, Sequelize) => {
+    await queryInterface.sequelize.query(`
+      ALTER TABLE tx_output
+        MODIFY COLUMN \`index\` SMALLINT UNSIGNED NOT NULL
+    `);
+
     await queryInterface.addColumn('tx_output', 'mode', {
       type: Sequelize.TINYINT,
       allowNull: false,
@@ -48,5 +65,10 @@ module.exports = {
     });
     await queryInterface.removeColumn('tx_output', 'recovery_state');
     await queryInterface.removeColumn('tx_output', 'mode');
+
+    await queryInterface.sequelize.query(`
+      ALTER TABLE tx_output
+        MODIFY COLUMN \`index\` TINYINT UNSIGNED NOT NULL
+    `);
   },
 };

@@ -310,7 +310,7 @@ export const insertTxOutput = async (
  */
 export interface InsertShieldedDataArgs {
   tx_id: string;
-  output_index: number;
+  index: number;
   mode: 1 | 2;
   commitment: Buffer;
   range_proof: Buffer;
@@ -326,7 +326,7 @@ export interface InsertShieldedDataArgs {
  *
  * Idempotent against re-ingest of the same vertex via
  * `ON DUPLICATE KEY UPDATE commitment = VALUES(commitment)` (a no-op rewrite
- * when the (tx_id, output_index) primary key already exists).
+ * when the (tx_id, index) primary key already exists).
  *
  * The caller is responsible for inserting the parent `tx_output` row first;
  * this helper assumes the FK target exists.
@@ -340,14 +340,14 @@ export const insertShieldedTxOutputData = async (
 ): Promise<void> => {
   await conn.query(
     `INSERT INTO \`shielded_tx_output_data\`
-       (\`tx_id\`, \`output_index\`, \`commitment\`, \`range_proof\`, \`script\`, \`ephemeral_pubkey\`,
+       (\`tx_id\`, \`index\`, \`commitment\`, \`range_proof\`, \`script\`, \`ephemeral_pubkey\`,
         \`token_data\`, \`asset_commitment\`, \`surjection_proof\`)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        commitment = VALUES(commitment)`,
     [
       args.tx_id,
-      args.output_index,
+      args.index,
       args.commitment,
       args.range_proof,
       args.script,

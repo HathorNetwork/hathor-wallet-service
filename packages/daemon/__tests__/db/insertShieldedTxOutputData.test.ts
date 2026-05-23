@@ -54,7 +54,7 @@ describe('insertShieldedTxOutputData', () => {
 
     await insertShieldedTxOutputData(mysql, {
       tx_id: 'T1',
-      output_index: 0,
+      index: 0,
       mode: 1,
       commitment: Buffer.alloc(33, 0xaa),
       range_proof: Buffer.alloc(64, 0xbb),
@@ -64,12 +64,12 @@ describe('insertShieldedTxOutputData', () => {
     });
 
     const [rows] = await mysql.execute(
-      'SELECT * FROM shielded_tx_output_data WHERE tx_id = ? AND output_index = ?',
+      'SELECT * FROM shielded_tx_output_data WHERE tx_id = ? AND `index` = ?',
       ['T1', 0],
     );
     const result = rows as Array<{
       tx_id: string;
-      output_index: number;
+      index: number;
       commitment: Buffer;
       range_proof: Buffer;
       script: Buffer;
@@ -110,7 +110,7 @@ describe('insertShieldedTxOutputData', () => {
 
     await insertShieldedTxOutputData(mysql, {
       tx_id: 'T2',
-      output_index: 0,
+      index: 0,
       mode: 2,
       commitment: Buffer.alloc(33, 0xaa),
       range_proof: Buffer.alloc(64, 0xbb),
@@ -121,12 +121,12 @@ describe('insertShieldedTxOutputData', () => {
     });
 
     const [rows] = await mysql.execute(
-      'SELECT * FROM shielded_tx_output_data WHERE tx_id = ? AND output_index = ?',
+      'SELECT * FROM shielded_tx_output_data WHERE tx_id = ? AND `index` = ?',
       ['T2', 0],
     );
     const result = rows as Array<{
       tx_id: string;
-      output_index: number;
+      index: number;
       commitment: Buffer;
       range_proof: Buffer;
       script: Buffer;

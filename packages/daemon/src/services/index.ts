@@ -693,7 +693,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
           await insertShieldedTxOutputData(mysql, {
             tx_id: hash,
-            output_index: idx,
+            index: idx,
             mode: so.mode,
             commitment: Buffer.from(so.commitment, 'hex'),
             range_proof: Buffer.from(so.range_proof, 'hex'),
@@ -764,7 +764,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
                 'Shielded recovery failed',
                 `Failed to rewind shielded output ${hash}:${idx} for owned address`,
                 Severity.MAJOR,
-                { tx_id: hash, output_index: idx, error: String(e) },
+                { tx_id: hash, index: idx, error: String(e) },
                 logger,
               );
             }

@@ -2171,7 +2171,7 @@ describe('handleVertexAccepted with shielded outputs', () => {
 
     // Verify satellite row.
     const [satelliteRows] = await mysql.query<any[]>(
-      'SELECT * FROM `shielded_tx_output_data` WHERE `tx_id` = ? AND `output_index` = ?',
+      'SELECT * FROM `shielded_tx_output_data` WHERE `tx_id` = ? AND `index` = ?',
       [txHash, 1],
     );
     expect(satelliteRows).toHaveLength(1);
@@ -2618,7 +2618,7 @@ describe('handleVertexAccepted with shielded outputs', () => {
     const [title, , severity, metadata] = mockAddAlert.mock.calls[0];
     expect(title).toBe('Shielded recovery failed');
     expect(severity).toBe(Severity.MAJOR);
-    expect(metadata).toMatchObject({ tx_id: txHash, output_index: 1 });
+    expect(metadata).toMatchObject({ tx_id: txHash, index: 1 });
   });
 });
 
