@@ -1337,13 +1337,23 @@ export const updateAddressTablesWithTx = async (
     }
   }
 
-  await mysql.query(
-    `INSERT INTO \`address_tx_history\`(\`address\`, \`tx_id\`,
-                                        \`token_id\`, \`balance\`,
-                                        \`timestamp\`)
-     VALUES ?`,
-    [entries],
-  );
+  // ON DUPLICATE KEY UPDATE so the transparent insert here can merge into a
+  // row already written by `applyShieldedAddressTxHistory` for the same
+  // (address, tx_id, token_id). The two writers carry different deltas
+  // (transparent `balance` here, signed `shielded_balance_delta` there);
+  // the bulk insert overwrites only `balance` and `timestamp` on conflict,
+  // leaving the shielded delta untouched.
+  if (entries.length > 0) {
+    await mysql.query(
+      `INSERT INTO \`address_tx_history\`(\`address\`, \`tx_id\`,
+                                          \`token_id\`, \`balance\`,
+                                          \`timestamp\`)
+       VALUES ?
+       ON DUPLICATE KEY UPDATE \`balance\` = VALUES(\`balance\`),
+                               \`timestamp\` = VALUES(\`timestamp\`)`,
+      [entries],
+    );
+  }
 };
 
 /**
