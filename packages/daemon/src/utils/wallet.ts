@@ -16,6 +16,7 @@ import {
   EventTxInput,
   EventTxOutput,
   isNanoHeader,
+  ShieldedOutput,
   StringMap,
   TokenBalanceValue,
   Wallet,
@@ -181,6 +182,64 @@ export const getAddressBalanceMap = (
   }
 
   return addressBalanceMap;
+};
+
+/**
+ * Compute the set of addresses involved in a vertex.
+ *
+ * The involvement set drives the `address.transactions` counter — every
+ * address that appears anywhere on the vertex is bumped once regardless
+ * of whether the daemon can resolve a token/value for it. Sources:
+ *
+ *  - Transparent inputs: `spent_output.decoded.address` (when decode succeeded).
+ *  - Transparent outputs: `decoded.address` (when decode succeeded).
+ *  - Shielded outputs: every shielded `decoded.address`, regardless of
+ *    ownership or recovery state. Unowned shielded outputs still mark
+ *    their address as involved so an observer can see something happened.
+ *  - Shielded inputs: `spent_output.decoded.address` — present on all
+ *    shielded spent_output variants.
+ *  - Nano-contract headers: `nc_address`.
+ *
+ * Pure function over wire data; no DB lookups. The caller is responsible
+ * for using the returned set to drive `address.transactions` separately
+ * from the per-(address, token) balance map.
+ */
+export const getInvolvedAddresses = (
+  inputs: EventTxInput[],
+  outputs: EventTxOutput[],
+  shieldedOutputs: ShieldedOutput[],
+  headers: EventTxHeader[],
+): Set<string> => {
+  const involved = new Set<string>();
+
+  for (const input of inputs) {
+    const spent = input?.spent_output;
+    if (!spent) continue;
+    // `spent_output.decoded` is present on every variant of the union
+    // (transparent + both shielded). Address may still be absent if the
+    // decode failed upstream; skip empty/unknown values.
+    const decoded = (spent as { decoded?: { address?: string } | null }).decoded;
+    const address = decoded && (decoded as { address?: string }).address;
+    if (address) involved.add(address);
+  }
+
+  for (const output of outputs) {
+    if (!isDecodedValid(output.decoded, ['address'])) continue;
+    const address = (output.decoded as { address?: string }).address;
+    if (address) involved.add(address);
+  }
+
+  for (const so of shieldedOutputs) {
+    const address = so.decoded?.address;
+    if (address) involved.add(address);
+  }
+
+  for (const header of headers) {
+    if (!isNanoHeader(header)) continue;
+    if (header.nc_address) involved.add(header.nc_address);
+  }
+
+  return involved;
 };
 
 /**
