@@ -506,6 +506,14 @@ export async function setTokenTotalSupply(
  * Used by mint/melt detection, the burn-address sweep, and block-reward
  * dispatch in `handleVertexAccepted`. Void/unvoid sign-reversal is wired in
  * a follow-up phase.
+ *
+ * Invariant: this helper is UPDATE-only. It does NOT insert a `token`
+ * row when one doesn't exist — `applyTokenSupplyUpdates` only ever
+ * mutates existing token rows, and `handleTokenCreated` is the single
+ * inserter (it calls `storeTokenInformation` followed by
+ * `setTokenTotalSupply`). A delta against a not-yet-created token row
+ * naturally no-ops here. The two writers never compete on the same
+ * column.
  */
 export async function incrementTokenTotalSupply(
   conn: any,

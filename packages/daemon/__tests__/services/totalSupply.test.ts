@@ -430,4 +430,37 @@ describe('token.total_supply tracking', () => {
 
     expect(await selectTotalSupply(HTR_TOKEN_ID)).toStrictEqual(1_006_400n);
   });
+
+  it('applyTokenSupplyUpdates on CREATE_TOKEN_TX does not write the new token row', async () => {
+    expect.hasAssertions();
+
+    // CREATE_TOKEN_TX vertex: the freshly-minted token row does NOT exist
+    // yet — handleTokenCreated is what inserts it later via a separate
+    // TOKEN_CREATED event. The per-token supply-delta loop in
+    // handleVertexAccepted runs first against the same vertex and would
+    // historically have tried to insert the token row from a positive
+    // delta; with the UPDATE-only contract, that write must no-op.
+    const tokenId = 'token-create-vertex-001';
+    const txId = 'd'.repeat(64);
+
+    const data = buildVertexData({
+      hash: txId,
+      version: hathorLib.constants.CREATE_TOKEN_TX_VERSION,
+      tokens: [tokenId],
+      // No inputs (pretending the deposit was zero for simplicity). The
+      // single output for the new token would produce a per-token delta
+      // of +500, which incrementTokenTotalSupply must not turn into an
+      // INSERT against `token`.
+      inputs: [],
+      outputs: [transparentOutput(500, 1, 'addr-mint-recipient')],
+    });
+
+    await handleVertexAccepted(buildVertexContext(data) as any, undefined as any);
+
+    const [rows] = await mysql.query<any[]>(
+      `SELECT total_supply FROM token WHERE id = ?`,
+      [tokenId],
+    );
+    expect(rows).toHaveLength(0);
+  });
 });
