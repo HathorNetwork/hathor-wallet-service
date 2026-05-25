@@ -1472,6 +1472,7 @@ export const handleTokenCreated = async (context: Context) => {
           token_symbol,
           token_version,
           nc_exec_info,
+          initial_amount,
         } = fullNodeEvent.event.data;
 
         span.setAttribute('token.uid', token_uid);
@@ -1505,19 +1506,16 @@ export const handleTokenCreated = async (context: Context) => {
           await storeTokenInformation(mysql, token_uid, token_name, token_symbol, token_version);
           await insertTokenCreation(mysql, token_uid, txId, firstBlock);
 
-          // Record the initial mint amount as the token's starting total_supply.
-          // SUM-from-tx_output is robust across both regular CREATE_TOKEN_TX and
-          // nano-contract creation: NEW_VERTEX_ACCEPTED for the creation tx is
-          // processed before TOKEN_CREATED, so the transparent outputs are
-          // guaranteed to be in place. Authority outputs are excluded via
-          // `authorities = 0`; `addUtxos` zeroes their `value`.
-          const [supplyRows] = await mysql.query<any[]>(
-            `SELECT COALESCE(SUM(value), 0) AS initial_supply
-               FROM tx_output
-              WHERE tx_id = ? AND token_id = ? AND authorities = 0 AND voided = FALSE AND mode = 0`,
-            [txId, token_uid],
-          );
-          const initialSupply = BigInt(supplyRows[0]?.initial_supply ?? 0);
+          // Record the initial mint amount as the token's starting
+          // total_supply. The wire payload carries `initial_amount`
+          // directly, so we use it instead of reconstructing the sum
+          // from tx_output rows. handleTokenCreated is the single writer
+          // of token-creation supply; applyTokenSupplyUpdates (in
+          // handleVertexAccepted) only mutates existing token rows for
+          // mint/melt/burn deltas, so the two paths never compete on the
+          // same column. The `?? 0n` fallback covers events that omit
+          // the field defensively.
+          const initialSupply = BigInt(initial_amount ?? 0);
           await setTokenTotalSupply(mysql, token_uid, initialSupply);
 
           logger.debug(`Inserted new token ${token_uid} with first_block=${firstBlock}, version=${token_version}, initial_supply=${initialSupply}`);

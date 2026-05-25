@@ -178,15 +178,17 @@ const buildVertexData = (overrides: Partial<{
 });
 
 describe('token.total_supply tracking', () => {
-  it('token creation sets total_supply to the initial mint amount (SUM of non-authority outputs)', async () => {
+  it('token creation sets total_supply from wire initial_amount', async () => {
     expect.hasAssertions();
 
     // Regular CREATE_TOKEN_TX: token_uid === tx_id by convention.
     const tokenId = 'token-creation-001';
     const txId = tokenId;
 
-    // Seed the creation tx_output rows: two value-bearing transparent outputs
-    // (totaling 1000) plus an authority output that must be excluded.
+    // The transparent outputs here are not consulted: handleTokenCreated
+    // now reads `initial_amount` from the wire payload directly. Their
+    // sum (1000) intentionally differs from `initial_amount` (12345) to
+    // prove the wire value wins.
     await db.addOrUpdateTx(mysql, txId, null, 1700000000, 1, 1, null);
     await mysql.query(
       `INSERT INTO tx_output (tx_id, \`index\`, token_id, address, value, authorities, locked, voided, mode)
@@ -220,6 +222,7 @@ describe('token.total_supply tracking', () => {
             token_name: 'CreationToken',
             token_symbol: 'CRT',
             token_version: 1,
+            initial_amount: 12345,
           },
           group_id: null,
         },
@@ -228,7 +231,56 @@ describe('token.total_supply tracking', () => {
 
     await handleTokenCreated(context as any);
 
-    expect(await selectTotalSupply(tokenId)).toStrictEqual(1000n);
+    expect(await selectTotalSupply(tokenId)).toStrictEqual(12345n);
+  });
+
+  it('token creation falls back to 0 when initial_amount is absent on the wire', async () => {
+    expect.hasAssertions();
+
+    const tokenId = 'token-creation-no-amount';
+    const txId = tokenId;
+
+    // Seed a creation tx with outputs that, under the old SUM-based
+    // logic, would have produced a non-zero supply. Under the new logic
+    // an absent `initial_amount` should produce total_supply = 0.
+    await db.addOrUpdateTx(mysql, txId, null, 1700000000, 1, 1, null);
+    await mysql.query(
+      `INSERT INTO tx_output (tx_id, \`index\`, token_id, address, value, authorities, locked, voided, mode)
+       VALUES (?, 0, ?, 'addr-x', 999, 0, 0, 0, 0)`,
+      [txId, tokenId],
+    );
+
+    const context = {
+      socket: undefined,
+      healthcheck: undefined,
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      event: {
+        stream_id: 'stream-id',
+        peer_id: 'peer-id',
+        network: 'mainnet',
+        type: 'FULLNODE_EVENT',
+        latest_event_id: 1,
+        event: {
+          id: 1,
+          timestamp: 1700000000,
+          type: 'TOKEN_CREATED',
+          data: {
+            token_uid: tokenId,
+            nc_exec_info: null,
+            token_name: 'NoAmount',
+            token_symbol: 'NA',
+            token_version: 1,
+          },
+          group_id: null,
+        },
+      },
+    };
+
+    await handleTokenCreated(context as any);
+
+    expect(await selectTotalSupply(tokenId)).toStrictEqual(0n);
   });
 
   it('mint tx increments total_supply by the minted delta', async () => {
