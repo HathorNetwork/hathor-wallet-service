@@ -290,10 +290,10 @@ export interface ShieldedRecoveryResult {
  * downstream wallet lookup can still attach to the address. This is the
  * only zero-delta seed produced by the unified builder.
  *
- * The caller is responsible for passing `txInputs` and `txOutputs` that
- * already represent the transparent slice of the vertex; shielded stubs
- * emitted by the current `prepareInputs` are filtered here defensively
- * via the `token === ''` / shielded-input check.
+ * `txInputs` is expected to be the transparent-only slice produced by
+ * `prepareInputs` (shielded inputs are dropped there). `eventInputs` is
+ * the raw wire-level input array, used here only to drive the shielded
+ * spend reversal lookup.
  */
 export const getUnifiedBalanceMap = async (
   mysql: MysqlConnection,
@@ -305,21 +305,7 @@ export const getUnifiedBalanceMap = async (
 ): Promise<StringMap<TokenBalanceMap>> => {
   const map: StringMap<TokenBalanceMap> = {};
 
-  // Transparent input contributions. Filter out shielded stubs (which
-  // currently flow through `prepareInputs` for `updateTxOutputSpentBy`'s
-  // sake). Stubs are identified by `token === ''` for FullyShielded and
-  // by `value === 0n` for AmountShielded — but the safer signal is
-  // cross-referencing the corresponding eventInput's `spent_output.mode`.
-  // Build an index → mode lookup off `eventInputs`, keyed by tx_id+index.
-  const shieldedInputKeys = new Set<string>();
-  for (const ei of eventInputs) {
-    if (ei?.spent_output && isShieldedMode(ei.spent_output.mode)) {
-      shieldedInputKeys.add(`${ei.tx_id}:${ei.index}`);
-    }
-  }
-
   for (const input of txInputs) {
-    if (shieldedInputKeys.has(`${input.tx_id}:${input.index}`)) continue;
     if (!isDecodedValid(input.decoded)) continue;
     const address = input.decoded?.address!;
     const tokenMap = TokenBalanceMap.fromTxInput(input);
@@ -510,51 +496,29 @@ export const unlockTimelockedUtxos = async (mysql: MysqlConnection, now: number)
 /**
  * Prepares transaction input data for processing or display.
  *
- * This function takes an array of EventTxInput objects and an array of token identifiers
- * to prepare an array of TxInput objects. Each input is processed to include additional information
- * such as the token involved and the decoded output data.
+ * Only transparent inputs (`spent_output.mode === 0`) flow into the
+ * returned array. Shielded inputs are dropped here because the wire
+ * payload does not carry the recovered value (for both shielded modes)
+ * or the token uid (for FullyShielded), so they cannot contribute a
+ * full TxInput. The shielded balance contribution is handled by
+ * `getUnifiedBalanceMap` via a local tx_output lookup, and the
+ * spent-by marking is handled by `updateTxOutputSpentBy` which takes a
+ * thin `{tx_id, index}` shape and is called with the raw event inputs
+ * (covering both kinds).
  *
  * @param inputs - An array of transaction inputs, each containing data like
  *                                  transaction hash, index, and spent output information.
  * @param tokens - An array of token identifiers corresponding to different tokens involved
  *                            in the transaction.
- * @returns - An array of prepared inputs, each enriched with additional data.
+ * @returns - An array of prepared transparent inputs, each enriched with additional data.
  */
 export const prepareInputs = (inputs: EventTxInput[], tokens: string[]): TxInput[] => {
   const preparedInputs: TxInput[] = inputs.reduce((newInputs: TxInput[], _input: EventTxInput): TxInput[] => {
     const output = _input.spent_output;
 
     if (output.mode !== 0) {
-      // Shielded input. The wire payload doesn't carry the recovered value
-      // or a transparent script, so we emit a stub TxInput with tx_id+index
-      // plus the metadata that IS on the wire (script, decoded.address; and
-      // for AmountShielded also token_data and the resolved token UID).
-      // updateTxOutputSpentBy still marks the spent_by uniformly via this
-      // stub, while shielded balance reversal happens separately by looking
-      // up the local tx_output row.
-      let stubTokenData = 0;
-      let stubToken = '';
-      if (output.mode === ShieldedOutputMode.AmountShielded) {
-        stubTokenData = output.token_data;
-        const tokenIndex = (output.token_data & hathorLib.constants.TOKEN_INDEX_MASK) - 1;
-        stubToken = tokenIndex < 0
-          ? hathorLib.constants.NATIVE_TOKEN_UID
-          : (tokens[tokenIndex] ?? '');
-      }
-      const stub: TxInput = {
-        tx_id: _input.tx_id,
-        index: _input.index,
-        value: 0n,
-        token_data: stubTokenData,
-        script: output.script,
-        token: stubToken,
-        decoded: {
-          type: 'P2PKH',
-          address: output.decoded.address,
-          timelock: null,
-        },
-      };
-      return [...newInputs, stub];
+      // Drop shielded inputs from the prepared list; see function docstring.
+      return newInputs;
     }
 
     // Transparent input — TS narrows `output` to the mode=0 variant, so

@@ -33,7 +33,6 @@ import {
   Transaction,
   TokenBalanceMap,
   TxOutputWithIndex,
-  Balance,
   isDecodedValid,
   isAuthority,
 } from '@wallet-service/common';
@@ -97,13 +96,7 @@ import {
   findShieldedAddressOwnership,
   markTxOutputRecovered,
   markTxOutputRecoveryFailed,
-  applyShieldedAddressBalance,
-  applyShieldedAddressTxHistory,
-  applyShieldedWalletBalance,
-  applyShieldedWalletTxHistory,
   bumpAddressInvolvement,
-  reverseShieldedAddressBalanceOnSpend,
-  reverseShieldedWalletBalanceOnSpend,
   setTokenTotalSupply,
   incrementTokenTotalSupply,
 } from '../db';
@@ -351,112 +344,6 @@ async function applyTokenSupplyUpdates(
     const delta = (outSumByToken.get(tokenId) ?? 0n) - (inSumByToken.get(tokenId) ?? 0n);
     if (delta !== 0n) {
       await incrementTokenTotalSupply(mysql, tokenId, delta);
-    }
-  }
-}
-
-/**
- * Reverse shielded balance contributions for outputs spent by this vertex.
- *
- * The shielded `spent_output` wire payload doesn't carry the recovered value,
- * so we look up the local `tx_output` row to learn what was credited at
- * recovery time. Only rows whose `recovery_state = 'recovered'` ever
- * contributed to a balance; `unowned` and `recovery_failed` rows are skipped
- * because nothing was credited and there is nothing to subtract.
- *
- * Runs after `updateTxOutputSpentBy`, which has already marked the consumed
- * rows as spent in a kind-agnostic way. This helper only adjusts the
- * shielded balance accounting on top of that.
- *
- * Balance reversal uses dedicated UPDATE-only helpers
- * (`reverseShieldedAddressBalanceOnSpend`, `reverseShieldedWalletBalanceOnSpend`)
- * rather than reusing the credit helpers with a negative value. Two reasons:
- *   - The credit helpers issue `INSERT ... ON DUPLICATE KEY UPDATE` and MySQL's
- *     STRICT_TRANS_TABLES (default in 8.0) rejects a negative literal in
- *     VALUES(...) against UNSIGNED columns BEFORE choosing the update branch.
- *   - The credit helpers also bump `total_received` / `total_shielded_received`,
- *     which are lifetime credit accumulators and must not be decremented on
- *     spends. The transparent path treats them the same way.
- *
- * `address_tx_history` and `wallet_tx_history` still go through their
- * respective `applyShielded*TxHistory` helpers: both `shielded_balance_delta`
- * columns are signed BIGINT, so a negative INSERT literal is valid, and on
- * spend-only vertices these calls are the first writer for their respective
- * row keys — passing the real vertex timestamp ensures the row's timestamp
- * column reflects when the spend happened.
- */
-async function applyShieldedSpendReversal(
-  mysql: any,
-  eventInputs: EventTxInput[],
-  txId: string,
-  timestamp: number,
-): Promise<void> {
-  for (const input of eventInputs) {
-    if (!input?.spent_output || !isShieldedMode(input.spent_output.mode)) continue;
-
-    const row = await getTxOutput(mysql, input.tx_id, input.index, false);
-    if (!row) continue;
-    if (row.recoveryState !== RecoveryState.Recovered) continue;
-    if (row.value === null || row.tokenId === null) continue;
-
-    const owned = await findShieldedAddressOwnership(mysql, row.address);
-    if (!owned) continue;
-
-    await reverseShieldedAddressBalanceOnSpend(mysql, row.address, row.tokenId, row.value, row.locked);
-    await reverseShieldedWalletBalanceOnSpend(mysql, owned.wallet_id, row.tokenId, row.value, row.locked);
-    await applyShieldedAddressTxHistory(mysql, row.address, txId, row.tokenId, -row.value, timestamp);
-    await applyShieldedWalletTxHistory(mysql, owned.wallet_id, txId, row.tokenId, -row.value, timestamp);
-  }
-}
-
-/**
- * Track an (address, token_id) pair credited by a recovered shielded output.
- *
- * The shielded credit helpers (`applyShielded*Balance`) deliberately do not
- * bump `transactions` — the single canonical bump per (address, tx) /
- * (wallet, tx) lives in `updateAddressTablesWithTx` /
- * `updateWalletTablesWithTx`, which only see addresses present in the
- * balance map. For shielded-credit-only vertices there is no transparent
- * stub to seed that map, so we collect the touched pairs here and feed
- * them in afterwards via {@link seedShieldedAddressBalanceEntries}.
- */
-function recordShieldedCredit(
-  map: Map<string, Set<string>>,
-  address: string,
-  tokenId: string,
-): void {
-  let tokens = map.get(address);
-  if (!tokens) {
-    tokens = new Set<string>();
-    map.set(address, tokens);
-  }
-  tokens.add(tokenId);
-}
-
-/**
- * Seed zero-delta entries in an addressBalanceMap for shielded-credited
- * (address, token_id) pairs that are not already present.
- *
- * The zero `Balance` carries no balance delta but still drives the
- * canonical `transactions = transactions + 1` clause inside
- * `updateAddressTablesWithTx`. Pairs that already appear in the map (e.g.
- * because the same vertex also touched the address transparently) are
- * left alone so the existing real delta survives the merge.
- */
-function seedShieldedAddressBalanceEntries(
-  addressBalanceMap: StringMap<TokenBalanceMap>,
-  shieldedCreditedAddrTokens: Map<string, Set<string>>,
-): void {
-  for (const [address, tokens] of shieldedCreditedAddrTokens) {
-    let entry = addressBalanceMap[address];
-    if (!entry) {
-      entry = new TokenBalanceMap();
-      addressBalanceMap[address] = entry;
-    }
-    for (const tokenId of tokens) {
-      if (!(tokenId in entry.map)) {
-        entry.set(tokenId, new Balance(0n, 0n, 0n, null));
-      }
     }
   }
 }
@@ -793,9 +680,9 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         await withSpan('bumpAddressInvolvement', () => bumpAddressInvolvement(mysql, involvedAddresses));
 
         // Mark tx utxos as spent. Kind-agnostic: only uses tx_id+index, so
-        // shielded inputs flow through here even though the stub TxInput
-        // carries no value or token.
-        await withSpan('updateTxOutputSpentBy', () => updateTxOutputSpentBy(mysql, txInputs, hash));
+        // we pass the raw event inputs — both transparent and shielded —
+        // even though prepareInputs only emits transparent TxInput rows.
+        await withSpan('updateTxOutputSpentBy', () => updateTxOutputSpentBy(mysql, inputs, hash));
 
         // Genesis tx has no inputs and outputs, so nothing to be updated.
         // Nano contracts contribute an address even without inputs/outputs

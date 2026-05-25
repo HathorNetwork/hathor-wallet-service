@@ -370,12 +370,10 @@ export const insertShieldedTxOutputData = async (
  *
  * This helper does NOT bump `transactions`. The single canonical
  * `transactions` bump per `(address, tx)` lives exclusively in
- * `updateAddressTablesWithTx`, which sees every address that appears in the
- * vertex's balance map. Unowned shielded observations contribute no balance
- * entry, so their row stays at `transactions = 0`; owned shielded credits
- * route through the central path via the seeded zero-delta entries in
- * `seedShieldedAddressBalanceEntries`. Using `INSERT IGNORE` makes the
- * observation a row-existence guarantee with no on-conflict side effect — any
+ * `bumpAddressInvolvement`, which runs once per vertex against the
+ * wire-level involved-addresses set and covers every address regardless of
+ * ownership or recovery state. Using `INSERT IGNORE` makes the observation
+ * a row-existence guarantee with no on-conflict side effect — any
  * registration data attached to the row by a previous wallet claim is
  * preserved untouched across repeated observations.
  *
@@ -483,232 +481,6 @@ export async function markTxOutputRecoveryFailed(
 }
 
 /**
- * Apply a recovered shielded output's contribution to address_balance.
- *
- * Writes the shielded amount columns on the unified (address, token_id)
- * row, leaving the transparent columns at zero on first insert. Mirrors
- * how wallet_balance carries both kinds on the same row.
- *
- * Does NOT bump `transactions`: the canonical (address, tx) bump is
- * issued centrally by `updateAddressTablesWithTx` against the
- * shielded-touched address map, so that shielded-credit-only vertices and
- * mixed transparent+shielded vertices each get exactly one bump.
- * Bumping here would double-count whenever the same vertex also touches
- * the transparent path.
- *
- * Authority columns are not touched (shielded outputs cannot carry
- * authority bits).
- */
-export async function applyShieldedAddressBalance(
-  conn: any,
-  address: string,
-  tokenId: string,
-  value: bigint,
-  locked: boolean,
-): Promise<void> {
-  const unlockedDelta = locked ? 0n : value;
-  const lockedDelta = locked ? value : 0n;
-  await conn.query(
-    `INSERT INTO address_balance
-       (address, token_id,
-        unlocked_balance, locked_balance, total_received,
-        unlocked_shielded_balance, locked_shielded_balance, total_shielded_received,
-        transactions)
-     VALUES (?, ?, 0, 0, 0, ?, ?, ?, 0)
-     ON DUPLICATE KEY UPDATE
-       unlocked_shielded_balance = unlocked_shielded_balance + VALUES(unlocked_shielded_balance),
-       locked_shielded_balance   = locked_shielded_balance + VALUES(locked_shielded_balance),
-       total_shielded_received   = total_shielded_received + VALUES(total_shielded_received)`,
-    [address, tokenId, unlockedDelta.toString(), lockedDelta.toString(), value.toString()],
-  );
-}
-
-/**
- * Apply a recovered shielded output's contribution to wallet_balance.
- *
- * Writes the *_shielded_balance and total_shielded_received columns only;
- * transparent columns stay at zero on insert and are not touched on
- * update (the transparent path owns those).
- *
- * Does NOT bump `transactions`: the canonical (wallet, tx) bump is
- * issued centrally by `updateWalletTablesWithTx` against the
- * shielded-touched wallet map, so that shielded-credit-only vertices and
- * mixed transparent+shielded vertices each get exactly one bump.
- * Bumping here would double-count whenever the same vertex also touches
- * the transparent path.
- *
- * Authority columns are not touched (shielded outputs cannot carry
- * authority bits). `timelock_expires` is not refreshed here: that column
- * is owned by the transparent earliest-timelock tracker and shielded
- * timelocks live in the per-output row instead.
- */
-export async function applyShieldedWalletBalance(
-  conn: any,
-  walletId: string,
-  tokenId: string,
-  value: bigint,
-  locked: boolean,
-): Promise<void> {
-  const unlockedDelta = locked ? 0n : value;
-  const lockedDelta = locked ? value : 0n;
-  await conn.query(
-    `INSERT INTO wallet_balance
-       (wallet_id, token_id,
-        unlocked_balance, locked_balance, total_received,
-        unlocked_shielded_balance, locked_shielded_balance,
-        total_shielded_received, transactions)
-     VALUES (?, ?, 0, 0, 0, ?, ?, ?, 0)
-     ON DUPLICATE KEY UPDATE
-       unlocked_shielded_balance = unlocked_shielded_balance + VALUES(unlocked_shielded_balance),
-       locked_shielded_balance   = locked_shielded_balance + VALUES(locked_shielded_balance),
-       total_shielded_received   = total_shielded_received + VALUES(total_shielded_received)`,
-    [walletId, tokenId, unlockedDelta.toString(), lockedDelta.toString(), value.toString()],
-  );
-}
-
-/**
- * Reverse a shielded UTXO's contribution to address_balance when the UTXO is
- * spent. Mirror of applyShieldedAddressBalance, but subtracts (UPDATE-only,
- * no INSERT) and never touches total_shielded_received.
- *
- * Why UPDATE-only instead of an INSERT...ON DUPLICATE KEY UPDATE with a
- * negative VALUES(): under STRICT_TRANS_TABLES (MySQL 8 default) the server
- * validates the literal in VALUES(...) against the UNSIGNED column type
- * BEFORE choosing the update branch, so a negative operand crashes with
- * ER_WARN_DATA_OUT_OF_RANGE even when the row already exists and the final
- * arithmetic would be non-negative.
- *
- * Why total_shielded_received is left alone: it's a lifetime accumulator of
- * credits, not a balance. The transparent path only ever increments
- * total_received on credits; the shielded path matches that semantics here.
- *
- * The row is expected to exist (the recovery path that originally credited
- * the balance created it). If it doesn't, this is a silent no-op, which is
- * the correct behaviour: there is no credit to reverse, and we should not
- * crash on a degraded state.
- *
- * `locked` mirrors applyShieldedAddressBalance: the delta is routed to the
- * same column (unlocked vs locked) that the credit landed in. Callers
- * derive this from the spent output's `locked` flag at spend time so
- * credit and reversal stay aligned even when the UTXO was timelocked at
- * receive.
- *
- * Does NOT bump `transactions`: the canonical (address, tx) bump is
- * issued by `updateAddressTablesWithTx`, which sees this vertex via the
- * transparent stub that `prepareInputs` emits for shielded inputs. Bumping
- * here would double-count.
- *
- * Authority columns are not touched (shielded outputs cannot carry
- * authority bits).
- */
-export async function reverseShieldedAddressBalanceOnSpend(
-  conn: any,
-  address: string,
-  tokenId: string,
-  value: bigint,
-  locked: boolean,
-): Promise<void> {
-  const unlockedDelta = locked ? 0n : value;
-  const lockedDelta = locked ? value : 0n;
-  await conn.query(
-    `UPDATE address_balance
-        SET unlocked_shielded_balance = unlocked_shielded_balance - ?,
-            locked_shielded_balance   = locked_shielded_balance   - ?
-      WHERE address = ? AND token_id = ?`,
-    [unlockedDelta.toString(), lockedDelta.toString(), address, tokenId],
-  );
-}
-
-/**
- * Reverse a shielded UTXO's contribution to wallet_balance when the UTXO is
- * spent. Mirror of applyShieldedWalletBalance — same rationale as
- * reverseShieldedAddressBalanceOnSpend: UPDATE-only (to avoid the strict-mode
- * UNSIGNED rejection of a negative VALUES literal), and total_shielded_received
- * is left untouched because it's a lifetime credit accumulator, not a balance.
- * `locked` routes the delta to the same shielded column the credit landed in.
- *
- * Does NOT bump `transactions`: the canonical (wallet, tx) bump is
- * issued by `updateWalletTablesWithTx`, which sees this vertex via the
- * transparent stub that `prepareInputs` emits for shielded inputs. Bumping
- * here would double-count.
- */
-export async function reverseShieldedWalletBalanceOnSpend(
-  conn: any,
-  walletId: string,
-  tokenId: string,
-  value: bigint,
-  locked: boolean,
-): Promise<void> {
-  const unlockedDelta = locked ? 0n : value;
-  const lockedDelta = locked ? value : 0n;
-  await conn.query(
-    `UPDATE wallet_balance
-        SET unlocked_shielded_balance = unlocked_shielded_balance - ?,
-            locked_shielded_balance   = locked_shielded_balance   - ?
-      WHERE wallet_id = ? AND token_id = ?`,
-    [unlockedDelta.toString(), lockedDelta.toString(), walletId, tokenId],
-  );
-}
-
-/**
- * Record a recovered shielded output's contribution to address_tx_history.
- *
- * One address_tx_history row per (address, tx_id, token_id) carries both
- * the transparent `balance` (written by updateAddressTablesWithTx) and the
- * `shielded_balance_delta` (written by this helper). On conflict the
- * shielded delta accumulates; the transparent `balance` is left untouched
- * here because the transparent path owns that column.
- *
- * Mirrors applyShieldedWalletTxHistory on the address grain. `voided`
- * defaults to FALSE on insert; the existing void/unvoid plumbing keeps
- * both columns in sync via the same row.
- */
-export async function applyShieldedAddressTxHistory(
-  conn: any,
-  address: string,
-  txId: string,
-  tokenId: string,
-  value: bigint,
-  timestamp: number,
-): Promise<void> {
-  await conn.query(
-    `INSERT INTO address_tx_history
-       (address, tx_id, token_id, balance, shielded_balance_delta, timestamp, voided)
-     VALUES (?, ?, ?, 0, ?, ?, FALSE)
-     ON DUPLICATE KEY UPDATE
-       shielded_balance_delta = shielded_balance_delta + VALUES(shielded_balance_delta)`,
-    [address, txId, tokenId, value.toString(), timestamp],
-  );
-}
-
-/**
- * Record a recovered shielded output's contribution to wallet_tx_history.
- *
- * One wallet_tx_history row per (wallet_id, tx_id, token_id) carries both
- * the transparent `balance` (written by updateWalletTablesWithTx) and the
- * `shielded_balance_delta` (written by this helper). On conflict the
- * shielded delta accumulates; the transparent `balance` is left untouched
- * here because the transparent path owns that column.
- */
-export async function applyShieldedWalletTxHistory(
-  conn: any,
-  walletId: string,
-  txId: string,
-  tokenId: string,
-  value: bigint,
-  timestamp: number,
-): Promise<void> {
-  await conn.query(
-    `INSERT INTO wallet_tx_history
-       (wallet_id, tx_id, token_id, balance, shielded_balance_delta, timestamp, voided)
-     VALUES (?, ?, ?, 0, ?, ?, FALSE)
-     ON DUPLICATE KEY UPDATE
-       shielded_balance_delta = shielded_balance_delta + VALUES(shielded_balance_delta)`,
-    [walletId, txId, tokenId, value.toString(), timestamp],
-  );
-}
-
-/**
  * Set `token.total_supply` to an absolute value.
  *
  * Used at token creation time to record the initial mint amount.
@@ -778,13 +550,21 @@ export async function bumpAddressInvolvement(
 }
 
 /**
- * Remove a tx inputs from the utxo table.
+ * Mark spent tx outputs by setting `spent_by` on the matching rows.
+ *
+ * Kind-agnostic: takes any `{tx_id, index}` shape (TxInput, EventTxInput,
+ * or a custom thin type), so it works for transparent and shielded
+ * inputs uniformly. The query only consumes the primary-key columns.
  *
  * @param mysql - Database connection
- * @param inputs - The transaction inputs
+ * @param inputs - The spent input references (tx_id + index per entry)
  * @param txId - The transaction that spent these utxos
  */
-export const updateTxOutputSpentBy = async (mysql: any, inputs: TxInput[], txId: string): Promise<void> => {
+export const updateTxOutputSpentBy = async (
+  mysql: any,
+  inputs: Array<{ tx_id: string; index: number }>,
+  txId: string,
+): Promise<void> => {
   const entries = inputs.map((input) => [input.tx_id, input.index]);
   // entries might be empty if there are no inputs
   if (entries.length) {
