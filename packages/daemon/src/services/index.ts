@@ -41,6 +41,8 @@ import {
   prepareOutputs,
   getAddressBalanceMap,
   getInvolvedAddresses,
+  getUnifiedBalanceMap,
+  ShieldedRecoveryResult,
   getUnixTimestamp,
   unlockUtxos,
   unlockTimelockedUtxos,
@@ -657,15 +659,12 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
           return tokens[idx] ?? null;
         };
 
-        // Collect (address, token_id) pairs that this vertex credited via a
-        // recovered shielded output. Used after the loop to seed zero-delta
-        // entries in the address/wallet balance maps, so the canonical
-        // (address, tx) / (wallet, tx) bump inside
-        // updateAddressTablesWithTx / updateWalletTablesWithTx covers
-        // shielded-credit-only vertices too. Without these stubs the
-        // counters would stay at their pre-vertex value for vertices whose
-        // only owned touch is a shielded credit.
-        const shieldedCreditedAddrTokens: Map<string, Set<string>> = new Map();
+        // Per-shielded-output rewind outcomes collected by the loop below
+        // and consumed by the unified balance-map builder. Only owned,
+        // successful recoveries land here; unowned outputs and rewind
+        // failures contribute nothing to the balance map (involvement is
+        // already covered by bumpAddressInvolvement).
+        const shieldedRecoveryResults: ShieldedRecoveryResult[] = [];
 
         // Walk shielded_outputs[] with concatenated index = transparentCount + i.
         // Each shielded output produces three rows: the unified `tx_output`, the
@@ -744,11 +743,12 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
                   value: r.value,
                   token_id: tokenIdHex,
                 });
-                await applyShieldedAddressBalance(mysql, so.decoded.address, tokenIdHex, r.value, shieldedLocked);
-                await applyShieldedWalletBalance(mysql, owned.wallet_id, tokenIdHex, r.value, shieldedLocked);
-                await applyShieldedAddressTxHistory(mysql, so.decoded.address, hash, tokenIdHex, r.value, timestamp);
-                await applyShieldedWalletTxHistory(mysql, owned.wallet_id, hash, tokenIdHex, r.value, timestamp);
-                recordShieldedCredit(shieldedCreditedAddrTokens, so.decoded.address, tokenIdHex);
+                shieldedRecoveryResults.push({
+                  address: so.decoded.address,
+                  tokenId: tokenIdHex,
+                  value: r.value,
+                  locked: shieldedLocked,
+                });
               } else {
                 const assetCommit = Buffer.from(so.asset_commitment, 'hex');
                 const r = rewindFully({
@@ -763,11 +763,12 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
                   value: r.value,
                   token_id: tokenIdHexFull,
                 });
-                await applyShieldedAddressBalance(mysql, so.decoded.address, tokenIdHexFull, r.value, shieldedLocked);
-                await applyShieldedWalletBalance(mysql, owned.wallet_id, tokenIdHexFull, r.value, shieldedLocked);
-                await applyShieldedAddressTxHistory(mysql, so.decoded.address, hash, tokenIdHexFull, r.value, timestamp);
-                await applyShieldedWalletTxHistory(mysql, owned.wallet_id, hash, tokenIdHexFull, r.value, timestamp);
-                recordShieldedCredit(shieldedCreditedAddrTokens, so.decoded.address, tokenIdHexFull);
+                shieldedRecoveryResults.push({
+                  address: so.decoded.address,
+                  tokenId: tokenIdHexFull,
+                  value: r.value,
+                  locked: shieldedLocked,
+                });
               }
             } catch (e) {
               await markTxOutputRecoveryFailed(mysql, hash, idx);
@@ -791,36 +792,37 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         const involvedAddresses = getInvolvedAddresses(inputs, outputs, shieldedOutputs, headers);
         await withSpan('bumpAddressInvolvement', () => bumpAddressInvolvement(mysql, involvedAddresses));
 
-        // Mark tx utxos as spent
+        // Mark tx utxos as spent. Kind-agnostic: only uses tx_id+index, so
+        // shielded inputs flow through here even though the stub TxInput
+        // carries no value or token.
         await withSpan('updateTxOutputSpentBy', () => updateTxOutputSpentBy(mysql, txInputs, hash));
 
-        // Reverse shielded balance contributions for any shielded UTXOs this
-        // vertex spends. Runs on the raw event inputs (which carry the
-        // discriminated `spent_output.mode`), AFTER the kind-agnostic
-        // spent_by marking above. Transparent input reversal is handled by
-        // the existing address/wallet balance accounting further down.
-        await applyShieldedSpendReversal(mysql, inputs, hash, timestamp);
-
-        // Genesis tx has no inputs and outputs, so nothing to be updated, avoid it
-        // Nano contracts are a special case since they can have an address to update even without inputs/outputs
-        // Shielded-credit-only vertices also need to flow through here to
-        // pick up the canonical (address, tx) / (wallet, tx) bump via the
-        // seeded zero-delta entries (see seedShieldedAddressBalanceEntries).
-        if (inputs.length > 0 || outputs.length > 0 || isNano || shieldedCreditedAddrTokens.size > 0) {
+        // Genesis tx has no inputs and outputs, so nothing to be updated.
+        // Nano contracts contribute an address even without inputs/outputs
+        // — covered by involvedAddresses through the header walk.
+        // Shielded-credit-only and shielded-spend-only vertices also flow
+        // through here because the involvement set always includes any
+        // shielded output / input address.
+        if (involvedAddresses.size > 0) {
           const tokenList: string[] = getTokenListFromInputsAndOutputs(txInputs, txOutputs);
 
           // Update transaction count with the new tx
           await incrementTokensTxCount(mysql, tokenList);
 
-          const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputs, headers);
-
-          // Seed zero-delta entries for (address, token_id) pairs credited by
-          // a recovered shielded output above. Without this, a vertex whose
-          // only owned touch is a shielded credit would not bump
-          // address_balance.transactions or wallet_balance.transactions:
-          // the shielded credit helpers no longer bump those counters, and
-          // getAddressBalanceMap only sees the transparent inputs/outputs.
-          seedShieldedAddressBalanceEntries(addressBalanceMap, shieldedCreditedAddrTokens);
+          // Unified per-(address, token) balance map. Includes:
+          //   - transparent inputs/outputs from prepared lists,
+          //   - shielded receives from the in-line rewind results above,
+          //   - shielded spend reversals sourced from local tx_output rows
+          //     (only for `recovery_state = 'recovered'` rows owned by us),
+          //   - header-only addresses seeded with an empty HTR entry.
+          const addressBalanceMap: StringMap<TokenBalanceMap> = await getUnifiedBalanceMap(
+            mysql,
+            txInputs,
+            txOutputs,
+            shieldedRecoveryResults,
+            inputs,
+            headers,
+          );
 
           // update address tables (address, address_balance, address_tx_history)
           await withSpan('updateAddressTablesWithTx', () => updateAddressTablesWithTx(mysql, hash, timestamp, addressBalanceMap));

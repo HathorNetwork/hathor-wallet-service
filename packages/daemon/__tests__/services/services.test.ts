@@ -43,6 +43,8 @@ import {
 import logger from '../../src/logger';
 import {
   getAddressBalanceMap,
+  getInvolvedAddresses,
+  getUnifiedBalanceMap,
   prepareInputs,
   prepareOutputs,
   hashTxData,
@@ -112,6 +114,7 @@ jest.mock('../../src/utils', () => ({
   prepareInputs: jest.fn(),
   getAddressBalanceMap: jest.fn(),
   getInvolvedAddresses: jest.fn(() => new Set<string>()),
+  getUnifiedBalanceMap: jest.fn().mockResolvedValue({}),
   validateAddressBalances: jest.fn(),
   LRU: jest.fn(),
   unlockTimelockedUtxos: jest.fn(),
@@ -695,6 +698,9 @@ describe('handleVertexAccepted', () => {
     (prepareOutputs as jest.Mock).mockReturnValue([]);
     (prepareInputs as jest.Mock).mockReturnValue([]);
     (getAddressBalanceMap as jest.Mock).mockReturnValue({});
+    // Non-empty involvement so the per-token / wallet branch executes.
+    (getInvolvedAddresses as jest.Mock).mockReturnValue(new Set(['address1']));
+    (getUnifiedBalanceMap as jest.Mock).mockResolvedValue({});
     (getUtxosLockedAtHeight as jest.Mock).mockResolvedValue([]);
     (hashTxData as jest.Mock).mockReturnValue('hashedData');
     (getAddressWalletInfo as jest.Mock).mockResolvedValue({

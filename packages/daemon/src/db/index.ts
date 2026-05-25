@@ -1300,6 +1300,13 @@ export const updateAddressTablesWithTx = async (
   for (const [address, tokenMap] of Object.entries(addressBalanceMap)) {
     for (const [token, tokenBalance] of tokenMap.iterator()) {
       // update address_balance table or update balance and transactions if there's an entry already
+      // Shielded balance columns are clamped to 0 on the insert branch
+      // because MySQL's STRICT_TRANS_TABLES (8.0 default) validates the
+      // VALUES(...) literal against the UNSIGNED column type before
+      // selecting the UPDATE branch. The real signed delta is applied in
+      // the ON DUPLICATE KEY UPDATE branch via the positional bind args
+      // below. totalShieldedReceived is already non-negative by the
+      // fromShielded() factory contract (lifetime accumulator).
       const entry = {
         address,
         token_id: token,
@@ -1313,6 +1320,9 @@ export const updateAddressTablesWithTx = async (
         unlocked_authorities: tokenBalance.unlockedAuthorities.toUnsignedInteger(),
         locked_authorities: tokenBalance.lockedAuthorities.toUnsignedInteger(),
         timelock_expires: tokenBalance.lockExpires,
+        unlocked_shielded_balance: (tokenBalance.unlockedShieldedAmount < 0n ? 0n : tokenBalance.unlockedShieldedAmount),
+        locked_shielded_balance: (tokenBalance.lockedShieldedAmount < 0n ? 0n : tokenBalance.lockedShieldedAmount),
+        total_shielded_received: tokenBalance.totalShieldedReceived,
         transactions: 1,
       };
       // save the smaller value of timelock_expires, when not null
@@ -1323,6 +1333,9 @@ export const updateAddressTablesWithTx = async (
                             UPDATE total_received = total_received + ?,
                                    unlocked_balance = unlocked_balance + ?,
                                    locked_balance = locked_balance + ?,
+                                   unlocked_shielded_balance = unlocked_shielded_balance + ?,
+                                   locked_shielded_balance = locked_shielded_balance + ?,
+                                   total_shielded_received = total_shielded_received + ?,
                                    transactions = transactions + 1,
                                    timelock_expires = CASE
                                                         WHEN timelock_expires IS NULL THEN VALUES(timelock_expires)
@@ -1331,7 +1344,17 @@ export const updateAddressTablesWithTx = async (
                                                       END,
                                    unlocked_authorities = (unlocked_authorities | VALUES(unlocked_authorities)),
                                    locked_authorities = locked_authorities | VALUES(locked_authorities)`,
-        [entry, tokenBalance.totalAmountSent, tokenBalance.unlockedAmount, tokenBalance.lockedAmount, address, token],
+        [
+          entry,
+          tokenBalance.totalAmountSent,
+          tokenBalance.unlockedAmount,
+          tokenBalance.lockedAmount,
+          tokenBalance.unlockedShieldedAmount,
+          tokenBalance.lockedShieldedAmount,
+          tokenBalance.totalShieldedReceived,
+          address,
+          token,
+        ],
       );
 
       // if we're removing any of the authorities, we need to refresh the authority columns. Unlike the values,
@@ -1359,24 +1382,26 @@ export const updateAddressTablesWithTx = async (
       // unlocked before it can be spent. In case we're just adding new locked authorities, this will be taken
       // care by the first sql query.
 
-      // update address_tx_history with one entry for each pair (address, token)
-      entries.push([address, txId, token, tokenBalance.total(), timestamp]);
+      // update address_tx_history with one entry for each pair (address, token).
+      // `balance` is the transparent delta (signed unlocked + locked) and
+      // `shielded_balance_delta` is the shielded delta (signed
+      // unlockedShielded + lockedShielded); the two columns live on the
+      // same row keyed by (address, tx_id, token_id).
+      const transparentDelta = tokenBalance.unlockedAmount + tokenBalance.lockedAmount;
+      const shieldedDelta = tokenBalance.unlockedShieldedAmount + tokenBalance.lockedShieldedAmount;
+      entries.push([address, txId, token, transparentDelta, shieldedDelta, timestamp]);
     }
   }
 
-  // ON DUPLICATE KEY UPDATE so the transparent insert here can merge into a
-  // row already written by `applyShieldedAddressTxHistory` for the same
-  // (address, tx_id, token_id). The two writers carry different deltas
-  // (transparent `balance` here, signed `shielded_balance_delta` there);
-  // the bulk insert overwrites only `balance` and `timestamp` on conflict,
-  // leaving the shielded delta untouched.
   if (entries.length > 0) {
     await mysql.query(
       `INSERT INTO \`address_tx_history\`(\`address\`, \`tx_id\`,
                                           \`token_id\`, \`balance\`,
+                                          \`shielded_balance_delta\`,
                                           \`timestamp\`)
        VALUES ?
        ON DUPLICATE KEY UPDATE \`balance\` = VALUES(\`balance\`),
+                               \`shielded_balance_delta\` = VALUES(\`shielded_balance_delta\`),
                                \`timestamp\` = VALUES(\`timestamp\`)`,
       [entries],
     );
@@ -2087,6 +2112,10 @@ export const updateWalletTablesWithTx = async (
       // as (tokenBalance < 0 ? 0 : tokenBalance). In case the wallet's balance in this tx is negative,
       // there must necessarily be an entry already and we'll fall on the ON DUPLICATE KEY case, so the
       // entry value won't be used. We'll just update balance = balance + tokenBalance
+      // Shielded balance columns are clamped to 0 on insert (see
+      // updateAddressTablesWithTx for the strict-mode rationale). The
+      // signed delta is applied in the ON DUPLICATE KEY UPDATE branch via
+      // positional bind args.
       const entry = {
         wallet_id: walletId,
         token_id: token,
@@ -2098,6 +2127,9 @@ export const updateWalletTablesWithTx = async (
         unlocked_authorities: tokenBalance.unlockedAuthorities.toUnsignedInteger(),
         locked_authorities: tokenBalance.lockedAuthorities.toUnsignedInteger(),
         timelock_expires: tokenBalance.lockExpires,
+        unlocked_shielded_balance: (tokenBalance.unlockedShieldedAmount < 0n ? 0n : tokenBalance.unlockedShieldedAmount),
+        locked_shielded_balance: (tokenBalance.lockedShieldedAmount < 0n ? 0n : tokenBalance.lockedShieldedAmount),
+        total_shielded_received: tokenBalance.totalShieldedReceived,
         transactions: 1,
       };
 
@@ -2109,6 +2141,9 @@ export const updateWalletTablesWithTx = async (
          UPDATE total_received = total_received + ?,
                 unlocked_balance = unlocked_balance + ?,
                 locked_balance = locked_balance + ?,
+                unlocked_shielded_balance = unlocked_shielded_balance + ?,
+                locked_shielded_balance = locked_shielded_balance + ?,
+                total_shielded_received = total_shielded_received + ?,
                 transactions = transactions + 1,
                 timelock_expires = CASE WHEN timelock_expires IS NULL THEN VALUES(timelock_expires)
                                         WHEN VALUES(timelock_expires) IS NULL THEN timelock_expires
@@ -2116,7 +2151,17 @@ export const updateWalletTablesWithTx = async (
                                    END,
                 unlocked_authorities = (unlocked_authorities | VALUES(unlocked_authorities)),
                 locked_authorities = locked_authorities | VALUES(locked_authorities)`,
-        [entry, tokenBalance.totalAmountSent, tokenBalance.unlockedAmount, tokenBalance.lockedAmount, walletId, token],
+        [
+          entry,
+          tokenBalance.totalAmountSent,
+          tokenBalance.unlockedAmount,
+          tokenBalance.lockedAmount,
+          tokenBalance.unlockedShieldedAmount,
+          tokenBalance.lockedShieldedAmount,
+          tokenBalance.totalShieldedReceived,
+          walletId,
+          token,
+        ],
       );
 
       // same logic here as in the updateAddressTablesWithTx function
@@ -2141,7 +2186,12 @@ export const updateWalletTablesWithTx = async (
         );
       }
 
-      entries.push([walletId, token, txId, tokenBalance.total(), timestamp]);
+      // `balance` is the transparent delta; `shielded_balance_delta` is
+      // the signed shielded delta (positive on credit, negative on the
+      // reversal of a previously-recovered shielded UTXO being spent).
+      const transparentDelta = tokenBalance.unlockedAmount + tokenBalance.lockedAmount;
+      const shieldedDelta = tokenBalance.unlockedShieldedAmount + tokenBalance.lockedShieldedAmount;
+      entries.push([walletId, token, txId, transparentDelta, shieldedDelta, timestamp]);
     }
   }
 
@@ -2149,9 +2199,11 @@ export const updateWalletTablesWithTx = async (
     await mysql.query(
       `INSERT INTO \`wallet_tx_history\` (\`wallet_id\`, \`token_id\`,
                                           \`tx_id\`, \`balance\`,
+                                          \`shielded_balance_delta\`,
                                           \`timestamp\`)
             VALUES ?
-       ON DUPLICATE KEY UPDATE \`balance\` = VALUES(\`balance\`)`,
+       ON DUPLICATE KEY UPDATE \`balance\` = VALUES(\`balance\`),
+                               \`shielded_balance_delta\` = VALUES(\`shielded_balance_delta\`)`,
       [entries],
     );
   }

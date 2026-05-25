@@ -35,10 +35,12 @@ import {
 import {
   fetchAddressBalance,
   fetchAddressTxHistorySum,
+  findShieldedAddressOwnership,
   getAddressWalletInfo,
   getExpiredTimelocksUtxos,
   getShieldedAddressWalletInfo,
   getTokenSymbols,
+  getTxOutput,
   unlockUtxos as dbUnlockUtxos,
   updateAddressLockedBalance,
   updateWalletLockedBalance,
@@ -240,6 +242,134 @@ export const getInvolvedAddresses = (
   }
 
   return involved;
+};
+
+/**
+ * Per-shielded-output rewind outcome captured during the
+ * handleVertexAccepted shielded loop. Only successful recoveries against an
+ * owned address contribute; unowned outputs and rewind failures are not
+ * included because no balance was credited.
+ */
+export interface ShieldedRecoveryResult {
+  address: string;
+  tokenId: string;
+  value: bigint;
+  locked: boolean;
+}
+
+/**
+ * Build the unified per-(address, token) balance map for a vertex.
+ *
+ * Combines four contribution sources into a single map so the address /
+ * wallet writers can issue one statement per (address, token) row that
+ * carries both transparent and shielded deltas:
+ *
+ *  - Transparent outputs: read from prepared outputs; standard
+ *    TokenBalanceMap.fromTxOutput semantics (positive delta, locked vs
+ *    unlocked column routed by `output.locked`).
+ *  - Transparent inputs: read from prepared inputs; standard
+ *    TokenBalanceMap.fromTxInput semantics (negative delta plus any
+ *    authority bookkeeping).
+ *  - Shielded outputs that recovered against an owned address: the rewind
+ *    revealed (value, token) — contribute a positive shielded delta
+ *    routed to the locked or unlocked shielded column by `locked`.
+ *  - Shielded inputs whose original `tx_output` row is in recovery_state =
+ *    'recovered' AND owned by us: look up the local row to learn the
+ *    value and contribute a negative shielded delta. Unowned or
+ *    recovery_failed shielded inputs contribute nothing — the bump in
+ *    `address.transactions` from the involvement helper already accounts
+ *    for them.
+ *
+ * Shielded-input contributions are sourced from local state rather than
+ * the wire because the shielded `spent_output` payload doesn't carry the
+ * recovered value, and for FullyShielded inputs it doesn't carry the
+ * token either.
+ *
+ * Headers (currently only nano-contract `nc_address`) seed an empty HTR
+ * entry, matching the legacy `getAddressBalanceMap` behaviour so the
+ * downstream wallet lookup can still attach to the address. This is the
+ * only zero-delta seed produced by the unified builder.
+ *
+ * The caller is responsible for passing `txInputs` and `txOutputs` that
+ * already represent the transparent slice of the vertex; shielded stubs
+ * emitted by the current `prepareInputs` are filtered here defensively
+ * via the `token === ''` / shielded-input check.
+ */
+export const getUnifiedBalanceMap = async (
+  mysql: MysqlConnection,
+  txInputs: TxInput[],
+  txOutputs: TxOutputWithIndex[],
+  shieldedRecoveryResults: ShieldedRecoveryResult[],
+  eventInputs: EventTxInput[],
+  headers: EventTxHeader[],
+): Promise<StringMap<TokenBalanceMap>> => {
+  const map: StringMap<TokenBalanceMap> = {};
+
+  // Transparent input contributions. Filter out shielded stubs (which
+  // currently flow through `prepareInputs` for `updateTxOutputSpentBy`'s
+  // sake). Stubs are identified by `token === ''` for FullyShielded and
+  // by `value === 0n` for AmountShielded — but the safer signal is
+  // cross-referencing the corresponding eventInput's `spent_output.mode`.
+  // Build an index → mode lookup off `eventInputs`, keyed by tx_id+index.
+  const shieldedInputKeys = new Set<string>();
+  for (const ei of eventInputs) {
+    if (ei?.spent_output && isShieldedMode(ei.spent_output.mode)) {
+      shieldedInputKeys.add(`${ei.tx_id}:${ei.index}`);
+    }
+  }
+
+  for (const input of txInputs) {
+    if (shieldedInputKeys.has(`${input.tx_id}:${input.index}`)) continue;
+    if (!isDecodedValid(input.decoded)) continue;
+    const address = input.decoded?.address!;
+    const tokenMap = TokenBalanceMap.fromTxInput(input);
+    map[address] = TokenBalanceMap.merge(map[address], tokenMap);
+  }
+
+  for (const output of txOutputs) {
+    if (!isDecodedValid(output.decoded)) {
+      throw new Error('Output has no decoded script');
+    }
+    if (!output.decoded.address) {
+      throw new Error('Decoded output data has no address');
+    }
+    const address = output.decoded.address;
+    const tokenMap = TokenBalanceMap.fromTxOutput(output);
+    map[address] = TokenBalanceMap.merge(map[address], tokenMap);
+  }
+
+  for (const r of shieldedRecoveryResults) {
+    const tokenMap = TokenBalanceMap.fromShielded(r.tokenId, r.value, r.locked);
+    map[r.address] = TokenBalanceMap.merge(map[r.address], tokenMap);
+  }
+
+  // Shielded input reversals: look up the local tx_output row for each
+  // shielded input. Only owned, recovered rows contributed a balance
+  // originally; unowned and recovery_failed are skipped.
+  for (const ei of eventInputs) {
+    if (!ei?.spent_output || !isShieldedMode(ei.spent_output.mode)) continue;
+    const row = await getTxOutput(mysql, ei.tx_id, ei.index, false);
+    if (!row) continue;
+    if (row.recoveryState !== RecoveryState.Recovered) continue;
+    if (row.value === null || row.tokenId === null) continue;
+    const owned = await findShieldedAddressOwnership(mysql, row.address);
+    if (!owned) continue;
+    const tokenMap = TokenBalanceMap.fromShielded(row.tokenId, -row.value, row.locked);
+    map[row.address] = TokenBalanceMap.merge(map[row.address], tokenMap);
+  }
+
+  // Header-only addresses (nano-contract callers without an input/output)
+  // get an empty HTR seed so the downstream wallet lookup can attach.
+  for (const header of headers) {
+    if (!isNanoHeader(header)) continue;
+    const address = header.nc_address;
+    if (map[address]) continue;
+    const emptyHTR = new TokenBalanceMap();
+    emptyHTR.set(constants.NATIVE_TOKEN_UID, emptyHTR.get(constants.NATIVE_TOKEN_UID));
+    map[address] = emptyHTR;
+  }
+
+  return map;
 };
 
 /**
