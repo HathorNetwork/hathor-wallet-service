@@ -2992,4 +2992,136 @@ describe('handleVertexAccepted with shielded spends', () => {
     expect(prevOutput).not.toBeNull();
     expect(prevOutput!.spentBy).toBe(SPEND_TX_ID);
   });
+
+  it('does not produce a phantom (address, "") balance entry for a FullyShielded input', async () => {
+    // Regression for the FullyShielded-input phantom-row case. The wire
+    // payload for a FullyShielded spent_output carries no token uid, so
+    // the legacy prepareInputs path emitted a TxInput with token = '',
+    // which then flowed into getAddressBalanceMap and produced a
+    // (address, '') row in address_balance and an empty-string entry in
+    // token.transactions. After the unified-dispatch refactor those
+    // writes are sourced from the unified balance map, which never
+    // contains the empty token; this test pins that contract.
+    expect.hasAssertions();
+
+    // Wallet must exist for getAddressWalletInfo lookups in the spend
+    // path.
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES ('wallet_alice', ?, ?, 'ready', 20, ?, ?)`,
+      [XPUBKEY, XPUBKEY, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
+    );
+    // Owned shielded address row.
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 1, ?, 1)`,
+      [SHIELDED_ADDRESS, Buffer.alloc(32, 0x42)],
+    );
+    await seedRecoveredShieldedUtxo();
+    await seedWalletBalance();
+
+    // FullyShielded input: mode=2, no token_data, must carry
+    // asset_commitment + surjection_proof per the wire schema.
+    const fullyShieldedSpendEvent = {
+      type: 'EVENT',
+      event: {
+        stream_id: 'stream-shielded-fs-spend',
+        network: 'mainnet',
+        peer_id: 'peer-shielded-fs-spend',
+        id: 220,
+        timestamp: 1700000200.0,
+        type: 'NEW_VERTEX_ACCEPTED',
+        data: {
+          hash: SPEND_TX_ID,
+          nonce: 12345,
+          timestamp: 1700000000,
+          version: 1,
+          weight: 21.5,
+          signal_bits: 0,
+          inputs: [{
+            tx_id: PREV_TX_ID,
+            index: PREV_INDEX,
+            spent_output: {
+              mode: 2,
+              commitment: '02'.repeat(33),
+              range_proof: '03'.repeat(64),
+              script: '04'.repeat(20),
+              ephemeral_pubkey: '05'.repeat(33),
+              asset_commitment: '06'.repeat(33),
+              surjection_proof: '07'.repeat(64),
+              decoded: {
+                address: SHIELDED_ADDRESS,
+              },
+            },
+          }],
+          outputs: [],
+          shielded_outputs: [],
+          parents: [
+            '16ba3dbe424c443e571b00840ca54b9ff4cff467e10b6a15536e718e2008f952',
+            '33e14cb555a96967841dcbe0f95e9eab5810481d01de8f4f73afb8cce365e869',
+          ],
+          tokens: [],
+          token_name: null,
+          token_symbol: null,
+          metadata: {
+            hash: SPEND_TX_ID,
+            voided_by: [],
+            first_block: null,
+            height: 102,
+          },
+          aux_pow: null,
+        },
+        group_id: null,
+      },
+      latest_event_id: 221,
+    };
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fullyShieldedSpendEvent,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    // No phantom (address, '') row was ever written to address_balance.
+    const [phantomBalanceRows] = await mysql.query<any[]>(
+      `SELECT address, token_id FROM address_balance WHERE token_id = ''`,
+    );
+    expect(phantomBalanceRows).toHaveLength(0);
+
+    // No phantom empty-token row in `token`.
+    const [phantomTokenRows] = await mysql.query<any[]>(
+      `SELECT id, transactions FROM token WHERE id = ''`,
+    );
+    expect(phantomTokenRows).toHaveLength(0);
+
+    // The unified balance map picked up the negative shielded delta from
+    // the local tx_output lookup, so the shielded balance is reversed
+    // on the real (address, TOKEN_ID) row.
+    const [addrBalanceRows] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, locked_shielded_balance,
+              total_shielded_received, transactions
+         FROM address_balance
+        WHERE address = ? AND token_id = ?`,
+      [SHIELDED_ADDRESS, TOKEN_ID],
+    );
+    expect(addrBalanceRows).toHaveLength(1);
+    expect(BigInt(addrBalanceRows[0].unlocked_shielded_balance)).toBe(0n);
+    expect(BigInt(addrBalanceRows[0].locked_shielded_balance)).toBe(0n);
+    expect(BigInt(addrBalanceRows[0].total_shielded_received)).toBe(SEEDED_VALUE);
+
+    // Wallet balance row was also updated through the unified writer.
+    const [walletBalanceRows] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance FROM wallet_balance
+        WHERE wallet_id = ? AND token_id = ?`,
+      ['wallet_alice', TOKEN_ID],
+    );
+    expect(walletBalanceRows).toHaveLength(1);
+    expect(BigInt(walletBalanceRows[0].unlocked_shielded_balance)).toBe(0n);
+  });
 });
