@@ -66,6 +66,19 @@ module.exports = {
     await queryInterface.removeColumn('tx_output', 'recovery_state');
     await queryInterface.removeColumn('tx_output', 'mode');
 
+    // Guard against silent truncation: narrowing to TINYINT UNSIGNED would lose
+    // any row with index > 255 (which is exactly what the widening enabled).
+    const [maxRows] = await queryInterface.sequelize.query(
+      'SELECT MAX(`index`) AS max_index FROM tx_output'
+    );
+    const maxIndex = maxRows[0]?.max_index ?? 0;
+    if (maxIndex > 255) {
+      throw new Error(
+        `Rollback blocked: tx_output.index has values > 255 (max=${maxIndex}). `
+        + 'Narrowing to TINYINT UNSIGNED would silently truncate them.'
+      );
+    }
+
     await queryInterface.sequelize.query(`
       ALTER TABLE tx_output
         MODIFY COLUMN \`index\` TINYINT UNSIGNED NOT NULL

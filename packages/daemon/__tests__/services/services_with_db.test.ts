@@ -5,6 +5,13 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+// Owned-wallet shielded tests trigger wallet-lib's gap-fill / address-derivation
+// path inside handleVertexAccepted (the wallet seed uses a real xpubkey, so each
+// ownership check derives a window of addresses, ~7-8s per test). Jest's default
+// 5000ms timeout fails these in CI; bump to 30s to give headroom. Follow-up: skip
+// gap-fill in these tests by pre-seeding addresses or mocking the derivation.
+jest.setTimeout(30000);
+
 // Redirect the ct-crypto NAPI binding to the deterministic mock for ALL tests
 // in this file. The shielded recovery tests prime the mock; everything else
 // never touches it, so existing tests are unaffected.

@@ -120,7 +120,7 @@ export const EventTxOutputSchema = z.object({
 });
 export type EventTxOutput = z.infer<typeof EventTxOutputSchema>;
 
-const HexStringSchema = z.string().regex(/^([0-9a-fA-F]{2})*$/);
+const HexStringSchema = z.string().regex(/^([0-9a-fA-F]{2})+$/);
 
 const ShieldedDecodedSchema = z.object({
   address: z.string(),
