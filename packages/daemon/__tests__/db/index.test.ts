@@ -580,9 +580,18 @@ describe('address and wallet related tests', () => {
       address2: TokenBalanceMap.fromStringMap({ token1: { unlocked: 8n, locked: 0n, unlockedAuthorities: new Authorities(0b01) } }),
     };
 
+    // Pre-seed address2 too — updateAddressTablesWithTx no longer inserts
+    // address rows on its own. The involvement counter is owned by
+    // bumpAddressInvolvement, which is exercised separately.
+    await addToAddressTable(mysql, [
+      { address: address2, index: null, walletId: null, transactions: 0 },
+    ]);
+
     await updateAddressTablesWithTx(mysql, txId1, timestamp1, addrMap1);
-    await expect(checkAddressTable(mysql, 2, address1, null, null, 2)).resolves.toBe(true);
-    await expect(checkAddressTable(mysql, 2, address2, null, null, 1)).resolves.toBe(true);
+    // updateAddressTablesWithTx leaves `address.transactions` untouched;
+    // the pre-seeded values survive the call.
+    await expect(checkAddressTable(mysql, 2, address1, null, null, 1)).resolves.toBe(true);
+    await expect(checkAddressTable(mysql, 2, address2, null, null, 0)).resolves.toBe(true);
     await expect(checkAddressBalanceTable(mysql, 4, address1, token1, 10n, 0n, null, 1)).resolves.toBe(true);
     await expect(checkAddressBalanceTable(mysql, 4, address1, token2, 7n, 0n, null, 1)).resolves.toBe(true);
     await expect(checkAddressBalanceTable(mysql, 4, address1, token3, 2n, 0n, null, 1, 0b01, 0)).resolves.toBe(true);
@@ -603,8 +612,8 @@ describe('address and wallet related tests', () => {
     };
 
     await updateAddressTablesWithTx(mysql, txId2, timestamp2, addrMap2);
-    await expect(checkAddressTable(mysql, 2, address1, null, null, 3)).resolves.toBe(true);
-    await expect(checkAddressTable(mysql, 2, address2, null, null, 2)).resolves.toBe(true);
+    await expect(checkAddressTable(mysql, 2, address1, null, null, 1)).resolves.toBe(true);
+    await expect(checkAddressTable(mysql, 2, address2, null, null, 0)).resolves.toBe(true);
     // final balance for each (address,token)
     await expect(checkAddressBalanceTable(mysql, 5, address1, 'token1', 5n, 0n, null, 2)).resolves.toBe(true);
     await expect(checkAddressBalanceTable(mysql, 5, address1, 'token2', 7n, 0n, null, 1)).resolves.toBe(true);

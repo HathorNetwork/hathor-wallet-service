@@ -40,6 +40,7 @@ import {
 import {
   prepareOutputs,
   getAddressBalanceMap,
+  getInvolvedAddresses,
   getUnixTimestamp,
   unlockUtxos,
   unlockTimelockedUtxos,
@@ -98,6 +99,7 @@ import {
   applyShieldedAddressTxHistory,
   applyShieldedWalletBalance,
   applyShieldedWalletTxHistory,
+  bumpAddressInvolvement,
   reverseShieldedAddressBalanceOnSpend,
   reverseShieldedWalletBalanceOnSpend,
   setTokenTotalSupply,
@@ -779,6 +781,15 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             }
           }
         }
+
+        // Bump address.transactions once per involved address using the
+        // pure wire-data set (transparent in/out + every shielded out +
+        // shielded in spent_output.decoded.address + nano-header addresses).
+        // This is now the single canonical writer of the involvement
+        // counter — updateAddressTablesWithTx no longer touches the
+        // address row directly; it only writes per-token rows.
+        const involvedAddresses = getInvolvedAddresses(inputs, outputs, shieldedOutputs, headers);
+        await withSpan('bumpAddressInvolvement', () => bumpAddressInvolvement(mysql, involvedAddresses));
 
         // Mark tx utxos as spent
         await withSpan('updateTxOutputSpentBy', () => updateTxOutputSpentBy(mysql, txInputs, hash));

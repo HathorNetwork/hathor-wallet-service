@@ -747,6 +747,37 @@ export async function incrementTokenTotalSupply(
 }
 
 /**
+ * Bump `address.transactions` by 1 for each address in the involvement set.
+ *
+ * Insert-or-increment using a single batched statement. Mirrors the
+ * existing per-balance bump inside `updateAddressTablesWithTx`, but is
+ * decoupled from the balance map so shielded-credit-only,
+ * shielded-spend-only and unowned-shielded-output vertices still bump the
+ * counter once per involved address. This is the only writer of the
+ * involvement counter for a given (address, tx) pair; the per-token
+ * counter (`address_balance.transactions`) is still owned by the
+ * balance-map-driven path further downstream.
+ *
+ * No-op when the set is empty.
+ */
+export async function bumpAddressInvolvement(
+  mysql: any,
+  addresses: Iterable<string>,
+): Promise<void> {
+  const entries: [string, number][] = [];
+  for (const addr of addresses) {
+    entries.push([addr, 1]);
+  }
+  if (entries.length === 0) return;
+  await mysql.query(
+    `INSERT INTO \`address\`(\`address\`, \`transactions\`)
+          VALUES ?
+              ON DUPLICATE KEY UPDATE transactions = transactions + 1`,
+    [entries],
+  );
+}
+
+/**
  * Remove a tx inputs from the utxo table.
  *
  * @param mysql - Database connection
@@ -1258,23 +1289,12 @@ export const updateAddressTablesWithTx = async (
     // No need to do anything here
     return;
   }
-  /*
-   * update address table
-   *
-   * If an address is not yet present, add entry with index = null, walletId = null and transactions = 1.
-   * Later, when the corresponding wallet is started, index and walletId will be updated.
-   *
-   * If address is already present, just increment the transactions counter.
-   */
-  const addressEntries = Object.keys(addressBalanceMap).map((address) => [address, 1]);
-  if (addressEntries.length > 0) {
-    await mysql.query(
-      `INSERT INTO \`address\`(\`address\`, \`transactions\`)
-            VALUES ?
-                ON DUPLICATE KEY UPDATE transactions = transactions + 1`,
-      [addressEntries],
-    );
-  }
+  // The per-address `address.transactions` bump is handled by the central
+  // `bumpAddressInvolvement` helper earlier in the vertex pipeline, which
+  // is driven by the wire-level involvement set so it covers
+  // shielded-credit-only, shielded-spend-only, and unowned shielded
+  // vertices alongside the transparent ones. This function is now only
+  // responsible for the per-(address, token) row writes.
 
   const entries = [];
   for (const [address, tokenMap] of Object.entries(addressBalanceMap)) {

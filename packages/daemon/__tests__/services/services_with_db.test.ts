@@ -2178,19 +2178,18 @@ describe('handleVertexAccepted with shielded outputs', () => {
     expect(satelliteRows[0].token_data).toBe(shieldedOutput.token_data);
 
     // Verify the shielded address observation row landed on the unified
-    // `address` table with bip32_account = 1, unowned (wallet_id NULL), and
-    // transactions = 0 — observation never bumps the counter; the single
-    // canonical bump per (address, tx) lives in updateAddressTablesWithTx,
-    // which only sees addresses present in the vertex's balance map. An
-    // unowned shielded observation contributes no balance entry, so the
-    // counter stays at zero.
+    // `address` table with bip32_account = 1 and unowned (wallet_id NULL).
+    // `transactions` is bumped to 1 by the central involvement helper that
+    // runs once per vertex against the wire-level involved-addresses set,
+    // which always includes every shielded output's address regardless of
+    // ownership — observation itself still doesn't touch the counter.
     const [shieldedAddrRows] = await mysql.query<any[]>(
       'SELECT * FROM `address` WHERE `address` = ? AND `bip32_account` = 1',
       [shieldedOutput.decoded.address],
     );
     expect(shieldedAddrRows).toHaveLength(1);
     expect(shieldedAddrRows[0].wallet_id).toBeNull();
-    expect(shieldedAddrRows[0].transactions).toBe(0);
+    expect(shieldedAddrRows[0].transactions).toBe(1);
 
     // Transparent output at concatenated index 0 is still written by the existing
     // addUtxos path with mode=0 and recovery_state=NULL.
