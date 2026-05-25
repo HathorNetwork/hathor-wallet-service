@@ -10,6 +10,7 @@ import getConfig from '../config';
 import { addAlert, Severity } from '@wallet-service/common';
 import { Event, EventTypes } from '../types';
 import { getDbConnection } from '../db';
+import { buildErrorLogMessage } from '../utils/error';
 
 /**
  * MonitoringActor
@@ -107,7 +108,7 @@ export default (callback: any, receive: any, config = getConfig()) => {
         { timeoutMs: String(stuckTimeoutMs) },
         logger,
       ).catch((err: Error) =>
-        logger.error(`[monitoring] Failed to send stuck-processing alert: ${err.message}`),
+        logger.error(buildErrorLogMessage('[monitoring] Failed to send stuck-processing alert', err)),
       );
     }, stuckTimeoutMs);
   };
@@ -152,7 +153,7 @@ export default (callback: any, receive: any, config = getConfig()) => {
         },
         logger,
       ).catch((err: Error) =>
-        logger.error(`[monitoring] Failed to send reconnection storm alert: ${err.message}`),
+        logger.error(buildErrorLogMessage('[monitoring] Failed to send reconnection storm alert', err)),
       );
     }
   };
@@ -257,18 +258,14 @@ export default (callback: any, receive: any, config = getConfig()) => {
         logger.info('[monitoring] Balance validation complete, no mismatches found');
       }
     } catch (err) {
-      const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
-      logger.error(`[monitoring] Balance validation error: ${detail}`);
+      logger.error(buildErrorLogMessage('[monitoring] Balance validation error', err));
     } finally {
       if (mysql) {
         try {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (mysql as any).release();
         } catch (releaseErr) {
-          const detail = releaseErr instanceof Error
-            ? (releaseErr.stack ?? releaseErr.message)
-            : String(releaseErr);
-          logger.warn(`[monitoring] Balance validation: connection release failed: ${detail}`);
+          logger.warn(buildErrorLogMessage('[monitoring] Balance validation: connection release failed', releaseErr));
         }
       }
     }

@@ -89,6 +89,7 @@ import {
 import getConfig, { VALIDATE_ADDRESS_BALANCES } from '../config';
 import logger from '../logger';
 import { invokeOnTxPushNotificationRequestedLambda, getDaemonUptime, retryWithBackoff } from '../utils';
+import { buildErrorLogMessage } from '../utils/error';
 import { addAlert, Severity } from '@wallet-service/common';
 import { JSONBigInt } from '@hathor/wallet-lib/lib/utils/bigint';
 
@@ -540,8 +541,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
               );
             }
           } catch (e) {
-            logger.error('Failed to send transaction to SQS queue');
-            logger.error(e);
+            logger.error(buildErrorLogMessage('Failed to send transaction to SQS queue', e));
           }
 
           try {
@@ -550,12 +550,11 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
               const { length: hasAffectWallets } = Object.keys(walletBalanceMap);
               if (hasAffectWallets) {
                 invokeOnTxPushNotificationRequestedLambda(walletBalanceMap)
-                  .catch((err: Error) => logger.error('Error on invokeOnTxPushNotificationRequestedLambda invocation', err));
+                  .catch((err: Error) => logger.error(buildErrorLogMessage('Error on invokeOnTxPushNotificationRequestedLambda invocation', err)));
               }
             }
           } catch (e) {
-            logger.error('Failed to send push notification to wallet-service lambda');
-            logger.error(e);
+            logger.error(buildErrorLogMessage('Failed to send push notification to wallet-service lambda', e));
           }
 
           const network = new hathorLib.Network(NETWORK);
@@ -563,7 +562,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
           // Call to process the data for NFT handling (if applicable)
           // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
           NftUtils.processNftEvent(fullNodeData, STAGE, SERVERLESS_DEPLOY_PREFIX, network, logger)
-            .catch((err: unknown) => logger.error('[ALERT] Error processing NFT event', err));
+            .catch((err: unknown) => logger.error(buildErrorLogMessage('[ALERT] Error processing NFT event', err)));
         }
 
         // Need to check if there is a nano header and update the nc_address's seqnum if needed
