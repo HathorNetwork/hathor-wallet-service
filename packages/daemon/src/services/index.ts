@@ -87,7 +87,6 @@ import {
   getAddressSeqnum,
   unspendUtxos,
   voidWalletTransaction,
-  getTxOutput,
   getTxOutputs,
   clearTxProposalForVoidedTx,
   insertTxOutput,
@@ -437,8 +436,6 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
       span.setAttribute('tx.hash', hash);
       span.setAttribute('tx.version', version);
-
-      const isNano = isNanoContract(headers);
 
       // Duplicate check is a read-only lookup and runs outside the transaction
       // so an early return cannot leave a BEGIN open on a pooled connection.
