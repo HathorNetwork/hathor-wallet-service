@@ -360,7 +360,8 @@ export const insertShieldedTxOutputData = async (
 };
 
 /**
- * Record an observation of a shielded address in the unified `address` table.
+ * Record an observation of a CTSpend-derived address in the unified `address`
+ * table.
  *
  * Used at observation time: the daemon has seen a shielded `tx_output` whose
  * destination address it does not (yet) own. The row is inserted with
@@ -378,7 +379,8 @@ export const insertShieldedTxOutputData = async (
  * preserved untouched across repeated observations.
  *
  * @param conn - Database connection
- * @param address - The shielded P2PKH spend address observed in a `tx_output`
+ * @param address - The P2PKH spend address (CTSpend-derived) observed as the
+ *   destination of a shielded `tx_output`
  */
 export async function upsertShieldedAddressObservation(
   conn: any,
@@ -392,7 +394,8 @@ export async function upsertShieldedAddressObservation(
 }
 
 /**
- * Ownership info for a shielded address that has been claimed by a wallet.
+ * Ownership info for a CTSpend-derived address that has been claimed by a
+ * wallet.
  */
 export interface ShieldedAddressOwnership {
   wallet_id: string;
@@ -401,14 +404,15 @@ export interface ShieldedAddressOwnership {
 }
 
 /**
- * Look up ownership info for a shielded address on the unified `address`
+ * Look up CTSpend ownership info for an address on the unified `address`
  * table.
  *
  * Filters on `bip32_account = Bip32Account.CTSpend` so the CT-derived row
- * is isolated from any legacy row that might exist for the same P2PKH address.
- * Returns ownership only when a wallet has claimed the address
- * (`wallet_id IS NOT NULL`) and the scan key has been recorded
- * (`scan_privkey IS NOT NULL`).
+ * is isolated from any Legacy row that might exist for the same P2PKH
+ * address (both account paths can produce the same on-chain address by
+ * accident, though deterministically unlikely). Returns ownership only when
+ * a wallet has claimed the address (`wallet_id IS NOT NULL`) and the scan
+ * key has been recorded (`scan_privkey IS NOT NULL`).
  *
  * Used during recovery to look up the scan key associated with an observed
  * shielded output.

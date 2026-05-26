@@ -296,7 +296,7 @@ describe('voidTransaction with input unspending', () => {
     await updateTxOutputSpentBy(mysql, [inputB], txIdB);
     const outputB = createOutput(0, 100n, address2, tokenId);
     await addUtxos(mysql, txIdB, [outputB], null);
-    
+
     // Only update address transaction counts (not balances) to prevent negative decrements
     await mysql.query('INSERT INTO address (address, transactions) VALUES (?, 1) ON DUPLICATE KEY UPDATE transactions = transactions + 1', [address1]);
     await mysql.query('INSERT INTO address (address, transactions) VALUES (?, 1) ON DUPLICATE KEY UPDATE transactions = transactions + 1', [address2]);
@@ -307,8 +307,8 @@ describe('voidTransaction with input unspending', () => {
     await updateTxOutputSpentBy(mysql, [inputC], txIdC);
     const outputC = createOutput(0, 100n, address3, tokenId);
     await addUtxos(mysql, txIdC, [outputC], null);
-    
-    // Only update address transaction counts (not balances) to prevent negative decrements  
+
+    // Only update address transaction counts (not balances) to prevent negative decrements
     await mysql.query('INSERT INTO address (address, transactions) VALUES (?, 1) ON DUPLICATE KEY UPDATE transactions = transactions + 1', [address2]);
     await mysql.query('INSERT INTO address (address, transactions) VALUES (?, 1) ON DUPLICATE KEY UPDATE transactions = transactions + 1', [address3]);
 
@@ -2140,7 +2140,7 @@ describe('handleVertexAccepted with shielded outputs', () => {
     // `shielded_tx_output_data` is not yet part of the shared cleanDatabase
     // TABLES list; wipe it manually to keep this test isolated from
     // neighbouring suites. Address rows live in the unified `address` table
-    // (with bip32_account = 1 for shielded entries) and are cleaned up by
+    // (with bip32_account = 2 for shielded entries) and are cleaned up by
     // cleanDatabase.
     await mysql.query('DELETE FROM shielded_tx_output_data');
   });
@@ -2185,13 +2185,13 @@ describe('handleVertexAccepted with shielded outputs', () => {
     expect(satelliteRows[0].token_data).toBe(shieldedOutput.token_data);
 
     // Verify the shielded address observation row landed on the unified
-    // `address` table with bip32_account = 1 and unowned (wallet_id NULL).
+    // `address` table with bip32_account = 2 and unowned (wallet_id NULL).
     // `transactions` is bumped to 1 by the central involvement helper that
     // runs once per vertex against the wire-level involved-addresses set,
     // which always includes every shielded output's address regardless of
     // ownership — observation itself still doesn't touch the counter.
     const [shieldedAddrRows] = await mysql.query<any[]>(
-      'SELECT * FROM `address` WHERE `address` = ? AND `bip32_account` = 1',
+      'SELECT * FROM `address` WHERE `address` = ? AND `bip32_account` = 2',
       [shieldedOutput.decoded.address],
     );
     expect(shieldedAddrRows).toHaveLength(1);
@@ -2220,12 +2220,12 @@ describe('handleVertexAccepted with shielded outputs', () => {
 
     // Seed an owned shielded address row on the unified `address` table so
     // findShieldedAddressOwnership picks it up after
-    // upsertShieldedAddressObservation runs. `bip32_account = 1` discriminates
+    // upsertShieldedAddressObservation runs. `bip32_account = 2` discriminates
     // the shielded scan-path row from any transparent row that might share
     // the same P2PKH address.
     await mysql.query(
       `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
-       VALUES (?, 'wallet_alice', 7, 1, ?, 0)`,
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
       [so.decoded.address, Buffer.alloc(32, 0x42)],
     );
 
@@ -2268,7 +2268,7 @@ describe('handleVertexAccepted with shielded outputs', () => {
 
     await mysql.query(
       `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
-       VALUES (?, 'wallet_alice', 7, 1, ?, 0)`,
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
       [shieldedAddress, Buffer.alloc(32, 0x42)],
     );
 
@@ -2314,7 +2314,7 @@ describe('handleVertexAccepted with shielded outputs', () => {
     // single central path in updateAddressTablesWithTx. The observation
     // upsert that ran earlier in handleVertexAccepted must not bump it.
     const [addrRows] = await mysql.query<any[]>(
-      'SELECT `transactions` FROM `address` WHERE `address` = ? AND `bip32_account` = 1',
+      'SELECT `transactions` FROM `address` WHERE `address` = ? AND `bip32_account` = 2',
       [shieldedAddress],
     );
     expect(addrRows).toHaveLength(1);
@@ -2345,7 +2345,7 @@ describe('handleVertexAccepted with shielded outputs', () => {
     );
     await mysql.query(
       `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
-       VALUES (?, 'wallet_alice', 7, 1, ?, 0)`,
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
       [shieldedAddress, Buffer.alloc(32, 0x42)],
     );
 
@@ -2448,7 +2448,7 @@ describe('handleVertexAccepted with shielded outputs', () => {
 
     await mysql.query(
       `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
-       VALUES (?, 'wallet_alice', 7, 1, ?, 0)`,
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
       [shieldedAddress, Buffer.alloc(32, 0x42)],
     );
 
@@ -2532,7 +2532,7 @@ describe('handleVertexAccepted with shielded outputs', () => {
 
     await mysql.query(
       `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
-       VALUES (?, 'wallet_alice', 7, 1, ?, 0)`,
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
       [shieldedAddress, Buffer.alloc(32, 0x42)],
     );
 
@@ -2619,7 +2619,7 @@ describe('handleVertexAccepted with shielded outputs', () => {
     );
     await mysql.query(
       `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
-       VALUES (?, 'wallet_alice', 7, 1, ?, 0)`,
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
       [shieldedAddress, Buffer.alloc(32, 0x42)],
     );
 
@@ -2679,7 +2679,7 @@ describe('handleVertexAccepted with shielded outputs', () => {
 
     await mysql.query(
       `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
-       VALUES (?, 'wallet_alice', 7, 1, ?, 0)`,
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
       [so.decoded.address, Buffer.alloc(32, 0x42)],
     );
 
@@ -2841,12 +2841,12 @@ describe('handleVertexAccepted with shielded spends', () => {
       [XPUBKEY, XPUBKEY, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
     );
 
-    // Owned shielded address row (bip32_account = 1) on the unified `address`
+    // Owned shielded address row (bip32_account = 2) on the unified `address`
     // table so findShieldedAddressOwnership returns the owning wallet for
     // SHIELDED_ADDRESS.
     await mysql.query(
       `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
-       VALUES (?, 'wallet_alice', 7, 1, ?, 1)`,
+       VALUES (?, 'wallet_alice', 7, 2, ?, 1)`,
       [SHIELDED_ADDRESS, Buffer.alloc(32, 0x42)],
     );
     await seedRecoveredShieldedUtxo();
@@ -3021,7 +3021,7 @@ describe('handleVertexAccepted with shielded spends', () => {
     // Owned shielded address row.
     await mysql.query(
       `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
-       VALUES (?, 'wallet_alice', 7, 1, ?, 1)`,
+       VALUES (?, 'wallet_alice', 7, 2, ?, 1)`,
       [SHIELDED_ADDRESS, Buffer.alloc(32, 0x42)],
     );
     await seedRecoveredShieldedUtxo();

@@ -129,17 +129,17 @@ describe('unlockUtxos dispatch', () => {
       [Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
     );
 
-    // addr_t -> wallet_alice (transparent ownership lookup, bip32_account=0)
+    // addr_legacy -> wallet_alice (Legacy ownership, bip32_account = 0)
     await mysql.query(
       `INSERT INTO \`address\` (\`address\`, \`index\`, \`wallet_id\`, \`bip32_account\`, \`transactions\`)
        VALUES (?, 0, 'wallet_alice', 0, 1)`,
       ['addr_t'],
     );
 
-    // addr_sr -> wallet_alice (shielded ownership lookup, bip32_account=1)
+    // addr_ctspend -> wallet_alice (CTSpend ownership, bip32_account = 2)
     await mysql.query(
       `INSERT INTO \`address\` (\`address\`, \`index\`, \`wallet_id\`, \`bip32_account\`, \`scan_privkey\`, \`transactions\`)
-       VALUES (?, 0, 'wallet_alice', 1, ?, 1)`,
+       VALUES (?, 0, 'wallet_alice', 2, ?, 1)`,
       ['addr_sr', Buffer.alloc(32, 0x42)],
     );
 

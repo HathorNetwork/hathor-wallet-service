@@ -51,7 +51,7 @@ describe('findShieldedAddressOwnership', () => {
     expect(result).toBeNull();
   });
 
-  test('returns null when only a transparent (bip32_account=0) row exists for the address', async () => {
+  test('returns null when only a Legacy (bip32_account=0) row exists for the address', async () => {
     expect.hasAssertions();
 
     await mysql.query(
@@ -74,7 +74,7 @@ describe('findShieldedAddressOwnership', () => {
     await mysql.query(
       `UPDATE address
          SET wallet_id = ?, \`index\` = ?, scan_privkey = ?
-       WHERE address = ? AND bip32_account = 1`,
+       WHERE address = ? AND bip32_account = 2`,
       ['wallet_alice', 7, scanPrivkey, 'WT4nOWNED'],
     );
 

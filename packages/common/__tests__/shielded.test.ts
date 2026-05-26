@@ -1,4 +1,4 @@
-import { ShieldedOutputMode, isShieldedMode, modeToKind, RecoveryState } from '../src/shielded';
+import { ShieldedOutputMode, isShieldedMode, RecoveryState, Bip32Account } from '../src/shielded';
 
 describe('ShieldedOutputMode', () => {
   it('numeric values match the wire format', () => {
@@ -14,15 +14,15 @@ describe('ShieldedOutputMode', () => {
     expect(isShieldedMode(3)).toBe(false);
   });
 
-  it('modeToKind maps 0 to transparent and 1|2 to shielded', () => {
-    expect(modeToKind(0)).toBe('transparent');
-    expect(modeToKind(1)).toBe('shielded');
-    expect(modeToKind(2)).toBe('shielded');
-  });
-
   it('RecoveryState enum has the three expected values', () => {
     expect(RecoveryState.Unowned).toBe('unowned');
     expect(RecoveryState.Recovered).toBe('recovered');
     expect(RecoveryState.RecoveryFailed).toBe('recovery_failed');
+  });
+
+  it('Bip32Account numeric values match the derivation contract', () => {
+    expect(Bip32Account.Legacy).toBe(0);
+    expect(Bip32Account.CTScan).toBe(1);
+    expect(Bip32Account.CTSpend).toBe(2);
   });
 });

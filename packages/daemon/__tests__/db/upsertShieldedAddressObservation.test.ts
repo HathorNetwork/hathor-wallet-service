@@ -43,7 +43,7 @@ interface AddressRow {
 }
 
 describe('upsertShieldedAddressObservation', () => {
-  test('first observation inserts a unified address row with bip32_account=1 and transactions=0', async () => {
+  test('first observation inserts a unified address row with bip32_account=2 and transactions=0', async () => {
     expect.hasAssertions();
 
     await upsertShieldedAddressObservation(mysql, 'WT4nNEW');
@@ -57,7 +57,7 @@ describe('upsertShieldedAddressObservation', () => {
     expect(result).toHaveLength(1);
     const row = result[0];
     expect(row.address).toBe('WT4nNEW');
-    expect(row.bip32_account).toBe(1);
+    expect(row.bip32_account).toBe(2);
     expect(row.wallet_id).toBeNull();
     expect(row.index).toBeNull();
     expect(row.shielded_address).toBeNull();
@@ -79,7 +79,7 @@ describe('upsertShieldedAddressObservation', () => {
     await mysql.query(
       `UPDATE address
          SET wallet_id = ?, scan_privkey = ?, \`index\` = ?
-       WHERE address = ? AND bip32_account = 1`,
+       WHERE address = ? AND bip32_account = 2`,
       ['wallet_alice', scanPrivkey, 7, 'WT4nEXIST'],
     );
 
@@ -97,7 +97,7 @@ describe('upsertShieldedAddressObservation', () => {
     // `updateAddressTablesWithTx` increments it for vertices the address
     // actually participates in.
     expect(row.transactions).toBe(0);
-    expect(row.bip32_account).toBe(1);
+    expect(row.bip32_account).toBe(2);
     expect(row.wallet_id).toBe('wallet_alice');
     expect(row.index).toBe(7);
     expect(row.scan_privkey).not.toBeNull();

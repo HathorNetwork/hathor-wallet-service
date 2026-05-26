@@ -20,12 +20,6 @@ export function isShieldedMode(mode: number): boolean {
   return mode === ShieldedOutputMode.AmountShielded || mode === ShieldedOutputMode.FullyShielded;
 }
 
-export type AddressKind = 'transparent' | 'shielded';
-
-export function modeToKind(mode: number): AddressKind {
-  return isShieldedMode(mode) ? 'shielded' : 'transparent';
-}
-
 /**
  * Recovery state for shielded tx_output rows. NULL on transparent rows.
  */
@@ -41,24 +35,25 @@ export type RecoveryState = (typeof RecoveryState)[keyof typeof RecoveryState];
  * `Legacy` and `CTSpend` is what gets persisted in `address.bip32_account`;
  * `CTScan` is documented for the scan-key derivation path even though no
  * column stores it — addresses are P2PKH-derived from the spend path, and
- * the scan key lives on the `scan_privkey` blob attached to the same row.
+ * the scan key lives on the `scan_privkey` blob attached to the matching
+ * `CTSpend` row.
  *
- * The discriminator names the derivation path, not the output kind:
- * addresses from any account can appear on either transparent or shielded
- * outputs (no on-chain signal tells the payer which account the receiver
- * derived their address from).
+ * The discriminator names the derivation path, not what kind of output the
+ * address can appear on: addresses from any account can be the destination
+ * of either transparent or shielded outputs (no on-chain signal tells the
+ * payer which account the receiver derived their address from).
  *
  * - `Legacy` (0): legacy derivation path (m/44'/280'/0').
- * - `CTSpend` (1): Confidential Transactions spend-key derivation
- *   (m/44'/280'/1'). Produces P2PKH addresses that can appear on shielded
- *   outputs (as the recovered spend_address) and on transparent outputs.
- * - `CTScan` (2): Confidential Transactions scan-key derivation
- *   (m/44'/280'/2'). Not stored as a row identifier; the derived
+ * - `CTScan` (1): Confidential Transactions scan-key derivation
+ *   (m/44'/280'/1'). Not stored as a row identifier; the derived
  *   `scan_privkey` is attached to the matching `CTSpend` row.
+ * - `CTSpend` (2): Confidential Transactions spend-key derivation
+ *   (m/44'/280'/2'). Produces P2PKH addresses that, when received as a
+ *   shielded output, carry the long-form `shielded_address` payload.
  */
 export const Bip32Account = {
   Legacy: 0,
-  CTSpend: 1,
-  CTScan: 2,
+  CTScan: 1,
+  CTSpend: 2,
 } as const;
 export type Bip32Account = (typeof Bip32Account)[keyof typeof Bip32Account];
