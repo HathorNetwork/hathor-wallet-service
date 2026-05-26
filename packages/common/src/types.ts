@@ -377,15 +377,21 @@ export class TokenBalanceMap {
   static fromStringMap(tokenBalanceMap: StringMap<StringMap<bigint | number | Authorities>>): TokenBalanceMap {
     const obj = new TokenBalanceMap();
     for (const [tokenId, balance] of Object.entries(tokenBalanceMap)) {
+      // Each field accepts either the short StringMap-shorthand key (`unlocked`,
+      // `locked`, `unlockedShielded`, etc.) or the full Balance-class field
+      // name (`unlockedAmount`, `lockedAmount`, `unlockedShieldedAmount`, etc.).
+      // This makes the helper tolerant of a Balance instance round-tripped
+      // through JSON.stringify, which emits the full field names — preventing
+      // silent data-loss if a future serializer feeds its output back in.
       obj.set(tokenId, new Balance(
-        balance.totalSent as bigint,
-        balance.unlocked as bigint,
-        balance.locked as bigint,
+        (balance.totalSent as bigint) ?? (balance.totalAmountSent as bigint),
+        (balance.unlocked as bigint) ?? (balance.unlockedAmount as bigint),
+        (balance.locked as bigint) ?? (balance.lockedAmount as bigint),
         balance.lockExpires as number || null,
         balance.unlockedAuthorities as Authorities,
         balance.lockedAuthorities as Authorities,
-        (balance.unlockedShielded as bigint) ?? 0n,
-        (balance.lockedShielded as bigint) ?? 0n,
+        (balance.unlockedShielded as bigint) ?? (balance.unlockedShieldedAmount as bigint) ?? 0n,
+        (balance.lockedShielded as bigint) ?? (balance.lockedShieldedAmount as bigint) ?? 0n,
         (balance.totalShieldedReceived as bigint) ?? 0n,
       ));
     }
