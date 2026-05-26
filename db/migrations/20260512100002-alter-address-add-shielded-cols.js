@@ -16,8 +16,11 @@
  *     preferred over BLOB for inline storage. Populated only on CTSpend rows.
  *   - `catchup_state` (ENUM, NULL): tracks pending/running/done for the
  *     scan-catchup background process. Populated only on CTSpend rows.
- *   - `shielded_address` (VARCHAR(100) NULL): user-facing long-form shielded
- *     address (71-byte payload, base58). Populated only on CTSpend rows.
+ *   - `ct_address` (VARCHAR(100) NULL): user-facing long-form CT address
+ *     (71-byte payload, base58). Populated only on CTSpend rows. The
+ *     address can be the destination of either a transparent or a shielded
+ *     output, so the column name reflects the derivation path rather than
+ *     the output kind.
  */
 module.exports = {
   up: async (queryInterface, Sequelize) => {
@@ -40,18 +43,18 @@ module.exports = {
       allowNull: true,
     });
 
-    await queryInterface.addColumn('address', 'shielded_address', {
+    await queryInterface.addColumn('address', 'ct_address', {
       type: Sequelize.STRING(100),
       allowNull: true,
-      comment: 'User-facing long-form shielded address (71-byte payload, base58, <=100 chars). Populated only on CTSpend rows.',
+      comment: 'User-facing long-form CT address (71-byte payload, base58, <=100 chars). Populated only on CTSpend rows.',
     });
 
     await queryInterface.addIndex('address', ['wallet_id', 'bip32_account', 'index'], {
       unique: true,
       name: 'uk_address_wallet_account_index',
     });
-    await queryInterface.addIndex('address', ['shielded_address'], {
-      name: 'idx_address_shielded_long',
+    await queryInterface.addIndex('address', ['ct_address'], {
+      name: 'idx_address_ct_long',
     });
     await queryInterface.addIndex('address', ['wallet_id', 'catchup_state'], {
       name: 'idx_address_wallet_catchup',
@@ -60,9 +63,9 @@ module.exports = {
 
   down: async (queryInterface) => {
     await queryInterface.removeIndex('address', 'idx_address_wallet_catchup');
-    await queryInterface.removeIndex('address', 'idx_address_shielded_long');
+    await queryInterface.removeIndex('address', 'idx_address_ct_long');
     await queryInterface.removeIndex('address', 'uk_address_wallet_account_index');
-    await queryInterface.removeColumn('address', 'shielded_address');
+    await queryInterface.removeColumn('address', 'ct_address');
     await queryInterface.removeColumn('address', 'catchup_state');
     await queryInterface.removeColumn('address', 'scan_privkey');
     await queryInterface.removeColumn('address', 'bip32_account');

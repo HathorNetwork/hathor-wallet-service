@@ -36,7 +36,7 @@ interface AddressRow {
   wallet_id: string | null;
   index: number | null;
   bip32_account: number;
-  shielded_address: string | null;
+  ct_address: string | null;
   scan_privkey: Buffer | null;
   catchup_state: 'pending' | 'running' | 'done' | null;
   transactions: number;
@@ -60,7 +60,7 @@ describe('upsertShieldedAddressObservation', () => {
     expect(row.bip32_account).toBe(2);
     expect(row.wallet_id).toBeNull();
     expect(row.index).toBeNull();
-    expect(row.shielded_address).toBeNull();
+    expect(row.ct_address).toBeNull();
     expect(row.scan_privkey).toBeNull();
     expect(row.catchup_state).toBeNull();
     // Observation no longer bumps transactions; the single canonical

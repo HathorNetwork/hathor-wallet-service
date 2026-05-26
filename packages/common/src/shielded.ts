@@ -49,7 +49,7 @@ export type RecoveryState = (typeof RecoveryState)[keyof typeof RecoveryState];
  *   `scan_privkey` is attached to the matching `CTSpend` row.
  * - `CTSpend` (2): Confidential Transactions spend-key derivation
  *   (m/44'/280'/2'). Produces P2PKH addresses that, when received as a
- *   shielded output, carry the long-form `shielded_address` payload.
+ *   shielded output, carry the long-form `ct_address` payload.
  */
 export const Bip32Account = {
   Legacy: 0,

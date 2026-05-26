@@ -45,7 +45,7 @@ export interface AddressTableEntry {
   // owned CTSpend slot; left undefined / NULL on Legacy rows.
   scan_privkey?: Buffer;
   catchup_state?: 'pending' | 'running' | 'done';
-  shielded_address?: string;
+  ct_address?: string;
 }
 
 export interface TokenTableEntry {
