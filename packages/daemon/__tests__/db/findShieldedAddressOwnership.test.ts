@@ -70,12 +70,16 @@ describe('findShieldedAddressOwnership', () => {
 
     await upsertShieldedAddressObservation(mysql, 'WT4nOWNED');
 
+    // Simulate a wallet registration claiming this row: sets wallet_id,
+    // derivation slot (bip32_account = 2 = CTSpend), index, and scan key.
+    // The observation row started with bip32_account NULL, so the WHERE
+    // clause matches the row by address alone.
     const scanPrivkey = Buffer.alloc(32, 0x42);
     await mysql.query(
       `UPDATE address
-         SET wallet_id = ?, \`index\` = ?, scan_privkey = ?
-       WHERE address = ? AND bip32_account = 2`,
-      ['wallet_alice', 7, scanPrivkey, 'WT4nOWNED'],
+         SET wallet_id = ?, bip32_account = ?, \`index\` = ?, scan_privkey = ?
+       WHERE address = ?`,
+      ['wallet_alice', 2, 7, scanPrivkey, 'WT4nOWNED'],
     );
 
     const result = await findShieldedAddressOwnership(mysql, 'WT4nOWNED');
