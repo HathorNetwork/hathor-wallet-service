@@ -35,7 +35,7 @@ interface AddressRow {
   address: string;
   wallet_id: string | null;
   index: number | null;
-  bip32_account: number;
+  bip32_account: number | null;
   ct_address: string | null;
   scan_privkey: Buffer | null;
   catchup_state: 'pending' | 'running' | 'done' | null;
@@ -43,7 +43,7 @@ interface AddressRow {
 }
 
 describe('upsertShieldedAddressObservation', () => {
-  test('first observation inserts a unified address row with bip32_account=2 and transactions=0', async () => {
+  test('first observation inserts a unified address row with NULL bip32_account and transactions=0', async () => {
     expect.hasAssertions();
 
     await upsertShieldedAddressObservation(mysql, 'WT4nNEW');
@@ -57,7 +57,9 @@ describe('upsertShieldedAddressObservation', () => {
     expect(result).toHaveLength(1);
     const row = result[0];
     expect(row.address).toBe('WT4nNEW');
-    expect(row.bip32_account).toBe(2);
+    // Observation leaves bip32_account NULL — the derivation account is
+    // unknown until a wallet registration claims the address.
+    expect(row.bip32_account).toBeNull();
     expect(row.wallet_id).toBeNull();
     expect(row.index).toBeNull();
     expect(row.ct_address).toBeNull();
@@ -75,12 +77,14 @@ describe('upsertShieldedAddressObservation', () => {
 
     await upsertShieldedAddressObservation(mysql, 'WT4nEXIST');
 
+    // Simulate a wallet registration claiming this row: sets wallet_id,
+    // derivation slot (bip32_account = 2 = CTSpend), index, and scan key.
     const scanPrivkey = Buffer.alloc(32, 0x42);
     await mysql.query(
       `UPDATE address
-         SET wallet_id = ?, scan_privkey = ?, \`index\` = ?
-       WHERE address = ? AND bip32_account = 2`,
-      ['wallet_alice', scanPrivkey, 7, 'WT4nEXIST'],
+         SET wallet_id = ?, bip32_account = ?, scan_privkey = ?, \`index\` = ?
+       WHERE address = ?`,
+      ['wallet_alice', 2, scanPrivkey, 7, 'WT4nEXIST'],
     );
 
     await upsertShieldedAddressObservation(mysql, 'WT4nEXIST');
@@ -95,7 +99,8 @@ describe('upsertShieldedAddressObservation', () => {
     const row = result[0];
     // Observation never bumps transactions; the row stays at 0 until
     // `updateAddressTablesWithTx` increments it for vertices the address
-    // actually participates in.
+    // actually participates in. The claim's bip32_account / wallet_id /
+    // index / scan_privkey are untouched.
     expect(row.transactions).toBe(0);
     expect(row.bip32_account).toBe(2);
     expect(row.wallet_id).toBe('wallet_alice');

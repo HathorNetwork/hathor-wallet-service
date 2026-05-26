@@ -364,10 +364,13 @@ export const insertShieldedTxOutputData = async (
  * table.
  *
  * Used at observation time: the daemon has seen a shielded `tx_output` whose
- * destination address it does not (yet) own. The row is inserted with
- * `bip32_account = Bip32Account.CTSpend` and `transactions = 0`.
- * Ownership fields (`wallet_id`, `index`, `scan_privkey`, `catchup_state`)
- * stay NULL until a wallet claims this address.
+ * destination address it does not (yet) own. The row is inserted with just
+ * `address` and `transactions = 0`. Ownership and derivation-slot fields
+ * (`wallet_id`, `index`, `bip32_account`, `scan_privkey`, `catchup_state`,
+ * `ct_address`) stay NULL until a wallet registration claims this address
+ * — that's the step that knows the derivation account and writes
+ * `bip32_account = Bip32Account.CTSpend` along with the scan key and
+ * long-form CT address.
  *
  * This helper does NOT bump `transactions`. The single canonical
  * `transactions` bump per `(address, tx)` lives exclusively in
@@ -387,9 +390,9 @@ export async function upsertShieldedAddressObservation(
   address: string,
 ): Promise<void> {
   await conn.query(
-    `INSERT IGNORE INTO \`address\` (\`address\`, \`bip32_account\`, \`transactions\`)
-     VALUES (?, ?, 0)`,
-    [address, Bip32Account.CTSpend],
+    `INSERT IGNORE INTO \`address\` (\`address\`, \`transactions\`)
+     VALUES (?, 0)`,
+    [address],
   );
 }
 

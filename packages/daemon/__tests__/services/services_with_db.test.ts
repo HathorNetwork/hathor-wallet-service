@@ -2140,8 +2140,8 @@ describe('handleVertexAccepted with shielded outputs', () => {
     // `shielded_tx_output_data` is not yet part of the shared cleanDatabase
     // TABLES list; wipe it manually to keep this test isolated from
     // neighbouring suites. Address rows live in the unified `address` table
-    // (with bip32_account = 2 for shielded entries) and are cleaned up by
-    // cleanDatabase.
+    // (observations carry NULL bip32_account; CTSpend rows once claimed
+    // carry 2) and are cleaned up by cleanDatabase.
     await mysql.query('DELETE FROM shielded_tx_output_data');
   });
 
@@ -2185,16 +2185,19 @@ describe('handleVertexAccepted with shielded outputs', () => {
     expect(satelliteRows[0].token_data).toBe(shieldedOutput.token_data);
 
     // Verify the shielded address observation row landed on the unified
-    // `address` table with bip32_account = 2 and unowned (wallet_id NULL).
-    // `transactions` is bumped to 1 by the central involvement helper that
-    // runs once per vertex against the wire-level involved-addresses set,
-    // which always includes every shielded output's address regardless of
-    // ownership — observation itself still doesn't touch the counter.
+    // `address` table with NULL bip32_account (unclaimed; derivation account
+    // is set only when a wallet registration claims the row) and NULL
+    // wallet_id. `transactions` is bumped to 1 by the central involvement
+    // helper that runs once per vertex against the wire-level
+    // involved-addresses set, which always includes every shielded output's
+    // address regardless of ownership — observation itself still doesn't
+    // touch the counter.
     const [shieldedAddrRows] = await mysql.query<any[]>(
-      'SELECT * FROM `address` WHERE `address` = ? AND `bip32_account` = 2',
+      'SELECT * FROM `address` WHERE `address` = ?',
       [shieldedOutput.decoded.address],
     );
     expect(shieldedAddrRows).toHaveLength(1);
+    expect(shieldedAddrRows[0].bip32_account).toBeNull();
     expect(shieldedAddrRows[0].wallet_id).toBeNull();
     expect(shieldedAddrRows[0].transactions).toBe(1);
 

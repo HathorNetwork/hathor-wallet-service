@@ -3,14 +3,15 @@
 /**
  * Adds CT-derivation columns to the existing `address` table.
  *
- *   - `bip32_account` (NOT NULL DEFAULT 0): discriminates the BIP32 account
- *     the row was derived from. Values stored: 0 = Legacy (m/44'/280'/0'),
- *     2 = CTSpend (m/44'/280'/2'). Account 1 = CTScan derives a scan key
- *     attached to the matching CTSpend row via `scan_privkey`; no row's
- *     `bip32_account` column ever stores 1. The ADD COLUMN backfills
- *     existing rows to 0 so the unique constraint
- *     `(wallet_id, bip32_account, index)` enforces strictly from this
- *     migration onward.
+ *   - `bip32_account` (NULL): discriminates the BIP32 account a CLAIMED row
+ *     was derived from. NULL on observation-only rows (no wallet has claimed
+ *     the address yet); set to 0 = Legacy or 2 = CTSpend when a wallet
+ *     registration writes its derivation slot. Account 1 = CTScan derives
+ *     a scan key attached to the matching CTSpend row via `scan_privkey`
+ *     and is never stored as a row identifier. The unique constraint
+ *     `(wallet_id, bip32_account, index)` enforces one row per claimed
+ *     derivation slot; MySQL treats NULL as distinct in UNIQUE indexes, so
+ *     multiple unclaimed observations coexist freely.
  *   - `scan_privkey` (VARBINARY(32) NULL): the Ristretto255 scalar used to
  *     rewind shielded commitments. Always exactly 32 bytes; VARBINARY is
  *     preferred over BLOB for inline storage. Populated only on CTSpend rows.
@@ -21,15 +22,26 @@
  *     address can be the destination of either a transparent or a shielded
  *     output, so the column name reflects the derivation path rather than
  *     the output kind.
+ *
+ * Existing rows are backfilled `bip32_account = 0` only when they're
+ * already claimed (`wallet_id IS NOT NULL`); pre-existing observation-only
+ * rows stay NULL since their derivation account isn't known.
  */
 module.exports = {
   up: async (queryInterface, Sequelize) => {
     await queryInterface.addColumn('address', 'bip32_account', {
       type: Sequelize.TINYINT.UNSIGNED,
-      allowNull: false,
-      defaultValue: 0,
-      comment: 'Hathor BIP32 account: 0 = Legacy, 2 = CTSpend. Existing rows backfilled to 0 by this ALTER TABLE. Value 1 = CTScan is reserved for the scan-key derivation and never stored as a row identifier.',
+      allowNull: true,
+      defaultValue: null,
+      comment: 'Hathor BIP32 account for a claimed row: 0 = Legacy, 2 = CTSpend. NULL on observation-only rows. Value 1 = CTScan is reserved for the scan-key derivation and never stored.',
     });
+
+    // Backfill claimed Legacy rows. Observation-only rows (wallet_id NULL)
+    // stay at NULL — their derivation account isn't known until a wallet
+    // registration claims them.
+    await queryInterface.sequelize.query(
+      'UPDATE `address` SET `bip32_account` = 0 WHERE `wallet_id` IS NOT NULL'
+    );
 
     // Raw ALTER TABLE for VARBINARY(32) — Sequelize's BLOB family maps to
     // (TINY|MEDIUM|LONG)BLOB and doesn't expose a fixed-cap VARBINARY variant.
