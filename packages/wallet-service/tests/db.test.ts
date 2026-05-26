@@ -261,14 +261,16 @@ test('getAddressWalletInfo', async () => {
   };
 
   // populate address table
+  let index = 0;
   for (const [address, wallet] of Object.entries(finalMap)) {
     await addToAddressTable(mysql, [{
       address,
-      index: 0,
+      index,
       walletId: wallet.walletId,
       transactions: 0,
       bip32_account: 0,
     }]);
+    index++;
   }
   // add address that won't be requested on walletAddressMap
   await addToAddressTable(mysql, [{
@@ -557,7 +559,7 @@ test('updateWalletTablesWithTx', async () => {
   // Let's pretend there's another utxo with some authorities as well
   await addToAddressTable(mysql, [{
     address: 'address1',
-    index: 0,
+    index: 4,
     walletId,
     transactions: 1,
     bip32_account: 0,
@@ -870,6 +872,7 @@ test('getWalletAddresses', async () => {
     entries.push({
       address: ADDRESSES[i],
       index: i,
+      bip32_account: 0,
       walletId,
       transactions: 0,
     });
@@ -878,6 +881,7 @@ test('getWalletAddresses', async () => {
   entries.unshift({
     address: ADDRESSES[lastIndex],
     index: lastIndex,
+    bip32_account: 0,
     walletId,
     transactions: 0,
   });
@@ -914,6 +918,7 @@ test('getWalletAddressDetail', async () => {
       address: ADDRESSES[i],
       index: i,
       walletId,
+      bip32_account: 0,
       transactions: 0,
     });
   }
