@@ -53,8 +53,10 @@ module.exports = {
   },
 
   down: async (queryInterface, Sequelize) => {
-    await queryInterface.sequelize.query(`DROP INDEX idx_tx_output_voided_mode ON tx_output`);
-    await queryInterface.sequelize.query(`DROP INDEX idx_tx_output_mode_recovery ON tx_output`);
+    // Preconditions FIRST — fail fast before any destructive DDL.
+    // If a guard threw after a DROP INDEX or changeColumn ran, the schema
+    // would be in a half-rolled-back state and retrying would fail at the
+    // DROP (because the indexes are already gone) with no clean recovery.
 
     // Guard against NULL rows before restoring NOT NULL on value/token_id.
     // The up() relaxed both columns specifically to admit shielded rows where
@@ -72,17 +74,6 @@ module.exports = {
       );
     }
 
-    await queryInterface.changeColumn('tx_output', 'token_id', {
-      type: Sequelize.STRING(64),
-      allowNull: false,
-    });
-    await queryInterface.changeColumn('tx_output', 'value', {
-      type: Sequelize.BIGINT.UNSIGNED,
-      allowNull: false,
-    });
-    await queryInterface.removeColumn('tx_output', 'recovery_state');
-    await queryInterface.removeColumn('tx_output', 'mode');
-
     // Guard against silent truncation: narrowing to TINYINT UNSIGNED would lose
     // any row with index > 255 (which is exactly what the widening enabled).
     const [maxRows] = await queryInterface.sequelize.query(
@@ -95,6 +86,21 @@ module.exports = {
         + 'Narrowing to TINYINT UNSIGNED would silently truncate them.'
       );
     }
+
+    // Preconditions cleared — proceed with the destructive DDL.
+    await queryInterface.sequelize.query(`DROP INDEX idx_tx_output_voided_mode ON tx_output`);
+    await queryInterface.sequelize.query(`DROP INDEX idx_tx_output_mode_recovery ON tx_output`);
+
+    await queryInterface.changeColumn('tx_output', 'token_id', {
+      type: Sequelize.STRING(64),
+      allowNull: false,
+    });
+    await queryInterface.changeColumn('tx_output', 'value', {
+      type: Sequelize.BIGINT.UNSIGNED,
+      allowNull: false,
+    });
+    await queryInterface.removeColumn('tx_output', 'recovery_state');
+    await queryInterface.removeColumn('tx_output', 'mode');
 
     await queryInterface.sequelize.query(`
       ALTER TABLE tx_output
