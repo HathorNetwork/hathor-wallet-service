@@ -553,8 +553,8 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         // Walk shielded_outputs[] with concatenated index = transparentCount + i.
         // Each shielded output produces three rows: the unified `tx_output`, the
         // `shielded_tx_output_data` satellite carrying the per-output crypto payload,
-        // and an `address` observation row (with bip32_account = 1). Every row
-        // lands in `recovery_state = 'unowned'` and is then promoted in-line
+        // and an `address` observation row (with bip32_account = Bip32Account.CTSpend).
+        // Every row lands in `recovery_state = 'unowned'` and is then promoted in-line
         // below when a wallet has claimed the spend address.
         for (let i = 0; i < shieldedOutputs.length; i++) {
           const so = shieldedOutputs[i];

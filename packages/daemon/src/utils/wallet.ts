@@ -433,8 +433,8 @@ export const unlockUtxos = async (mysql: MysqlConnection, utxos: DbTxOutput[], u
 
   await updateAddressLockedBalance(mysql, addressBalanceMap, updateTimelocks);
 
-  // The address table is unified — getAddressWalletInfo returns wallet info for both
-  // bip32_account = 0 and = 1 rows, so the lookup is kind-agnostic.
+  // The address table is unified — getAddressWalletInfo returns wallet info for
+  // rows of any Bip32Account slot, so the lookup is account-agnostic.
   const addressWalletMap = await getAddressWalletInfo(mysql, Object.keys(addressBalanceMap));
   const walletBalanceMap = getWalletBalanceMap(addressWalletMap, addressBalanceMap);
   await updateWalletLockedBalance(mysql, walletBalanceMap, updateTimelocks);

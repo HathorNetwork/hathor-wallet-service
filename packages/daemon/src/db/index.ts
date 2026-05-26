@@ -28,7 +28,7 @@ import {
   TxOutputWithIndex,
   Balance,
 } from '@wallet-service/common';
-import { isAuthority, toTokenVersion, RecoveryState } from '@wallet-service/common';
+import { isAuthority, toTokenVersion, RecoveryState, Bip32Account } from '@wallet-service/common';
 import { getWalletBalanceMap } from '../utils/wallet';
 import {
   AddressBalanceRow,
@@ -364,7 +364,7 @@ export const insertShieldedTxOutputData = async (
  *
  * Used at observation time: the daemon has seen a shielded `tx_output` whose
  * destination address it does not (yet) own. The row is inserted with
- * `bip32_account = 1` (marking it as shielded-derived) and `transactions = 0`.
+ * `bip32_account = Bip32Account.CTSpend` and `transactions = 0`.
  * Ownership fields (`wallet_id`, `index`, `scan_privkey`, `catchup_state`)
  * stay NULL until a wallet claims this address.
  *
@@ -386,8 +386,8 @@ export async function upsertShieldedAddressObservation(
 ): Promise<void> {
   await conn.query(
     `INSERT IGNORE INTO \`address\` (\`address\`, \`bip32_account\`, \`transactions\`)
-     VALUES (?, 1, 0)`,
-    [address],
+     VALUES (?, ?, 0)`,
+    [address, Bip32Account.CTSpend],
   );
 }
 
@@ -404,8 +404,8 @@ export interface ShieldedAddressOwnership {
  * Look up ownership info for a shielded address on the unified `address`
  * table.
  *
- * Filters on `bip32_account = 1` so the shielded scan-path row is isolated
- * from any transparent row that might exist for the same P2PKH address.
+ * Filters on `bip32_account = Bip32Account.CTSpend` so the CT-derived row
+ * is isolated from any legacy row that might exist for the same P2PKH address.
  * Returns ownership only when a wallet has claimed the address
  * (`wallet_id IS NOT NULL`) and the scan key has been recorded
  * (`scan_privkey IS NOT NULL`).
@@ -425,10 +425,10 @@ export async function findShieldedAddressOwnership(
     `SELECT wallet_id, \`index\` AS shielded_index, scan_privkey
        FROM address
       WHERE address = ?
-        AND bip32_account = 1
+        AND bip32_account = ?
         AND wallet_id IS NOT NULL
         AND scan_privkey IS NOT NULL`,
-    [address],
+    [address, Bip32Account.CTSpend],
   );
   if (!rows || rows.length === 0) return null;
   return {
