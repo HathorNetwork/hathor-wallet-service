@@ -184,6 +184,7 @@ test('generateAddresses', async () => {
     index: 0,
     walletId: null,
     transactions: 0,
+    bip32_account: 0,
   }]);
   addressesInfo = await generateAddresses(mysql, XPUBKEY, maxGap);
   expect(addressesInfo.addresses).toHaveLength(maxGap);
@@ -215,6 +216,7 @@ test('generateAddresses', async () => {
     index: usedIndex,
     walletId: null,
     transactions: 1,
+    bip32_account: 0,
   }]);
   addressesInfo = await generateAddresses(mysql, XPUBKEY, maxGap);
   expect(addressesInfo.addresses).toHaveLength(maxGap + usedIndex + 1);
@@ -232,6 +234,7 @@ test('generateAddresses', async () => {
     index: usedIndex,
     walletId: null,
     transactions: 1,
+    bip32_account: 0,
   }]);
   addressesInfo = await generateAddresses(mysql, XPUBKEY, maxGap);
   expect(addressesInfo.addresses).toHaveLength(maxGap + usedIndex + 1);
@@ -264,6 +267,7 @@ test('getAddressWalletInfo', async () => {
       index: 0,
       walletId: wallet.walletId,
       transactions: 0,
+      bip32_account: 0,
     }]);
   }
   // add address that won't be requested on walletAddressMap
@@ -272,6 +276,7 @@ test('getAddressWalletInfo', async () => {
     index: 0,
     walletId: 'wallet3',
     transactions: 0,
+    bip32_account: 0,
   }]);
 
   // populate wallet table
@@ -513,10 +518,10 @@ test('updateWalletTablesWithTx', async () => {
   const ts3 = 30;
 
   await addToAddressTable(mysql, [
-    { address: 'addr1', index: 0, walletId, transactions: 1 },
-    { address: 'addr2', index: 1, walletId, transactions: 1 },
-    { address: 'addr3', index: 2, walletId, transactions: 1 },
-    { address: 'addr4', index: 0, walletId: walletId2, transactions: 1 },
+    { address: 'addr1', index: 0, walletId, transactions: 1, bip32_account: 0 },
+    { address: 'addr2', index: 1, walletId, transactions: 1, bip32_account: 0 },
+    { address: 'addr3', index: 2, walletId, transactions: 1, bip32_account: 0 },
+    { address: 'addr4', index: 0, walletId: walletId2, transactions: 1, bip32_account: 0 },
   ]);
 
   // add tx1
@@ -555,6 +560,7 @@ test('updateWalletTablesWithTx', async () => {
     index: 0,
     walletId,
     transactions: 1,
+    bip32_account: 0,
   }]);
   await addToAddressBalanceTable(mysql, [['address1', token1, 0, 0, null, 1, 0b10, 0, 0]]);
 
@@ -747,7 +753,7 @@ test('updateAddressTablesWithTx', async () => {
   const token3 = 'token3';
   // we'll add address1 to the address table already, as if it had already received another transaction
   await addToAddressTable(mysql, [
-    { address: address1, index: null, walletId: null, transactions: 1 },
+    { address: address1, index: null, walletId: null, transactions: 1, bip32_account: 0 },
   ]);
 
   const txId1 = 'txId1';
@@ -937,6 +943,7 @@ test('incrementAddressSeqnum', async () => {
     walletId,
     transactions: 0,
     seqnum: 5,
+    bip32_account: 0,
   }]);
 
   // seqnum should start at 5
@@ -1173,6 +1180,7 @@ test('updateWalletLockedBalance', async () => {
     index: 0,
     walletId: wallet1,
     transactions: 1,
+    bip32_account: 0,
   }]);
   await addToAddressBalanceTable(mysql, [['address1', tokenId, 0, 0, null, 1, 0, 0b01, 0]]);
   const newMap = TokenBalanceMap.fromStringMap({ [tokenId]: { unlocked: 0, locked: 0, unlockedAuthorities: new Authorities(0b10) } });
@@ -1329,11 +1337,13 @@ test('getWalletSortedValueUtxos', async () => {
     index: 0,
     walletId,
     transactions: 1,
+    bip32_account: 0,
   }, {
     address: addr2,
     index: 1,
     walletId,
     transactions: 1,
+    bip32_account: 0,
   }]);
   await addToUtxoTable(mysql, [
     // authority utxos should be ignored
@@ -1446,11 +1456,11 @@ test('getUnusedAddresses', async () => {
   const walletId = 'walletId';
   const walletId2 = 'walletId2';
   await addToAddressTable(mysql, [
-    { address: 'addr2', index: 1, walletId, transactions: 0 },
-    { address: 'addr3', index: 2, walletId, transactions: 2 },
-    { address: 'addr1', index: 0, walletId, transactions: 0 },
-    { address: 'addr4', index: 0, walletId: walletId2, transactions: 1 },
-    { address: 'addr5', index: 1, walletId: walletId2, transactions: 1 },
+    { address: 'addr2', index: 1, walletId, transactions: 0, bip32_account: 0 },
+    { address: 'addr3', index: 2, walletId, transactions: 2, bip32_account: 0 },
+    { address: 'addr1', index: 0, walletId, transactions: 0, bip32_account: 0 },
+    { address: 'addr4', index: 0, walletId: walletId2, transactions: 1, bip32_account: 0 },
+    { address: 'addr5', index: 1, walletId: walletId2, transactions: 1, bip32_account: 0 },
   ]);
 
   let addresses = await getUnusedAddresses(mysql, walletId);
@@ -2178,11 +2188,13 @@ test('filterTxOutputs', async () => {
     index: 0,
     walletId,
     transactions: 1,
+    bip32_account: 0,
   }, {
     address: addr2,
     index: 1,
     walletId,
     transactions: 1,
+    bip32_account: 0,
   }]);
 
   await addToUtxoTable(mysql, [{
@@ -3740,6 +3752,7 @@ describe('getAddressByIndex', () => {
       walletId,
       transactions,
       seqnum,
+      bip32_account: 0,
     }]);
 
     await expect(getAddressAtIndex(mysql, walletId, index))
@@ -3889,7 +3902,7 @@ describe('hasTransactionsOnNonFirstAddress', () => {
     const walletId = 'test-wallet';
     await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5);
     await addToAddressTable(mysql, [
-      { address: ADDRESSES[0], index: 0, walletId, transactions: 5 },
+      { address: ADDRESSES[0], index: 0, walletId, transactions: 5, bip32_account: 0 },
     ]);
 
     const result = await Db.hasTransactionsOnNonFirstAddress(mysql, walletId);
@@ -3903,9 +3916,9 @@ describe('hasTransactionsOnNonFirstAddress', () => {
     const walletId = 'test-wallet';
     await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5);
     await addToAddressTable(mysql, [
-      { address: ADDRESSES[0], index: 0, walletId, transactions: 5 },
-      { address: ADDRESSES[1], index: 1, walletId, transactions: 0 },
-      { address: ADDRESSES[2], index: 2, walletId, transactions: 0 },
+      { address: ADDRESSES[0], index: 0, walletId, transactions: 5, bip32_account: 0 },
+      { address: ADDRESSES[1], index: 1, walletId, transactions: 0, bip32_account: 0 },
+      { address: ADDRESSES[2], index: 2, walletId, transactions: 0, bip32_account: 0 },
     ]);
 
     const result = await Db.hasTransactionsOnNonFirstAddress(mysql, walletId);
@@ -3919,8 +3932,8 @@ describe('hasTransactionsOnNonFirstAddress', () => {
     const walletId = 'test-wallet';
     await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5);
     await addToAddressTable(mysql, [
-      { address: ADDRESSES[0], index: 0, walletId, transactions: 5 },
-      { address: ADDRESSES[1], index: 1, walletId, transactions: 3 },
+      { address: ADDRESSES[0], index: 0, walletId, transactions: 5, bip32_account: 0 },
+      { address: ADDRESSES[1], index: 1, walletId, transactions: 3, bip32_account: 0 },
     ]);
 
     const result = await Db.hasTransactionsOnNonFirstAddress(mysql, walletId);
@@ -3937,8 +3950,8 @@ describe('hasTransactionsOnNonFirstAddress', () => {
     await createWallet(mysql, walletId2, XPUBKEY, AUTH_XPUBKEY, 5);
 
     await addToAddressTable(mysql, [
-      { address: ADDRESSES[0], index: 0, walletId: walletId1, transactions: 5 },
-      { address: ADDRESSES[1], index: 1, walletId: walletId2, transactions: 10 },
+      { address: ADDRESSES[0], index: 0, walletId: walletId1, transactions: 5, bip32_account: 0 },
+      { address: ADDRESSES[1], index: 1, walletId: walletId2, transactions: 10, bip32_account: 0 },
     ]);
 
     const result1 = await Db.hasTransactionsOnNonFirstAddress(mysql, walletId1);

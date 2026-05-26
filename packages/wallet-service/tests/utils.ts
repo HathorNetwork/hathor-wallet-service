@@ -691,11 +691,17 @@ export const addToAddressTable = async (
     entry.walletId,
     entry.transactions,
     entry.seqnum ?? 0,
+    entry.bip32_account,
+    entry.scan_privkey ?? null,
+    entry.catchup_state ?? null,
+    entry.shielded_address ?? null,
   ]));
 
   await mysql.query(`
     INSERT INTO \`address\`(\`address\`, \`index\`,
-                            \`wallet_id\`, \`transactions\`, \`seqnum\`)
+                            \`wallet_id\`, \`transactions\`, \`seqnum\`,
+                            \`bip32_account\`, \`scan_privkey\`,
+                            \`catchup_state\`, \`shielded_address\`)
     VALUES ?`,
   [payload]);
 };

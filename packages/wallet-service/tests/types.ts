@@ -35,6 +35,16 @@ export interface AddressTableEntry {
   walletId?: string;
   transactions: number;
   seqnum?: number;
+  // Hathor BIP32 account: 0 = transparent (m/44'/280'/0'), 1 = shielded scan
+  // path (m/44'/180'/1'). Required to make tests explicit about which slot
+  // they're seeding; the unique constraint on (wallet_id, bip32_account, index)
+  // rejects collisions, so leaving it implicit was masking impossible fixtures.
+  bip32_account: number;
+  // Shielded-only fields. Set on bip32_account = 1 rows that represent an owned
+  // shielded scan-path slot; left undefined / NULL on transparent rows.
+  scan_privkey?: Buffer;
+  catchup_state?: 'pending' | 'running' | 'done';
+  shielded_address?: string;
 }
 
 export interface TokenTableEntry {

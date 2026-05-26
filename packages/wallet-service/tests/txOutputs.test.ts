@@ -42,11 +42,13 @@ test('filter utxos api with invalid parameters', async () => {
     index: 0,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }, {
     address: ADDRESSES[1],
     index: 1,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }]);
 
   const token1 = '004d75c1edd4294379e7e5b7ab6c118c53c8b07a506728feb5688c8d26a97e50';
@@ -172,11 +174,13 @@ test('filter tx_output api with invalid parameters', async () => {
     index: 0,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }, {
     address: ADDRESSES[1],
     index: 1,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }]);
 
   const token1 = '004d75c1edd4294379e7e5b7ab6c118c53c8b07a506728feb5688c8d26a97e50';
@@ -301,11 +305,13 @@ test('get utxos with wallet id', async () => {
     index: 0,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }, {
     address: ADDRESSES[1],
     index: 1,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }]);
 
   const token1 = '004d75c1edd4294379e7e5b7ab6c118c53c8b07a506728feb5688c8d26a97e50';
@@ -407,11 +413,13 @@ test('get tx outputs with wallet id', async () => {
     index: 0,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }, {
     address: ADDRESSES[1],
     index: 1,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }]);
 
   const token1 = '004d75c1edd4294379e7e5b7ab6c118c53c8b07a506728feb5688c8d26a97e50';
@@ -513,11 +521,13 @@ test('get authority utxos', async () => {
     index: 0,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }, {
     address: ADDRESSES[1],
     index: 1,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }]);
 
   const token1 = '004d75c1edd4294379e7e5b7ab6c118c53c8b07a506728feb5688c8d26a97e50';
@@ -642,11 +652,13 @@ test('get a specific utxo', async () => {
     index: 0,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }, {
     address: ADDRESSES[1],
     index: 1,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }]);
 
   const token1 = '004d75c1edd4294379e7e5b7ab6c118c53c8b07a506728feb5688c8d26a97e50';
@@ -746,11 +758,13 @@ test('get utxos from addresses that are not my own should fail with ApiError.ADD
     index: 0,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }, {
     address: ADDRESSES[1],
     index: 1,
     walletId: 'other-wallet',
     transactions: 4,
+    bip32_account: 0,
   }]);
 
   const token1 = '004d75c1edd4294379e7e5b7ab6c118c53c8b07a506728feb5688c8d26a97e50';
@@ -832,11 +846,13 @@ test('get spent tx_output', async () => {
     index: 0,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }, {
     address: ADDRESSES[1],
     index: 1,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }]);
 
   const token1 = '004d75c1edd4294379e7e5b7ab6c118c53c8b07a506728feb5688c8d26a97e50';
@@ -904,17 +920,17 @@ test('filter utxos by addresses and max utxos', async () => {
   }]);
 
   await addToAddressTable(mysql, [
-    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[2], index: 2, walletId: 'my-wallet', transactions: 2 },
-    { address: ADDRESSES[3], index: 3, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[4], index: 4, walletId: 'my-wallet', transactions: 3 },
-    { address: ADDRESSES[5], index: 5, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[6], index: 6, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[7], index: 7, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[8], index: 8, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[9], index: 0, walletId: null, transactions: 0 },
-    { address: ADDRESSES[10], index: 0, walletId: 'test', transactions: 0 },
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[2], index: 2, walletId: 'my-wallet', transactions: 2, bip32_account: 0 },
+    { address: ADDRESSES[3], index: 3, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[4], index: 4, walletId: 'my-wallet', transactions: 3, bip32_account: 0 },
+    { address: ADDRESSES[5], index: 5, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[6], index: 6, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[7], index: 7, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[8], index: 8, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[9], index: 0, walletId: null, transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[10], index: 0, walletId: 'test', transactions: 0, bip32_account: 0 },
   ]);
 
   await addToUtxoTable(mysql, [{
@@ -998,11 +1014,13 @@ test('filter tx_outputs with totalAmount', async () => {
     index: 0,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }, {
     address: ADDRESSES[1],
     index: 1,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }]);
 
   const token1 = '00';
@@ -1122,6 +1140,7 @@ test('filter tx_outputs with totalAmount insufficient funds', async () => {
     index: 0,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }]);
 
   const token1 = '00';
@@ -1184,11 +1203,13 @@ test('filter tx_outputs with maxAmount', async () => {
     index: 0,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }, {
     address: ADDRESSES[1],
     index: 1,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }]);
 
   const token1 = '00';
@@ -1319,6 +1340,7 @@ test('filter tx_outputs with both totalAmount and maxAmount should fail', async 
     index: 0,
     walletId: 'my-wallet',
     transactions: 1,
+    bip32_account: 0,
   }]);
 
   const event = makeGatewayEventWithAuthorizer('my-wallet', {
