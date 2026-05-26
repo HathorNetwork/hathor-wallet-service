@@ -55,6 +55,23 @@ module.exports = {
   down: async (queryInterface, Sequelize) => {
     await queryInterface.sequelize.query(`DROP INDEX idx_tx_output_voided_mode ON tx_output`);
     await queryInterface.sequelize.query(`DROP INDEX idx_tx_output_mode_recovery ON tx_output`);
+
+    // Guard against NULL rows before restoring NOT NULL on value/token_id.
+    // The up() relaxed both columns specifically to admit shielded rows where
+    // these are unknown at insert time; if any such row exists, the rollback
+    // can't faithfully reverse without losing data.
+    const [nullRows] = await queryInterface.sequelize.query(
+      'SELECT COUNT(*) AS c FROM tx_output WHERE value IS NULL OR token_id IS NULL'
+    );
+    const nullCount = Number(nullRows[0]?.c ?? 0);
+    if (nullCount > 0) {
+      throw new Error(
+        `Rollback blocked: tx_output has ${nullCount} rows with NULL value or token_id `
+        + '(introduced by shielded inserts). Restore those to non-null or void/remove the '
+        + 'rows before re-running the down migration.'
+      );
+    }
+
     await queryInterface.changeColumn('tx_output', 'token_id', {
       type: Sequelize.STRING(64),
       allowNull: false,

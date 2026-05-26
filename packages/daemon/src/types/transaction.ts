@@ -5,6 +5,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+import { RecoveryState } from '@wallet-service/common';
+
 export interface DbTxOutput {
   txId: string;
   index: number;
@@ -20,7 +22,7 @@ export interface DbTxOutput {
   txProposalIndex?: number | null;
   voided?: boolean | null;
   mode: number;
-  recoveryState: string | null;
+  recoveryState: RecoveryState | null;
 }
 
 export interface DbTransaction {

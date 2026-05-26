@@ -24,7 +24,6 @@ import {
   WalletBalanceValue,
 } from '../types';
 import {
-  DecodedOutput,
   Transaction,
   TxOutputWithIndex,
   TxInput,
@@ -38,7 +37,6 @@ import {
   findShieldedAddressOwnership,
   getAddressWalletInfo,
   getExpiredTimelocksUtxos,
-  getShieldedAddressWalletInfo,
   getTokenSymbols,
   getTxOutput,
   unlockUtxos as dbUnlockUtxos,
@@ -389,59 +387,58 @@ export const unlockUtxos = async (mysql: MysqlConnection, utxos: DbTxOutput[], u
     decoded: null,
   })));
 
-  // Partition by kind for balance dispatch.
-  const transparent = utxos.filter((u) => u.mode === ShieldedOutputMode.Transparent);
-  const shieldedRecovered = utxos.filter((u) =>
-    isShieldedMode(u.mode) && u.recoveryState === RecoveryState.Recovered,
+  // Build a unified per-(address, token) balance map via getUnifiedBalanceMap by classifying
+  // each UTXO: transparent rows feed the `txOutputs` slot (which populates the transparent
+  // `unlockedAmount` field via `fromTxOutput`); recovered shielded rows feed
+  // `shieldedRecoveryResults` (which populates the `unlockedShieldedAmount` field via
+  // `fromShielded`). Unowned / recovery_failed shielded rows are skipped — they never
+  // contributed to balance, so unlocking them touches no column. `locked: false` on both
+  // sides routes the value to the unlocked column families.
+  const synthOutputs: TxOutputWithIndex[] = [];
+  const synthRecoveryResults: ShieldedRecoveryResult[] = [];
+  for (const utxo of utxos) {
+    if (utxo.mode === ShieldedOutputMode.Transparent) {
+      synthOutputs.push({
+        value: utxo.authorities > 0 ? BigInt(utxo.authorities) : utxo.value!,
+        token: utxo.tokenId!,
+        decoded: {
+          type: 'P2PKH',
+          address: utxo.address,
+          timelock: utxo.timelock,
+        },
+        locked: false,
+        token_data: utxo.authorities > 0 ? constants.TOKEN_AUTHORITY_MASK : 0,
+        spent_by: null,
+        script: '',
+        index: utxo.index,
+      });
+    } else if (utxo.recoveryState === RecoveryState.Recovered) {
+      synthRecoveryResults.push({
+        address: utxo.address,
+        tokenId: utxo.tokenId!,
+        value: utxo.value!,
+        locked: false,
+      });
+    }
+  }
+
+  const addressBalanceMap = await getUnifiedBalanceMap(
+    mysql,
+    [],
+    synthOutputs,
+    synthRecoveryResults,
+    [],
+    [],
   );
 
-  if (transparent.length > 0) {
-    await applyBatchedUnlockBalance(mysql, transparent, 'transparent', updateTimelocks);
-  }
-  if (shieldedRecovered.length > 0) {
-    await applyBatchedUnlockBalance(mysql, shieldedRecovered, 'shielded', updateTimelocks);
-  }
+  await updateAddressLockedBalance(mysql, addressBalanceMap, updateTimelocks);
+
+  // The address table is unified — getAddressWalletInfo returns wallet info for both
+  // bip32_account = 0 and = 1 rows, so the lookup is kind-agnostic.
+  const addressWalletMap = await getAddressWalletInfo(mysql, Object.keys(addressBalanceMap));
+  const walletBalanceMap = getWalletBalanceMap(addressWalletMap, addressBalanceMap);
+  await updateWalletLockedBalance(mysql, walletBalanceMap, updateTimelocks);
 };
-
-/**
- * Apply the unlocked balance delta for a homogeneous batch of UTXOs (all transparent or all
- * shielded-recovered). Used by {@link unlockUtxos} after partitioning by kind.
- */
-async function applyBatchedUnlockBalance(
-  mysql: MysqlConnection,
-  utxos: DbTxOutput[],
-  kind: 'transparent' | 'shielded',
-  updateTimelocks: boolean,
-): Promise<void> {
-  const outputs: TxOutput[] = utxos.map((utxo) => {
-    const decoded: DecodedOutput = {
-      type: 'P2PKH',
-      address: utxo.address,
-      timelock: utxo.timelock,
-    };
-
-    return {
-      value: utxo.authorities > 0 ? BigInt(utxo.authorities) : utxo.value!,
-      token: utxo.tokenId!,
-      decoded,
-      locked: false,
-      token_data: utxo.authorities > 0 ? constants.TOKEN_AUTHORITY_MASK : 0,
-      spent_by: null,
-      script: '',
-    };
-  });
-
-  const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap([], outputs, []);
-  await updateAddressLockedBalance(mysql, addressBalanceMap, updateTimelocks, kind);
-
-  // Wallet ownership lookup uses the appropriate address table per kind.
-  const addressWalletMap: StringMap<Wallet> = kind === 'transparent'
-    ? await getAddressWalletInfo(mysql, Object.keys(addressBalanceMap))
-    : await getShieldedAddressWalletInfo(mysql, Object.keys(addressBalanceMap));
-
-  const walletBalanceMap: StringMap<TokenBalanceMap> = getWalletBalanceMap(addressWalletMap, addressBalanceMap);
-  await updateWalletLockedBalance(mysql, walletBalanceMap, updateTimelocks, kind);
-}
 
 /**
  * Get the map of token balances for each wallet.
