@@ -5,12 +5,14 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+import { RecoveryState } from '@wallet-service/common';
+
 export interface DbTxOutput {
   txId: string;
   index: number;
-  tokenId: string;
+  tokenId: string | null;
   address: string;
-  value: bigint;
+  value: bigint | null;
   authorities: number;
   timelock: number | null;
   heightlock: number | null;
@@ -19,6 +21,8 @@ export interface DbTxOutput {
   txProposalId?: string | null;
   txProposalIndex?: number | null;
   voided?: boolean | null;
+  mode: number;
+  recoveryState: RecoveryState | null;
 }
 
 export interface DbTransaction {

@@ -28,7 +28,7 @@ import {
   TxOutputWithIndex,
   Balance,
 } from '@wallet-service/common';
-import { isAuthority, toTokenVersion } from '@wallet-service/common';
+import { isAuthority, toTokenVersion, RecoveryState, Bip32Account } from '@wallet-service/common';
 import { getWalletBalanceMap } from '../utils/wallet';
 import {
   AddressBalanceRow,
@@ -235,13 +235,351 @@ export const addUtxos = async (
 };
 
 /**
- * Remove a tx inputs from the utxo table.
+ * Arguments for inserting a single tx_output row.
+ *
+ * Supports transparent (mode=0), AmountShielded (mode=1) and FullyShielded (mode=2) rows.
+ * `value` and `token_id` are nullable to accommodate unrecovered shielded outputs where
+ * either the amount, the token, or both are not yet known.
+ */
+export interface InsertTxOutputArgs {
+  tx_id: string;
+  index: number;
+  mode: number;
+  address: string;
+  value: bigint | null;
+  token_id: string | null;
+  authorities: number;
+  timelock: number | null;
+  heightlock: number | null;
+  locked: boolean;
+  voided: boolean;
+  spent_by?: string | null;
+  recovery_state: 'unowned' | 'recovered' | 'recovery_failed' | null;
+}
+
+/**
+ * Insert a single row into `tx_output`.
+ *
+ * Idempotent against re-ingest of the same vertex: `ON DUPLICATE KEY UPDATE address = VALUES(address)`
+ * re-writes a no-op same value when the (tx_id, index) primary key already exists.
  *
  * @param mysql - Database connection
- * @param inputs - The transaction inputs
+ * @param args - The row to insert
+ */
+export const insertTxOutput = async (
+  mysql: any,
+  args: InsertTxOutputArgs,
+): Promise<void> => {
+  await mysql.query(
+    `INSERT INTO \`tx_output\`
+       (\`tx_id\`, \`index\`, \`mode\`, \`address\`, \`value\`, \`token_id\`, \`authorities\`,
+        \`timelock\`, \`heightlock\`, \`locked\`, \`voided\`, \`spent_by\`, \`recovery_state\`)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       address = VALUES(address)`,
+    [
+      args.tx_id,
+      args.index,
+      args.mode,
+      args.address,
+      args.value,
+      args.token_id,
+      args.authorities,
+      args.timelock,
+      args.heightlock,
+      args.locked,
+      args.voided,
+      args.spent_by ?? null,
+      args.recovery_state,
+    ],
+  );
+};
+
+/**
+ * Arguments for inserting a single `shielded_tx_output_data` satellite row.
+ *
+ * The satellite carries the per-output cryptographic payload that accompanies a
+ * shielded `tx_output`. The parent `tx_output(tx_id, index)` row must exist
+ * first — the foreign key is `ON DELETE CASCADE`, so cleanup follows the parent.
+ *
+ * Per-mode field conventions:
+ * - mode=1 (AmountShielded): `token_data` carries the plaintext token index;
+ *   `asset_commitment` and `surjection_proof` are NULL.
+ * - mode=2 (FullyShielded): `asset_commitment` and `surjection_proof` carry the
+ *   per-output asset proofs; `token_data` is NULL.
+ */
+export interface InsertShieldedDataArgs {
+  tx_id: string;
+  index: number;
+  mode: 1 | 2;
+  commitment: Buffer;
+  range_proof: Buffer;
+  script: Buffer;
+  ephemeral_pubkey: Buffer;
+  token_data?: number | null;
+  asset_commitment?: Buffer | null;
+  surjection_proof?: Buffer | null;
+}
+
+/**
+ * Insert a single row into `shielded_tx_output_data`.
+ *
+ * Idempotent against re-ingest of the same vertex via
+ * `ON DUPLICATE KEY UPDATE commitment = VALUES(commitment)` (a no-op rewrite
+ * when the (tx_id, index) primary key already exists).
+ *
+ * The caller is responsible for inserting the parent `tx_output` row first;
+ * this helper assumes the FK target exists.
+ *
+ * @param conn - Database connection
+ * @param args - The satellite row to insert
+ */
+export const insertShieldedTxOutputData = async (
+  conn: any,
+  args: InsertShieldedDataArgs,
+): Promise<void> => {
+  await conn.query(
+    `INSERT INTO \`shielded_tx_output_data\`
+       (\`tx_id\`, \`index\`, \`commitment\`, \`range_proof\`, \`script\`, \`ephemeral_pubkey\`,
+        \`token_data\`, \`asset_commitment\`, \`surjection_proof\`)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       commitment = VALUES(commitment)`,
+    [
+      args.tx_id,
+      args.index,
+      args.commitment,
+      args.range_proof,
+      args.script,
+      args.ephemeral_pubkey,
+      args.token_data ?? null,
+      args.asset_commitment ?? null,
+      args.surjection_proof ?? null,
+    ],
+  );
+};
+
+/**
+ * Record an observation of a CTSpend-derived address in the unified `address`
+ * table.
+ *
+ * Used at observation time: the daemon has seen a shielded `tx_output` whose
+ * destination address it does not (yet) own. The row is inserted with just
+ * `address` and `transactions = 0`. Ownership and derivation-slot fields
+ * (`wallet_id`, `index`, `bip32_account`, `scan_privkey`, `catchup_state`,
+ * `ct_address`) stay NULL until a wallet registration claims this address
+ * — that's the step that knows the derivation account and writes
+ * `bip32_account = Bip32Account.CTSpend` along with the scan key and
+ * long-form CT address.
+ *
+ * This helper does NOT bump `transactions`. The single canonical
+ * `transactions` bump per `(address, tx)` lives exclusively in
+ * `bumpAddressInvolvement`, which runs once per vertex against the
+ * wire-level involved-addresses set and covers every address regardless of
+ * ownership or recovery state. Using `INSERT IGNORE` makes the observation
+ * a row-existence guarantee with no on-conflict side effect — any
+ * registration data attached to the row by a previous wallet claim is
+ * preserved untouched across repeated observations.
+ *
+ * @param conn - Database connection
+ * @param address - The P2PKH spend address (CTSpend-derived) observed as the
+ *   destination of a shielded `tx_output`
+ */
+export async function upsertShieldedAddressObservation(
+  conn: any,
+  address: string,
+): Promise<void> {
+  await conn.query(
+    `INSERT IGNORE INTO \`address\` (\`address\`, \`transactions\`)
+     VALUES (?, 0)`,
+    [address],
+  );
+}
+
+/**
+ * Ownership info for a CTSpend-derived address that has been claimed by a
+ * wallet.
+ */
+export interface ShieldedAddressOwnership {
+  wallet_id: string;
+  shielded_index: number;
+  scan_privkey: Buffer;
+}
+
+/**
+ * Look up CTSpend ownership info for an address on the unified `address`
+ * table.
+ *
+ * Filters on `bip32_account = Bip32Account.CTSpend` so the CT-derived row
+ * is isolated from any Legacy row that might exist for the same P2PKH
+ * address (both account paths can produce the same on-chain address by
+ * accident, though deterministically unlikely). Returns ownership only when
+ * a wallet has claimed the address (`wallet_id IS NOT NULL`) and the scan
+ * key has been recorded (`scan_privkey IS NOT NULL`).
+ *
+ * Used during recovery to look up the scan key associated with an observed
+ * shielded output.
+ *
+ * @param conn - Database connection
+ * @param address - The shielded P2PKH spend address to look up
+ * @returns Ownership info when the address is owned by a wallet, otherwise null
+ */
+export async function findShieldedAddressOwnership(
+  conn: any,
+  address: string,
+): Promise<ShieldedAddressOwnership | null> {
+  const [rows] = await conn.query(
+    `SELECT wallet_id, \`index\` AS shielded_index, scan_privkey
+       FROM address
+      WHERE address = ?
+        AND bip32_account = ?
+        AND wallet_id IS NOT NULL
+        AND scan_privkey IS NOT NULL`,
+    [address, Bip32Account.CTSpend],
+  );
+  if (!rows || rows.length === 0) return null;
+  return {
+    wallet_id: rows[0].wallet_id,
+    shielded_index: rows[0].shielded_index,
+    scan_privkey: rows[0].scan_privkey,
+  };
+}
+
+/**
+ * Promote a shielded tx_output from 'unowned' to 'recovered' once the
+ * wallet's scan key has successfully rewound the commitment, revealing
+ * the value (and the token id, for AmountShielded outputs).
+ *
+ * The UPDATE is guarded on the current recovery_state being 'unowned'
+ * so a re-ingest of the same vertex is a no-op (returns affectedRows = 0).
+ * Callers can use affectedRows to detect the idempotent case.
+ */
+export async function markTxOutputRecovered(
+  conn: any,
+  txId: string,
+  index: number,
+  recovered: { value: bigint; token_id: string },
+): Promise<{ affectedRows: number }> {
+  const [r] = await conn.query(
+    `UPDATE tx_output
+        SET value = ?, token_id = ?, recovery_state = 'recovered'
+      WHERE tx_id = ? AND \`index\` = ? AND recovery_state = 'unowned'`,
+    [recovered.value.toString(), recovered.token_id, txId, index],
+  );
+  return { affectedRows: r.affectedRows };
+}
+
+/**
+ * Record that the rewind threw for an output we believed we owned.
+ * Terminal state — we don't keep retrying. Same idempotency guard as
+ * markTxOutputRecovered.
+ */
+export async function markTxOutputRecoveryFailed(
+  conn: any,
+  txId: string,
+  index: number,
+): Promise<void> {
+  await conn.query(
+    `UPDATE tx_output
+        SET recovery_state = 'recovery_failed'
+      WHERE tx_id = ? AND \`index\` = ? AND recovery_state = 'unowned'`,
+    [txId, index],
+  );
+}
+
+/**
+ * Set `token.total_supply` to an absolute value.
+ *
+ * Used at token creation time to record the initial mint amount.
+ */
+export async function setTokenTotalSupply(
+  conn: any,
+  tokenId: string,
+  value: bigint,
+): Promise<void> {
+  await conn.execute(
+    'UPDATE token SET total_supply = ? WHERE id = ?',
+    [value.toString(), tokenId],
+  );
+}
+
+/**
+ * Apply a signed delta to `token.total_supply`.
+ *
+ * MySQL handles signed arithmetic against an UNSIGNED column as long as the
+ * result is non-negative. A correctly-tracked supply can never go below zero;
+ * any negative result is a bug worth surfacing (the UPDATE would error).
+ *
+ * Used by mint/melt detection, the burn-address sweep, and block-reward
+ * dispatch in `handleVertexAccepted`. Void/unvoid sign-reversal is wired in
+ * a follow-up phase.
+ *
+ * Invariant: this helper is UPDATE-only. It does NOT insert a `token`
+ * row when one doesn't exist — `applyTokenSupplyUpdates` only ever
+ * mutates existing token rows, and `handleTokenCreated` is the single
+ * inserter (it calls `storeTokenInformation` followed by
+ * `setTokenTotalSupply`). A delta against a not-yet-created token row
+ * naturally no-ops here. The two writers never compete on the same
+ * column.
+ */
+export async function incrementTokenTotalSupply(
+  conn: any,
+  tokenId: string,
+  delta: bigint,
+): Promise<void> {
+  await conn.execute(
+    'UPDATE token SET total_supply = total_supply + ? WHERE id = ?',
+    [delta.toString(), tokenId],
+  );
+}
+
+/**
+ * Bump `address.transactions` by 1 for each address in the involvement set.
+ *
+ * Insert-or-increment using a single batched statement. Mirrors the
+ * existing per-balance bump inside `updateAddressTablesWithTx`, but is
+ * decoupled from the balance map so shielded-credit-only,
+ * shielded-spend-only and unowned-shielded-output vertices still bump the
+ * counter once per involved address. This is the only writer of the
+ * involvement counter for a given (address, tx) pair; the per-token
+ * counter (`address_balance.transactions`) is still owned by the
+ * balance-map-driven path further downstream.
+ *
+ * No-op when the set is empty.
+ */
+export async function bumpAddressInvolvement(
+  mysql: any,
+  addresses: Iterable<string>,
+): Promise<void> {
+  const entries: [string, number][] = [];
+  for (const addr of addresses) {
+    entries.push([addr, 1]);
+  }
+  if (entries.length === 0) return;
+  await mysql.query(
+    `INSERT INTO \`address\`(\`address\`, \`transactions\`)
+          VALUES ?
+              ON DUPLICATE KEY UPDATE transactions = transactions + 1`,
+    [entries],
+  );
+}
+
+/**
+ * Mark spent tx outputs by setting `spent_by` on the matching rows.
+ *
+ * Kind-agnostic: takes any `{tx_id, index}` shape (TxInput, EventTxInput,
+ * or a custom thin type), so it works for transparent and shielded
+ * inputs uniformly. The query only consumes the primary-key columns.
+ *
+ * @param mysql - Database connection
+ * @param inputs - The spent input references (tx_id + index per entry)
  * @param txId - The transaction that spent these utxos
  */
-export const updateTxOutputSpentBy = async (mysql: any, inputs: TxInput[], txId: string): Promise<void> => {
+export const updateTxOutputSpentBy = async (
+  mysql: any,
+  inputs: Array<{ tx_id: string; index: number }>,
+  txId: string,
+): Promise<void> => {
   const entries = inputs.map((input) => [input.tx_id, input.index]);
   // entries might be empty if there are no inputs
   if (entries.length) {
@@ -297,9 +635,9 @@ export const getTxOutputsFromTx = async (
     const utxo: DbTxOutput = {
       txId: result.tx_id as string,
       index: result.index as number,
-      tokenId: result.token_id as string,
+      tokenId: result.token_id as string | null,
       address: result.address as string,
-      value: BigInt(result.value),
+      value: result.value === null || result.value === undefined ? null : BigInt(result.value),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
@@ -307,6 +645,8 @@ export const getTxOutputsFromTx = async (
       txProposalId: result.tx_proposal as string,
       txProposalIndex: result.tx_proposal_index as number,
       spentBy: result.spent_by ? result.spent_by as string : null,
+      mode: result.mode as number,
+      recoveryState: (result.recovery_state ?? null) as RecoveryState | null,
     };
     utxos.push(utxo);
   }
@@ -341,9 +681,9 @@ export const getTxOutputs = async (
     const utxo: DbTxOutput = {
       txId: result.tx_id as string,
       index: result.index as number,
-      tokenId: result.token_id as string,
+      tokenId: result.token_id as string | null,
       address: result.address as string,
-      value: BigInt(result.value),
+      value: result.value === null || result.value === undefined ? null : BigInt(result.value),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
@@ -351,6 +691,8 @@ export const getTxOutputs = async (
       txProposalId: result.tx_proposal as string,
       txProposalIndex: result.tx_proposal_index as number,
       spentBy: result.spent_by ? result.spent_by as string : null,
+      mode: result.mode as number,
+      recoveryState: (result.recovery_state ?? null) as RecoveryState | null,
     };
     utxos.push(utxo);
   }
@@ -424,9 +766,9 @@ export const getTxOutputsAtHeight = async (
     const utxo: DbTxOutput = {
       txId: result.tx_id as string,
       index: result.index as number,
-      tokenId: result.token_id as string,
+      tokenId: result.token_id as string | null,
       address: result.address as string,
-      value: BigInt(result.value),
+      value: result.value === null || result.value === undefined ? null : BigInt(result.value),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
@@ -434,6 +776,8 @@ export const getTxOutputsAtHeight = async (
       spentBy: result.spent_by as string,
       txProposalId: result.tx_proposal as string,
       txProposalIndex: result.tx_proposal_index as number,
+      mode: result.mode as number,
+      recoveryState: (result.recovery_state ?? null) as RecoveryState | null,
     };
     utxos.push(utxo);
   }
@@ -740,28 +1084,24 @@ export const updateAddressTablesWithTx = async (
     // No need to do anything here
     return;
   }
-  /*
-   * update address table
-   *
-   * If an address is not yet present, add entry with index = null, walletId = null and transactions = 1.
-   * Later, when the corresponding wallet is started, index and walletId will be updated.
-   *
-   * If address is already present, just increment the transactions counter.
-   */
-  const addressEntries = Object.keys(addressBalanceMap).map((address) => [address, 1]);
-  if (addressEntries.length > 0) {
-    await mysql.query(
-      `INSERT INTO \`address\`(\`address\`, \`transactions\`)
-            VALUES ?
-                ON DUPLICATE KEY UPDATE transactions = transactions + 1`,
-      [addressEntries],
-    );
-  }
+  // The per-address `address.transactions` bump is handled by the central
+  // `bumpAddressInvolvement` helper earlier in the vertex pipeline, which
+  // is driven by the wire-level involvement set so it covers
+  // shielded-credit-only, shielded-spend-only, and unowned shielded
+  // vertices alongside the transparent ones. This function is now only
+  // responsible for the per-(address, token) row writes.
 
   const entries = [];
   for (const [address, tokenMap] of Object.entries(addressBalanceMap)) {
     for (const [token, tokenBalance] of tokenMap.iterator()) {
       // update address_balance table or update balance and transactions if there's an entry already
+      // Shielded balance columns are clamped to 0 on the insert branch
+      // because MySQL's STRICT_TRANS_TABLES (8.0 default) validates the
+      // VALUES(...) literal against the UNSIGNED column type before
+      // selecting the UPDATE branch. The real signed delta is applied in
+      // the ON DUPLICATE KEY UPDATE branch via the positional bind args
+      // below. totalShieldedReceived is already non-negative by the
+      // fromShielded() factory contract (lifetime accumulator).
       const entry = {
         address,
         token_id: token,
@@ -775,6 +1115,9 @@ export const updateAddressTablesWithTx = async (
         unlocked_authorities: tokenBalance.unlockedAuthorities.toUnsignedInteger(),
         locked_authorities: tokenBalance.lockedAuthorities.toUnsignedInteger(),
         timelock_expires: tokenBalance.lockExpires,
+        unlocked_shielded_balance: (tokenBalance.unlockedShieldedAmount < 0n ? 0n : tokenBalance.unlockedShieldedAmount),
+        locked_shielded_balance: (tokenBalance.lockedShieldedAmount < 0n ? 0n : tokenBalance.lockedShieldedAmount),
+        total_shielded_received: tokenBalance.totalShieldedReceived,
         transactions: 1,
       };
       // save the smaller value of timelock_expires, when not null
@@ -785,6 +1128,9 @@ export const updateAddressTablesWithTx = async (
                             UPDATE total_received = total_received + ?,
                                    unlocked_balance = unlocked_balance + ?,
                                    locked_balance = locked_balance + ?,
+                                   unlocked_shielded_balance = unlocked_shielded_balance + ?,
+                                   locked_shielded_balance = locked_shielded_balance + ?,
+                                   total_shielded_received = total_shielded_received + ?,
                                    transactions = transactions + 1,
                                    timelock_expires = CASE
                                                         WHEN timelock_expires IS NULL THEN VALUES(timelock_expires)
@@ -793,7 +1139,17 @@ export const updateAddressTablesWithTx = async (
                                                       END,
                                    unlocked_authorities = (unlocked_authorities | VALUES(unlocked_authorities)),
                                    locked_authorities = locked_authorities | VALUES(locked_authorities)`,
-        [entry, tokenBalance.totalAmountSent, tokenBalance.unlockedAmount, tokenBalance.lockedAmount, address, token],
+        [
+          entry,
+          tokenBalance.totalAmountSent,
+          tokenBalance.unlockedAmount,
+          tokenBalance.lockedAmount,
+          tokenBalance.unlockedShieldedAmount,
+          tokenBalance.lockedShieldedAmount,
+          tokenBalance.totalShieldedReceived,
+          address,
+          token,
+        ],
       );
 
       // if we're removing any of the authorities, we need to refresh the authority columns. Unlike the values,
@@ -821,18 +1177,30 @@ export const updateAddressTablesWithTx = async (
       // unlocked before it can be spent. In case we're just adding new locked authorities, this will be taken
       // care by the first sql query.
 
-      // update address_tx_history with one entry for each pair (address, token)
-      entries.push([address, txId, token, tokenBalance.total(), timestamp]);
+      // update address_tx_history with one entry for each pair (address, token).
+      // `balance` is the transparent delta (signed unlocked + locked) and
+      // `shielded_balance_delta` is the shielded delta (signed
+      // unlockedShielded + lockedShielded); the two columns live on the
+      // same row keyed by (address, tx_id, token_id).
+      const transparentDelta = tokenBalance.unlockedAmount + tokenBalance.lockedAmount;
+      const shieldedDelta = tokenBalance.unlockedShieldedAmount + tokenBalance.lockedShieldedAmount;
+      entries.push([address, txId, token, transparentDelta, shieldedDelta, timestamp]);
     }
   }
 
-  await mysql.query(
-    `INSERT INTO \`address_tx_history\`(\`address\`, \`tx_id\`,
-                                        \`token_id\`, \`balance\`,
-                                        \`timestamp\`)
-     VALUES ?`,
-    [entries],
-  );
+  if (entries.length > 0) {
+    await mysql.query(
+      `INSERT INTO \`address_tx_history\`(\`address\`, \`tx_id\`,
+                                          \`token_id\`, \`balance\`,
+                                          \`shielded_balance_delta\`,
+                                          \`timestamp\`)
+       VALUES ?
+       ON DUPLICATE KEY UPDATE \`balance\` = VALUES(\`balance\`),
+                               \`shielded_balance_delta\` = VALUES(\`shielded_balance_delta\`),
+                               \`timestamp\` = VALUES(\`timestamp\`)`,
+      [entries],
+    );
+  }
 };
 
 /**
@@ -897,13 +1265,15 @@ export const getUtxosLockedAtHeight = async (
       const utxo: DbTxOutput = {
         txId: result.tx_id as string,
         index: result.index as number,
-        tokenId: result.token_id as string,
+        tokenId: result.token_id as string | null,
         address: result.address as string,
-        value: BigInt(result.value),
+        value: result.value === null || result.value === undefined ? null : BigInt(result.value),
         authorities: result.authorities as number,
         timelock: result.timelock as number,
         heightlock: result.heightlock as number,
         locked: Number(result.locked) > 0,
+        mode: result.mode as number,
+        recoveryState: (result.recovery_state ?? null) as RecoveryState | null,
       };
       utxos.push(utxo);
     }
@@ -936,9 +1306,18 @@ export const unlockUtxos = async (mysql: MysqlConnection, utxos: TxInput[]): Pro
  * The balance of an address might change as a locked amount becomes unlocked. This function updates
  * the address_balance table, subtracting from the locked column and adding to the unlocked column.
  *
+ * The SQL writes both transparent (`unlocked_balance` / `locked_balance`) and shielded
+ * (`unlocked_shielded_balance` / `locked_shielded_balance`) column families in one statement.
+ * Each `TokenBalance` carries both `unlockedAmount` (transparent delta) and `unlockedShieldedAmount`
+ * (shielded delta); for a transparent-only unlock the shielded deltas are 0, and vice versa.
+ *
+ * `timelock_expires` is refreshed whenever an unlock landed on this address — transparent or
+ * shielded. The column tracks the earliest expiry across ALL locked UTXOs (mode 0, 1, or 2)
+ * for the address; the refresh `SELECT MIN(timelock)` is intentionally kind-agnostic.
+ *
  * @param mysql - Database connection
  * @param addressBalanceMap - A map of addresses and the unlocked balances
- * @param updateTimelock - If this update is triggered by a timelock expiring, update the next expire timestamp
+ * @param updateTimelocks - If this update is triggered by a timelock expiring, update the next expire timestamp
  */
 export const updateAddressLockedBalance = async (
   mysql: MysqlConnection,
@@ -951,11 +1330,15 @@ export const updateAddressLockedBalance = async (
         `UPDATE \`address_balance\`
             SET \`unlocked_balance\` = \`unlocked_balance\` + ?,
                 \`locked_balance\` = \`locked_balance\` - ?,
+                \`unlocked_shielded_balance\` = \`unlocked_shielded_balance\` + ?,
+                \`locked_shielded_balance\` = \`locked_shielded_balance\` - ?,
                 \`unlocked_authorities\` = (unlocked_authorities | ?)
           WHERE \`address\` = ?
             AND \`token_id\` = ?`, [
         tokenBalance.unlockedAmount,
         tokenBalance.unlockedAmount,
+        tokenBalance.unlockedShieldedAmount,
+        tokenBalance.unlockedShieldedAmount,
         tokenBalance.unlockedAuthorities.toInteger(),
         address,
         token,
@@ -963,6 +1346,7 @@ export const updateAddressLockedBalance = async (
       );
 
       // if any authority has been unlocked, we have to refresh the locked authorities
+      // (shielded outputs cannot carry authority, so this only fires for transparent unlocks)
       if (tokenBalance.unlockedAuthorities.toInteger() > 0) {
         await mysql.execute(
           `UPDATE \`address_balance\`
@@ -980,7 +1364,10 @@ export const updateAddressLockedBalance = async (
         );
       }
 
-      // if this is being unlocked due to a timelock, also update the timelock_expires column
+      // Refresh timelock_expires whenever this update is triggered by a timelock expiry.
+      // The SELECT MIN is kind-agnostic: shielded outputs can also carry timelocks, and the
+      // column's contract is "earliest locked UTXO's expiry" across all kinds. Mode 1/2
+      // unowned rows have NULL timelock and naturally fall out of the MIN.
       if (updateTimelocks) {
         await mysql.execute(`
           UPDATE \`address_balance\`
@@ -1051,6 +1438,17 @@ export const getAddressWalletInfo = async (mysql: MysqlConnection, addresses: st
  * The balance of a wallet might change as a locked amount becomes unlocked. This function updates
  * the wallet_balance table, subtracting from the locked column and adding to the unlocked column.
  *
+ * The SQL writes both transparent (`unlocked_balance` / `locked_balance`) and shielded
+ * (`unlocked_shielded_balance` / `locked_shielded_balance`) column families in one statement.
+ * Each `TokenBalance` carries both `unlockedAmount` (transparent delta) and `unlockedShieldedAmount`
+ * (shielded delta); for a transparent-only unlock the shielded deltas are 0, and vice versa.
+ * Authority bits only ever move on the transparent path (shielded outputs cannot carry authority).
+ *
+ * `timelock_expires` is refreshed whenever `updateTimelocks` is true. The aggregating SELECT
+ * pulls `MIN(timelock_expires)` from every `address_balance` row owned by the wallet — those
+ * rows themselves already track the per-address earliest expiry across kinds (see
+ * {@link updateAddressLockedBalance}), so the wallet aggregation is kind-agnostic by construction.
+ *
  * @param mysql - Database connection
  * @param walletBalanceMap - A map of walletId and the unlocked balances
  * @param updateTimelocks - If this update is triggered by a timelock expiring, update the next lock expiration
@@ -1066,14 +1464,24 @@ export const updateWalletLockedBalance = async (
         `UPDATE \`wallet_balance\`
             SET \`unlocked_balance\` = \`unlocked_balance\` + ?,
                 \`locked_balance\` = \`locked_balance\` - ?,
+                \`unlocked_shielded_balance\` = \`unlocked_shielded_balance\` + ?,
+                \`locked_shielded_balance\` = \`locked_shielded_balance\` - ?,
                 \`unlocked_authorities\` = (\`unlocked_authorities\` | ?)
           WHERE \`wallet_id\` = ?
             AND \`token_id\` = ?`,
-        [tokenBalance.unlockedAmount, tokenBalance.unlockedAmount,
-        tokenBalance.unlockedAuthorities.toInteger(), walletId, token],
+        [
+          tokenBalance.unlockedAmount,
+          tokenBalance.unlockedAmount,
+          tokenBalance.unlockedShieldedAmount,
+          tokenBalance.unlockedShieldedAmount,
+          tokenBalance.unlockedAuthorities.toInteger(),
+          walletId,
+          token,
+        ],
       );
 
       // if any authority has been unlocked, we have to refresh the locked authorities
+      // (shielded outputs cannot carry authority, so this only fires for transparent unlocks)
       if (tokenBalance.unlockedAuthorities.toInteger() > 0) {
         await mysql.execute(
           `UPDATE \`wallet_balance\`
@@ -1091,7 +1499,10 @@ export const updateWalletLockedBalance = async (
         );
       }
 
-      // if this is being unlocked due to a timelock, also update the timelock_expires column
+      // Refresh timelock_expires whenever this update is triggered by a timelock expiry.
+      // The aggregation pulls MIN(timelock_expires) from every address_balance row owned by
+      // the wallet; those per-address rows are already kind-agnostic (transparent and shielded
+      // earliest expiries fold into the same column), so this aggregation is kind-agnostic too.
       if (updateTimelocks) {
         await mysql.execute(
           `UPDATE \`wallet_balance\`
@@ -1193,9 +1604,9 @@ export const getExpiredTimelocksUtxos = async (
 export const mapDbResultToDbTxOutput = (result: TxOutputRow): DbTxOutput => ({
   txId: result.tx_id as string,
   index: result.index as number,
-  tokenId: result.token_id as string,
+  tokenId: result.token_id as string | null,
   address: result.address as string,
-  value: BigInt(result.value),
+  value: result.value === null || result.value === undefined ? null : BigInt(result.value),
   authorities: result.authorities as number,
   timelock: result.timelock as number,
   heightlock: result.heightlock as number,
@@ -1203,6 +1614,8 @@ export const mapDbResultToDbTxOutput = (result: TxOutputRow): DbTxOutput => ({
   txProposalId: result.tx_proposal as string,
   txProposalIndex: result.tx_proposal_index as number,
   spentBy: result.spent_by as string,
+  mode: result.mode as number,
+  recoveryState: (result.recovery_state ?? null) as RecoveryState | null,
 });
 
 /**
@@ -1355,13 +1768,15 @@ export const getLockedUtxoFromInputs = async (mysql: MysqlConnection, inputs: Ev
     return results.map((utxo) => ({
       txId: utxo.tx_id as string,
       index: utxo.index as number,
-      tokenId: utxo.token_id as string,
+      tokenId: utxo.token_id as string | null,
       address: utxo.address as string,
-      value: BigInt(utxo.value),
+      value: utxo.value === null || utxo.value === undefined ? null : BigInt(utxo.value),
       authorities: utxo.authorities as number,
       timelock: utxo.timelock as number,
       heightlock: utxo.heightlock as number,
       locked: utxo.locked ? Boolean(utxo.locked) : false,
+      mode: utxo.mode as number,
+      recoveryState: (utxo.recovery_state ?? null) as RecoveryState | null,
     }));
   }
 
@@ -1451,6 +1866,10 @@ export const updateWalletTablesWithTx = async (
       // as (tokenBalance < 0 ? 0 : tokenBalance). In case the wallet's balance in this tx is negative,
       // there must necessarily be an entry already and we'll fall on the ON DUPLICATE KEY case, so the
       // entry value won't be used. We'll just update balance = balance + tokenBalance
+      // Shielded balance columns are clamped to 0 on insert (see
+      // updateAddressTablesWithTx for the strict-mode rationale). The
+      // signed delta is applied in the ON DUPLICATE KEY UPDATE branch via
+      // positional bind args.
       const entry = {
         wallet_id: walletId,
         token_id: token,
@@ -1462,6 +1881,9 @@ export const updateWalletTablesWithTx = async (
         unlocked_authorities: tokenBalance.unlockedAuthorities.toUnsignedInteger(),
         locked_authorities: tokenBalance.lockedAuthorities.toUnsignedInteger(),
         timelock_expires: tokenBalance.lockExpires,
+        unlocked_shielded_balance: (tokenBalance.unlockedShieldedAmount < 0n ? 0n : tokenBalance.unlockedShieldedAmount),
+        locked_shielded_balance: (tokenBalance.lockedShieldedAmount < 0n ? 0n : tokenBalance.lockedShieldedAmount),
+        total_shielded_received: tokenBalance.totalShieldedReceived,
         transactions: 1,
       };
 
@@ -1473,6 +1895,9 @@ export const updateWalletTablesWithTx = async (
          UPDATE total_received = total_received + ?,
                 unlocked_balance = unlocked_balance + ?,
                 locked_balance = locked_balance + ?,
+                unlocked_shielded_balance = unlocked_shielded_balance + ?,
+                locked_shielded_balance = locked_shielded_balance + ?,
+                total_shielded_received = total_shielded_received + ?,
                 transactions = transactions + 1,
                 timelock_expires = CASE WHEN timelock_expires IS NULL THEN VALUES(timelock_expires)
                                         WHEN VALUES(timelock_expires) IS NULL THEN timelock_expires
@@ -1480,7 +1905,17 @@ export const updateWalletTablesWithTx = async (
                                    END,
                 unlocked_authorities = (unlocked_authorities | VALUES(unlocked_authorities)),
                 locked_authorities = locked_authorities | VALUES(locked_authorities)`,
-        [entry, tokenBalance.totalAmountSent, tokenBalance.unlockedAmount, tokenBalance.lockedAmount, walletId, token],
+        [
+          entry,
+          tokenBalance.totalAmountSent,
+          tokenBalance.unlockedAmount,
+          tokenBalance.lockedAmount,
+          tokenBalance.unlockedShieldedAmount,
+          tokenBalance.lockedShieldedAmount,
+          tokenBalance.totalShieldedReceived,
+          walletId,
+          token,
+        ],
       );
 
       // same logic here as in the updateAddressTablesWithTx function
@@ -1505,7 +1940,12 @@ export const updateWalletTablesWithTx = async (
         );
       }
 
-      entries.push([walletId, token, txId, tokenBalance.total(), timestamp]);
+      // `balance` is the transparent delta; `shielded_balance_delta` is
+      // the signed shielded delta (positive on credit, negative on the
+      // reversal of a previously-recovered shielded UTXO being spent).
+      const transparentDelta = tokenBalance.unlockedAmount + tokenBalance.lockedAmount;
+      const shieldedDelta = tokenBalance.unlockedShieldedAmount + tokenBalance.lockedShieldedAmount;
+      entries.push([walletId, token, txId, transparentDelta, shieldedDelta, timestamp]);
     }
   }
 
@@ -1513,8 +1953,11 @@ export const updateWalletTablesWithTx = async (
     await mysql.query(
       `INSERT INTO \`wallet_tx_history\` (\`wallet_id\`, \`token_id\`,
                                           \`tx_id\`, \`balance\`,
+                                          \`shielded_balance_delta\`,
                                           \`timestamp\`)
-            VALUES ?`,
+            VALUES ?
+       ON DUPLICATE KEY UPDATE \`balance\` = VALUES(\`balance\`),
+                               \`shielded_balance_delta\` = VALUES(\`shielded_balance_delta\`)`,
       [entries],
     );
   }
@@ -1568,9 +2011,9 @@ export const getTxOutputsBySpent = async (
     const utxo: DbTxOutput = {
       txId: result.tx_id as string,
       index: result.index as number,
-      tokenId: result.token_id as string,
+      tokenId: result.token_id as string | null,
       address: result.address as string,
-      value: BigInt(result.value),
+      value: result.value === null || result.value === undefined ? null : BigInt(result.value),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
@@ -1578,6 +2021,8 @@ export const getTxOutputsBySpent = async (
       txProposalId: result.tx_proposal as string,
       txProposalIndex: result.tx_proposal_index as number,
       spentBy: result.spent_by ? result.spent_by as string : null,
+      mode: result.mode as number,
+      recoveryState: (result.recovery_state ?? null) as RecoveryState | null,
     };
 
     utxos.push(utxo);
@@ -1784,9 +2229,9 @@ export const getTxOutputsHeightUnlockedAtHeight = async (
     const utxo: DbTxOutput = {
       txId: result.tx_id as string,
       index: result.index as number,
-      tokenId: result.token_id as string,
+      tokenId: result.token_id as string | null,
       address: result.address as string,
-      value: BigInt(result.value),
+      value: result.value === null || result.value === undefined ? null : BigInt(result.value),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
@@ -1794,6 +2239,8 @@ export const getTxOutputsHeightUnlockedAtHeight = async (
       txProposalId: result.tx_proposal as string,
       txProposalIndex: result.tx_proposal_index as number,
       spentBy: result.spent_by ? result.spent_by as string : null,
+      mode: result.mode as number,
+      recoveryState: (result.recovery_state ?? null) as RecoveryState | null,
     };
     utxos.push(utxo);
   }

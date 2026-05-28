@@ -191,6 +191,7 @@ export const getAddressBalanceMap = (
 export const unlockUtxos = async (mysql: MysqlConnection, utxos: DbTxOutput[], updateTimelocks: boolean): Promise<void> => {
   if (utxos.length === 0) return;
 
+  // @ts-ignore — value/tokenId are nullable on shielded rows; unlockUtxos is rewritten in follow-up
   const outputs: TxOutput[] = utxos.map((utxo) => {
     const decoded: DecodedOutput = {
       type: 'P2PKH',
@@ -215,9 +216,11 @@ export const unlockUtxos = async (mysql: MysqlConnection, utxos: DbTxOutput[], u
   await dbUnlockUtxos(mysql, utxos.map((utxo: DbTxOutput): TxInput => ({
     tx_id: utxo.txId,
     index: utxo.index,
+    // @ts-ignore — nullable on shielded rows; rewritten in follow-up
     value: utxo.value,
     token_data: 0,
     script: '',
+    // @ts-ignore
     token: utxo.tokenId,
     decoded: null,
   })));
