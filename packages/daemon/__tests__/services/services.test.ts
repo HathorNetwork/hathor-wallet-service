@@ -43,6 +43,8 @@ import {
 import logger from '../../src/logger';
 import {
   getAddressBalanceMap,
+  getInvolvedAddresses,
+  getUnifiedBalanceMap,
   prepareInputs,
   prepareOutputs,
   hashTxData,
@@ -94,6 +96,7 @@ jest.mock('../../src/db', () => ({
   updateTxOutputSpentBy: jest.fn(),
   incrementTokensTxCount: jest.fn(),
   updateAddressTablesWithTx: jest.fn(),
+  bumpAddressInvolvement: jest.fn(),
   getAddressWalletInfo: jest.fn(),
   generateAddresses: jest.fn(),
   addNewAddresses: jest.fn(),
@@ -110,6 +113,8 @@ jest.mock('../../src/utils', () => ({
   prepareOutputs: jest.fn(),
   prepareInputs: jest.fn(),
   getAddressBalanceMap: jest.fn(),
+  getInvolvedAddresses: jest.fn(() => new Set<string>()),
+  getUnifiedBalanceMap: jest.fn().mockResolvedValue({}),
   validateAddressBalances: jest.fn(),
   LRU: jest.fn(),
   unlockTimelockedUtxos: jest.fn(),
@@ -129,6 +134,11 @@ jest.mock('../../src/utils', () => ({
 
 jest.mock('@wallet-service/common', () => {
   const addAlertMock = jest.fn();
+  const ShieldedOutputMode = {
+    Transparent: 0,
+    AmountShielded: 1,
+    FullyShielded: 2,
+  };
   return {
     addAlert: addAlertMock,
     Severity: {
@@ -142,6 +152,15 @@ jest.mock('@wallet-service/common', () => {
       invokeNftHandlerLambda: jest.fn(),
       processNftEvent: jest.fn().mockReturnValue(Promise.resolve()),
     },
+    ShieldedOutputMode,
+    RecoveryState: {
+      Unowned: 'unowned',
+      Recovered: 'recovered',
+      RecoveryFailed: 'recovery_failed',
+    },
+    isShieldedMode: (mode: number) =>
+      mode === ShieldedOutputMode.AmountShielded
+        || mode === ShieldedOutputMode.FullyShielded,
   };
 });
 
@@ -679,6 +698,9 @@ describe('handleVertexAccepted', () => {
     (prepareOutputs as jest.Mock).mockReturnValue([]);
     (prepareInputs as jest.Mock).mockReturnValue([]);
     (getAddressBalanceMap as jest.Mock).mockReturnValue({});
+    // Non-empty involvement so the per-token / wallet branch executes.
+    (getInvolvedAddresses as jest.Mock).mockReturnValue(new Set(['address1']));
+    (getUnifiedBalanceMap as jest.Mock).mockResolvedValue({});
     (getUtxosLockedAtHeight as jest.Mock).mockResolvedValue([]);
     (hashTxData as jest.Mock).mockReturnValue('hashedData');
     (getAddressWalletInfo as jest.Mock).mockResolvedValue({
