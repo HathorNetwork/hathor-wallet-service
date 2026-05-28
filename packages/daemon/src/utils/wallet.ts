@@ -300,7 +300,9 @@ export const unlockTimelockedUtxos = async (mysql: MysqlConnection, now: number)
 export const prepareInputs = (inputs: EventTxInput[], tokens: string[]): TxInput[] => {
   const preparedInputs: TxInput[] = inputs.reduce((newInputs: TxInput[], _input: EventTxInput): TxInput[] => {
     const output = _input.spent_output;
+    // @ts-ignore — SpentOutput union introduced in PR3; prepareInputs filters to transparent in follow-up
     const utxo: Output = new Output(output.value, Buffer.from(output.script, 'base64'), {
+      // @ts-ignore
       tokenData: output.token_data,
     });
     let token = hathorLib.constants.NATIVE_TOKEN_UID;

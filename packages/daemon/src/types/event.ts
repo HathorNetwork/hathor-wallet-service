@@ -120,10 +120,67 @@ export const EventTxOutputSchema = z.object({
 });
 export type EventTxOutput = z.infer<typeof EventTxOutputSchema>;
 
+const HexStringSchema = z.string().regex(/^([0-9a-fA-F]{2})+$/);
+
+const ShieldedDecodedSchema = z.object({
+  address: z.string(),
+  // unix seconds; absent ⇒ no timelock. Mirrors the transparent
+  // `decoded.timelock` shape; the daemon derives `locked` locally from this
+  // plus `vertex.heightlock` (shielded outputs don't carry an on-wire
+  // `locked` flag).
+  timelock: z.number().int().nullish(),
+}).passthrough();
+
+const BaseShieldedFieldsSchema = z.object({
+  commitment: HexStringSchema,
+  range_proof: HexStringSchema,
+  script: HexStringSchema,
+  ephemeral_pubkey: HexStringSchema,
+  decoded: ShieldedDecodedSchema,
+});
+
+export const AmountShieldedOutputSchema = BaseShieldedFieldsSchema.extend({
+  mode: z.literal(1),
+  token_data: z.number().int(),
+});
+export type AmountShieldedOutput = z.infer<typeof AmountShieldedOutputSchema>;
+
+export const FullyShieldedOutputSchema = BaseShieldedFieldsSchema.extend({
+  mode: z.literal(2),
+  asset_commitment: HexStringSchema,
+  surjection_proof: HexStringSchema,
+});
+export type FullyShieldedOutput = z.infer<typeof FullyShieldedOutputSchema>;
+
+export const ShieldedOutputSchema = z.discriminatedUnion('mode', [
+  AmountShieldedOutputSchema,
+  FullyShieldedOutputSchema,
+]);
+export type ShieldedOutput = z.infer<typeof ShieldedOutputSchema>;
+
+const TransparentSpentOutputSchema = EventTxOutputSchema.extend({
+  mode: z.literal(0),
+});
+
+export const SpentOutputSchema = z.preprocess(
+  (raw) => {
+    if (raw && typeof raw === 'object' && !Array.isArray(raw) && !('mode' in raw)) {
+      return { ...raw, mode: 0 };
+    }
+    return raw;
+  },
+  z.discriminatedUnion('mode', [
+    TransparentSpentOutputSchema,
+    AmountShieldedOutputSchema,
+    FullyShieldedOutputSchema,
+  ]),
+);
+export type SpentOutput = z.infer<typeof SpentOutputSchema>;
+
 export const EventTxInputSchema = z.object({
   tx_id: z.string(),
   index: z.number(),
-  spent_output: EventTxOutputSchema,
+  spent_output: SpentOutputSchema,
 });
 export type EventTxInput = z.infer<typeof EventTxInputSchema>;
 
@@ -153,6 +210,7 @@ export const TxEventDataWithoutMetaSchema = z.object({
   nonce: bigIntUtils.bigIntCoercibleSchema,
   inputs: EventTxInputSchema.array(),
   outputs: EventTxOutputSchema.array(),
+  shielded_outputs: z.array(ShieldedOutputSchema).default([]),
   headers: EventTxNanoHeaderSchema.array().optional(),
   parents: z.string().array(),
   tokens: z.string().array(),

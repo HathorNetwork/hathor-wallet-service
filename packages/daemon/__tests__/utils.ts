@@ -88,6 +88,7 @@ export const createEventTxInput = (
     tx_id: txId,
     index,
     spent_output: {
+      mode: 0 as const,
       value,
       token_data: tokenData,
       script: 'dqkUCEboPJo9txn548FA/NLLaMLsfsSIrA==',
