@@ -223,13 +223,27 @@ export class Balance {
 
   lockExpires: number | null;
 
+  // Shielded counterparts. Carried on the same Balance so the unified
+  // (address, token_id) row can absorb both transparent and shielded
+  // contributions in a single statement. Lifetime-credit accumulator for
+  // shielded receives is tracked via totalShieldedReceived; the locked /
+  // unlocked split mirrors the transparent columns.
+  unlockedShieldedAmount: bigint;
+
+  lockedShieldedAmount: bigint;
+
+  totalShieldedReceived: bigint;
+
   constructor(
     totalAmountSent = 0n,
     unlockedAmount = 0n,
     lockedAmount = 0n,
     lockExpires: number | null = null,
     unlockedAuthorities: Authorities | null = null,
-    lockedAuthorities: Authorities | null = null
+    lockedAuthorities: Authorities | null = null,
+    unlockedShieldedAmount = 0n,
+    lockedShieldedAmount = 0n,
+    totalShieldedReceived = 0n,
   ) {
     this.totalAmountSent = totalAmountSent;
     this.unlockedAmount = unlockedAmount;
@@ -237,6 +251,9 @@ export class Balance {
     this.lockExpires = lockExpires;
     this.unlockedAuthorities = unlockedAuthorities || new Authorities();
     this.lockedAuthorities = lockedAuthorities || new Authorities();
+    this.unlockedShieldedAmount = unlockedShieldedAmount;
+    this.lockedShieldedAmount = lockedShieldedAmount;
+    this.totalShieldedReceived = totalShieldedReceived;
   }
 
   /**
@@ -270,6 +287,9 @@ export class Balance {
       this.lockExpires,
       this.unlockedAuthorities.clone(),
       this.lockedAuthorities.clone(),
+      this.unlockedShieldedAmount,
+      this.lockedShieldedAmount,
+      this.totalShieldedReceived,
     );
   }
 
@@ -299,6 +319,9 @@ export class Balance {
       lockExpires,
       Authorities.merge(b1.unlockedAuthorities, b2.unlockedAuthorities),
       Authorities.merge(b1.lockedAuthorities, b2.lockedAuthorities),
+      b1.unlockedShieldedAmount + b2.unlockedShieldedAmount,
+      b1.lockedShieldedAmount + b2.lockedShieldedAmount,
+      b1.totalShieldedReceived + b2.totalShieldedReceived,
     );
   }
 }
@@ -312,7 +335,7 @@ export class TokenBalanceMap {
 
   get(tokenId: string): Balance {
     // if the token is not present, return 0 instead of undefined
-    return this.map[tokenId] || new Balance(0n, 0n, 0n);
+    return this.map[tokenId] || new Balance(0n, 0n, 0n, null, null, null, 0n, 0n, 0n);
   }
 
   set(tokenId: string, balance: Balance): void {
@@ -354,13 +377,22 @@ export class TokenBalanceMap {
   static fromStringMap(tokenBalanceMap: StringMap<StringMap<bigint | number | Authorities>>): TokenBalanceMap {
     const obj = new TokenBalanceMap();
     for (const [tokenId, balance] of Object.entries(tokenBalanceMap)) {
+      // Each field accepts either the short StringMap-shorthand key (`unlocked`,
+      // `locked`, `unlockedShielded`, etc.) or the full Balance-class field
+      // name (`unlockedAmount`, `lockedAmount`, `unlockedShieldedAmount`, etc.).
+      // This makes the helper tolerant of a Balance instance round-tripped
+      // through JSON.stringify, which emits the full field names — preventing
+      // silent data-loss if a future serializer feeds its output back in.
       obj.set(tokenId, new Balance(
-        balance.totalSent as bigint,
-        balance.unlocked as bigint,
-        balance.locked as bigint,
+        (balance.totalSent as bigint) ?? (balance.totalAmountSent as bigint),
+        (balance.unlocked as bigint) ?? (balance.unlockedAmount as bigint),
+        (balance.locked as bigint) ?? (balance.lockedAmount as bigint),
         balance.lockExpires as number || null,
         balance.unlockedAuthorities as Authorities,
         balance.lockedAuthorities as Authorities,
+        (balance.unlockedShielded as bigint) ?? (balance.unlockedShieldedAmount as bigint) ?? 0n,
+        (balance.lockedShielded as bigint) ?? (balance.lockedShieldedAmount as bigint) ?? 0n,
+        (balance.totalShieldedReceived as bigint) ?? 0n,
       ));
     }
     return obj;
@@ -436,6 +468,46 @@ export class TokenBalanceMap {
     } else {
       obj.set(token, new Balance(0n, -BigInt(input.value), 0n, null));
     }
+    return obj;
+  }
+
+  /**
+   * Create a TokenBalanceMap entry for a shielded contribution.
+   *
+   * Shielded contributions never carry authority bits (shielded outputs
+   * can't encode authorities). `value` is signed: positive for a recovered
+   * shielded receive, negative for the reversal of a previously-recovered
+   * shielded UTXO being spent. `locked` routes the delta to the
+   * locked vs unlocked shielded column, mirroring the transparent path.
+   *
+   * `totalShieldedReceived` is the lifetime-credit accumulator and is only
+   * bumped on positive deltas (receives); spend-side reversals leave it
+   * alone, matching the transparent `totalAmountSent` / `total_received`
+   * semantics.
+   */
+  static fromShielded(
+    tokenId: string,
+    value: bigint,
+    locked: boolean,
+  ): TokenBalanceMap {
+    const obj = new TokenBalanceMap();
+    const unlockedShielded = locked ? 0n : value;
+    const lockedShielded = locked ? value : 0n;
+    const lifetime = value > 0n ? value : 0n;
+    obj.set(
+      tokenId,
+      new Balance(
+        0n,
+        0n,
+        0n,
+        null,
+        null,
+        null,
+        unlockedShielded,
+        lockedShielded,
+        lifetime,
+      ),
+    );
     return obj;
   }
 }
