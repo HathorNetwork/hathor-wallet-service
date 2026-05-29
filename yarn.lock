@@ -9674,14 +9674,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"axios@npm:1.13.5":
-  version: 1.13.5
-  resolution: "axios@npm:1.13.5"
+"axios@npm:1.16.0":
+  version: 1.16.0
+  resolution: "axios@npm:1.16.0"
   dependencies:
-    follow-redirects: "npm:^1.15.11"
+    follow-redirects: "npm:^1.16.0"
     form-data: "npm:^4.0.5"
-    proxy-from-env: "npm:^1.1.0"
-  checksum: 10/db726d09902565ef9a0632893530028310e2ec2b95b727114eca1b101450b00014133dfc3871cffc87983fb922bca7e4874d7e2826d1550a377a157cdf3f05b6
+    proxy-from-env: "npm:^2.1.0"
+  checksum: 10/cf8b521ff732c21550b38c8739aef556ea5e14b268468bb89e4307416ab262b462e582474e810963a3d61c2392ab47ad35c11d05eff027de7c97113bc7411623
   languageName: node
   linkType: hard
 
@@ -13226,16 +13226,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"follow-redirects@npm:^1.15.11":
-  version: 1.16.0
-  resolution: "follow-redirects@npm:1.16.0"
-  peerDependenciesMeta:
-    debug:
-      optional: true
-  checksum: 10/3fbe3d80b3b544c22705d837aa5d4a0d07a740d913534a2620b0a004c610af4148e3b58723536dd099aaa1c9d3a155964bde9665d6e5cb331460809a1fc572fd
-  languageName: node
-  linkType: hard
-
 "follow-redirects@npm:^1.15.6":
   version: 1.15.9
   resolution: "follow-redirects@npm:1.15.9"
@@ -13243,6 +13233,16 @@ __metadata:
     debug:
       optional: true
   checksum: 10/e3ab42d1097e90d28b913903841e6779eb969b62a64706a3eb983e894a5db000fbd89296f45f08885a0e54cd558ef62e81be1165da9be25a6c44920da10f424c
+  languageName: node
+  linkType: hard
+
+"follow-redirects@npm:^1.16.0":
+  version: 1.16.0
+  resolution: "follow-redirects@npm:1.16.0"
+  peerDependenciesMeta:
+    debug:
+      optional: true
+  checksum: 10/3fbe3d80b3b544c22705d837aa5d4a0d07a740d913534a2620b0a004c610af4148e3b58723536dd099aaa1c9d3a155964bde9665d6e5cb331460809a1fc572fd
   languageName: node
   linkType: hard
 
@@ -18031,6 +18031,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"proxy-from-env@npm:^2.1.0":
+  version: 2.1.0
+  resolution: "proxy-from-env@npm:2.1.0"
+  checksum: 10/fbbaf4dab2a6231dc9e394903a5f66f20475e36b734335790b46feb9da07c37d6b32e2c02e3e2ea4d4b23774c53d8562e5b7cc73282cb43f4a597b7eacaee2ee
+  languageName: node
+  linkType: hard
+
 "pump@npm:^3.0.0":
   version: 3.0.0
   resolution: "pump@npm:3.0.0"
@@ -19847,7 +19854,7 @@ __metadata:
     "@typescript-eslint/parser": "npm:6.7.3"
     assert: "npm:2.1.0"
     aws-sdk: "npm:2.1454.0"
-    axios: "npm:1.13.5"
+    axios: "npm:1.16.0"
     better-sqlite3: "npm:11.7.0"
     dotenv: "npm:8.2.0"
     eslint: "npm:9.3.0"
@@ -21019,7 +21026,7 @@ __metadata:
     "@typescript-eslint/eslint-plugin": "npm:6.7.4"
     "@typescript-eslint/parser": "npm:3.3.0"
     aws-lambda: "npm:1.0.7"
-    axios: "npm:1.13.5"
+    axios: "npm:1.16.0"
     bip32: "npm:3.0.1"
     bitcoinjs-lib: "npm:6.1.5"
     bitcoinjs-message: "npm:2.2.0"
