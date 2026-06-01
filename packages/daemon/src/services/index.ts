@@ -87,12 +87,14 @@ import {
   getAddressSeqnum,
   unspendUtxos,
   voidWalletTransaction,
+  getTxOutput,
   getTxOutputs,
   clearTxProposalForVoidedTx,
   insertTxOutput,
   insertShieldedTxOutputData,
   upsertShieldedAddressObservation,
   findShieldedAddressOwnership,
+  findShieldedAddressOwnershipBatch,
   markTxOutputRecovered,
   markTxOutputRecoveryFailed,
   bumpAddressInvolvement,
@@ -1024,7 +1026,37 @@ export const voidTx = async (
     };
   });
 
-  const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputsWithLocked, headers);
+  // Build shielded output contributions from local tx_output rows.
+  // A shielded receive is only credited when it was recovered against an
+  // owned address; those same rows must be reversed when the vertex is voided.
+  // We read them from the DB now — before markUtxosAsVoided — so the rows
+  // are still present and still carry value / token_id.
+  //
+  // Ownership is resolved in one batch query to avoid N round-trips.
+  const candidateRows = dbTxOutputs.filter(
+    (r) => r.mode !== 0 && r.recoveryState === RecoveryState.Recovered && r.value !== null && r.tokenId !== null,
+  );
+  const ownershipMap = await findShieldedAddressOwnershipBatch(
+    mysql,
+    candidateRows.map((r) => r.address),
+  );
+  const shieldedRecoveryResults: ShieldedRecoveryResult[] = candidateRows
+    .filter((r) => ownershipMap.has(r.address))
+    .map((r) => ({
+      address: r.address,
+      tokenId: r.tokenId!,
+      value: r.value!,
+      locked: r.locked,
+    }));
+
+  const addressBalanceMap: StringMap<TokenBalanceMap> = await getUnifiedBalanceMap(
+    mysql,
+    txInputs,
+    txOutputsWithLocked,
+    shieldedRecoveryResults,
+    inputs,
+    headers,
+  );
 
   await withSpan('voidTransaction', () => voidTransaction(mysql, hash));
   // CRITICAL: markUtxosAsVoided must be called before voidAddressTransaction
