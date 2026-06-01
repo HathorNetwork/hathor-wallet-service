@@ -30,7 +30,7 @@ jest.mock('@wallet-service/common', () => {
 
 import { TokenVersion } from '@hathor/wallet-lib';
 import * as db from '../../src/db';
-import { handleVoidedTx, voidTx, handleTokenCreated, handleVertexAccepted } from '../../src/services';
+import { handleVoidedTx, voidTx, handleTokenCreated, handleVertexAccepted, handleUnvoidedTx } from '../../src/services';
 import { LRU } from '../../src/utils';
 import {
   addOrUpdateTx,
@@ -3506,5 +3506,262 @@ describe('handleVoidedTx with shielded', () => {
     const prevOutput = await getTxOutput(mysql, PREV_TX_ID, PREV_INDEX, false);
     expect(prevOutput).not.toBeNull();
     expect(prevOutput!.spentBy).toBeNull();
+  });
+});
+
+describe('handleUnvoidedTx with shielded', () => {
+  const SHIELDED_ADDRESS = 'WShieldedAddress1';
+  const TOKEN_ID = '00';
+  const RECOVERED_VALUE = 150n;
+  const COMMITMENT = Buffer.from('02'.repeat(33), 'hex');
+  const EPHEM_PUBKEY = Buffer.from('05'.repeat(33), 'hex');
+
+  const buildReceiveVertex = () => {
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0].token_data = 0;
+    return fixture;
+  };
+
+  const buildVoidEvent = (fixture: typeof eventsFixture.VERTEX_WITH_SHIELDED) => ({
+    stream_id: 'stream-unvoid-shielded',
+    peer_id: 'peer-unvoid',
+    network: 'mainnet',
+    type: 'FULLNODE_EVENT',
+    latest_event_id: 999,
+    event: {
+      id: 998,
+      data: {
+        hash: fixture.event.data.hash,
+        outputs: fixture.event.data.outputs,
+        inputs: fixture.event.data.inputs,
+        tokens: fixture.event.data.tokens,
+        version: fixture.event.data.version,
+        headers: [],
+      },
+    },
+  });
+
+  beforeEach(async () => {
+    // Restore any spies left active by earlier tests (e.g. db.voidTransaction spy)
+    // so the real implementations run throughout the void→unvoid cycle.
+    jest.restoreAllMocks();
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  afterEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  it('round-trip restores shielded balance for a recovered receive', async () => {
+    expect.hasAssertions();
+
+    const fixture = buildReceiveVertex();
+    const txHash = fixture.event.data.hash;
+    const so = fixture.event.data.shielded_outputs[0];
+
+    // Seed a claimed CTSpend address row (bip32_account = 2) so the rewind
+    // mock fires during ingest and the balance is credited.
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [so.decoded.address, Buffer.alloc(32, 0x42)],
+    );
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES ('wallet_alice', ?, ?, 'ready', 20, ?, ?)`,
+      [XPUBKEY, XPUBKEY, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
+    );
+
+    // Prime the mock once; do NOT call resetCtCryptoMock between steps so the
+    // re-ingest triggered by unvoid can recover the same value.
+    primeAmountRewind({
+      commitment: COMMITMENT,
+      ephemeralPubkey: EPHEM_PUBKEY,
+      value: RECOVERED_VALUE,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+
+    const acceptContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(acceptContext as any, undefined as any);
+
+    // Post-ingest: balance credited.
+    const [wbIngest] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, total_shielded_received
+         FROM wallet_balance WHERE wallet_id = 'wallet_alice' AND token_id = ?`,
+      [TOKEN_ID],
+    );
+    expect(wbIngest).toHaveLength(1);
+    expect(BigInt(wbIngest[0].unlocked_shielded_balance)).toBe(RECOVERED_VALUE);
+    expect(BigInt(wbIngest[0].total_shielded_received)).toBe(RECOVERED_VALUE);
+
+    // Void the vertex.
+    const voidContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildVoidEvent(fixture),
+    };
+    await handleVoidedTx(voidContext as any);
+
+    // Post-void: all-zeros cleanup deletes the balance row (Task 7.1 truth).
+    const [wbVoided] = await mysql.query<any[]>(
+      `SELECT * FROM wallet_balance WHERE wallet_id = 'wallet_alice' AND token_id = ?`,
+      [TOKEN_ID],
+    );
+    expect(wbVoided).toHaveLength(0);
+
+    // Unvoid step 1: cleanupVoidedTx (DELETE the voided rows).
+    const unvoidContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildVoidEvent(fixture),
+    };
+    await handleUnvoidedTx(unvoidContext as any);
+
+    // Unvoid step 2: re-ingest (mirrors what the state machine chains to).
+    await handleVertexAccepted(acceptContext as any, undefined as any);
+
+    // Post-unvoid: balance restored to the same post-ingest state.
+    const [wbRestored] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, total_shielded_received
+         FROM wallet_balance WHERE wallet_id = 'wallet_alice' AND token_id = ?`,
+      [TOKEN_ID],
+    );
+    expect(wbRestored).toHaveLength(1);
+    expect(BigInt(wbRestored[0].unlocked_shielded_balance)).toBe(RECOVERED_VALUE);
+    expect(BigInt(wbRestored[0].total_shielded_received)).toBe(RECOVERED_VALUE);
+
+    const [abRestored] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, total_shielded_received
+         FROM address_balance WHERE address = ? AND token_id = ?`,
+      [SHIELDED_ADDRESS, TOKEN_ID],
+    );
+    expect(abRestored).toHaveLength(1);
+    expect(BigInt(abRestored[0].unlocked_shielded_balance)).toBe(RECOVERED_VALUE);
+    expect(BigInt(abRestored[0].total_shielded_received)).toBe(RECOVERED_VALUE);
+
+    // address.transactions involvement counter restored to 1.
+    const [addrRows] = await mysql.query<any[]>(
+      `SELECT transactions FROM address WHERE address = ?`,
+      [SHIELDED_ADDRESS],
+    );
+    expect(addrRows).toHaveLength(1);
+    expect(Number(addrRows[0].transactions)).toBe(1);
+
+    // tx_output visible again (voided = FALSE) with recovery_state preserved.
+    const txOutput = await getTxOutput(mysql, txHash, 1, false);
+    expect(txOutput).not.toBeNull();
+    const [rawRows] = await mysql.query<any[]>(
+      `SELECT voided, recovery_state FROM tx_output WHERE tx_id = ? AND \`index\` = 1`,
+      [txHash],
+    );
+    expect(rawRows).toHaveLength(1);
+    expect(rawRows[0].voided).toBeFalsy();
+    expect(rawRows[0].recovery_state).toBe('recovered');
+  });
+
+  it('no-op on balance for an unowned shielded receive round-trip', async () => {
+    expect.hasAssertions();
+
+    // Raw fixture: token_data = 1 (non-HTR), no claimed address row, no mock
+    // primed → output ingests as `unowned`, no balance row created.
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    const txHash = fixture.event.data.hash;
+
+    const acceptContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(acceptContext as any, undefined as any);
+
+    // No balance row after ingest (unowned).
+    const [wbIngest] = await mysql.query<any[]>(
+      `SELECT * FROM wallet_balance WHERE token_id = ?`,
+      [TOKEN_ID],
+    );
+    expect(wbIngest).toHaveLength(0);
+
+    // tx_output written with recovery_state = 'unowned'.
+    const [rawIngest] = await mysql.query<any[]>(
+      `SELECT voided, recovery_state FROM tx_output WHERE tx_id = ? AND \`index\` = 1`,
+      [txHash],
+    );
+    expect(rawIngest).toHaveLength(1);
+    expect(rawIngest[0].voided).toBeFalsy();
+    expect(rawIngest[0].recovery_state).toBe('unowned');
+
+    // Void the vertex.
+    const voidContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildVoidEvent(fixture),
+    };
+    await handleVoidedTx(voidContext as any);
+
+    // tx_output row still exists but is now voided.
+    const [rawVoided] = await mysql.query<any[]>(
+      `SELECT voided, recovery_state FROM tx_output WHERE tx_id = ? AND \`index\` = 1`,
+      [txHash],
+    );
+    expect(rawVoided).toHaveLength(1);
+    expect(rawVoided[0].voided).toBeTruthy();
+    expect(rawVoided[0].recovery_state).toBe('unowned');
+
+    // Unvoid step 1: cleanup DELETE.
+    const unvoidContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildVoidEvent(fixture),
+    };
+    await handleUnvoidedTx(unvoidContext as any);
+
+    // Unvoid step 2: re-ingest.
+    await handleVertexAccepted(acceptContext as any, undefined as any);
+
+    // Still no balance row after unvoid (unowned → never credited).
+    const [wbRestored] = await mysql.query<any[]>(
+      `SELECT * FROM wallet_balance WHERE token_id = ?`,
+      [TOKEN_ID],
+    );
+    expect(wbRestored).toHaveLength(0);
+
+    // tx_output visible again (voided = FALSE), recovery_state still 'unowned'.
+    const [rawRestored] = await mysql.query<any[]>(
+      `SELECT voided, recovery_state FROM tx_output WHERE tx_id = ? AND \`index\` = 1`,
+      [txHash],
+    );
+    expect(rawRestored).toHaveLength(1);
+    expect(rawRestored[0].voided).toBeFalsy();
+    expect(rawRestored[0].recovery_state).toBe('unowned');
   });
 });
