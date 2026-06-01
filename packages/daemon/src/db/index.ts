@@ -412,8 +412,9 @@ export interface ShieldedAddressOwnership {
  * Takes a list of addresses and returns a `Map<address, ShieldedAddressOwnership>`
  * for every address that is owned (bip32_account = CTSpend, wallet_id and
  * scan_privkey populated). Addresses without a matching row are absent from
- * the map. Issues a single query regardless of list size; callers should
- * deduplicate the input list if they expect repeats.
+ * the map. Issues a single query regardless of list size; the result Map
+ * naturally deduplicates by address — passing the same address twice returns
+ * one entry.
  *
  * Returns an empty map when `addresses` is empty.
  */
@@ -893,7 +894,6 @@ export const voidAddressTransaction = async (
       { column: '`unlocked_authorities`', op: 'bitor', getValue: (p) => p.balance.unlockedAuthorities.toUnsignedInteger() },
       // locked_authorities: OR only, no recalculation needed — locked authorities can't be spent before unlocking
       { column: '`locked_authorities`', op: 'bitor', getValue: (p) => p.balance.lockedAuthorities.toUnsignedInteger() },
-      // Shielded column family — subtracted in parallel with the transparent columns.
       { column: '`unlocked_shielded_balance`', op: 'subtract', getValue: (p) => p.balance.unlockedShieldedAmount },
       { column: '`locked_shielded_balance`', op: 'subtract', getValue: (p) => p.balance.lockedShieldedAmount },
       { column: '`total_shielded_received`', op: 'subtract', getValue: (p) => p.balance.totalShieldedReceived },
@@ -1059,7 +1059,6 @@ export const voidWalletTransaction = async (
         { column: '`unlocked_authorities`', op: 'bitor', getValue: (p) => p.balance.unlockedAuthorities.toUnsignedInteger() },
         // locked_authorities: OR only, no recalculation needed — locked authorities can't be spent before unlocking
         { column: '`locked_authorities`', op: 'bitor', getValue: (p) => p.balance.lockedAuthorities.toUnsignedInteger() },
-        // Shielded column family — subtracted in parallel with the transparent columns.
         { column: '`unlocked_shielded_balance`', op: 'subtract', getValue: (p) => p.balance.unlockedShieldedAmount },
         { column: '`locked_shielded_balance`', op: 'subtract', getValue: (p) => p.balance.lockedShieldedAmount },
         { column: '`total_shielded_received`', op: 'subtract', getValue: (p) => p.balance.totalShieldedReceived },

@@ -38,7 +38,6 @@ import {
 } from '@wallet-service/common';
 import {
   prepareOutputs,
-  getAddressBalanceMap,
   getInvolvedAddresses,
   getUnifiedBalanceMap,
   ShieldedRecoveryResult,
@@ -87,7 +86,6 @@ import {
   getAddressSeqnum,
   unspendUtxos,
   voidWalletTransaction,
-  getTxOutput,
   getTxOutputs,
   clearTxProposalForVoidedTx,
   insertTxOutput,
