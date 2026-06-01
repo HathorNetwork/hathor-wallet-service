@@ -407,6 +407,42 @@ export interface ShieldedAddressOwnership {
 }
 
 /**
+ * Batch variant of `findShieldedAddressOwnership`.
+ *
+ * Takes a list of addresses and returns a `Map<address, ShieldedAddressOwnership>`
+ * for every address that is owned (bip32_account = CTSpend, wallet_id and
+ * scan_privkey populated). Addresses without a matching row are absent from
+ * the map. Issues a single query regardless of list size; callers should
+ * deduplicate the input list if they expect repeats.
+ *
+ * Returns an empty map when `addresses` is empty.
+ */
+export async function findShieldedAddressOwnershipBatch(
+  conn: any,
+  addresses: string[],
+): Promise<Map<string, ShieldedAddressOwnership>> {
+  if (addresses.length === 0) return new Map();
+  const [rows] = await conn.query(
+    `SELECT address, wallet_id, \`index\` AS shielded_index, scan_privkey
+       FROM address
+      WHERE address IN (?)
+        AND bip32_account = ?
+        AND wallet_id IS NOT NULL
+        AND scan_privkey IS NOT NULL`,
+    [addresses, Bip32Account.CTSpend],
+  );
+  const result = new Map<string, ShieldedAddressOwnership>();
+  for (const row of rows as any[]) {
+    result.set(row.address, {
+      wallet_id: row.wallet_id,
+      shielded_index: row.shielded_index,
+      scan_privkey: row.scan_privkey,
+    });
+  }
+  return result;
+}
+
+/**
  * Look up CTSpend ownership info for an address on the unified `address`
  * table.
  *
@@ -857,6 +893,10 @@ export const voidAddressTransaction = async (
       { column: '`unlocked_authorities`', op: 'bitor', getValue: (p) => p.balance.unlockedAuthorities.toUnsignedInteger() },
       // locked_authorities: OR only, no recalculation needed — locked authorities can't be spent before unlocking
       { column: '`locked_authorities`', op: 'bitor', getValue: (p) => p.balance.lockedAuthorities.toUnsignedInteger() },
+      // Shielded column family — subtracted in parallel with the transparent columns.
+      { column: '`unlocked_shielded_balance`', op: 'subtract', getValue: (p) => p.balance.unlockedShieldedAmount },
+      { column: '`locked_shielded_balance`', op: 'subtract', getValue: (p) => p.balance.lockedShieldedAmount },
+      { column: '`total_shielded_received`', op: 'subtract', getValue: (p) => p.balance.totalShieldedReceived },
       // Decrement transactions by 1 for each voided (address, token) pair.
       { column: '`transactions`', op: 'subtract', getValue: () => 1 },
     ],
@@ -903,7 +943,10 @@ export const voidAddressTransaction = async (
     );
   }
 
-  // Clean up fully-zeroed address_balance rows
+  // Clean up fully-zeroed address_balance rows.
+  // Both transparent and shielded column families must be zero before
+  // a row is safe to delete; omitting the shielded guards would
+  // incorrectly drop rows that still hold shielded balance.
   const addressTokenPairs = pairs.map(getAddrKeys);
   await mysql.query(
     `DELETE FROM \`address_balance\`
@@ -913,6 +956,9 @@ export const voidAddressTransaction = async (
         AND \`locked_balance\` = 0
         AND \`unlocked_authorities\` = 0
         AND \`locked_authorities\` = 0
+        AND \`unlocked_shielded_balance\` = 0
+        AND \`locked_shielded_balance\` = 0
+        AND \`total_shielded_received\` = 0
         AND \`transactions\` = 0`,
     [addressTokenPairs],
   );
@@ -1013,6 +1059,10 @@ export const voidWalletTransaction = async (
         { column: '`unlocked_authorities`', op: 'bitor', getValue: (p) => p.balance.unlockedAuthorities.toUnsignedInteger() },
         // locked_authorities: OR only, no recalculation needed — locked authorities can't be spent before unlocking
         { column: '`locked_authorities`', op: 'bitor', getValue: (p) => p.balance.lockedAuthorities.toUnsignedInteger() },
+        // Shielded column family — subtracted in parallel with the transparent columns.
+        { column: '`unlocked_shielded_balance`', op: 'subtract', getValue: (p) => p.balance.unlockedShieldedAmount },
+        { column: '`locked_shielded_balance`', op: 'subtract', getValue: (p) => p.balance.lockedShieldedAmount },
+        { column: '`total_shielded_received`', op: 'subtract', getValue: (p) => p.balance.totalShieldedReceived },
         // Decrement transactions by 1 for each voided (wallet, token) pair.
         { column: '`transactions`', op: 'subtract', getValue: () => 1 },
       ],
@@ -1039,7 +1089,10 @@ export const voidWalletTransaction = async (
       );
     }
 
-    // Clean up fully-zeroed wallet_balance rows
+    // Clean up fully-zeroed wallet_balance rows.
+    // Both transparent and shielded column families must be zero before
+    // a row is safe to delete; omitting the shielded guards would
+    // incorrectly drop rows that still hold shielded balance.
     const walletTokenPairs = pairs.map(getWalletKeys);
     await mysql.query(
       `DELETE FROM \`wallet_balance\`
@@ -1049,6 +1102,9 @@ export const voidWalletTransaction = async (
           AND \`locked_balance\` = 0
           AND \`unlocked_authorities\` = 0
           AND \`locked_authorities\` = 0
+          AND \`unlocked_shielded_balance\` = 0
+          AND \`locked_shielded_balance\` = 0
+          AND \`total_shielded_received\` = 0
           AND \`transactions\` = 0`,
       [walletTokenPairs],
     );
