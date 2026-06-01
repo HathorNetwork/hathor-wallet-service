@@ -3248,18 +3248,22 @@ describe('handleVoidedTx with shielded', () => {
 
     await handleVoidedTx(voidContext as any);
 
-    // wallet_balance: both the running balance and the lifetime accumulator
-    // are decremented (a voided recovered receive reverses the credit in full).
+    // wallet_balance row is deleted by the all-zeros cleanup guard after void
+    // (no transparent balance was ever credited, so every column is zero).
     const [wbAfter] = await mysql.query<any[]>(
       `SELECT unlocked_shielded_balance, total_shielded_received
          FROM wallet_balance WHERE wallet_id = ? AND token_id = ?`,
       ['wallet_alice', TOKEN_ID],
     );
-    // Row may be deleted (all-zeros cleanup) or present with 0 values.
-    if (wbAfter.length > 0) {
-      expect(BigInt(wbAfter[0].unlocked_shielded_balance)).toBe(0n);
-      expect(BigInt(wbAfter[0].total_shielded_received)).toBe(0n);
-    }
+    expect(wbAfter).toHaveLength(0);
+
+    // address_balance row is likewise deleted by the same all-zeros cleanup.
+    const [abAfter] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, total_shielded_received
+         FROM address_balance WHERE address = ? AND token_id = ?`,
+      [SHIELDED_ADDRESS, TOKEN_ID],
+    );
+    expect(abAfter).toHaveLength(0);
 
     // address.transactions is decremented back to 0 (involvement reversal).
     const [addrRows] = await mysql.query<any[]>(
@@ -3269,10 +3273,10 @@ describe('handleVoidedTx with shielded', () => {
     expect(addrRows).toHaveLength(1);
     expect(Number(addrRows[0].transactions)).toBe(0);
 
-    // The tx_output row is marked voided; recovery_state is preserved.
-    const txOutput = await getTxOutput(mysql, txHash, 1, false);
     // getTxOutput filters voided=FALSE, so the voided row is invisible to it.
-    // Confirm directly via raw query.
+    const txOutput = await getTxOutput(mysql, txHash, 1, false);
+    expect(txOutput).toBeNull();
+    // Confirm voided flag and preserved recovery_state directly via raw query.
     const [rawRows] = await mysql.query<any[]>(
       `SELECT voided, recovery_state FROM tx_output WHERE tx_id = ? AND \`index\` = 1`,
       [txHash],
@@ -3288,7 +3292,6 @@ describe('handleVoidedTx with shielded', () => {
     // The raw fixture has token_data=1 (non-HTR, no mock primed) → the output
     // lands as `unowned` and no balance row is ever created.
     const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
-    const txHash = fixture.event.data.hash;
 
     resetCtCryptoMock();
 
