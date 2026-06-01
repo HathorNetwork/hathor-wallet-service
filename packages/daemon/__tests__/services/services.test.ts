@@ -107,6 +107,7 @@ jest.mock('../../src/db', () => ({
   getTokensCreatedByTx: jest.fn(() => []),
   deleteTokens: jest.fn(),
   insertTokenCreation: jest.fn(),
+  findShieldedAddressOwnershipBatch: jest.fn().mockResolvedValue(new Map()),
 }));
 
 jest.mock('../../src/utils', () => ({
