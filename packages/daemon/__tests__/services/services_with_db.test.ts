@@ -3615,12 +3615,20 @@ describe('handleUnvoidedTx with shielded', () => {
     };
     await handleVoidedTx(voidContext as any);
 
-    // Post-void: all-zeros cleanup deletes the balance row (Task 7.1 truth).
+    // Post-void: the all-zeros cleanup deletes the balance row entirely.
     const [wbVoided] = await mysql.query<any[]>(
       `SELECT * FROM wallet_balance WHERE wallet_id = 'wallet_alice' AND token_id = ?`,
       [TOKEN_ID],
     );
     expect(wbVoided).toHaveLength(0);
+
+    // address.transactions decremented back to 0 (involvement reversal).
+    const [addrRowVoided] = await mysql.query<any[]>(
+      `SELECT transactions FROM address WHERE address = ?`,
+      [SHIELDED_ADDRESS],
+    );
+    expect(addrRowVoided).toHaveLength(1);
+    expect(Number(addrRowVoided[0].transactions)).toBe(0);
 
     // Unvoid step 1: cleanupVoidedTx (DELETE the voided rows).
     const unvoidContext = {
