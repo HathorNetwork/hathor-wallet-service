@@ -30,7 +30,7 @@ jest.mock('@wallet-service/common', () => {
 
 import { TokenVersion } from '@hathor/wallet-lib';
 import * as db from '../../src/db';
-import { handleVoidedTx, voidTx, handleTokenCreated, handleVertexAccepted, handleUnvoidedTx } from '../../src/services';
+import { handleVoidedTx, voidTx, handleTokenCreated, handleVertexAccepted, handleUnvoidedTx, handleVertexRemoved } from '../../src/services';
 import { LRU } from '../../src/utils';
 import {
   addOrUpdateTx,
@@ -3771,5 +3771,220 @@ describe('handleUnvoidedTx with shielded', () => {
     expect(rawRestored).toHaveLength(1);
     expect(rawRestored[0].voided).toBeFalsy();
     expect(rawRestored[0].recovery_state).toBe('unowned');
+  });
+});
+
+describe('handleVertexRemoved with shielded', () => {
+  // Vertex removal (reorg) is the destructive sibling of void: voidTx reverses
+  // the balances (same unified map), then cleanupVoidedTx DELETEs the rows.
+  // The satellite is cleaned by the FK ON DELETE CASCADE to tx_output.
+  const SHIELDED_ADDRESS = 'WShieldedAddress1';
+  const TOKEN_ID = '00';
+  const RECOVERED_VALUE = 150n;
+  const COMMITMENT = Buffer.from('02'.repeat(33), 'hex');
+  const EPHEM_PUBKEY = Buffer.from('05'.repeat(33), 'hex');
+
+  const buildReceiveVertex = () => {
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0].token_data = 0;
+    return fixture;
+  };
+
+  // VERTEX_REMOVED carries the same data shape voidTx reads; handleVertexRemoved
+  // pulls hash / outputs / inputs / tokens / version / headers off event.data.
+  const buildRemovedEvent = (fixture: typeof eventsFixture.VERTEX_WITH_SHIELDED) => ({
+    stream_id: 'stream-removed-shielded',
+    peer_id: 'peer-removed',
+    network: 'mainnet',
+    type: 'FULLNODE_EVENT',
+    latest_event_id: 999,
+    event: {
+      id: 998,
+      data: {
+        hash: fixture.event.data.hash,
+        outputs: fixture.event.data.outputs,
+        inputs: fixture.event.data.inputs,
+        tokens: fixture.event.data.tokens,
+        version: fixture.event.data.version,
+        headers: [],
+      },
+    },
+  });
+
+  beforeEach(async () => {
+    jest.restoreAllMocks();
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  afterEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  it('deletes tx_output rows, reverses balances, and cascades the satellite', async () => {
+    expect.hasAssertions();
+
+    const fixture = buildReceiveVertex();
+    const txHash = fixture.event.data.hash;
+    const so = fixture.event.data.shielded_outputs[0];
+
+    // Claimed CTSpend address so the in-line rewind credits the balance on accept.
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [so.decoded.address, Buffer.alloc(32, 0x42)],
+    );
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES ('wallet_alice', ?, ?, 'ready', 20, ?, ?)`,
+      [XPUBKEY, XPUBKEY, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
+    );
+
+    resetCtCryptoMock();
+    primeAmountRewind({
+      commitment: COMMITMENT,
+      ephemeralPubkey: EPHEM_PUBKEY,
+      value: RECOVERED_VALUE,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+
+    const acceptContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+    await handleVertexAccepted(acceptContext as any, undefined as any);
+
+    // Sanity: balance credited and satellite written after accept.
+    const [wbBefore] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, total_shielded_received
+         FROM wallet_balance WHERE wallet_id = 'wallet_alice' AND token_id = ?`,
+      [TOKEN_ID],
+    );
+    expect(wbBefore).toHaveLength(1);
+    expect(BigInt(wbBefore[0].unlocked_shielded_balance)).toBe(RECOVERED_VALUE);
+    const [satBefore] = await mysql.query<any[]>(
+      `SELECT * FROM shielded_tx_output_data WHERE tx_id = ? AND \`index\` = 1`,
+      [txHash],
+    );
+    expect(satBefore).toHaveLength(1);
+
+    // Remove the vertex (reorg).
+    const removedContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildRemovedEvent(fixture),
+    };
+    await handleVertexRemoved(removedContext as any, undefined as any);
+
+    // tx_output row is DELETED (not just voided) — removal cleans up the rows.
+    const [txoAfter] = await mysql.query<any[]>(
+      `SELECT * FROM tx_output WHERE tx_id = ? AND \`index\` = 1`,
+      [txHash],
+    );
+    expect(txoAfter).toHaveLength(0);
+
+    // Satellite is gone via the FK ON DELETE CASCADE to tx_output.
+    const [satAfter] = await mysql.query<any[]>(
+      `SELECT * FROM shielded_tx_output_data WHERE tx_id = ? AND \`index\` = 1`,
+      [txHash],
+    );
+    expect(satAfter).toHaveLength(0);
+
+    // The transaction row itself is removed.
+    const [txAfter] = await mysql.query<any[]>(
+      `SELECT * FROM \`transaction\` WHERE tx_id = ?`,
+      [txHash],
+    );
+    expect(txAfter).toHaveLength(0);
+
+    // Balances reversed: the all-zeros cleanup deletes both balance rows.
+    const [wbAfter] = await mysql.query<any[]>(
+      `SELECT * FROM wallet_balance WHERE wallet_id = 'wallet_alice' AND token_id = ?`,
+      [TOKEN_ID],
+    );
+    expect(wbAfter).toHaveLength(0);
+    const [abAfter] = await mysql.query<any[]>(
+      `SELECT * FROM address_balance WHERE address = ? AND token_id = ?`,
+      [SHIELDED_ADDRESS, TOKEN_ID],
+    );
+    expect(abAfter).toHaveLength(0);
+
+    // address.transactions involvement counter decremented back to 0.
+    const [addrRows] = await mysql.query<any[]>(
+      `SELECT transactions FROM address WHERE address = ?`,
+      [SHIELDED_ADDRESS],
+    );
+    expect(addrRows).toHaveLength(1);
+    expect(Number(addrRows[0].transactions)).toBe(0);
+  });
+
+  it('does NOT touch balances when removing an unowned shielded receive', async () => {
+    expect.hasAssertions();
+
+    // Raw fixture (token_data = 1, no claimed address, no primed mock) → the
+    // output ingests as `unowned`; no balance row is ever created.
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    const txHash = fixture.event.data.hash;
+
+    resetCtCryptoMock();
+
+    const acceptContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+    await handleVertexAccepted(acceptContext as any, undefined as any);
+
+    // Sanity: unowned satellite written, no balance row.
+    const [satBefore] = await mysql.query<any[]>(
+      `SELECT * FROM shielded_tx_output_data WHERE tx_id = ? AND \`index\` = 1`,
+      [txHash],
+    );
+    expect(satBefore).toHaveLength(1);
+    const [wbBefore] = await mysql.query<any[]>(
+      `SELECT * FROM wallet_balance WHERE token_id = ?`,
+      [TOKEN_ID],
+    );
+    expect(wbBefore).toHaveLength(0);
+
+    const removedContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildRemovedEvent(fixture),
+    };
+    await handleVertexRemoved(removedContext as any, undefined as any);
+
+    // tx_output + satellite deleted; still no balance row anywhere.
+    const [txoAfter] = await mysql.query<any[]>(
+      `SELECT * FROM tx_output WHERE tx_id = ? AND \`index\` = 1`,
+      [txHash],
+    );
+    expect(txoAfter).toHaveLength(0);
+    const [satAfter] = await mysql.query<any[]>(
+      `SELECT * FROM shielded_tx_output_data WHERE tx_id = ? AND \`index\` = 1`,
+      [txHash],
+    );
+    expect(satAfter).toHaveLength(0);
+    const [wbAfter] = await mysql.query<any[]>(
+      `SELECT * FROM wallet_balance WHERE token_id = ?`,
+      [TOKEN_ID],
+    );
+    expect(wbAfter).toHaveLength(0);
   });
 });
