@@ -387,7 +387,7 @@ export class TokenBalanceMap {
         (balance.totalSent as bigint) ?? (balance.totalAmountSent as bigint),
         (balance.unlocked as bigint) ?? (balance.unlockedAmount as bigint),
         (balance.locked as bigint) ?? (balance.lockedAmount as bigint),
-        balance.lockExpires as number || null,
+        (balance.lockExpires as number | null | undefined) ?? null,
         balance.unlockedAuthorities as Authorities,
         balance.lockedAuthorities as Authorities,
         (balance.unlockedShielded as bigint) ?? (balance.unlockedShieldedAmount as bigint) ?? 0n,

@@ -64,8 +64,8 @@ export interface FullyRewindArgs {
 export interface FullyRewindResult {
   value: bigint;
   blindingFactor: Buffer;
-  /** 32B token UID recovered from the rangeproof message field. */
-  tokenUid: Buffer;
+  /** Hex-encoded token UID (32B → 64 hex chars) recovered from the rangeproof message field. */
+  tokenUid: string;
   /** 32B asset blinding factor. */
   assetBlindingFactor: Buffer;
 }
