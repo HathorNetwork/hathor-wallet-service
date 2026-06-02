@@ -70,7 +70,7 @@ export const mockCtCrypto = {
     return {
       value: p.value,
       blindingFactor: Buffer.alloc(32),
-      tokenUid: p.tokenUid,
+      tokenUid: p.tokenUid.toString('hex'),
       assetBlindingFactor: Buffer.alloc(32),
     };
   },

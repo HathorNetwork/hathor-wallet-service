@@ -642,7 +642,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
                   rangeProof: range,
                   assetCommitment: assetCommit,
                 });
-                const tokenIdHexFull = r.tokenUid.toString('hex');
+                const tokenIdHexFull = r.tokenUid;
                 await markTxOutputRecovered(mysql, hash, idx, {
                   value: r.value,
                   token_id: tokenIdHexFull,
