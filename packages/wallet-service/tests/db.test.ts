@@ -2122,6 +2122,68 @@ test('rebuildAddressBalancesFromUtxos', async () => {
   }])).resolves.toBe(true);
 });
 
+test('rebuildAddressBalancesFromUtxos partitions transparent and shielded columns by mode', async () => {
+  expect.hasAssertions();
+
+  const addr = 'addrShieldedRebuild';
+  const token = 'token1';
+
+  // A (address, token_id) row carrying BOTH kinds of live UTXO plus a couple
+  // of voided rows that the total recomputation must subtract per-kind.
+  //   mode = 0  → transparent balance / total_received
+  //   mode = 1 + recovery_state = 'recovered' → shielded balance / total_shielded_received
+  //   mode = 1 + recovery_state = 'unowned' (value NULL) → contributes nothing
+  await mysql.query(
+    `INSERT INTO tx_output
+       (tx_id, \`index\`, mode, address, value, token_id, authorities,
+        timelock, heightlock, locked, voided, spent_by, recovery_state)
+     VALUES
+       ('txT',     0, 0, ?, 100,  ?, 0, NULL, NULL, FALSE, FALSE, NULL, NULL),
+       ('txS',     0, 1, ?, 250,  ?, 0, NULL, NULL, FALSE, FALSE, NULL, 'recovered'),
+       ('txSL',    0, 1, ?, 60,   ?, 0, 500,  NULL, TRUE,  FALSE, NULL, 'recovered'),
+       ('txSU',    0, 1, ?, NULL, ?, 0, NULL, NULL, FALSE, FALSE, NULL, 'unowned'),
+       ('txVoidT', 0, 0, ?, 40,   ?, 0, NULL, NULL, FALSE, TRUE,  NULL, NULL),
+       ('txVoidS', 0, 1, ?, 30,   ?, 0, NULL, NULL, FALSE, TRUE,  NULL, 'recovered')`,
+    [addr, token, addr, token, addr, token, addr, token, addr, token, addr, token],
+  );
+
+  // Seed the address_balance row with deliberately wrong live balances (proves
+  // they are recomputed from UTXOs) and lifetime totals that still include the
+  // about-to-be-voided amounts (proves the per-kind subtraction).
+  await mysql.query(
+    `INSERT INTO address_balance
+       (address, token_id,
+        unlocked_balance, locked_balance, total_received,
+        unlocked_shielded_balance, locked_shielded_balance, total_shielded_received,
+        unlocked_authorities, locked_authorities, transactions)
+     VALUES (?, ?, 999, 999, 140, 999, 999, 280, 0, 0, 5)`,
+    [addr, token],
+  );
+
+  await rebuildAddressBalancesFromUtxos(mysql, [addr], ['txVoidT', 'txVoidS']);
+
+  const rows = await mysql.query(
+    `SELECT unlocked_balance, locked_balance, total_received,
+            unlocked_shielded_balance, locked_shielded_balance, total_shielded_received
+       FROM address_balance WHERE address = ? AND token_id = ?`,
+    [addr, token],
+  );
+  expect(rows).toHaveLength(1);
+  const r = rows[0];
+
+  // Transparent columns reflect only mode = 0 UTXOs.
+  expect(BigInt(r.unlocked_balance)).toBe(100n);
+  expect(BigInt(r.locked_balance)).toBe(0n);
+  // total_received: 140 stored − 40 (voided transparent) = 100.
+  expect(BigInt(r.total_received)).toBe(100n);
+
+  // Shielded columns reflect only recovered mode = 1/2 UTXOs.
+  expect(BigInt(r.unlocked_shielded_balance)).toBe(250n);
+  expect(BigInt(r.locked_shielded_balance)).toBe(60n);
+  // total_shielded_received: 280 stored − 30 (voided shielded) = 250.
+  expect(BigInt(r.total_shielded_received)).toBe(250n);
+});
+
 test('markAddressTxHistoryAsVoided', async () => {
   expect.hasAssertions();
 
