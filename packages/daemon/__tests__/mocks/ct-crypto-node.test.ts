@@ -62,6 +62,6 @@ describe('ctRewind mock', () => {
       assetCommitment: Buffer.alloc(33),
     });
     expect(r.value).toBe(75n);
-    expect(Buffer.from(r.tokenUid).toString('hex')).toBe(tokenUid.toString('hex'));
+    expect(r.tokenUid).toBe(tokenUid.toString('hex'));
   });
 });
