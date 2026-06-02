@@ -20,7 +20,13 @@
  */
 
 import * as db from '../../src/db';
-import { handleTokenCreated, handleVertexAccepted } from '../../src/services';
+import {
+  handleTokenCreated,
+  handleVertexAccepted,
+  handleVoidedTx,
+  handleUnvoidedTx,
+  handleVertexRemoved,
+} from '../../src/services';
 import { LRU } from '../../src/utils';
 import { cleanDatabase } from '../utils';
 import { Connection } from 'mysql2/promise';
@@ -462,5 +468,196 @@ describe('token.total_supply tracking', () => {
       [tokenId],
     );
     expect(rows).toHaveLength(0);
+  });
+});
+
+describe('token.total_supply reversal on void / unvoid / remove', () => {
+  // The void / remove handlers carry no wire event of their own — they read
+  // the to-be-reversed vertex back out of the DB. Build the context shape they
+  // consume from the same `data` block the accept path used.
+  const buildReverseContext = (data: any) => ({
+    socket: undefined,
+    healthcheck: undefined,
+    retryAttempt: 0,
+    initialEventId: null,
+    txCache: new LRU(100),
+    rewardMinBlocks: 300,
+    event: {
+      stream_id: 'stream-id',
+      peer_id: 'peer-id',
+      network: 'mainnet',
+      type: 'FULLNODE_EVENT',
+      latest_event_id: 2,
+      event: {
+        id: 2,
+        data: {
+          hash: data.hash,
+          outputs: data.outputs,
+          inputs: data.inputs,
+          tokens: data.tokens,
+          version: data.version,
+          headers: [],
+        },
+      },
+    },
+  });
+
+  // The shielded satellite is not part of the shared cleanDatabase table set.
+  beforeEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+  afterEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  it('reverses the block reward when a block vertex is voided', async () => {
+    expect.hasAssertions();
+    await seedToken(HTR_TOKEN_ID, 1_000_000n);
+
+    const data = buildVertexData({
+      hash: '1'.repeat(64),
+      version: hathorLib.constants.BLOCK_VERSION,
+      tokens: [],
+      inputs: [],
+      outputs: [transparentOutput(6400, 0, 'addr-miner')],
+      height: 100,
+    });
+
+    await handleVertexAccepted(buildVertexContext(data) as any, undefined as any);
+    expect(await selectTotalSupply(HTR_TOKEN_ID)).toStrictEqual(1_006_400n);
+
+    await handleVoidedTx(buildReverseContext(data) as any);
+    expect(await selectTotalSupply(HTR_TOKEN_ID)).toStrictEqual(1_000_000n);
+  });
+
+  it('reverses the mint delta when a mint vertex is voided', async () => {
+    expect.hasAssertions();
+    const tokenId = 'token-mint-void';
+    await seedToken(tokenId, 1000n);
+
+    const data = buildVertexData({
+      hash: 'b'.repeat(64),
+      tokens: [tokenId],
+      inputs: [transparentInput('parent-tx', 0, 1n, AUTHORITY_BIT | 1, 'addr-prev-auth')],
+      outputs: [
+        transparentOutput(500, 1, 'addr-recipient'),
+        transparentOutput(1, AUTHORITY_BIT | 1, 'addr-new-auth'),
+      ],
+    });
+
+    await handleVertexAccepted(buildVertexContext(data) as any, undefined as any);
+    expect(await selectTotalSupply(tokenId)).toStrictEqual(1500n);
+
+    await handleVoidedTx(buildReverseContext(data) as any);
+    expect(await selectTotalSupply(tokenId)).toStrictEqual(1000n);
+  });
+
+  it('reverses a burn (re-credits supply) when a burn vertex is voided', async () => {
+    expect.hasAssertions();
+    const tokenId = 'token-burn-void';
+    await seedToken(tokenId, 1000n);
+
+    const data = buildVertexData({
+      hash: 'c'.repeat(64),
+      tokens: [tokenId],
+      inputs: [transparentInput('parent-tx', 0, 100n, 1, 'addr-source')],
+      outputs: [
+        transparentOutput(60, 1, 'addr-recipient'),
+        transparentOutput(40, 1, BURN_ADDRESS),
+      ],
+    });
+
+    await handleVertexAccepted(buildVertexContext(data) as any, undefined as any);
+    expect(await selectTotalSupply(tokenId)).toStrictEqual(960n);
+
+    await handleVoidedTx(buildReverseContext(data) as any);
+    expect(await selectTotalSupply(tokenId)).toStrictEqual(1000n);
+  });
+
+  it('round-trips: ingest -> void -> unvoid restores total_supply', async () => {
+    expect.hasAssertions();
+    const tokenId = 'token-mint-roundtrip';
+    await seedToken(tokenId, 1000n);
+
+    const data = buildVertexData({
+      hash: '9'.repeat(64),
+      tokens: [tokenId],
+      inputs: [transparentInput('parent-tx', 0, 1n, AUTHORITY_BIT | 1, 'addr-prev-auth')],
+      outputs: [
+        transparentOutput(500, 1, 'addr-recipient'),
+        transparentOutput(1, AUTHORITY_BIT | 1, 'addr-new-auth'),
+      ],
+    });
+
+    await handleVertexAccepted(buildVertexContext(data) as any, undefined as any);
+    expect(await selectTotalSupply(tokenId)).toStrictEqual(1500n);
+
+    await handleVoidedTx(buildReverseContext(data) as any);
+    expect(await selectTotalSupply(tokenId)).toStrictEqual(1000n);
+
+    // Unvoid = cleanupVoidedTx (delete the voided rows) followed by the state
+    // machine's re-ingest. Mirror that here: the re-ingest re-applies the
+    // forward supply delta, restoring the post-ingest state.
+    await handleUnvoidedTx(buildReverseContext(data) as any);
+    await handleVertexAccepted(buildVertexContext(data) as any, undefined as any);
+    expect(await selectTotalSupply(tokenId)).toStrictEqual(1500n);
+  });
+
+  it('leaves total_supply untouched when voiding a vertex with shielded outputs', async () => {
+    expect.hasAssertions();
+    const tokenId = 'token-gate-void';
+    await seedToken(tokenId, 1000n);
+
+    // A mint-shaped vertex that also carries a shielded output: the path-3 gate
+    // suppressed the supply update on ingest, so the void reversal must be
+    // gated identically and leave total_supply at its seeded value.
+    const data = buildVertexData({
+      hash: 'f'.repeat(64),
+      tokens: [tokenId],
+      inputs: [transparentInput('parent-tx', 0, 1n, AUTHORITY_BIT | 1, 'addr-prev-auth')],
+      outputs: [
+        transparentOutput(500, 1, 'addr-recipient'),
+        transparentOutput(1, AUTHORITY_BIT | 1, 'addr-new-auth'),
+      ],
+      shielded_outputs: [{
+        mode: 1,
+        commitment: '02'.repeat(33),
+        range_proof: '03'.repeat(64),
+        script: '04'.repeat(20),
+        ephemeral_pubkey: '05'.repeat(33),
+        token_data: 0,
+        decoded: { address: 'WShieldedAddrGateVoid' },
+      }],
+    });
+
+    await handleVertexAccepted(buildVertexContext(data) as any, undefined as any);
+    expect(await selectTotalSupply(tokenId)).toStrictEqual(1000n);
+
+    await handleVoidedTx(buildReverseContext(data) as any);
+    expect(await selectTotalSupply(tokenId)).toStrictEqual(1000n);
+  });
+
+  it('reverses the mint delta when a mint vertex is removed (reorg)', async () => {
+    expect.hasAssertions();
+    const tokenId = 'token-mint-remove';
+    await seedToken(tokenId, 1000n);
+
+    const data = buildVertexData({
+      hash: '7'.repeat(64),
+      tokens: [tokenId],
+      inputs: [transparentInput('parent-tx', 0, 1n, AUTHORITY_BIT | 1, 'addr-prev-auth')],
+      outputs: [
+        transparentOutput(500, 1, 'addr-recipient'),
+        transparentOutput(1, AUTHORITY_BIT | 1, 'addr-new-auth'),
+      ],
+    });
+
+    await handleVertexAccepted(buildVertexContext(data) as any, undefined as any);
+    expect(await selectTotalSupply(tokenId)).toStrictEqual(1500n);
+
+    await handleVertexRemoved(buildReverseContext(data) as any, undefined as any);
+    // The token pre-existed this vertex, so it is not deleted — only the mint
+    // delta is reversed.
+    expect(await selectTotalSupply(tokenId)).toStrictEqual(1000n);
   });
 });
