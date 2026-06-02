@@ -286,7 +286,9 @@ const BURN_ADDRESS = 'HDeadDeadDeadDeadDeadDeadDeagTPgmn';
  * Reads from the prepared (transparent) `TxInput[]` / `TxOutputWithIndex[]`,
  * which already carry resolved `token` UIDs.
  *
- * Void/unvoid reversal is wired in a follow-up phase.
+ * `sign` flips the direction of every delta: `+1` on ingest (the default),
+ * `-1` when reversing a voided / removed vertex. The shielded gate and the
+ * block short-circuit apply symmetrically to both directions.
  */
 async function applyTokenSupplyUpdates(
   mysql: any,
@@ -294,6 +296,7 @@ async function applyTokenSupplyUpdates(
   txOutputs: TxOutputWithIndex[],
   txInputs: TxInput[],
   shieldedOutputCount: number,
+  sign: 1 | -1 = 1,
 ): Promise<void> {
   const HTR = hathorLib.constants.NATIVE_TOKEN_UID;
 
@@ -308,7 +311,7 @@ async function applyTokenSupplyUpdates(
       blockReward += BigInt(o.value);
     }
     if (blockReward > 0n) {
-      await incrementTokenTotalSupply(mysql, HTR, blockReward);
+      await incrementTokenTotalSupply(mysql, HTR, BigInt(sign) * blockReward);
     }
     return;
   }
@@ -340,7 +343,7 @@ async function applyTokenSupplyUpdates(
     ...inSumByToken.keys(),
   ]);
   for (const tokenId of touchedTokens) {
-    const delta = (outSumByToken.get(tokenId) ?? 0n) - (inSumByToken.get(tokenId) ?? 0n);
+    const delta = BigInt(sign) * ((outSumByToken.get(tokenId) ?? 0n) - (inSumByToken.get(tokenId) ?? 0n));
     if (delta !== 0n) {
       await incrementTokenTotalSupply(mysql, tokenId, delta);
     }
@@ -1057,6 +1060,23 @@ export const voidTx = async (
   );
 
   await withSpan('voidTransaction', () => voidTransaction(mysql, hash));
+
+  // Reverse the token.total_supply deltas this vertex applied on ingest
+  // (block reward, mint/melt, burn) by replaying the same computation with
+  // the sign flipped. shieldedOutputCount comes from the local tx_output rows
+  // (still present here, before markUtxosAsVoided) so the shielded gate fires
+  // identically to ingest. This runs before deleteTokens below so a voided
+  // token-creation vertex still reverses cleanly before its row is removed.
+  const shieldedOutputCount = dbTxOutputs.filter((r) => r.mode !== 0).length;
+  await withSpan('reverseTokenSupplyUpdates', () => applyTokenSupplyUpdates(
+    mysql,
+    version,
+    txOutputs,
+    txInputs,
+    shieldedOutputCount,
+    -1,
+  ));
+
   // CRITICAL: markUtxosAsVoided must be called before voidAddressTransaction
   // and voidWalletTransaction as those methods recalculate balances based on
   // the UTXOs table.
