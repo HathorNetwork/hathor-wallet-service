@@ -660,4 +660,52 @@ describe('token.total_supply reversal on void / unvoid / remove', () => {
     // delta is reversed.
     expect(await selectTotalSupply(tokenId)).toStrictEqual(1000n);
   });
+
+  it('void of a token-creation vertex deletes the token without underflowing total_supply', async () => {
+    expect.hasAssertions();
+
+    // CREATE_TOKEN_TX: token_uid === tx_id by convention. The supply reversal
+    // for a token CREATED by the voided vertex (design path 1) must be its row
+    // deletion, NOT a delta subtraction — mirroring ingest, where the +1 delta
+    // no-ops because the token row doesn't exist yet. We seed initial_amount
+    // (300) deliberately LOWER than the token output sum (1000): if the
+    // signed reversal ran against the still-present token row it would compute
+    // 300 - 1000 and underflow the UNSIGNED total_supply column, erroring out
+    // the whole void. Running it after deleteTokens makes it a clean no-op.
+    const tokenId = 'a'.repeat(64);
+    const txId = tokenId;
+
+    const data = buildVertexData({
+      hash: txId,
+      version: hathorLib.constants.CREATE_TOKEN_TX_VERSION,
+      tokens: [tokenId],
+      inputs: [],
+      outputs: [transparentOutput(1000, 1, 'addr-mint-recipient')],
+    });
+
+    // Ingest the creation vertex. The token row does not exist yet, so the
+    // forward supply delta no-ops (handleTokenCreated is what inserts it).
+    await handleVertexAccepted(buildVertexContext(data) as any, undefined as any);
+
+    // Simulate the TOKEN_CREATED event: insert the token row + token_creation
+    // record and set total_supply from the (lower) wire initial_amount.
+    // (Insert directly rather than via seedToken — a 64-char token_id would
+    // overflow the token.name column there.)
+    await mysql.query(
+      `INSERT INTO token (id, name, symbol, total_supply) VALUES (?, 'CreateVoid', 'CV', 300)`,
+      [tokenId],
+    );
+    await db.insertTokenCreation(mysql, tokenId, txId);
+    expect(await selectTotalSupply(tokenId)).toStrictEqual(300n);
+
+    // Void the creation vertex. Must not throw (no underflow) and must drop
+    // the token row entirely.
+    await handleVoidedTx(buildReverseContext(data) as any);
+
+    const [rows] = await mysql.query<any[]>(
+      `SELECT total_supply FROM token WHERE id = ?`,
+      [tokenId],
+    );
+    expect(rows).toHaveLength(0);
+  });
 });

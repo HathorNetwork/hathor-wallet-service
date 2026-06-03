@@ -1061,22 +1061,6 @@ export const voidTx = async (
 
   await withSpan('voidTransaction', () => voidTransaction(mysql, hash));
 
-  // Reverse the token.total_supply deltas this vertex applied on ingest
-  // (block reward, mint/melt, burn) by replaying the same computation with
-  // the sign flipped. shieldedOutputCount comes from the local tx_output rows
-  // (still present here, before markUtxosAsVoided) so the shielded gate fires
-  // identically to ingest. This runs before deleteTokens below so a voided
-  // token-creation vertex still reverses cleanly before its row is removed.
-  const shieldedOutputCount = dbTxOutputs.filter((r) => r.mode !== 0).length;
-  await withSpan('reverseTokenSupplyUpdates', () => applyTokenSupplyUpdates(
-    mysql,
-    version,
-    txOutputs,
-    txInputs,
-    shieldedOutputCount,
-    -1,
-  ));
-
   // CRITICAL: markUtxosAsVoided must be called before voidAddressTransaction
   // and voidWalletTransaction as those methods recalculate balances based on
   // the UTXOs table.
@@ -1137,6 +1121,25 @@ export const voidTx = async (
     logger.debug(`Voiding transaction ${hash} created ${tokensCreated.length} token(s), deleting them`);
     await deleteTokens(mysql, tokensCreated);
   }
+
+  // Reverse the token.total_supply deltas this vertex applied on ingest
+  // (block reward, mint/melt, burn) by replaying the same computation with the
+  // sign flipped. shieldedOutputCount comes from the local tx_output rows so
+  // the shielded gate fires identically to ingest. This runs AFTER deleteTokens
+  // on purpose: a token CREATED by this vertex (path 1) is reversed by its row
+  // deletion, so its row is already gone here and the UPDATE-only reversal
+  // no-ops for it — mirroring ingest, where applyTokenSupplyUpdates(+1) also
+  // no-ops because handleTokenCreated hasn't inserted the row yet. Only
+  // pre-existing tokens (paths 2-4) remain to be reversed.
+  const shieldedOutputCount = dbTxOutputs.filter((r) => r.mode !== 0).length;
+  await withSpan('reverseTokenSupplyUpdates', () => applyTokenSupplyUpdates(
+    mysql,
+    version,
+    txOutputs,
+    txInputs,
+    shieldedOutputCount,
+    -1,
+  ));
 
   if (VALIDATE_ADDRESS_BALANCES) {
     const addresses = Object.keys(addressBalanceMap);
