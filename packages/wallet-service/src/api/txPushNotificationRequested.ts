@@ -127,7 +127,9 @@ export const handleRequest: Handler<StringMap<WalletBalanceValue>, { success: bo
       // verify by the first token balance — count the shielded amount too so a
       // pure shielded receive (transparent total 0) still notifies.
       const firstBalance = wallet.walletBalanceForTx[0];
-      return (firstBalance.total > 0n) || ((firstBalance.shieldedAmount ?? 0n) > 0n);
+      // Joi validates these as numbers, so compare as numbers (the declared
+      // bigint types don't reflect the runtime values arriving over JSON).
+      return Number(firstBalance.total) > 0 || Number(firstBalance.shieldedAmount ?? 0) > 0;
     });
 
   const genericMessages = devicesEnabledToPush
@@ -179,7 +181,8 @@ const _assembleSpecificMessage = (deviceId: string, txId: string, tokenBalanceLi
   const tokens = [];
   for (const eachBalance of tokenBalanceList.slice(0, upperLimit)) {
     // Combine the transparent and shielded amounts for the displayed value.
-    const amount = eachBalance.total + (eachBalance.shieldedAmount ?? 0n);
+    // Joi validates these as numbers; add as numbers to avoid a bigint/number mix.
+    const amount = Number(eachBalance.total) + Number(eachBalance.shieldedAmount ?? 0);
     const tokenSymbol = eachBalance.tokenSymbol;
     tokens.push(`${amount} ${tokenSymbol}`);
   }
