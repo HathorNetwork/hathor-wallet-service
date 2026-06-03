@@ -31,7 +31,7 @@ jest.mock('../../src/utils/aws', () => {
 
 import * as db from '../../src/db';
 import { handleVertexAccepted } from '../../src/services';
-import { LRU, getWalletBalancesForTx } from '../../src/utils';
+import { LRU, getWalletBalancesForTx, sortBalanceValueByAbsTotal } from '../../src/utils';
 import { sendRealtimeTx } from '../../src/utils/aws';
 import { cleanDatabase, XPUBKEY } from '../utils';
 import { TokenBalanceMap } from '@wallet-service/common';
@@ -150,5 +150,50 @@ describe('getWalletBalancesForTx shielded amounts (push payload)', () => {
     // transparent total stays zero; the shielded receive rides in shieldedAmount.
     expect(tokenBalance.total).toBe(0n);
     expect(tokenBalance.shieldedAmount).toBe(150n);
+  });
+
+  it('reports shieldedAmount = 0 for a shielded spend (never negative)', async () => {
+    expect.hasAssertions();
+
+    const now = Math.floor(Date.now() / 1000);
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES ('wallet_alice', ?, ?, 'ready', 20, ?, ?)`,
+      [XPUBKEY, XPUBKEY, now, now],
+    );
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, transactions)
+       VALUES ('WCTSpend1', 'wallet_alice', 7, 2, 0)`,
+    );
+    await mysql.query(
+      `INSERT INTO token (id, name, symbol, total_supply) VALUES ('00', 'Hathor', 'HTR', 0)`,
+    );
+
+    // A shielded SPEND contributes a negative shielded delta; the gross-received
+    // accumulator (shieldedAmount) must stay 0, not go negative.
+    const addressBalanceMap = {
+      WCTSpend1: TokenBalanceMap.fromShielded('00', -150n, false),
+    };
+    const tx = { tx_id: 'tx-shielded-spend' } as any;
+
+    const result = await getWalletBalancesForTx(mysql, tx, addressBalanceMap);
+
+    const tokenBalance = result.wallet_alice.walletBalanceForTx[0];
+    expect(tokenBalance.total).toBe(0n);
+    expect(tokenBalance.shieldedAmount).toBe(0n);
+  });
+});
+
+describe('sortBalanceValueByAbsTotal shielded-aware ordering', () => {
+  it('ranks a shielded receive ahead of a smaller transparent movement', () => {
+    expect.hasAssertions();
+
+    const transparent = { tokenId: 'T', total: 10n, shieldedAmount: 0n } as any;
+    const shielded = { tokenId: 'S', total: 0n, shieldedAmount: 500n } as any;
+
+    // Pre-shielded-aware sort keyed on abs(total) alone would leave the shielded
+    // entry (total 0) last; the combined-magnitude key must rank it first.
+    expect([transparent, shielded].sort(sortBalanceValueByAbsTotal)[0].tokenId).toBe('S');
+    expect([shielded, transparent].sort(sortBalanceValueByAbsTotal)[0].tokenId).toBe('S');
   });
 });
