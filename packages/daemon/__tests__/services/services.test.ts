@@ -97,6 +97,7 @@ jest.mock('../../src/db', () => ({
   incrementTokensTxCount: jest.fn(),
   updateAddressTablesWithTx: jest.fn(),
   bumpAddressInvolvement: jest.fn(),
+  decrementAddressInvolvement: jest.fn(),
   getAddressWalletInfo: jest.fn(),
   generateAddresses: jest.fn(),
   addNewAddresses: jest.fn(),

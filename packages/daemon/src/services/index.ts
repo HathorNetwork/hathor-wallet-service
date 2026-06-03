@@ -22,6 +22,7 @@ import {
   Context,
   EventTxInput,
   EventTxOutput,
+  ShieldedOutput,
   WalletStatus,
   FullNodeEventTypes,
   StandardFullNodeEvent,
@@ -96,6 +97,7 @@ import {
   markTxOutputRecovered,
   markTxOutputRecoveryFailed,
   bumpAddressInvolvement,
+  decrementAddressInvolvement,
   setTokenTotalSupply,
   incrementTokenTotalSupply,
 } from '../db';
@@ -910,6 +912,7 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
           hash,
           outputs,
           inputs,
+          shielded_outputs: shieldedOutputs = [],
           tokens,
           headers = [],
           version,
@@ -930,6 +933,7 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
           hash,
           inputs,
           outputs,
+          shieldedOutputs,
           tokens,
           headers,
           version,
@@ -1006,6 +1010,7 @@ export const voidTx = async (
   hash: string,
   inputs: EventTxInput[],
   outputs: EventTxOutput[],
+  shieldedOutputs: ShieldedOutput[],
   tokens: string[],
   headers: EventTxHeader[],
   version: number,
@@ -1066,6 +1071,11 @@ export const voidTx = async (
   // the UTXOs table.
   await withSpan('markUtxosAsVoided', () => markUtxosAsVoided(mysql, dbTxOutputs));
   await withSpan('voidAddressTransaction', () => voidAddressTransaction(mysql, hash, addressBalanceMap, version));
+
+  // Reverse the address-grain involvement counter for the SAME set the ingest
+  // path bumped via bumpAddressInvolvement.
+  const involvedAddresses = getInvolvedAddresses(inputs, outputs, shieldedOutputs, headers);
+  await withSpan('decrementAddressInvolvement', () => decrementAddressInvolvement(mysql, involvedAddresses));
 
   // CRITICAL: Unspend the inputs when voiding a transaction
   // The inputs of the voided transaction need to be marked as unspent
@@ -1161,6 +1171,7 @@ export const handleVoidedTx = async (context: Context) => {
           hash,
           outputs,
           inputs,
+          shielded_outputs: shieldedOutputs = [],
           tokens,
           headers = [],
           version,
@@ -1173,6 +1184,7 @@ export const handleVoidedTx = async (context: Context) => {
           hash,
           inputs,
           outputs,
+          shieldedOutputs,
           tokens,
           headers,
           version,

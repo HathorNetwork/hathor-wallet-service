@@ -602,6 +602,36 @@ export async function bumpAddressInvolvement(
 }
 
 /**
+ * Decrement `address.transactions` by 1 for each address in the involvement set.
+ *
+ * The void/remove mirror of `bumpAddressInvolvement`: it must be fed the SAME
+ * wire-level involvement set the ingest path bumped (`getInvolvedAddresses`),
+ * not just the balance-map keys — otherwise involvement-only addresses
+ * (unowned shielded outputs, nano `nc_address`es) that carry no balance delta
+ * would be bumped on ingest but never decremented, drifting the counter
+ * upward. Inserts a 0-valued row for an address that somehow doesn't exist yet
+ * (a no-op decrement) so the statement stays a single batched upsert.
+ *
+ * No-op when the set is empty.
+ */
+export async function decrementAddressInvolvement(
+  mysql: any,
+  addresses: Iterable<string>,
+): Promise<void> {
+  const entries: [string, number][] = [];
+  for (const addr of addresses) {
+    entries.push([addr, 0]);
+  }
+  if (entries.length === 0) return;
+  await mysql.query(
+    `INSERT INTO \`address\`(\`address\`, \`transactions\`)
+          VALUES ?
+              ON DUPLICATE KEY UPDATE transactions = transactions - 1`,
+    [entries],
+  );
+}
+
+/**
  * Mark spent tx outputs by setting `spent_by` on the matching rows.
  *
  * Kind-agnostic: takes any `{tx_id, index}` shape (TxInput, EventTxInput,
@@ -833,9 +863,8 @@ export const getTxOutputsAtHeight = async (
  * @returns {Promise<void>} - A promise that resolves when the address-related data has been updated
  *
  * This function performs the following steps:
- * 1. Inserts addresses with a transaction count of 0 into the `address` table or subtracts 1 from the transaction count if they already exist
- * 2. Iterates over the addressBalanceMap to update the `address_balance` table with the received token balances.
- * 3. Deletes the transaction entry from the `address_tx_history` table.
+ * 1. Iterates over the addressBalanceMap to update the `address_balance` table with the received token balances.
+ * 2. Deletes the transaction entry from the `address_tx_history` table.
  *
  * The function ensures that the authorities are correctly updated and the smallest timelock expiration value is preserved.
  */
@@ -845,17 +874,6 @@ export const voidAddressTransaction = async (
   addressBalanceMap: StringMap<TokenBalanceMap>,
   _version: number,
 ): Promise<void> => {
-  const addressEntries = Object.keys(addressBalanceMap).map((address) => [address, 0]);
-
-  if (addressEntries.length > 0) {
-    await mysql.query(
-      `INSERT INTO \`address\`(\`address\`, \`transactions\`)
-            VALUES ?
-                ON DUPLICATE KEY UPDATE transactions = transactions - 1`,
-      [addressEntries],
-    );
-  }
-
   // Collect all (address, token) pairs and their balances
   const pairs: { address: string; token: string; balance: Balance }[] = [];
   for (const [address, tokenMap] of Object.entries(addressBalanceMap)) {

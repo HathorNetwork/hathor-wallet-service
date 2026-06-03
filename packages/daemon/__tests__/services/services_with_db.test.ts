@@ -187,7 +187,7 @@ describe('voidTransaction with input unspending', () => {
       script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
     }];
 
-    await voidTx(mysql, txIdB, inputs, outputs, [tokenId], [], 1);
+    await voidTx(mysql, txIdB, inputs, outputs, [], [tokenId], [], 1);
 
     // Check if the UTXO from transaction A is unspent again
     utxo = await getTxOutput(mysql, txIdA, 0, false);
@@ -257,7 +257,7 @@ describe('voidTransaction with input unspending', () => {
       script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
     }];
 
-    await voidTx(mysql, txIdC, inputs, outputs, [tokenId], [], 1);
+    await voidTx(mysql, txIdC, inputs, outputs, [], [tokenId], [], 1);
 
     // Check if UTXOs from transactions A and B are unspent again
     utxoA = await getTxOutput(mysql, txIdA, 0, true);
@@ -322,6 +322,7 @@ describe('voidTransaction with input unspending', () => {
         token_data: 0,
         script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
       }],
+      [],
       [tokenId],
       [],
       1
@@ -342,6 +343,7 @@ describe('voidTransaction with input unspending', () => {
         token_data: 0,
         script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
       }],
+      [],
       [tokenId],
       [],
       1
@@ -403,7 +405,7 @@ describe('voidTransaction with input unspending', () => {
       script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
     }];
 
-    await voidTx(mysql, txIdC, inputs, outputs, [tokenId], [], 1);
+    await voidTx(mysql, txIdC, inputs, outputs, [], [tokenId], [], 1);
 
     // The UTXO should still be spent by B, not unspent
     const utxo = await getTxOutput(mysql, txIdA, 0, false);
@@ -460,7 +462,7 @@ describe('voidTransaction with input unspending', () => {
       }
     ];
 
-    await voidTx(mysql, txIdB, inputs, outputs, [hathorToken, customToken], [], 1);
+    await voidTx(mysql, txIdB, inputs, outputs, [], [hathorToken, customToken], [], 1);
 
     // Both UTXOs should be unspent
     const utxo1 = await getTxOutput(mysql, txIdA, 0, true);
@@ -513,7 +515,7 @@ describe('voidTransaction with input unspending', () => {
       script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
     }];
 
-    await voidTx(mysql, txIdB, inputs, outputs, [tokenId], [], 1);
+    await voidTx(mysql, txIdB, inputs, outputs, [], [tokenId], [], 1);
 
     // Verify the original UTXO is unspent again
     const unspentUtxo = await getTxOutput(mysql, txIdA, 0, true);
@@ -666,7 +668,7 @@ describe('wallet balance voiding bug', () => {
       script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
     }];
 
-    await voidTx(mysql, txIdB, inputs, outputs, [tokenId], [], 1);
+    await voidTx(mysql, txIdB, inputs, outputs, [], [tokenId], [], 1);
 
     // Check wallet balance after voiding
     walletBalance = await getWalletBalance(mysql, walletId, tokenId);
@@ -752,7 +754,7 @@ describe('wallet balance voiding bug', () => {
       script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
     }];
 
-    await voidTx(mysql, txId, inputs, voidOutputs, [tokenId], [], 1);
+    await voidTx(mysql, txId, inputs, voidOutputs, [], [tokenId], [], 1);
 
     // Check wallet balances after voiding
     wallet1Balance = await getWalletBalance(mysql, wallet1Id, tokenId);
@@ -821,7 +823,7 @@ describe('wallet balance voiding bug', () => {
       script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
     }];
 
-    await voidTx(mysql, txId, inputs, outputs, [tokenId], [], 1);
+    await voidTx(mysql, txId, inputs, outputs, [], [tokenId], [], 1);
 
     // Check wallet balance after voiding
     walletBalance = await getWalletBalance(mysql, walletId, tokenId);
@@ -896,7 +898,7 @@ describe('wallet balance voiding bug', () => {
       spent_by: null,
     }];
 
-    await voidTx(mysql, txIdB, inputs, outputs, [tokenId], [], 1);
+    await voidTx(mysql, txIdB, inputs, outputs, [], [tokenId], [], 1);
 
     // Check that the tx_proposal marks have been cleared
     const utxoAfterVoid = await getTxOutput(mysql, txIdA, 0, false);
@@ -963,7 +965,7 @@ describe('wallet balance voiding bug', () => {
       spent_by: null,
     }];
 
-    await voidTx(mysql, txIdB, inputs, outputs, [tokenId], [], 1);
+    await voidTx(mysql, txIdB, inputs, outputs, [], [tokenId], [], 1);
 
     // Check that tx_proposal marks have been cleared for both inputs
     const utxo1AfterVoid = await getTxOutput(mysql, txIdA, 0, false);
@@ -1005,7 +1007,7 @@ describe('wallet balance voiding bug', () => {
     expect(tokens).toHaveLength(3);
 
     // Void the transaction with empty inputs/outputs/tokens
-    await voidTx(mysql, txId, [], [], [], [], 1);
+    await voidTx(mysql, txId, [], [], [], [], [], 1);
 
     // Verify all tokens created by this tx were deleted
     token1 = await db.getTokenInformation(mysql, tokenId1);
@@ -3169,6 +3171,7 @@ describe('handleVoidedTx with shielded', () => {
         outputs: fixture.event.data.outputs,
         inputs: fixture.event.data.inputs,
         tokens: fixture.event.data.tokens,
+        shielded_outputs: fixture.event.data.shielded_outputs,
         version: fixture.event.data.version,
         headers: [],
       },
@@ -3332,6 +3335,58 @@ describe('handleVoidedTx with shielded', () => {
       [TOKEN_ID],
     );
     expect(wbAfter).toHaveLength(0);
+  });
+
+  it('decrements the involvement counter for an unowned shielded receive on void', async () => {
+    expect.hasAssertions();
+
+    // Unowned shielded output: never enters the balance map, but the ingest
+    // path still bumps its address involvement counter via bumpAddressInvolvement.
+    // The void must reverse that bump symmetrically.
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    const unownedAddress = fixture.event.data.shielded_outputs[0].decoded.address;
+
+    resetCtCryptoMock();
+
+    const acceptContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+    await handleVertexAccepted(acceptContext as any, undefined as any);
+
+    // After ingest the observation row exists with transactions bumped to 1,
+    // even though no balance row was created.
+    const [addrBefore] = await mysql.query<any[]>(
+      `SELECT transactions FROM address WHERE address = ?`,
+      [unownedAddress],
+    );
+    expect(addrBefore).toHaveLength(1);
+    expect(Number(addrBefore[0].transactions)).toBe(1);
+
+    const voidContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildVoidEvent(fixture),
+    };
+    await handleVoidedTx(voidContext as any);
+
+    // Counter reversed back to 0 — the void event carries shielded_outputs, so
+    // the unowned address is in the involvement set decremented on void.
+    const [addrAfter] = await mysql.query<any[]>(
+      `SELECT transactions FROM address WHERE address = ?`,
+      [unownedAddress],
+    );
+    expect(addrAfter).toHaveLength(1);
+    expect(Number(addrAfter[0].transactions)).toBe(0);
   });
 
   it('restores shielded balance when voiding a vertex that spent a recovered shielded UTXO', async () => {
@@ -3535,6 +3590,7 @@ describe('handleUnvoidedTx with shielded', () => {
         outputs: fixture.event.data.outputs,
         inputs: fixture.event.data.inputs,
         tokens: fixture.event.data.tokens,
+        shielded_outputs: fixture.event.data.shielded_outputs,
         version: fixture.event.data.version,
         headers: [],
       },
@@ -3805,6 +3861,7 @@ describe('handleVertexRemoved with shielded', () => {
         outputs: fixture.event.data.outputs,
         inputs: fixture.event.data.inputs,
         tokens: fixture.event.data.tokens,
+        shielded_outputs: fixture.event.data.shielded_outputs,
         version: fixture.event.data.version,
         headers: [],
       },
