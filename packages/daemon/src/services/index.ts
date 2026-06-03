@@ -806,6 +806,18 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             token_name,
             token_symbol,
             signal_bits: 0, // TODO: we should actually receive this and store in the database
+            // Additive realtime fields: a lightweight shielded-output projection
+            // (no crypto blobs) and the full involved-address set (reusing the
+            // same set bumpAddressInvolvement consumed). Clients intersect
+            // `addresses` with their own and refetch.
+            shielded_outputs: shieldedOutputs.map((so) => {
+              const decoded = so.decoded ? { address: so.decoded.address } : null;
+              // token_data only exists on AmountShielded; FullyShielded hides it.
+              return so.mode === ShieldedOutputMode.AmountShielded
+                ? { mode: so.mode, token_data: so.token_data, decoded }
+                : { mode: so.mode, decoded };
+            }),
+            addresses: Array.from(involvedAddresses),
           };
 
           try {
