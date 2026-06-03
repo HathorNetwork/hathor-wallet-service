@@ -325,6 +325,36 @@ describe('success', () => {
 `);
     });
 
+    it('shielded-only receive (transparent total 0, shieldedAmount > 0) notifies with the combined amount', async () => {
+      expect.hasAssertions();
+
+      // Pure shielded receive: transparent total is 0, the value rides in
+      // shieldedAmount. The notification must still fire (gate counts the
+      // shielded amount) and display the combined amount.
+      const sendEvent = buildEvent(walletId, txId, [
+        {
+          tokenId: 'token2',
+          tokenSymbol: 'T2',
+          lockExpires: null,
+          lockedAmount: 0,
+          lockedAuthorities: { melt: false, mint: false },
+          total: 0,
+          totalAmountSent: 0,
+          unlockedAmount: 0,
+          unlockedAuthorities: { melt: false, mint: false },
+          shieldedAmount: 150,
+        } as any,
+      ]);
+      const sendContext = { awsRequestId: '123' } as Context;
+
+      const result = await handleRequest(sendEvent, sendContext, null) as { success: boolean };
+
+      expect(result.success).toStrictEqual(true);
+      expect(spyOnInvokeSendNotification).toHaveBeenCalledTimes(1);
+      const notificationSentOnSpy = spyOnInvokeSendNotification.mock.calls[0][0];
+      expect(notificationSentOnSpy.metadata.bodyLocArgs).toStrictEqual(JSON.stringify(['150 T2']));
+    });
+
     it('token balance with 2 token', async () => {
       expect.hasAssertions();
 

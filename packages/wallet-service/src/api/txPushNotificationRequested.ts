@@ -56,6 +56,8 @@ class TxPushNotificationRequestValidator {
       unlockedAuthorities: TxPushNotificationRequestValidator.authoritiesSchema,
       lockExpires: Joi.number().integer().min(0).allow(null),
       total: Joi.number().required(),
+      // Optional + defaulted so payloads from daemons predating the field still validate.
+      shieldedAmount: Joi.number().default(0),
     }),
   ).required();
 
@@ -122,8 +124,10 @@ export const handleRequest: Handler<StringMap<WalletBalanceValue>, { success: bo
     // filter wallets in which the token balance > 0
     .filter((eachSettings) => {
       const wallet = body[eachSettings.walletId];
-      // verify by the first token balance
-      return wallet.walletBalanceForTx[0].total > 0;
+      // verify by the first token balance — count the shielded amount too so a
+      // pure shielded receive (transparent total 0) still notifies.
+      const firstBalance = wallet.walletBalanceForTx[0];
+      return (firstBalance.total > 0n) || ((firstBalance.shieldedAmount ?? 0n) > 0n);
     });
 
   const genericMessages = devicesEnabledToPush
@@ -174,7 +178,8 @@ const _assembleSpecificMessage = (deviceId: string, txId: string, tokenBalanceLi
 
   const tokens = [];
   for (const eachBalance of tokenBalanceList.slice(0, upperLimit)) {
-    const amount = eachBalance.total;
+    // Combine the transparent and shielded amounts for the displayed value.
+    const amount = eachBalance.total + (eachBalance.shieldedAmount ?? 0n);
     const tokenSymbol = eachBalance.tokenSymbol;
     tokens.push(`${amount} ${tokenSymbol}`);
   }
