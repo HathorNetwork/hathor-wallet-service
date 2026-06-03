@@ -469,6 +469,41 @@ describe('token.total_supply tracking', () => {
     );
     expect(rows).toHaveLength(0);
   });
+
+  it('CREATE_TOKEN_TX (version 2) leaves HTR and the created token total_supply untouched', async () => {
+    expect.hasAssertions();
+
+    // CREATE_TOKEN_TX: token_id === tx_id. The created token's supply is owned
+    // by handleTokenCreated (from the wire initial_amount); seed it here as if
+    // that event already landed. The vertex also consumes an HTR deposit
+    // (100 in, 99 change). applyTokenSupplyUpdates must skip version-2 entirely
+    // so neither the created token (would otherwise gain the +500 mint delta)
+    // nor HTR (would otherwise lose the 1 HTR deposit) is altered on ingest.
+    const txId = 'a1'.repeat(32);
+    const tokenId = txId;
+
+    await seedToken(HTR_TOKEN_ID, 1_000_000n);
+    await mysql.query(
+      `INSERT INTO token (id, name, symbol, total_supply) VALUES (?, 'Created', 'CRT', 500)`,
+      [tokenId],
+    );
+
+    const data = buildVertexData({
+      hash: txId,
+      version: hathorLib.constants.CREATE_TOKEN_TX_VERSION,
+      tokens: [tokenId],
+      inputs: [transparentInput('parent-tx', 0, 100n, 0, 'addr-depositor')],
+      outputs: [
+        transparentOutput(99, 0, 'addr-change'),
+        transparentOutput(500, 1, 'addr-mint-recipient'),
+      ],
+    });
+
+    await handleVertexAccepted(buildVertexContext(data) as any, undefined as any);
+
+    expect(await selectTotalSupply(HTR_TOKEN_ID)).toStrictEqual(1_000_000n);
+    expect(await selectTotalSupply(tokenId)).toStrictEqual(500n);
+  });
 });
 
 describe('token.total_supply reversal on void / unvoid / remove', () => {
@@ -664,14 +699,14 @@ describe('token.total_supply reversal on void / unvoid / remove', () => {
   it('void of a token-creation vertex deletes the token without underflowing total_supply', async () => {
     expect.hasAssertions();
 
-    // CREATE_TOKEN_TX: token_uid === tx_id by convention. The supply reversal
-    // for a token CREATED by the voided vertex (design path 1) must be its row
-    // deletion, NOT a delta subtraction — mirroring ingest, where the +1 delta
-    // no-ops because the token row doesn't exist yet. We seed initial_amount
-    // (300) deliberately LOWER than the token output sum (1000): if the
-    // signed reversal ran against the still-present token row it would compute
-    // 300 - 1000 and underflow the UNSIGNED total_supply column, erroring out
-    // the whole void. Running it after deleteTokens makes it a clean no-op.
+    // CREATE_TOKEN_TX: token_uid === tx_id by convention. A token CREATED by
+    // the voided vertex is reversed by its row deletion (deleteTokens), never by
+    // a supply delta — applyTokenSupplyUpdates skips version-2 entirely, so the
+    // void reversal does not run for the created token. We seed initial_amount
+    // (300) deliberately LOWER than the token output sum (1000): a signed
+    // reversal against the still-present row would compute 300 - 1000 and
+    // underflow the UNSIGNED total_supply column, erroring out the whole void.
+    // The version-2 skip prevents that.
     const tokenId = 'a'.repeat(64);
     const txId = tokenId;
 

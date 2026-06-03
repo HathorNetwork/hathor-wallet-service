@@ -318,6 +318,14 @@ async function applyTokenSupplyUpdates(
     return;
   }
 
+  // Token-creation vertices are skipped entirely: handleTokenCreated is the
+  // single authority for the created token's supply (set from the wire
+  // initial_amount on the TOKEN_CREATED event), and the HTR deposit a creation
+  // tx consumes is not a supply change. Applying the per-token delta here would
+  // double-count the created token and wrongly shrink HTR. Skipping is
+  // sign-agnostic, so the void/remove reversal stays symmetric with ingest.
+  if (version === hathorLib.constants.CREATE_TOKEN_TX_VERSION) return;
+
   // Per-token supply delta. Gated on absence of shielded outputs.
   if (shieldedOutputCount !== 0) return;
 
