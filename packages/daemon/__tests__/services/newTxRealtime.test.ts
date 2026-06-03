@@ -31,9 +31,10 @@ jest.mock('../../src/utils/aws', () => {
 
 import * as db from '../../src/db';
 import { handleVertexAccepted } from '../../src/services';
-import { LRU } from '../../src/utils';
+import { LRU, getWalletBalancesForTx } from '../../src/utils';
 import { sendRealtimeTx } from '../../src/utils/aws';
 import { cleanDatabase, XPUBKEY } from '../utils';
+import { TokenBalanceMap } from '@wallet-service/common';
 import { Connection } from 'mysql2/promise';
 import eventsFixture from '../__fixtures__/events';
 
@@ -113,5 +114,41 @@ describe('handleVertexAccepted realtime new-tx payload', () => {
     expect(tx.shielded_outputs[0]).not.toHaveProperty('commitment');
     expect(tx.shielded_outputs[0]).not.toHaveProperty('range_proof');
     expect(tx.shielded_outputs[0]).not.toHaveProperty('ephemeral_pubkey');
+  });
+});
+
+describe('getWalletBalancesForTx shielded amounts (push payload)', () => {
+  it('carries the recovered shielded receive amount as shieldedAmount', async () => {
+    expect.hasAssertions();
+
+    const now = Math.floor(Date.now() / 1000);
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES ('wallet_alice', ?, ?, 'ready', 20, ?, ?)`,
+      [XPUBKEY, XPUBKEY, now, now],
+    );
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, transactions)
+       VALUES ('WCTSpend1', 'wallet_alice', 7, 2, 0)`,
+    );
+    await mysql.query(
+      `INSERT INTO token (id, name, symbol, total_supply) VALUES ('00', 'Hathor', 'HTR', 0)`,
+    );
+
+    // Unified balance map for the vertex: a recovered shielded HTR receive of
+    // 150 for the owned address (transparent columns stay zero).
+    const addressBalanceMap = {
+      WCTSpend1: TokenBalanceMap.fromShielded('00', 150n, false),
+    };
+    const tx = { tx_id: 'tx-shielded-push' } as any;
+
+    const result = await getWalletBalancesForTx(mysql, tx, addressBalanceMap);
+
+    expect(result.wallet_alice).toBeDefined();
+    const tokenBalance = result.wallet_alice.walletBalanceForTx[0];
+    expect(tokenBalance.tokenId).toBe('00');
+    // transparent total stays zero; the shielded receive rides in shieldedAmount.
+    expect(tokenBalance.total).toBe(0n);
+    expect(tokenBalance.shieldedAmount).toBe(150n);
   });
 });

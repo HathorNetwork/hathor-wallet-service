@@ -834,7 +834,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
           try {
             if (PUSH_NOTIFICATION_ENABLED) {
-              const walletBalanceMap = await getWalletBalancesForTx(mysql, txData);
+              const walletBalanceMap = await getWalletBalancesForTx(mysql, txData, addressBalanceMap);
               const { length: hasAffectWallets } = Object.keys(walletBalanceMap);
               if (hasAffectWallets) {
                 invokeOnTxPushNotificationRequestedLambda(walletBalanceMap)

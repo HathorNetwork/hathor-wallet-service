@@ -646,8 +646,14 @@ export const validateAddressBalances = async (mysql: MysqlConnection, addresses:
  * @param tx - The transaction to get related wallets and their token balances
  * @returns
  */
-export const getWalletBalancesForTx = async (mysql: MysqlConnection, tx: Transaction): Promise<StringMap<WalletBalanceValue>> => {
-  const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(tx.inputs, tx.outputs, tx.headers ?? []);
+export const getWalletBalancesForTx = async (
+  mysql: MysqlConnection,
+  tx: Transaction,
+  addressBalanceMap: StringMap<TokenBalanceMap>,
+): Promise<StringMap<WalletBalanceValue>> => {
+  // The caller passes the unified balance map (transparent + shielded) computed
+  // for the vertex, so the push summary reflects recovered shielded receives —
+  // not just the transparent inputs/outputs on `tx`.
   // return only wallets that were started
   const addressWalletMap: StringMap<Wallet> = await getAddressWalletInfo(mysql, Object.keys(addressBalanceMap));
 
@@ -709,6 +715,7 @@ export class FromTokenBalanceMapToBalanceValueList {
       unlockedAuthorities: balance.unlockedAuthorities.toJSON(),
       totalAmountSent: balance.totalAmountSent,
       total: balance.total(),
+      shieldedAmount: balance.unlockedShieldedAmount + balance.lockedShieldedAmount,
     } as TokenBalanceValue));
     return balances;
   }
