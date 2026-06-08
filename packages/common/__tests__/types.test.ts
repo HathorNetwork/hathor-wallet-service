@@ -68,6 +68,9 @@ describe('TokenBalanceMap.fromStringMap', () => {
       '00': { totalSent: 100n, unlocked: 60n, locked: 40n },
     });
     const b = map.get('00');
+    expect(b.totalAmountSent).toBe(100n);
+    expect(b.unlockedAmount).toBe(60n);
+    expect(b.lockedAmount).toBe(40n);
     expect(b.unlockedShieldedAmount).toBe(0n);
     expect(b.lockedShieldedAmount).toBe(0n);
     expect(b.totalShieldedReceived).toBe(0n);
