@@ -254,7 +254,7 @@ export interface InsertTxOutputArgs {
   locked: boolean;
   voided: boolean;
   spent_by?: string | null;
-  recovery_state: 'unowned' | 'recovered' | 'recovery_failed' | null;
+  recovery_state: RecoveryState | null;
 }
 
 /**
