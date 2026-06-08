@@ -132,10 +132,10 @@ const ShieldedDecodedSchema = z.object({
 }).passthrough();
 
 const BaseShieldedFieldsSchema = z.object({
-  commitment: HexStringSchema,
+  commitment: HexStringSchema.length(66),
   range_proof: HexStringSchema,
   script: HexStringSchema,
-  ephemeral_pubkey: HexStringSchema,
+  ephemeral_pubkey: HexStringSchema.length(66),
   decoded: ShieldedDecodedSchema,
 });
 
@@ -147,7 +147,7 @@ export type AmountShieldedOutput = z.infer<typeof AmountShieldedOutputSchema>;
 
 export const FullyShieldedOutputSchema = BaseShieldedFieldsSchema.extend({
   mode: z.literal(2),
-  asset_commitment: HexStringSchema,
+  asset_commitment: HexStringSchema.length(66),
   surjection_proof: HexStringSchema,
 });
 export type FullyShieldedOutput = z.infer<typeof FullyShieldedOutputSchema>;
