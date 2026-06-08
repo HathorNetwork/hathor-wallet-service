@@ -24,7 +24,9 @@ describe('shielded event schemas', () => {
         decoded: { address: 'WT4nABC' },
       });
       expect(v.mode).toBe(1);
-      expect(v.token_data).toBe(1);
+      if (v.mode === 1) {
+        expect(v.token_data).toBe(1);
+      }
     });
 
     it('accepts a mode=2 FullyShielded entry with asset_commitment and surjection_proof', () => {
@@ -39,8 +41,10 @@ describe('shielded event schemas', () => {
         decoded: { address: 'WT4nXYZ' },
       });
       expect(v.mode).toBe(2);
-      expect(v.asset_commitment).toBe('ee'.repeat(33));
-      expect(v.surjection_proof).toBe('ff'.repeat(64));
+      if (v.mode === 2) {
+        expect(v.asset_commitment).toBe('ee'.repeat(33));
+        expect(v.surjection_proof).toBe('ff'.repeat(64));
+      }
     });
 
     it('rejects an unknown mode (mode=9)', () => {
@@ -67,7 +71,9 @@ describe('shielded event schemas', () => {
         decoded: { type: 'P2PKH', address: 'WT4n', timelock: null },
       });
       expect(t.mode).toBe(0);
-      expect(t.value).toBe(100n);
+      if (t.mode === 0) {
+        expect(t.value).toBe(100n);
+      }
     });
 
     it('accepts transparent with mode omitted (legacy wire format)', () => {
@@ -78,7 +84,9 @@ describe('shielded event schemas', () => {
         decoded: { type: 'P2PKH', address: 'WT4n', timelock: null },
       });
       expect(t.mode).toBe(0);
-      expect(t.value).toBe(100n);
+      if (t.mode === 0) {
+        expect(t.value).toBe(100n);
+      }
     });
 
     it('accepts shielded with mode=1', () => {
