@@ -254,7 +254,7 @@ export interface InsertTxOutputArgs {
   locked: boolean;
   voided: boolean;
   spent_by?: string | null;
-  recovery_state: 'unowned' | 'recovered' | 'recovery_failed' | null;
+  recovery_state: RecoveryState | null;
 }
 
 /**
@@ -376,10 +376,10 @@ export const insertShieldedTxOutputData = async (
  * `transactions` bump per `(address, tx)` lives exclusively in
  * `bumpAddressInvolvement`, which runs once per vertex against the
  * wire-level involved-addresses set and covers every address regardless of
- * ownership or recovery state. Using `INSERT IGNORE` makes the observation
- * a row-existence guarantee with no on-conflict side effect — any
- * registration data attached to the row by a previous wallet claim is
- * preserved untouched across repeated observations.
+ * ownership or recovery state. The `ON DUPLICATE KEY UPDATE address = address`
+ * no-op makes the observation a row-existence guarantee with no on-conflict
+ * side effect — any registration data attached to the row by a previous wallet
+ * claim is preserved untouched across repeated observations.
  *
  * @param conn - Database connection
  * @param address - The P2PKH spend address (CTSpend-derived) observed as the
@@ -390,8 +390,9 @@ export async function upsertShieldedAddressObservation(
   address: string,
 ): Promise<void> {
   await conn.query(
-    `INSERT IGNORE INTO \`address\` (\`address\`, \`transactions\`)
-     VALUES (?, 0)`,
+    `INSERT INTO \`address\` (\`address\`, \`transactions\`)
+     VALUES (?, 0)
+     ON DUPLICATE KEY UPDATE \`address\` = \`address\``,
     [address],
   );
 }
