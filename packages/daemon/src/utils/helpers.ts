@@ -12,6 +12,17 @@ export function stringMapIterator<T>(stringMap: StringMap<T>): [string, T][] {
   return Object.entries(stringMap);
 }
 
+/**
+ * Parse a nullable numeric database column into a bigint.
+ *
+ * MySQL returns BIGINT columns as either a `number` or a `string` depending on
+ * the driver/column, and `NULL` as `null`. This normalizes that to `bigint`,
+ * preserving `null`/`undefined` as `null`.
+ */
+export function parseNullableBigInt(value: number | string | null | undefined): bigint | null {
+  return value === null || value === undefined ? null : BigInt(value);
+}
+
 export const getFullnodeHttpUrl = () => {
   const { USE_SSL, FULLNODE_HOST } = getConfig();
   const protocol = USE_SSL ? 'https://' : 'http://';
