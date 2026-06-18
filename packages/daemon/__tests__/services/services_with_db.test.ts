@@ -54,7 +54,7 @@ import {
 import { DbTxOutput, EventTxInput } from '../../src/types';
 import { Connection } from 'mysql2/promise';
 import eventsFixture from '../__fixtures__/events';
-import { primeAmountRewind, resetCtCryptoMock } from '../mocks/ct-crypto-node';
+import { primeAmountRewind, primeFullyRewind, resetCtCryptoMock } from '../mocks/ct-crypto-node';
 import { Severity } from '@wallet-service/common';
 
 /**
@@ -2260,6 +2260,72 @@ describe('handleVertexAccepted with shielded outputs', () => {
     expect(txOutput!.recoveryState).toBe('recovered');
     expect(txOutput!.value).toBe(150n);
     expect(txOutput!.tokenId).toBe('00');
+    expect(mockAddAlert).not.toHaveBeenCalled();
+  });
+
+  it('recovers a matched FullyShielded output, taking token_id from the rewind result', async () => {
+    expect.hasAssertions();
+
+    // FullyShielded (mode=2) is a distinct correctness fork from AmountShielded:
+    // the token uid is NOT on the wire (`token_data` is absent) — it comes back
+    // from the rewind itself (`r.tokenUid`). Swap the fixture's mode=1 output
+    // for a mode=2 one carrying asset_commitment / surjection_proof.
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0] = {
+      mode: 2,
+      commitment: '02'.repeat(33),
+      range_proof: '03'.repeat(64),
+      script: '04'.repeat(20),
+      ephemeral_pubkey: '05'.repeat(33),
+      asset_commitment: '06'.repeat(33),
+      surjection_proof: '07'.repeat(64),
+      decoded: {
+        address: 'WShieldedAddress1',
+      },
+    };
+    const txHash = fixture.event.data.hash;
+    const so = fixture.event.data.shielded_outputs[0];
+
+    // Seed an owned shielded address so findShieldedAddressOwnership matches
+    // and the in-line rewind runs (bip32_account = 2 = CTSpend).
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [so.decoded.address, Buffer.alloc(32, 0x42)],
+    );
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+    // Prime a distinctive custom token uid. resolveShieldedTokenId is never
+    // consulted on this path, so asserting this exact value proves the token_id
+    // was sourced from the rewind result rather than the wire.
+    const fullyTokenUid = Buffer.alloc(32, 0xab);
+    primeFullyRewind({
+      commitment: Buffer.from(so.commitment, 'hex'),
+      ephemeralPubkey: Buffer.from(so.ephemeral_pubkey, 'hex'),
+      value: 4242n,
+      tokenUid: fullyTokenUid,
+      assetCommitment: Buffer.from(so.asset_commitment, 'hex'),
+    });
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    const txOutput = await getTxOutput(mysql, txHash, 1, false);
+    expect(txOutput).not.toBeNull();
+    expect(txOutput!.mode).toBe(2);
+    expect(txOutput!.recoveryState).toBe('recovered');
+    expect(txOutput!.value).toBe(4242n);
+    expect(txOutput!.tokenId).toBe('ab'.repeat(32));
     expect(mockAddAlert).not.toHaveBeenCalled();
   });
 

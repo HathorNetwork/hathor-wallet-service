@@ -292,7 +292,7 @@ const BURN_ADDRESS = 'HDeadDeadDeadDeadDeadDeadDeagTPgmn';
  * `-1` when reversing a voided / removed vertex. The shielded gate and the
  * block short-circuit apply symmetrically to both directions.
  */
-async function applyTokenSupplyUpdates(
+export async function applyTokenSupplyUpdates(
   mysql: any,
   version: number,
   txOutputs: TxOutputWithIndex[],
@@ -547,9 +547,9 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         // Mirrors the transparent-path logic in `prepareOutputs`: a token_data
         // of 0 selects the native token; otherwise it indexes into `vertex.tokens[]`.
         const shieldedOutputs = fullNodeEvent.event.data.shielded_outputs ?? [];
-        const transparentCount = txOutputs.length;
+        const transparentCount = outputs.length;
         const resolveShieldedTokenId = (tokenData: number): string | null => {
-          const idx = (tokenData & hathorLib.constants.TOKEN_INDEX_MASK) - 1;
+          const idx = hathorLib.tokensUtils.getTokenIndexFromData(tokenData) - 1;
           if (idx < 0) {
             return hathorLib.constants.NATIVE_TOKEN_UID;
           }
