@@ -30,6 +30,7 @@ import {
 } from '@wallet-service/common';
 import { isAuthority, toTokenVersion, RecoveryState, Bip32Account } from '@wallet-service/common';
 import { getWalletBalanceMap } from '../utils/wallet';
+import { parseNullableBigInt } from '../utils/helpers';
 import {
   AddressBalanceRow,
   AddressTxHistorySumRow,
@@ -705,7 +706,7 @@ export const getTxOutputsFromTx = async (
       index: result.index as number,
       tokenId: result.token_id as string | null,
       address: result.address as string,
-      value: result.value === null || result.value === undefined ? null : BigInt(result.value),
+      value: parseNullableBigInt(result.value),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
@@ -751,7 +752,7 @@ export const getTxOutputs = async (
       index: result.index as number,
       tokenId: result.token_id as string | null,
       address: result.address as string,
-      value: result.value === null || result.value === undefined ? null : BigInt(result.value),
+      value: parseNullableBigInt(result.value),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
@@ -836,7 +837,7 @@ export const getTxOutputsAtHeight = async (
       index: result.index as number,
       tokenId: result.token_id as string | null,
       address: result.address as string,
-      value: result.value === null || result.value === undefined ? null : BigInt(result.value),
+      value: parseNullableBigInt(result.value),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
@@ -1268,10 +1269,7 @@ export const updateAddressTablesWithTx = async (
                                           \`token_id\`, \`balance\`,
                                           \`shielded_balance_delta\`,
                                           \`timestamp\`)
-       VALUES ?
-       ON DUPLICATE KEY UPDATE \`balance\` = VALUES(\`balance\`),
-                               \`shielded_balance_delta\` = VALUES(\`shielded_balance_delta\`),
-                               \`timestamp\` = VALUES(\`timestamp\`)`,
+       VALUES ?`,
       [entries],
     );
   }
@@ -1341,7 +1339,7 @@ export const getUtxosLockedAtHeight = async (
         index: result.index as number,
         tokenId: result.token_id as string | null,
         address: result.address as string,
-        value: result.value === null || result.value === undefined ? null : BigInt(result.value),
+        value: parseNullableBigInt(result.value),
         authorities: result.authorities as number,
         timelock: result.timelock as number,
         heightlock: result.heightlock as number,
@@ -1680,7 +1678,7 @@ export const mapDbResultToDbTxOutput = (result: TxOutputRow): DbTxOutput => ({
   index: result.index as number,
   tokenId: result.token_id as string | null,
   address: result.address as string,
-  value: result.value === null || result.value === undefined ? null : BigInt(result.value),
+  value: parseNullableBigInt(result.value),
   authorities: result.authorities as number,
   timelock: result.timelock as number,
   heightlock: result.heightlock as number,
@@ -1844,7 +1842,7 @@ export const getLockedUtxoFromInputs = async (mysql: MysqlConnection, inputs: Ev
       index: utxo.index as number,
       tokenId: utxo.token_id as string | null,
       address: utxo.address as string,
-      value: utxo.value === null || utxo.value === undefined ? null : BigInt(utxo.value),
+      value: parseNullableBigInt(utxo.value),
       authorities: utxo.authorities as number,
       timelock: utxo.timelock as number,
       heightlock: utxo.heightlock as number,
@@ -2029,9 +2027,7 @@ export const updateWalletTablesWithTx = async (
                                           \`tx_id\`, \`balance\`,
                                           \`shielded_balance_delta\`,
                                           \`timestamp\`)
-            VALUES ?
-       ON DUPLICATE KEY UPDATE \`balance\` = VALUES(\`balance\`),
-                               \`shielded_balance_delta\` = VALUES(\`shielded_balance_delta\`)`,
+            VALUES ?`,
       [entries],
     );
   }
@@ -2087,7 +2083,7 @@ export const getTxOutputsBySpent = async (
       index: result.index as number,
       tokenId: result.token_id as string | null,
       address: result.address as string,
-      value: result.value === null || result.value === undefined ? null : BigInt(result.value),
+      value: parseNullableBigInt(result.value),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
@@ -2305,7 +2301,7 @@ export const getTxOutputsHeightUnlockedAtHeight = async (
       index: result.index as number,
       tokenId: result.token_id as string | null,
       address: result.address as string,
-      value: result.value === null || result.value === undefined ? null : BigInt(result.value),
+      value: parseNullableBigInt(result.value),
       authorities: result.authorities as number,
       timelock: result.timelock as number,
       heightlock: result.heightlock as number,
