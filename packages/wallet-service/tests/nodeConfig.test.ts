@@ -70,6 +70,8 @@ test('convertApiVersionData', async () => {
     minTxWeightCoefficient: OLD_VERSION_DATA.min_tx_weight_coefficient,
     minTxWeightK: OLD_VERSION_DATA.min_tx_weight_k,
     tokenDepositPercentage: OLD_VERSION_DATA.token_deposit_percentage,
+    tokenDepositPercentageNumerator: undefined,
+    tokenDepositPercentageDenominator: undefined,
     rewardSpendMinBlocks: OLD_VERSION_DATA.reward_spend_min_blocks,
     maxNumberInputs: OLD_VERSION_DATA.max_number_inputs,
     maxNumberOutputs: OLD_VERSION_DATA.max_number_outputs,
@@ -88,6 +90,8 @@ test('convertApiVersionData', async () => {
     minTxWeightCoefficient: VERSION_DATA.min_tx_weight_coefficient,
     minTxWeightK: VERSION_DATA.min_tx_weight_k,
     tokenDepositPercentage: VERSION_DATA.token_deposit_percentage,
+    tokenDepositPercentageNumerator: undefined,
+    tokenDepositPercentageDenominator: undefined,
     rewardSpendMinBlocks: VERSION_DATA.reward_spend_min_blocks,
     maxNumberInputs: VERSION_DATA.max_number_inputs,
     maxNumberOutputs: VERSION_DATA.max_number_outputs,
@@ -96,6 +100,23 @@ test('convertApiVersionData', async () => {
     nativeTokenSymbol: VERSION_DATA.native_token.symbol,
     genesisBlockHash: VERSION_DATA.genesis_block_hash,
   });
+});
+
+test('convertApiVersionData forwards the token deposit percentage fraction', () => {
+  const data: FullNodeApiVersionResponse = {
+    ...VERSION_DATA,
+    token_deposit_percentage_numerator: 10000000,
+    token_deposit_percentage_denominator: 1000000000,
+  };
+  const converted = convertApiVersionData(data);
+  expect(converted.tokenDepositPercentageNumerator).toBe(10000000);
+  expect(converted.tokenDepositPercentageDenominator).toBe(1000000000);
+});
+
+test('convertApiVersionData omits the fraction for fullnodes that do not provide it', () => {
+  const converted = convertApiVersionData(OLD_VERSION_DATA);
+  expect(converted.tokenDepositPercentageNumerator).toBeUndefined();
+  expect(converted.tokenDepositPercentageDenominator).toBeUndefined();
 });
 
 test('convertApiVersionData handles nano_contracts_enabled correctly', async () => {

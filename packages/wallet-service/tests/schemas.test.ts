@@ -41,3 +41,23 @@ test('FullnodeVersionSchema rejects a non-integer native_token.version', () => {
   expect(error).toBeDefined();
   expect(error!.message).toMatch(/native_token\.version/);
 });
+
+test('FullnodeVersionSchema accepts the token deposit percentage numerator/denominator', () => {
+  const payload = {
+    ...defaultTestVersionData(),
+    token_deposit_percentage_numerator: 10000000,
+    token_deposit_percentage_denominator: 1000000000,
+  };
+  const { error } = FullnodeVersionSchema.validate(payload);
+  expect(error).toBeUndefined();
+});
+
+test('FullnodeVersionSchema rejects a non-integer token_deposit_percentage_numerator', () => {
+  const payload = {
+    ...defaultTestVersionData(),
+    token_deposit_percentage_numerator: 1.5,
+  };
+  const { error } = FullnodeVersionSchema.validate(payload);
+  expect(error).toBeDefined();
+  expect(error!.message).toMatch(/token_deposit_percentage_numerator/);
+});

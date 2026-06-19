@@ -24,7 +24,10 @@ export const FullnodeVersionSchema = Joi.object<FullNodeApiVersionResponse>({
   min_tx_weight: Joi.number().integer().positive().allow(0).required(),
   min_tx_weight_coefficient: Joi.number().positive().allow(0).required(),
   min_tx_weight_k: Joi.number().integer().positive().allow(0).required(),
+  // Deprecated float, always present; superseded by the integer numerator/denominator fraction.
   token_deposit_percentage: Joi.number().positive().required(),
+  token_deposit_percentage_numerator: Joi.number().integer().positive(),
+  token_deposit_percentage_denominator: Joi.number().integer().positive(),
   reward_spend_min_blocks: Joi.number().integer().positive().required(),
   max_number_inputs: Joi.number().integer().positive().required(),
   max_number_outputs: Joi.number().integer().positive().required(),
