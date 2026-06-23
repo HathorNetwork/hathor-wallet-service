@@ -123,5 +123,62 @@ export default {
       },
       group_id: 1500,
     },
-  }
+  },
+  VERTEX_WITH_SHIELDED: {
+    type: 'EVENT',
+    event: {
+      stream_id: 'f7d9157c-9906-4bd2-bc84-cfb9f5b607d1',
+      network: 'mainnet',
+      peer_id: 'bdf4fa876f5cdba84be0cab53b21fc9eb45fe4b3d6ede99f493119d37df4e560',
+      id: 101,
+      timestamp: 1700000000.0,
+      type: 'NEW_VERTEX_ACCEPTED',
+      data: {
+        hash: 'a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00',
+        nonce: 12345,
+        timestamp: 1699999900,
+        version: 1,
+        weight: 21.5,
+        signal_bits: 0,
+        inputs: [],
+        outputs: [{
+          value: 5000,
+          script: 'dqkU91U6sMdzgT3zxOtdIVGbqobP0FmIrA==',
+          token_data: 0,
+          decoded: {
+            type: 'P2PKH',
+            address: 'WTransparentAddress1',
+            timelock: null,
+          },
+        }],
+        shielded_outputs: [{
+          mode: 1,
+          commitment: '02'.repeat(33),
+          range_proof: '03'.repeat(64),
+          script: '04'.repeat(20),
+          ephemeral_pubkey: '05'.repeat(33),
+          token_data: 1,
+          decoded: {
+            address: 'WShieldedAddress1',
+          },
+        }],
+        parents: [
+          '16ba3dbe424c443e571b00840ca54b9ff4cff467e10b6a15536e718e2008f952',
+          '33e14cb555a96967841dcbe0f95e9eab5810481d01de8f4f73afb8cce365e869',
+        ],
+        tokens: [],
+        token_name: null,
+        token_symbol: null,
+        metadata: {
+          hash: 'a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00',
+          voided_by: [],
+          first_block: null,
+          height: 100,
+        },
+        aux_pow: null,
+      },
+      group_id: null,
+    },
+    latest_event_id: 102,
+  },
 };

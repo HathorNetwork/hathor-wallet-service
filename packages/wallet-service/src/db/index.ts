@@ -2207,6 +2207,16 @@ export const markWalletTxHistoryAsVoided = async (
 };
 
 /**
+ * Coerce a DB integer column (returned as a string under `supportBigNumbers`)
+ * to `bigint`, so lifetime-total arithmetic keeps full precision above
+ * Number.MAX_SAFE_INTEGER. The `?? 0` fallback handles a possibly-null read
+ * defensively; in practice these columns are NOT NULL and the SUM(... ELSE 0)
+ * is never null for an existing group, so the fallback arm is unreachable.
+ */
+/* istanbul ignore next */
+const dbIntToBigInt = (value: unknown): bigint => BigInt((value ?? 0) as string | number);
+
+/**
  * Rebuilds the address_balance table for the given addresses from
  * the tx_output table
 
@@ -2226,32 +2236,45 @@ export const rebuildAddressBalancesFromUtxos = async (
   }
   // first we need to store the transactions count before deleting
   const oldAddressTokenTransactions: DbSelectResult = await mysql.query(
-    `SELECT \`address\`, \`token_id\` AS tokenId, \`transactions\`, \`total_received\` as \`totalReceived\`
+    `SELECT \`address\`, \`token_id\` AS tokenId, \`transactions\`,
+            \`total_received\` as \`totalReceived\`,
+            \`total_shielded_received\` as \`totalShieldedReceived\`
        FROM \`address_balance\`
       WHERE \`address\` IN (?)`,
     [addresses],
   );
 
-  // delete affected address_balances
+  // zero the balance columns we are about to recompute from the live UTXOs.
+  // Both transparent and shielded column families are reset so the SUM
+  // re-aggregations below are authoritative for every kind on the row.
   await mysql.query(
     `UPDATE \`address_balance\`
         SET \`unlocked_balance\` = 0,
             \`locked_balance\` = 0,
             \`locked_authorities\` = 0,
             \`unlocked_authorities\` = 0,
+            \`unlocked_shielded_balance\` = 0,
+            \`locked_shielded_balance\` = 0,
             \`timelock_expires\` = NULL,
             \`transactions\` = 0
       WHERE \`address\` IN (?)`,
     [addresses],
   );
 
-  // update address balances with unlocked utxos
+  // update address balances with unlocked utxos.
+  // The SUMs are partitioned by `mode` so a single aggregation produces both
+  // column families on the unified (address, token_id) row: transparent value
+  // (mode = 0) feeds `unlocked_balance`, recovered shielded value (mode IN (1,2)
+  // with recovery_state = 'recovered') feeds `unlocked_shielded_balance`.
+  // Authorities are transparent-only — shielded outputs never carry them.
   await mysql.query(`
     INSERT INTO address_balance (
       \`address\`,
       \`token_id\`,
       \`unlocked_balance\`,
       \`locked_balance\`,
+      \`unlocked_shielded_balance\`,
+      \`locked_shielded_balance\`,
       \`unlocked_authorities\`,
       \`locked_authorities\`,
       \`timelock_expires\`,
@@ -2259,9 +2282,11 @@ export const rebuildAddressBalancesFromUtxos = async (
     )
         SELECT address,
                 token_id,
-                SUM(\`value\`), -- unlocked_balance
+                SUM(CASE WHEN mode = 0 THEN \`value\` ELSE 0 END), -- unlocked_balance
                 0,
-                BIT_OR(\`authorities\`), -- unlocked_authorities
+                SUM(CASE WHEN mode IN (1, 2) AND recovery_state = 'recovered' THEN \`value\` ELSE 0 END), -- unlocked_shielded_balance
+                0, -- locked_shielded_balance
+                BIT_OR(CASE WHEN mode = 0 THEN \`authorities\` ELSE 0 END), -- unlocked_authorities
                 0, -- locked_authorities
                 NULL, -- timelock_expires
                 0 -- transactions
@@ -2273,16 +2298,19 @@ export const rebuildAddressBalancesFromUtxos = async (
       GROUP BY address, token_id
    ON DUPLICATE KEY UPDATE
     unlocked_balance = VALUES(unlocked_balance),
+    unlocked_shielded_balance = VALUES(unlocked_shielded_balance),
     unlocked_authorities = VALUES(unlocked_authorities)
   `, [addresses]);
 
-  // update address balances with locked utxos
+  // update address balances with locked utxos (same per-mode partitioning).
   await mysql.query(`
     INSERT INTO \`address_balance\` (
       \`address\`,
       \`token_id\`,
       \`unlocked_balance\`,
       \`locked_balance\`,
+      \`unlocked_shielded_balance\`,
+      \`locked_shielded_balance\`,
       \`locked_authorities\`,
       \`timelock_expires\`,
       \`transactions\`
@@ -2290,8 +2318,10 @@ export const rebuildAddressBalancesFromUtxos = async (
        SELECT address,
               token_id,
               0 AS unlocked_balance,
-              SUM(\`value\`) AS locked_balance,
-              BIT_OR(\`authorities\`) AS locked_authorities,
+              SUM(CASE WHEN mode = 0 THEN \`value\` ELSE 0 END) AS locked_balance,
+              0 AS unlocked_shielded_balance,
+              SUM(CASE WHEN mode IN (1, 2) AND recovery_state = 'recovered' THEN \`value\` ELSE 0 END) AS locked_shielded_balance,
+              BIT_OR(CASE WHEN mode = 0 THEN \`authorities\` ELSE 0 END) AS locked_authorities,
               MIN(\`timelock\`) AS timelock_expires,
               0 -- transactions
          FROM \`tx_output\`
@@ -2302,19 +2332,31 @@ export const rebuildAddressBalancesFromUtxos = async (
      GROUP BY \`address\`, \`token_id\`
    ON DUPLICATE KEY UPDATE
     locked_balance = VALUES(locked_balance),
+    locked_shielded_balance = VALUES(locked_shielded_balance),
     locked_authorities = VALUES(locked_authorities),
     timelock_expires = VALUES(timelock_expires)
    `, [addresses]);
 
   const addressTransactionCount: StringMap<number> = await getAffectedAddressTxCountFromTxList(mysql, txList);
-  const addressTotalReceived: StringMap<number> = await getAffectedAddressTotalReceivedFromTxList(mysql, txList);
+  const addressTotalReceived = await getAffectedAddressTotalReceivedFromTxList(mysql, txList);
   const tokenTransactionCount: StringMap<number> = await getAffectedTokenTxCountFromTxList(mysql, txList);
 
-  const finalValues = oldAddressTokenTransactions.map(({ address, tokenId, transactions, totalReceived }) => {
+  const finalValues = oldAddressTokenTransactions.map(({
+    address, tokenId, transactions, totalReceived, totalShieldedReceived,
+  }) => {
     const diffTransactions = addressTransactionCount[`${address}_${tokenId}`] || 0;
-    const diffTotalReceived = addressTotalReceived[`${address}_${tokenId}`] || 0;
+    const diff = addressTotalReceived[`${address}_${tokenId}`] || { totalReceived: 0n, totalShieldedReceived: 0n };
 
-    return [transactions as number - diffTransactions, totalReceived as number - diffTotalReceived, address, tokenId];
+    return [
+      transactions as number - diffTransactions,
+      // total_received / total_shielded_received are 64-bit DB integers; keep the
+      // arithmetic in bigint and stringify for MySQL so amounts above
+      // Number.MAX_SAFE_INTEGER don't lose precision during the rebuild.
+      (dbIntToBigInt(totalReceived) - diff.totalReceived).toString(),
+      (dbIntToBigInt(totalShieldedReceived) - diff.totalShieldedReceived).toString(),
+      address,
+      tokenId,
+    ];
   });
 
   // update address balances with the correct amount of transactions
@@ -2324,7 +2366,8 @@ export const rebuildAddressBalancesFromUtxos = async (
     await mysql.query(`
       UPDATE \`address_balance\`
         SET \`transactions\` = ?,
-            \`total_received\` = ?
+            \`total_received\` = ?,
+            \`total_shielded_received\` = ?
        WHERE \`address\` = ?
          AND \`token_id\` = ?
     `, item);
@@ -2608,24 +2651,25 @@ export const getMinersList = async (
 };
 
 /**
- * Get the total sum of a token's utxos, excluding the burned and voided ones
+ * Get a token's total supply.
+ *
+ * Reads the value tracked by the daemon's mint/melt/burn/block-reward dispatch
+ * directly from `token.total_supply`. The previous implementation summed
+ * `tx_output.value` per-call; that approach is structurally wrong once
+ * shielded outputs are in play (their `value` may be NULL on the shielded
+ * row) and is also slower as the table grows.
  *
  * @param mysql - Database connection
-
- * @returns The calculated sum
+ * @returns The token's total supply
  */
 export const getTotalSupply = async (
   mysql: ServerlessMysql,
   tokenId: string,
 ): Promise<bigint> => {
-  const results: DbSelectResult = await mysql.query(`
-    SELECT SUM(value) as value
-      FROM tx_output
-     WHERE spent_by IS NULL
-       AND token_id = ?
-       AND voided = FALSE
-       AND address != '${BURN_ADDRESS}'
-  `, [tokenId]);
+  const results: DbSelectResult = await mysql.query(
+    `SELECT total_supply AS value FROM token WHERE id = ?`,
+    [tokenId],
+  );
 
   if (!results.length) {
     // This should never happen.
@@ -2728,6 +2772,7 @@ export const getAvailableAuthorities = async (
      AND voided = FALSE
      AND locked = FALSE
      AND spent_by IS NULL
+     AND mode = 0
   `, [tokenId]);
 
   const utxos = results.map(mapDbResultToDbTxOutput);
@@ -2808,14 +2853,19 @@ export const getAffectedTokenTxCountFromTxList = async (
  * @param mysql - Database connection
  * @param txList - A list of affected transactions
 
- * @returns {Promise<StringMap<number>>} A Map with address_tokenId as key and the affected total_received as values
+ * @returns {Promise<StringMap<bigint>>} A Map with address_tokenId as key and the affected total_received as values
  */
 export const getAffectedAddressTotalReceivedFromTxList = async (
   mysql: ServerlessMysql,
   txList: string[],
-): Promise<StringMap<number>> => {
+): Promise<StringMap<{ totalReceived: bigint, totalShieldedReceived: bigint }>> => {
+  // Partition the voided-output sum by `mode` so the lifetime accumulators are
+  // adjusted per-kind: transparent (mode = 0) decrements `total_received`,
+  // recovered shielded (mode IN (1, 2)) decrements `total_shielded_received`.
   const results: DbSelectResult = await mysql.query(`
-    SELECT address, token_id as tokenId, SUM(value) as total
+    SELECT address, token_id as tokenId,
+           SUM(CASE WHEN mode = 0 THEN value ELSE 0 END) as total,
+           SUM(CASE WHEN mode IN (1, 2) AND recovery_state = 'recovered' THEN value ELSE 0 END) as totalShielded
       FROM tx_output
      WHERE tx_id IN (?)
        AND voided = TRUE
@@ -2824,15 +2874,17 @@ export const getAffectedAddressTotalReceivedFromTxList = async (
 
   const addressTotalReceivedMap = results.reduce((acc, result) => {
     const address = result.address as string;
-    const total = result.total as number;
     const tokenId = result.tokenId as string;
 
-    acc[`${address}_${tokenId}`] = total;
+    acc[`${address}_${tokenId}`] = {
+      totalReceived: dbIntToBigInt(result.total),
+      totalShieldedReceived: dbIntToBigInt(result.totalShielded),
+    };
 
     return acc;
   }, {});
 
-  return addressTotalReceivedMap as StringMap<number>;
+  return addressTotalReceivedMap as StringMap<{ totalReceived: bigint, totalShieldedReceived: bigint }>;
 };
 
 /**
