@@ -355,6 +355,80 @@ describe('success', () => {
       expect(notificationSentOnSpy.metadata.bodyLocArgs).toStrictEqual(JSON.stringify(['150 T2']));
     });
 
+    it('combines positive transparent and shielded amounts for the same token', async () => {
+      expect.hasAssertions();
+
+      // A single token receiving both transparently (100) and shielded (50): the
+      // displayed amount is the sum (150). Asserting the combined value guards the
+      // `total + shieldedAmount` against regressing to a subtraction, a max, or a
+      // dropped term — every other case is transparent-only or shielded-only.
+      const sendEvent = buildEvent(walletId, txId, [
+        {
+          tokenId: 'token2',
+          tokenSymbol: 'T2',
+          lockExpires: null,
+          lockedAmount: 0,
+          lockedAuthorities: { melt: false, mint: false },
+          total: 100,
+          totalAmountSent: 100,
+          unlockedAmount: 100,
+          unlockedAuthorities: { melt: false, mint: false },
+          shieldedAmount: 50,
+        } as any,
+      ]);
+      const sendContext = { awsRequestId: '123' } as Context;
+
+      const result = await handleRequest(sendEvent, sendContext, null) as { success: boolean };
+
+      expect(result.success).toStrictEqual(true);
+      expect(spyOnInvokeSendNotification).toHaveBeenCalledTimes(1);
+      const notificationSentOnSpy = spyOnInvokeSendNotification.mock.calls[0][0];
+      expect(notificationSentOnSpy.metadata.bodyLocArgs).toStrictEqual(JSON.stringify(['150 T2']));
+    });
+
+    it('shielded receive at [0] alongside transparent activity survives the gate', async () => {
+      expect.hasAssertions();
+
+      // The daemon sorts shielded-first (sortBalanceValueByAbsTotal), and the gate
+      // here trusts walletBalanceForTx[0]. Feed the list as the daemon delivers it
+      // — a transparent-total-0 shielded receive at [0], a smaller transparent
+      // token at [1] — and confirm the gate counts the shielded entry (so it isn't
+      // mis-gated out) and both amounts display.
+      const sendEvent = buildEvent(walletId, txId, [
+        {
+          tokenId: 'token2',
+          tokenSymbol: 'T2',
+          lockExpires: null,
+          lockedAmount: 0,
+          lockedAuthorities: { melt: false, mint: false },
+          total: 0,
+          totalAmountSent: 0,
+          unlockedAmount: 0,
+          unlockedAuthorities: { melt: false, mint: false },
+          shieldedAmount: 150,
+        } as any,
+        {
+          tokenId: 'token1',
+          tokenSymbol: 'T1',
+          lockExpires: null,
+          lockedAmount: 0,
+          lockedAuthorities: { melt: false, mint: false },
+          total: 5,
+          totalAmountSent: 5,
+          unlockedAmount: 5,
+          unlockedAuthorities: { melt: false, mint: false },
+        },
+      ]);
+      const sendContext = { awsRequestId: '123' } as Context;
+
+      const result = await handleRequest(sendEvent, sendContext, null) as { success: boolean };
+
+      expect(result.success).toStrictEqual(true);
+      expect(spyOnInvokeSendNotification).toHaveBeenCalledTimes(1);
+      const notificationSentOnSpy = spyOnInvokeSendNotification.mock.calls[0][0];
+      expect(notificationSentOnSpy.metadata.bodyLocArgs).toStrictEqual(JSON.stringify(['150 T2', '5 T1']));
+    });
+
     it('token balance with 2 token', async () => {
       expect.hasAssertions();
 

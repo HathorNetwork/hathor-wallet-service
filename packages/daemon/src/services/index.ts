@@ -811,7 +811,9 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             // same set bumpAddressInvolvement consumed). Clients intersect
             // `addresses` with their own and refetch.
             shielded_outputs: shieldedOutputs.map((so) => {
-              const decoded = so.decoded ? { address: so.decoded.address } : null;
+              // `decoded` is schema-guaranteed present (the socket safeParse rejects
+              // any shielded output without it), matching the unguarded ingest path.
+              const decoded = { address: so.decoded.address };
               // token_data only exists on AmountShielded; FullyShielded hides it.
               return so.mode === ShieldedOutputMode.AmountShielded
                 ? { mode: so.mode, token_data: so.token_data, decoded }

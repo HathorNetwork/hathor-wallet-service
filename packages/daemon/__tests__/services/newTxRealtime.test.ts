@@ -115,6 +115,64 @@ describe('handleVertexAccepted realtime new-tx payload', () => {
     expect(tx.shielded_outputs[0]).not.toHaveProperty('range_proof');
     expect(tx.shielded_outputs[0]).not.toHaveProperty('ephemeral_pubkey');
   });
+
+  it('projects a FullyShielded (mode 2) output without token_data and rides its address', async () => {
+    expect.hasAssertions();
+
+    const now = Math.floor(Date.now() / 1000);
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES ('wallet_alice', ?, ?, 'ready', 20, ?, ?)`,
+      [XPUBKEY, XPUBKEY, now, now],
+    );
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, transactions)
+       VALUES ('WTransparentAddress1', 'wallet_alice', 0, 0, 0)`,
+    );
+
+    // Append a FullyShielded (mode 2) output to the mode-1 fixture. Mode 2 carries
+    // no token_data, so the projection must omit that field for this entry while
+    // still surfacing decoded.address and adding it to the involved-address set.
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs.push({
+      mode: 2,
+      commitment: '0a'.repeat(33),
+      range_proof: '0b'.repeat(64),
+      script: '0c'.repeat(20),
+      ephemeral_pubkey: '0d'.repeat(33),
+      asset_commitment: '0e'.repeat(33),
+      surjection_proof: '0f'.repeat(64),
+      decoded: { address: 'WShieldedAddress2' },
+    });
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    expect(sendRealtimeTx).toHaveBeenCalledTimes(1);
+    const [, tx] = (sendRealtimeTx as jest.Mock).mock.calls[0];
+
+    // The mode-2 entry surfaces decoded.address with NO token_data; the mode-1
+    // entry keeps token_data.
+    expect(tx.shielded_outputs).toEqual([
+      { mode: 1, token_data: 1, decoded: { address: 'WShieldedAddress1' } },
+      { mode: 2, decoded: { address: 'WShieldedAddress2' } },
+    ]);
+    expect(tx.shielded_outputs[1]).not.toHaveProperty('token_data');
+
+    // the mode-2 address rides in the involved-address set
+    expect(tx.addresses).toEqual(
+      expect.arrayContaining(['WShieldedAddress2']),
+    );
+  });
 });
 
 describe('getWalletBalancesForTx shielded amounts (push payload)', () => {
@@ -182,6 +240,41 @@ describe('getWalletBalancesForTx shielded amounts (push payload)', () => {
     expect(tokenBalance.total).toBe(0n);
     expect(tokenBalance.shieldedAmount).toBe(0n);
   });
+
+  it('reports gross received (not net) when the same token is both received and spent', async () => {
+    expect.hasAssertions();
+
+    const now = Math.floor(Date.now() / 1000);
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES ('wallet_alice', ?, ?, 'ready', 20, ?, ?)`,
+      [XPUBKEY, XPUBKEY, now, now],
+    );
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, transactions)
+       VALUES ('WCTSpend1', 'wallet_alice', 7, 2, 0)`,
+    );
+    await mysql.query(
+      `INSERT INTO token (id, name, symbol, total_supply) VALUES ('00', 'Hathor', 'HTR', 0)`,
+    );
+
+    // Same token, same tx: a shielded receive of 100 and a shielded spend of 300.
+    // The net shielded delta is -200, but shieldedAmount tracks GROSS received,
+    // so it must report 100 (not the -200 net, nor 0).
+    const addressBalanceMap = {
+      WCTSpend1: TokenBalanceMap.merge(
+        TokenBalanceMap.fromShielded('00', 100n, false),
+        TokenBalanceMap.fromShielded('00', -300n, false),
+      ),
+    };
+    const tx = { tx_id: 'tx-shielded-mixed' } as any;
+
+    const result = await getWalletBalancesForTx(mysql, tx, addressBalanceMap);
+
+    const tokenBalance = result.wallet_alice.walletBalanceForTx[0];
+    expect(tokenBalance.total).toBe(0n);
+    expect(tokenBalance.shieldedAmount).toBe(100n);
+  });
 });
 
 describe('sortBalanceValueByAbsTotal shielded-aware ordering', () => {
@@ -195,5 +288,19 @@ describe('sortBalanceValueByAbsTotal shielded-aware ordering', () => {
     // entry (total 0) last; the combined-magnitude key must rank it first.
     expect([transparent, shielded].sort(sortBalanceValueByAbsTotal)[0].tokenId).toBe('S');
     expect([shielded, transparent].sort(sortBalanceValueByAbsTotal)[0].tokenId).toBe('S');
+  });
+
+  it('treats equal combined magnitude as a tie (returns 0, preserves order)', () => {
+    expect.hasAssertions();
+
+    // Both have combined magnitude 150: one all-transparent, one transparent +
+    // shielded. Equal magnitude must compare as 0 so the comparator honours the
+    // sort contract (the old `>= 0n` form wrongly returned -1 on ties).
+    const a = { tokenId: 'A', total: 150n, shieldedAmount: 0n } as any;
+    const b = { tokenId: 'B', total: 100n, shieldedAmount: 50n } as any;
+
+    expect(sortBalanceValueByAbsTotal(a, b)).toBe(0);
+    expect([a, b].sort(sortBalanceValueByAbsTotal).map((x) => x.tokenId)).toEqual(['A', 'B']);
+    expect([b, a].sort(sortBalanceValueByAbsTotal).map((x) => x.tokenId)).toEqual(['B', 'A']);
   });
 });
