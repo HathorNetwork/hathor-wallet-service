@@ -646,8 +646,14 @@ export const validateAddressBalances = async (mysql: MysqlConnection, addresses:
  * @param tx - The transaction to get related wallets and their token balances
  * @returns
  */
-export const getWalletBalancesForTx = async (mysql: MysqlConnection, tx: Transaction): Promise<StringMap<WalletBalanceValue>> => {
-  const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(tx.inputs, tx.outputs, tx.headers ?? []);
+export const getWalletBalancesForTx = async (
+  mysql: MysqlConnection,
+  tx: Transaction,
+  addressBalanceMap: StringMap<TokenBalanceMap>,
+): Promise<StringMap<WalletBalanceValue>> => {
+  // The caller passes the unified balance map (transparent + shielded) computed
+  // for the vertex, so the push summary reflects recovered shielded receives —
+  // not just the transparent inputs/outputs on `tx`.
   // return only wallets that were started
   const addressWalletMap: StringMap<Wallet> = await getAddressWalletInfo(mysql, Object.keys(addressBalanceMap));
 
@@ -709,16 +715,24 @@ export class FromTokenBalanceMapToBalanceValueList {
       unlockedAuthorities: balance.unlockedAuthorities.toJSON(),
       totalAmountSent: balance.totalAmountSent,
       total: balance.total(),
+      // Gross shielded received this tx (the lifetime accumulator, suppressed
+      // to 0 on spends), so the receive-oriented push amount is never negative.
+      shieldedAmount: balance.totalShieldedReceived,
     } as TokenBalanceValue));
     return balances;
   }
 }
 
 export const sortBalanceValueByAbsTotal = (balanceA: TokenBalanceValue, balanceB: TokenBalanceValue): number => {
-  function abs(num: bigint) {
-    return num >= 0n ? num : -num;
-  }
-  if (abs(balanceA.total) - abs(balanceB.total) >= 0n) return -1;
+  const abs = (num: bigint): bigint => (num >= 0n ? num : -num);
+  // Rank by the combined magnitude of transparent and shielded movement so a
+  // shielded receive (transparent total 0) isn't pushed behind transparent
+  // tokens — which would otherwise mis-gate it out of the [0]-based push check
+  // or hide it past the top-N display.
+  const magnitudeA = abs(balanceA.total) + abs(balanceA.shieldedAmount);
+  const magnitudeB = abs(balanceB.total) + abs(balanceB.shieldedAmount);
+  if (magnitudeA > magnitudeB) return -1;
+  if (magnitudeA < magnitudeB) return 1;
   return 0;
 };
 

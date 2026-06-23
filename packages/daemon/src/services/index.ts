@@ -22,6 +22,7 @@ import {
   Context,
   EventTxInput,
   EventTxOutput,
+  ShieldedOutput,
   WalletStatus,
   FullNodeEventTypes,
   StandardFullNodeEvent,
@@ -38,7 +39,6 @@ import {
 } from '@wallet-service/common';
 import {
   prepareOutputs,
-  getAddressBalanceMap,
   getInvolvedAddresses,
   getUnifiedBalanceMap,
   ShieldedRecoveryResult,
@@ -93,9 +93,11 @@ import {
   insertShieldedTxOutputData,
   upsertShieldedAddressObservation,
   findShieldedAddressOwnership,
+  findShieldedAddressOwnershipBatch,
   markTxOutputRecovered,
   markTxOutputRecoveryFailed,
   bumpAddressInvolvement,
+  decrementAddressInvolvement,
   setTokenTotalSupply,
   incrementTokenTotalSupply,
 } from '../db';
@@ -286,7 +288,9 @@ const BURN_ADDRESS = 'HDeadDeadDeadDeadDeadDeadDeagTPgmn';
  * Reads from the prepared (transparent) `TxInput[]` / `TxOutputWithIndex[]`,
  * which already carry resolved `token` UIDs.
  *
- * Void/unvoid reversal is wired in a follow-up phase.
+ * `sign` flips the direction of every delta: `+1` on ingest (the default),
+ * `-1` when reversing a voided / removed vertex. The shielded gate and the
+ * block short-circuit apply symmetrically to both directions.
  */
 export async function applyTokenSupplyUpdates(
   mysql: any,
@@ -294,6 +298,7 @@ export async function applyTokenSupplyUpdates(
   txOutputs: TxOutputWithIndex[],
   txInputs: TxInput[],
   shieldedOutputCount: number,
+  sign: 1 | -1 = 1,
 ): Promise<void> {
   const HTR = hathorLib.constants.NATIVE_TOKEN_UID;
 
@@ -308,10 +313,18 @@ export async function applyTokenSupplyUpdates(
       blockReward += BigInt(o.value);
     }
     if (blockReward > 0n) {
-      await incrementTokenTotalSupply(mysql, HTR, blockReward);
+      await incrementTokenTotalSupply(mysql, HTR, BigInt(sign) * blockReward);
     }
     return;
   }
+
+  // Token-creation vertices are skipped entirely: handleTokenCreated is the
+  // single authority for the created token's supply (set from the wire
+  // initial_amount on the TOKEN_CREATED event), and the HTR deposit a creation
+  // tx consumes is not a supply change. Applying the per-token delta here would
+  // double-count the created token and wrongly shrink HTR. Skipping is
+  // sign-agnostic, so the void/remove reversal stays symmetric with ingest.
+  if (version === hathorLib.constants.CREATE_TOKEN_TX_VERSION) return;
 
   // Per-token supply delta. Gated on absence of shielded outputs.
   if (shieldedOutputCount !== 0) return;
@@ -340,7 +353,7 @@ export async function applyTokenSupplyUpdates(
     ...inSumByToken.keys(),
   ]);
   for (const tokenId of touchedTokens) {
-    const delta = (outSumByToken.get(tokenId) ?? 0n) - (inSumByToken.get(tokenId) ?? 0n);
+    const delta = BigInt(sign) * ((outSumByToken.get(tokenId) ?? 0n) - (inSumByToken.get(tokenId) ?? 0n));
     if (delta !== 0n) {
       await incrementTokenTotalSupply(mysql, tokenId, delta);
     }
@@ -793,6 +806,20 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             token_name,
             token_symbol,
             signal_bits: 0, // TODO: we should actually receive this and store in the database
+            // Additive realtime fields: a lightweight shielded-output projection
+            // (no crypto blobs) and the full involved-address set (reusing the
+            // same set bumpAddressInvolvement consumed). Clients intersect
+            // `addresses` with their own and refetch.
+            shielded_outputs: shieldedOutputs.map((so) => {
+              // `decoded` is schema-guaranteed present (the socket safeParse rejects
+              // any shielded output without it), matching the unguarded ingest path.
+              const decoded = { address: so.decoded.address };
+              // token_data only exists on AmountShielded; FullyShielded hides it.
+              return so.mode === ShieldedOutputMode.AmountShielded
+                ? { mode: so.mode, token_data: so.token_data, decoded }
+                : { mode: so.mode, decoded };
+            }),
+            addresses: Array.from(involvedAddresses),
           };
 
           try {
@@ -809,7 +836,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
           try {
             if (PUSH_NOTIFICATION_ENABLED) {
-              const walletBalanceMap = await getWalletBalancesForTx(mysql, txData);
+              const walletBalanceMap = await getWalletBalancesForTx(mysql, txData, addressBalanceMap);
               const { length: hasAffectWallets } = Object.keys(walletBalanceMap);
               if (hasAffectWallets) {
                 invokeOnTxPushNotificationRequestedLambda(walletBalanceMap)
@@ -907,6 +934,7 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
           hash,
           outputs,
           inputs,
+          shielded_outputs: shieldedOutputs = [],
           tokens,
           headers = [],
           version,
@@ -927,6 +955,7 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
           hash,
           inputs,
           outputs,
+          shieldedOutputs,
           tokens,
           headers,
           version,
@@ -1003,6 +1032,7 @@ export const voidTx = async (
   hash: string,
   inputs: EventTxInput[],
   outputs: EventTxOutput[],
+  shieldedOutputs: ShieldedOutput[],
   tokens: string[],
   headers: EventTxHeader[],
   version: number,
@@ -1024,14 +1054,50 @@ export const voidTx = async (
     };
   });
 
-  const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputsWithLocked, headers);
+  // Build shielded output contributions from local tx_output rows.
+  // A shielded receive is only credited when it was recovered against an
+  // owned address; those same rows must be reversed when the vertex is voided.
+  // We read them from the DB now — before markUtxosAsVoided — so the rows
+  // are still present and still carry value / token_id.
+  //
+  // Ownership is resolved in one batch query to avoid N round-trips.
+  const candidateRows = dbTxOutputs.filter(
+    (r) => r.mode !== 0 && r.recoveryState === RecoveryState.Recovered && r.value !== null && r.tokenId !== null,
+  );
+  const ownershipMap = await findShieldedAddressOwnershipBatch(
+    mysql,
+    candidateRows.map((r) => r.address),
+  );
+  const shieldedRecoveryResults: ShieldedRecoveryResult[] = candidateRows
+    .filter((r) => ownershipMap.has(r.address))
+    .map((r) => ({
+      address: r.address,
+      tokenId: r.tokenId!,
+      value: r.value!,
+      locked: r.locked,
+    }));
+
+  const addressBalanceMap: StringMap<TokenBalanceMap> = await getUnifiedBalanceMap(
+    mysql,
+    txInputs,
+    txOutputsWithLocked,
+    shieldedRecoveryResults,
+    inputs,
+    headers,
+  );
 
   await withSpan('voidTransaction', () => voidTransaction(mysql, hash));
+
   // CRITICAL: markUtxosAsVoided must be called before voidAddressTransaction
   // and voidWalletTransaction as those methods recalculate balances based on
   // the UTXOs table.
   await withSpan('markUtxosAsVoided', () => markUtxosAsVoided(mysql, dbTxOutputs));
   await withSpan('voidAddressTransaction', () => voidAddressTransaction(mysql, hash, addressBalanceMap, version));
+
+  // Reverse the address-grain involvement counter for the SAME set the ingest
+  // path bumped via bumpAddressInvolvement.
+  const involvedAddresses = getInvolvedAddresses(inputs, outputs, shieldedOutputs, headers);
+  await withSpan('decrementAddressInvolvement', () => decrementAddressInvolvement(mysql, involvedAddresses));
 
   // CRITICAL: Unspend the inputs when voiding a transaction
   // The inputs of the voided transaction need to be marked as unspent
@@ -1088,6 +1154,25 @@ export const voidTx = async (
     await deleteTokens(mysql, tokensCreated);
   }
 
+  // Reverse the token.total_supply deltas this vertex applied on ingest
+  // (block reward, mint/melt, burn) by replaying the same computation with the
+  // sign flipped. shieldedOutputCount comes from the local tx_output rows so
+  // the shielded gate fires identically to ingest. This runs AFTER deleteTokens
+  // on purpose: a token CREATED by this vertex (path 1) is reversed by its row
+  // deletion, so its row is already gone here and the UPDATE-only reversal
+  // no-ops for it — mirroring ingest, where applyTokenSupplyUpdates(+1) also
+  // no-ops because handleTokenCreated hasn't inserted the row yet. Only
+  // pre-existing tokens (paths 2-4) remain to be reversed.
+  const shieldedOutputCount = dbTxOutputs.filter((r) => r.mode !== 0).length;
+  await withSpan('reverseTokenSupplyUpdates', () => applyTokenSupplyUpdates(
+    mysql,
+    version,
+    txOutputs,
+    txInputs,
+    shieldedOutputCount,
+    -1,
+  ));
+
   if (VALIDATE_ADDRESS_BALANCES) {
     const addresses = Object.keys(addressBalanceMap);
     await validateAddressBalances(mysql, addresses);
@@ -1108,6 +1193,7 @@ export const handleVoidedTx = async (context: Context) => {
           hash,
           outputs,
           inputs,
+          shielded_outputs: shieldedOutputs = [],
           tokens,
           headers = [],
           version,
@@ -1120,6 +1206,7 @@ export const handleVoidedTx = async (context: Context) => {
           hash,
           inputs,
           outputs,
+          shieldedOutputs,
           tokens,
           headers,
           version,
