@@ -2335,12 +2335,15 @@ export const rebuildAddressBalancesFromUtxos = async (
     address, tokenId, transactions, totalReceived, totalShieldedReceived,
   }) => {
     const diffTransactions = addressTransactionCount[`${address}_${tokenId}`] || 0;
-    const diff = addressTotalReceived[`${address}_${tokenId}`] || { totalReceived: 0, totalShieldedReceived: 0 };
+    const diff = addressTotalReceived[`${address}_${tokenId}`] || { totalReceived: 0n, totalShieldedReceived: 0n };
 
     return [
       transactions as number - diffTransactions,
-      totalReceived as number - diff.totalReceived,
-      totalShieldedReceived as number - diff.totalShieldedReceived,
+      // total_received / total_shielded_received are 64-bit DB integers; keep the
+      // arithmetic in bigint and stringify for MySQL so amounts above
+      // Number.MAX_SAFE_INTEGER don't lose precision during the rebuild.
+      (BigInt((totalReceived ?? 0) as string | number) - diff.totalReceived).toString(),
+      (BigInt((totalShieldedReceived ?? 0) as string | number) - diff.totalShieldedReceived).toString(),
       address,
       tokenId,
     ];
@@ -2840,12 +2843,12 @@ export const getAffectedTokenTxCountFromTxList = async (
  * @param mysql - Database connection
  * @param txList - A list of affected transactions
 
- * @returns {Promise<StringMap<number>>} A Map with address_tokenId as key and the affected total_received as values
+ * @returns {Promise<StringMap<bigint>>} A Map with address_tokenId as key and the affected total_received as values
  */
 export const getAffectedAddressTotalReceivedFromTxList = async (
   mysql: ServerlessMysql,
   txList: string[],
-): Promise<StringMap<{ totalReceived: number, totalShieldedReceived: number }>> => {
+): Promise<StringMap<{ totalReceived: bigint, totalShieldedReceived: bigint }>> => {
   // Partition the voided-output sum by `mode` so the lifetime accumulators are
   // adjusted per-kind: transparent (mode = 0) decrements `total_received`,
   // recovered shielded (mode IN (1, 2)) decrements `total_shielded_received`.
@@ -2864,14 +2867,14 @@ export const getAffectedAddressTotalReceivedFromTxList = async (
     const tokenId = result.tokenId as string;
 
     acc[`${address}_${tokenId}`] = {
-      totalReceived: result.total as number,
-      totalShieldedReceived: result.totalShielded as number,
+      totalReceived: BigInt((result.total ?? 0) as string | number),
+      totalShieldedReceived: BigInt((result.totalShielded ?? 0) as string | number),
     };
 
     return acc;
   }, {});
 
-  return addressTotalReceivedMap as StringMap<{ totalReceived: number, totalShieldedReceived: number }>;
+  return addressTotalReceivedMap as StringMap<{ totalReceived: bigint, totalShieldedReceived: bigint }>;
 };
 
 /**
