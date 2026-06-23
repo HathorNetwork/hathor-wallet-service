@@ -409,6 +409,43 @@ export interface ShieldedAddressOwnership {
 }
 
 /**
+ * Batch variant of `findShieldedAddressOwnership`.
+ *
+ * Takes a list of addresses and returns a `Map<address, ShieldedAddressOwnership>`
+ * for every address that is owned (bip32_account = CTSpend, wallet_id and
+ * scan_privkey populated). Addresses without a matching row are absent from
+ * the map. Issues a single query regardless of list size; the result Map
+ * naturally deduplicates by address — passing the same address twice returns
+ * one entry.
+ *
+ * Returns an empty map when `addresses` is empty.
+ */
+export async function findShieldedAddressOwnershipBatch(
+  conn: any,
+  addresses: string[],
+): Promise<Map<string, ShieldedAddressOwnership>> {
+  if (addresses.length === 0) return new Map();
+  const [rows] = await conn.query(
+    `SELECT address, wallet_id, \`index\` AS shielded_index, scan_privkey
+       FROM address
+      WHERE address IN (?)
+        AND bip32_account = ?
+        AND wallet_id IS NOT NULL
+        AND scan_privkey IS NOT NULL`,
+    [addresses, Bip32Account.CTSpend],
+  );
+  const result = new Map<string, ShieldedAddressOwnership>();
+  for (const row of rows as any[]) {
+    result.set(row.address, {
+      wallet_id: row.wallet_id,
+      shielded_index: row.shielded_index,
+      scan_privkey: row.scan_privkey,
+    });
+  }
+  return result;
+}
+
+/**
  * Look up CTSpend ownership info for an address on the unified `address`
  * table.
  *
@@ -562,6 +599,36 @@ export async function bumpAddressInvolvement(
     `INSERT INTO \`address\`(\`address\`, \`transactions\`)
           VALUES ?
               ON DUPLICATE KEY UPDATE transactions = transactions + 1`,
+    [entries],
+  );
+}
+
+/**
+ * Decrement `address.transactions` by 1 for each address in the involvement set.
+ *
+ * The void/remove mirror of `bumpAddressInvolvement`: it must be fed the SAME
+ * wire-level involvement set the ingest path bumped (`getInvolvedAddresses`),
+ * not just the balance-map keys — otherwise involvement-only addresses
+ * (unowned shielded outputs, nano `nc_address`es) that carry no balance delta
+ * would be bumped on ingest but never decremented, drifting the counter
+ * upward. Inserts a 0-valued row for an address that somehow doesn't exist yet
+ * (a no-op decrement) so the statement stays a single batched upsert.
+ *
+ * No-op when the set is empty.
+ */
+export async function decrementAddressInvolvement(
+  mysql: any,
+  addresses: Iterable<string>,
+): Promise<void> {
+  const entries: [string, number][] = [];
+  for (const addr of addresses) {
+    entries.push([addr, 0]);
+  }
+  if (entries.length === 0) return;
+  await mysql.query(
+    `INSERT INTO \`address\`(\`address\`, \`transactions\`)
+          VALUES ?
+              ON DUPLICATE KEY UPDATE transactions = transactions - 1`,
     [entries],
   );
 }
@@ -798,9 +865,8 @@ export const getTxOutputsAtHeight = async (
  * @returns {Promise<void>} - A promise that resolves when the address-related data has been updated
  *
  * This function performs the following steps:
- * 1. Inserts addresses with a transaction count of 0 into the `address` table or subtracts 1 from the transaction count if they already exist
- * 2. Iterates over the addressBalanceMap to update the `address_balance` table with the received token balances.
- * 3. Deletes the transaction entry from the `address_tx_history` table.
+ * 1. Iterates over the addressBalanceMap to update the `address_balance` table with the received token balances.
+ * 2. Deletes the transaction entry from the `address_tx_history` table.
  *
  * The function ensures that the authorities are correctly updated and the smallest timelock expiration value is preserved.
  */
@@ -810,17 +876,6 @@ export const voidAddressTransaction = async (
   addressBalanceMap: StringMap<TokenBalanceMap>,
   _version: number,
 ): Promise<void> => {
-  const addressEntries = Object.keys(addressBalanceMap).map((address) => [address, 0]);
-
-  if (addressEntries.length > 0) {
-    await mysql.query(
-      `INSERT INTO \`address\`(\`address\`, \`transactions\`)
-            VALUES ?
-                ON DUPLICATE KEY UPDATE transactions = transactions - 1`,
-      [addressEntries],
-    );
-  }
-
   // Collect all (address, token) pairs and their balances
   const pairs: { address: string; token: string; balance: Balance }[] = [];
   for (const [address, tokenMap] of Object.entries(addressBalanceMap)) {
@@ -859,6 +914,9 @@ export const voidAddressTransaction = async (
       { column: '`unlocked_authorities`', op: 'bitor', getValue: (p) => p.balance.unlockedAuthorities.toUnsignedInteger() },
       // locked_authorities: OR only, no recalculation needed — locked authorities can't be spent before unlocking
       { column: '`locked_authorities`', op: 'bitor', getValue: (p) => p.balance.lockedAuthorities.toUnsignedInteger() },
+      { column: '`unlocked_shielded_balance`', op: 'subtract', getValue: (p) => p.balance.unlockedShieldedAmount },
+      { column: '`locked_shielded_balance`', op: 'subtract', getValue: (p) => p.balance.lockedShieldedAmount },
+      { column: '`total_shielded_received`', op: 'subtract', getValue: (p) => p.balance.totalShieldedReceived },
       // Decrement transactions by 1 for each voided (address, token) pair.
       { column: '`transactions`', op: 'subtract', getValue: () => 1 },
     ],
@@ -905,7 +963,10 @@ export const voidAddressTransaction = async (
     );
   }
 
-  // Clean up fully-zeroed address_balance rows
+  // Clean up fully-zeroed address_balance rows.
+  // Both transparent and shielded column families must be zero before
+  // a row is safe to delete; omitting the shielded guards would
+  // incorrectly drop rows that still hold shielded balance.
   const addressTokenPairs = pairs.map(getAddrKeys);
   await mysql.query(
     `DELETE FROM \`address_balance\`
@@ -915,6 +976,9 @@ export const voidAddressTransaction = async (
         AND \`locked_balance\` = 0
         AND \`unlocked_authorities\` = 0
         AND \`locked_authorities\` = 0
+        AND \`unlocked_shielded_balance\` = 0
+        AND \`locked_shielded_balance\` = 0
+        AND \`total_shielded_received\` = 0
         AND \`transactions\` = 0`,
     [addressTokenPairs],
   );
@@ -1015,6 +1079,9 @@ export const voidWalletTransaction = async (
         { column: '`unlocked_authorities`', op: 'bitor', getValue: (p) => p.balance.unlockedAuthorities.toUnsignedInteger() },
         // locked_authorities: OR only, no recalculation needed — locked authorities can't be spent before unlocking
         { column: '`locked_authorities`', op: 'bitor', getValue: (p) => p.balance.lockedAuthorities.toUnsignedInteger() },
+        { column: '`unlocked_shielded_balance`', op: 'subtract', getValue: (p) => p.balance.unlockedShieldedAmount },
+        { column: '`locked_shielded_balance`', op: 'subtract', getValue: (p) => p.balance.lockedShieldedAmount },
+        { column: '`total_shielded_received`', op: 'subtract', getValue: (p) => p.balance.totalShieldedReceived },
         // Decrement transactions by 1 for each voided (wallet, token) pair.
         { column: '`transactions`', op: 'subtract', getValue: () => 1 },
       ],
@@ -1041,7 +1108,10 @@ export const voidWalletTransaction = async (
       );
     }
 
-    // Clean up fully-zeroed wallet_balance rows
+    // Clean up fully-zeroed wallet_balance rows.
+    // Both transparent and shielded column families must be zero before
+    // a row is safe to delete; omitting the shielded guards would
+    // incorrectly drop rows that still hold shielded balance.
     const walletTokenPairs = pairs.map(getWalletKeys);
     await mysql.query(
       `DELETE FROM \`wallet_balance\`
@@ -1051,6 +1121,9 @@ export const voidWalletTransaction = async (
           AND \`locked_balance\` = 0
           AND \`unlocked_authorities\` = 0
           AND \`locked_authorities\` = 0
+          AND \`unlocked_shielded_balance\` = 0
+          AND \`locked_shielded_balance\` = 0
+          AND \`total_shielded_received\` = 0
           AND \`transactions\` = 0`,
       [walletTokenPairs],
     );

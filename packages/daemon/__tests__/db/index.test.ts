@@ -1435,6 +1435,73 @@ describe('voidTransaction', () => {
 
     await expect(voidTransaction(mysql, 'mysterious-transaction')).rejects.toThrow('Tried to void a transaction that is not in the database.');
   });
+
+  it('keeps a row whose transparent columns zero out but still holds shielded balance', async () => {
+    expect.hasAssertions();
+
+    // A single (address, token) row carries BOTH a transparent balance from
+    // this tx and an independent, already-recovered shielded balance. Voiding
+    // the transparent tx must drop the transparent columns to zero WITHOUT
+    // deleting the row — the shielded `= 0` guards on the cleanup DELETE are
+    // what keep the surviving shielded balance alive.
+    const mixedAddr = 'addr-mixed';
+    const mixedToken = 'token-mixed';
+
+    await addToTransactionTable(mysql, [{
+      txId,
+      timestamp: 0,
+      version: constants.BLOCK_VERSION,
+      voided: false,
+      height: 1,
+    }]);
+
+    // Seed the row directly so the shielded columns can be populated
+    // (addToAddressBalanceTable does not cover them).
+    await mysql.query(
+      `INSERT INTO address_balance
+         (address, token_id, total_received, unlocked_balance, locked_balance,
+          timelock_expires, unlocked_authorities, locked_authorities,
+          unlocked_shielded_balance, locked_shielded_balance, total_shielded_received,
+          transactions)
+       VALUES (?, ?, 49, 49, 0, NULL, 0, 0, 100, 0, 100, 1)`,
+      [mixedAddr, mixedToken],
+    );
+
+    await addToAddressTxHistoryTable(mysql, [{
+      address: mixedAddr,
+      txId,
+      tokenId: mixedToken,
+      balance: 49,
+      timestamp: 1,
+    }]);
+
+    // The void only reverses the transparent contribution; no shielded amount
+    // is carried, mirroring a purely transparent voided tx.
+    const addressBalance: StringMap<TokenBalanceMap> = {
+      [mixedAddr]: TokenBalanceMap.fromStringMap({
+        [mixedToken]: { totalSent: 49n, unlocked: 49n, locked: 0n },
+      }),
+    };
+
+    await voidTransaction(mysql, txId);
+    await voidAddressTransaction(mysql, txId, addressBalance, 1);
+
+    // Row survives the cleanup DELETE: transparent columns zeroed, shielded intact.
+    const [rows] = await mysql.query<any[]>(
+      `SELECT total_received, unlocked_balance, locked_balance,
+              unlocked_shielded_balance, locked_shielded_balance,
+              total_shielded_received, transactions
+         FROM address_balance WHERE address = ? AND token_id = ?`,
+      [mixedAddr, mixedToken],
+    );
+    expect(rows).toHaveLength(1);
+    expect(BigInt(rows[0].total_received)).toBe(0n);
+    expect(BigInt(rows[0].unlocked_balance)).toBe(0n);
+    expect(BigInt(rows[0].locked_balance)).toBe(0n);
+    expect(BigInt(rows[0].unlocked_shielded_balance)).toBe(100n);
+    expect(BigInt(rows[0].total_shielded_received)).toBe(100n);
+    expect(Number(rows[0].transactions)).toBe(0);
+  });
 });
 
 describe('address generation and index methods', () => {

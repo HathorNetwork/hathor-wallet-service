@@ -97,6 +97,7 @@ jest.mock('../../src/db', () => ({
   incrementTokensTxCount: jest.fn(),
   updateAddressTablesWithTx: jest.fn(),
   bumpAddressInvolvement: jest.fn(),
+  decrementAddressInvolvement: jest.fn(),
   getAddressWalletInfo: jest.fn(),
   generateAddresses: jest.fn(),
   addNewAddresses: jest.fn(),
@@ -107,6 +108,7 @@ jest.mock('../../src/db', () => ({
   getTokensCreatedByTx: jest.fn(() => []),
   deleteTokens: jest.fn(),
   insertTokenCreation: jest.fn(),
+  findShieldedAddressOwnershipBatch: jest.fn().mockResolvedValue(new Map()),
 }));
 
 jest.mock('../../src/utils', () => ({
