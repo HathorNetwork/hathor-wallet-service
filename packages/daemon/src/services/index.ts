@@ -806,6 +806,20 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             token_name,
             token_symbol,
             signal_bits: 0, // TODO: we should actually receive this and store in the database
+            // Additive realtime fields: a lightweight shielded-output projection
+            // (no crypto blobs) and the full involved-address set (reusing the
+            // same set bumpAddressInvolvement consumed). Clients intersect
+            // `addresses` with their own and refetch.
+            shielded_outputs: shieldedOutputs.map((so) => {
+              // `decoded` is schema-guaranteed present (the socket safeParse rejects
+              // any shielded output without it), matching the unguarded ingest path.
+              const decoded = { address: so.decoded.address };
+              // token_data only exists on AmountShielded; FullyShielded hides it.
+              return so.mode === ShieldedOutputMode.AmountShielded
+                ? { mode: so.mode, token_data: so.token_data, decoded }
+                : { mode: so.mode, decoded };
+            }),
+            addresses: Array.from(involvedAddresses),
           };
 
           try {
@@ -822,7 +836,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
           try {
             if (PUSH_NOTIFICATION_ENABLED) {
-              const walletBalanceMap = await getWalletBalancesForTx(mysql, txData);
+              const walletBalanceMap = await getWalletBalancesForTx(mysql, txData, addressBalanceMap);
               const { length: hasAffectWallets } = Object.keys(walletBalanceMap);
               if (hasAffectWallets) {
                 invokeOnTxPushNotificationRequestedLambda(walletBalanceMap)
