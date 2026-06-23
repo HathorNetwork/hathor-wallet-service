@@ -150,8 +150,8 @@ test('GET /addresses', async () => {
   }]);
 
   const addresses = [
-    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0, seqnum: 1 },
-    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0, seqnum: 2 },
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0, seqnum: 1, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0, seqnum: 2, bip32_account: 0 },
   ];
 
   await addToAddressTable(mysql, addresses);
@@ -239,10 +239,10 @@ test('GET /addresses/check_mine', async () => {
   }]);
 
   await addToAddressTable(mysql, [
-    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[2], index: 3, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[3], index: 4, walletId: 'my-wallet', transactions: 0 },
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[2], index: 3, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[3], index: 4, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
   ]);
 
   // missing wallet
@@ -332,17 +332,17 @@ test('GET /addresses/new', async () => {
     readyAt: 10001,
   }]);
   await addToAddressTable(mysql, [
-    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[2], index: 2, walletId: 'my-wallet', transactions: 2 },
-    { address: ADDRESSES[3], index: 3, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[4], index: 4, walletId: 'my-wallet', transactions: 3 },
-    { address: ADDRESSES[5], index: 5, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[6], index: 6, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[7], index: 7, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[8], index: 8, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[9], index: 0, walletId: null, transactions: 0 },
-    { address: ADDRESSES[10], index: 0, walletId: 'test', transactions: 0 },
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[2], index: 2, walletId: 'my-wallet', transactions: 2, bip32_account: 0 },
+    { address: ADDRESSES[3], index: 3, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[4], index: 4, walletId: 'my-wallet', transactions: 3, bip32_account: 0 },
+    { address: ADDRESSES[5], index: 5, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[6], index: 6, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[7], index: 7, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[8], index: 8, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[9], index: 0, walletId: null, transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[10], index: 0, walletId: 'test', transactions: 0, bip32_account: 0 },
   ]);
 
   // missing wallet
@@ -380,17 +380,17 @@ test('GET /addresses/new with no transactions', async () => {
   }]);
 
   await addToAddressTable(mysql, [
-    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[2], index: 2, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[3], index: 3, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[4], index: 4, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[5], index: 5, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[6], index: 6, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[7], index: 7, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[8], index: 8, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[9], index: 0, walletId: null, transactions: 0 },
-    { address: ADDRESSES[10], index: 0, walletId: 'test', transactions: 0 },
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[2], index: 2, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[3], index: 3, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[4], index: 4, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[5], index: 5, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[6], index: 6, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[7], index: 7, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[8], index: 8, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[9], index: 0, walletId: null, transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[10], index: 0, walletId: 'test', transactions: 0, bip32_account: 0 },
   ]);
 
   // missing wallet
@@ -527,6 +527,7 @@ test('GET /balances', async () => {
     index: 0,
     walletId: 'my-wallet',
     transactions: 2,
+    bip32_account: 0,
   }]);
   await addToAddressBalanceTable(mysql, [[ADDRESSES[0], 'token3', 5, 1, lockExpires2, 2, 0, 0, 10]]);
   await addToWalletBalanceTable(mysql, [{
@@ -2235,8 +2236,8 @@ test('GET /addresses (query string index parameter)', async () => {
   }]);
 
   const addresses = [
-    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0, seqnum: 1 },
-    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0, seqnum: 2 },
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0, seqnum: 1, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0, seqnum: 2, bip32_account: 0 },
   ];
 
   await addToAddressTable(mysql, addresses);
@@ -2320,8 +2321,8 @@ test('GET /address/info', async () => {
   }]);
 
   const addresses = [
-    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0, seqnum: 1 },
-    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0, seqnum: 2 },
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0, seqnum: 1, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0, seqnum: 2, bip32_account: 0 },
   ];
 
   await addToAddressTable(mysql, addresses);

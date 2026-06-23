@@ -362,7 +362,7 @@ async function main() {
       collectedSpans.length = 0;
 
       const t0 = process.hrtime.bigint();
-      await voidTx(conn, fx.targetHash, fx.inputs, fx.outputs, fx.tokens, [], 1);
+      await voidTx(conn, fx.targetHash, fx.inputs, fx.outputs, [], fx.tokens, [], 1);
       const t1 = process.hrtime.bigint();
       const totalMs = Number(t1 - t0) / 1e6;
 

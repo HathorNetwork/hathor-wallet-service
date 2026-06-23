@@ -301,6 +301,7 @@ test('unlockUtxos', async () => {
     index: 0,
     walletId,
     transactions: 1,
+    bip32_account: 0,
   }]);
 
   await addToAddressBalanceTable(mysql, [
@@ -447,6 +448,7 @@ test('unlockTimelockedUtxos', async () => {
     index: 0,
     walletId,
     transactions: 3,
+    bip32_account: 0,
   }]);
 
   await addToAddressBalanceTable(mysql, [
@@ -715,7 +717,7 @@ describe('getWalletBalancesForTx', () => {
     // register an andress to started wallet
     const addr1 = 'addr1';
     await addToAddressTable(mysql, [
-      { address: addr1, index: 0, walletId: wallet1.id, transactions: 0 },
+      { address: addr1, index: 0, walletId: wallet1.id, transactions: 0, bip32_account: 0 },
     ]);
     // address without started wallet
     const addr2 = 'addr2';
@@ -844,7 +846,7 @@ describe('getWalletBalancesForTx', () => {
       // register an andress to started wallet
       const addr1 = 'addr1';
       await addToAddressTable(mysql, [
-        { address: addr1, index: 0, walletId: wallet1.id, transactions: 0 },
+        { address: addr1, index: 0, walletId: wallet1.id, transactions: 0, bip32_account: 0 },
       ]);
       // address without started wallet
       const addr2 = 'addr2';
@@ -1016,7 +1018,7 @@ describe('getWalletBalancesForTx', () => {
       // address without started wallet
       const addr2 = 'addr2';
       await addToAddressTable(mysql, [
-        { address: addr2, index: 0, walletId: wallet1.id, transactions: 0 },
+        { address: addr2, index: 0, walletId: wallet1.id, transactions: 0, bip32_account: 0 },
       ]);
 
       // add a transaction

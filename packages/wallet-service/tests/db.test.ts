@@ -184,6 +184,7 @@ test('generateAddresses', async () => {
     index: 0,
     walletId: null,
     transactions: 0,
+    bip32_account: 0,
   }]);
   addressesInfo = await generateAddresses(mysql, XPUBKEY, maxGap);
   expect(addressesInfo.addresses).toHaveLength(maxGap);
@@ -215,6 +216,7 @@ test('generateAddresses', async () => {
     index: usedIndex,
     walletId: null,
     transactions: 1,
+    bip32_account: 0,
   }]);
   addressesInfo = await generateAddresses(mysql, XPUBKEY, maxGap);
   expect(addressesInfo.addresses).toHaveLength(maxGap + usedIndex + 1);
@@ -232,6 +234,7 @@ test('generateAddresses', async () => {
     index: usedIndex,
     walletId: null,
     transactions: 1,
+    bip32_account: 0,
   }]);
   addressesInfo = await generateAddresses(mysql, XPUBKEY, maxGap);
   expect(addressesInfo.addresses).toHaveLength(maxGap + usedIndex + 1);
@@ -258,13 +261,16 @@ test('getAddressWalletInfo', async () => {
   };
 
   // populate address table
+  let index = 0;
   for (const [address, wallet] of Object.entries(finalMap)) {
     await addToAddressTable(mysql, [{
       address,
-      index: 0,
+      index,
       walletId: wallet.walletId,
       transactions: 0,
+      bip32_account: 0,
     }]);
+    index++;
   }
   // add address that won't be requested on walletAddressMap
   await addToAddressTable(mysql, [{
@@ -272,6 +278,7 @@ test('getAddressWalletInfo', async () => {
     index: 0,
     walletId: 'wallet3',
     transactions: 0,
+    bip32_account: 0,
   }]);
 
   // populate wallet table
@@ -513,10 +520,10 @@ test('updateWalletTablesWithTx', async () => {
   const ts3 = 30;
 
   await addToAddressTable(mysql, [
-    { address: 'addr1', index: 0, walletId, transactions: 1 },
-    { address: 'addr2', index: 1, walletId, transactions: 1 },
-    { address: 'addr3', index: 2, walletId, transactions: 1 },
-    { address: 'addr4', index: 0, walletId: walletId2, transactions: 1 },
+    { address: 'addr1', index: 0, walletId, transactions: 1, bip32_account: 0 },
+    { address: 'addr2', index: 1, walletId, transactions: 1, bip32_account: 0 },
+    { address: 'addr3', index: 2, walletId, transactions: 1, bip32_account: 0 },
+    { address: 'addr4', index: 0, walletId: walletId2, transactions: 1, bip32_account: 0 },
   ]);
 
   // add tx1
@@ -552,9 +559,10 @@ test('updateWalletTablesWithTx', async () => {
   // Let's pretend there's another utxo with some authorities as well
   await addToAddressTable(mysql, [{
     address: 'address1',
-    index: 0,
+    index: 4,
     walletId,
     transactions: 1,
+    bip32_account: 0,
   }]);
   await addToAddressBalanceTable(mysql, [['address1', token1, 0, 0, null, 1, 0b10, 0, 0]]);
 
@@ -747,7 +755,7 @@ test('updateAddressTablesWithTx', async () => {
   const token3 = 'token3';
   // we'll add address1 to the address table already, as if it had already received another transaction
   await addToAddressTable(mysql, [
-    { address: address1, index: null, walletId: null, transactions: 1 },
+    { address: address1, index: null, walletId: null, transactions: 1, bip32_account: 0 },
   ]);
 
   const txId1 = 'txId1';
@@ -864,6 +872,7 @@ test('getWalletAddresses', async () => {
     entries.push({
       address: ADDRESSES[i],
       index: i,
+      bip32_account: 0,
       walletId,
       transactions: 0,
     });
@@ -872,6 +881,7 @@ test('getWalletAddresses', async () => {
   entries.unshift({
     address: ADDRESSES[lastIndex],
     index: lastIndex,
+    bip32_account: 0,
     walletId,
     transactions: 0,
   });
@@ -908,6 +918,7 @@ test('getWalletAddressDetail', async () => {
       address: ADDRESSES[i],
       index: i,
       walletId,
+      bip32_account: 0,
       transactions: 0,
     });
   }
@@ -937,6 +948,7 @@ test('incrementAddressSeqnum', async () => {
     walletId,
     transactions: 0,
     seqnum: 5,
+    bip32_account: 0,
   }]);
 
   // seqnum should start at 5
@@ -1173,6 +1185,7 @@ test('updateWalletLockedBalance', async () => {
     index: 0,
     walletId: wallet1,
     transactions: 1,
+    bip32_account: 0,
   }]);
   await addToAddressBalanceTable(mysql, [['address1', tokenId, 0, 0, null, 1, 0, 0b01, 0]]);
   const newMap = TokenBalanceMap.fromStringMap({ [tokenId]: { unlocked: 0, locked: 0, unlockedAuthorities: new Authorities(0b10) } });
@@ -1329,11 +1342,13 @@ test('getWalletSortedValueUtxos', async () => {
     index: 0,
     walletId,
     transactions: 1,
+    bip32_account: 0,
   }, {
     address: addr2,
     index: 1,
     walletId,
     transactions: 1,
+    bip32_account: 0,
   }]);
   await addToUtxoTable(mysql, [
     // authority utxos should be ignored
@@ -1446,11 +1461,11 @@ test('getUnusedAddresses', async () => {
   const walletId = 'walletId';
   const walletId2 = 'walletId2';
   await addToAddressTable(mysql, [
-    { address: 'addr2', index: 1, walletId, transactions: 0 },
-    { address: 'addr3', index: 2, walletId, transactions: 2 },
-    { address: 'addr1', index: 0, walletId, transactions: 0 },
-    { address: 'addr4', index: 0, walletId: walletId2, transactions: 1 },
-    { address: 'addr5', index: 1, walletId: walletId2, transactions: 1 },
+    { address: 'addr2', index: 1, walletId, transactions: 0, bip32_account: 0 },
+    { address: 'addr3', index: 2, walletId, transactions: 2, bip32_account: 0 },
+    { address: 'addr1', index: 0, walletId, transactions: 0, bip32_account: 0 },
+    { address: 'addr4', index: 0, walletId: walletId2, transactions: 1, bip32_account: 0 },
+    { address: 'addr5', index: 1, walletId: walletId2, transactions: 1, bip32_account: 0 },
   ]);
 
   let addresses = await getUnusedAddresses(mysql, walletId);
@@ -2107,6 +2122,114 @@ test('rebuildAddressBalancesFromUtxos', async () => {
   }])).resolves.toBe(true);
 });
 
+test('rebuildAddressBalancesFromUtxos partitions transparent and shielded columns by mode', async () => {
+  expect.hasAssertions();
+
+  const addr = 'addrShieldedRebuild';
+  const token = 'token1';
+
+  // A (address, token_id) row carrying BOTH kinds of live UTXO plus a couple
+  // of voided rows that the total recomputation must subtract per-kind.
+  //   mode = 0  → transparent balance / total_received
+  //   mode = 1 + recovery_state = 'recovered' → shielded balance / total_shielded_received
+  //   mode = 1 + recovery_state = 'unowned' (value NULL) → contributes nothing
+  await mysql.query(
+    `INSERT INTO tx_output
+       (tx_id, \`index\`, mode, address, value, token_id, authorities,
+        timelock, heightlock, locked, voided, spent_by, recovery_state)
+     VALUES
+       ('txT',     0, 0, ?, 100,  ?, 0, NULL, NULL, FALSE, FALSE, NULL, NULL),
+       ('txS',     0, 1, ?, 250,  ?, 0, NULL, NULL, FALSE, FALSE, NULL, 'recovered'),
+       ('txSL',    0, 1, ?, 60,   ?, 0, 500,  NULL, TRUE,  FALSE, NULL, 'recovered'),
+       ('txSU',    0, 1, ?, NULL, ?, 0, NULL, NULL, FALSE, FALSE, NULL, 'unowned'),
+       ('txVoidT', 0, 0, ?, 40,   ?, 0, NULL, NULL, FALSE, TRUE,  NULL, NULL),
+       ('txVoidS', 0, 1, ?, 30,   ?, 0, NULL, NULL, FALSE, TRUE,  NULL, 'recovered')`,
+    [addr, token, addr, token, addr, token, addr, token, addr, token, addr, token],
+  );
+
+  // Seed the address_balance row with deliberately wrong live balances (proves
+  // they are recomputed from UTXOs) and lifetime totals that still include the
+  // about-to-be-voided amounts (proves the per-kind subtraction).
+  await mysql.query(
+    `INSERT INTO address_balance
+       (address, token_id,
+        unlocked_balance, locked_balance, total_received,
+        unlocked_shielded_balance, locked_shielded_balance, total_shielded_received,
+        unlocked_authorities, locked_authorities, transactions)
+     VALUES (?, ?, 999, 999, 140, 999, 999, 280, 0, 0, 5)`,
+    [addr, token],
+  );
+
+  await rebuildAddressBalancesFromUtxos(mysql, [addr], ['txVoidT', 'txVoidS']);
+
+  const rows = await mysql.query(
+    `SELECT unlocked_balance, locked_balance, total_received,
+            unlocked_shielded_balance, locked_shielded_balance, total_shielded_received
+       FROM address_balance WHERE address = ? AND token_id = ?`,
+    [addr, token],
+  );
+  expect(rows).toHaveLength(1);
+  const r = rows[0];
+
+  // Transparent columns reflect only mode = 0 UTXOs.
+  expect(BigInt(r.unlocked_balance)).toBe(100n);
+  expect(BigInt(r.locked_balance)).toBe(0n);
+  // total_received: 140 stored − 40 (voided transparent) = 100.
+  expect(BigInt(r.total_received)).toBe(100n);
+
+  // Shielded columns reflect only recovered mode = 1/2 UTXOs.
+  expect(BigInt(r.unlocked_shielded_balance)).toBe(250n);
+  expect(BigInt(r.locked_shielded_balance)).toBe(60n);
+  // total_shielded_received: 280 stored − 30 (voided shielded) = 250.
+  expect(BigInt(r.total_shielded_received)).toBe(250n);
+});
+
+test('rebuildAddressBalancesFromUtxos preserves bigint precision above Number.MAX_SAFE_INTEGER', async () => {
+  expect.hasAssertions();
+
+  const addr = 'addrBigIntRebuild';
+  const token = 'token1';
+
+  // Lifetime totals above 2^53 (9007199254740992). Subtracting the voided
+  // amounts via JS-number arithmetic would round these to the nearest double
+  // and corrupt the result; the rebuild must keep the arithmetic in bigint.
+  const STORED_TOTAL_RECEIVED = 9007199254740993n; // 2^53 + 1
+  const STORED_TOTAL_SHIELDED = 9007199254740995n; // 2^53 + 3
+
+  await mysql.query(
+    `INSERT INTO tx_output
+       (tx_id, \`index\`, mode, address, value, token_id, authorities,
+        timelock, heightlock, locked, voided, spent_by, recovery_state)
+     VALUES
+       ('txBigVoidT', 0, 0, ?, 1, ?, 0, NULL, NULL, FALSE, TRUE, NULL, NULL),
+       ('txBigVoidS', 0, 1, ?, 2, ?, 0, NULL, NULL, FALSE, TRUE, NULL, 'recovered')`,
+    [addr, token, addr, token],
+  );
+
+  await mysql.query(
+    `INSERT INTO address_balance
+       (address, token_id,
+        unlocked_balance, locked_balance, total_received,
+        unlocked_shielded_balance, locked_shielded_balance, total_shielded_received,
+        unlocked_authorities, locked_authorities, transactions)
+     VALUES (?, ?, 0, 0, ?, 0, 0, ?, 0, 0, 2)`,
+    [addr, token, STORED_TOTAL_RECEIVED.toString(), STORED_TOTAL_SHIELDED.toString()],
+  );
+
+  await rebuildAddressBalancesFromUtxos(mysql, [addr], ['txBigVoidT', 'txBigVoidS']);
+
+  const rows = await mysql.query(
+    `SELECT total_received, total_shielded_received
+       FROM address_balance WHERE address = ? AND token_id = ?`,
+    [addr, token],
+  );
+  expect(rows).toHaveLength(1);
+  // Exact bigint differences; a number-based subtraction would yield
+  // 9007199254740991 / 9007199254740994 here.
+  expect(BigInt(rows[0].total_received)).toBe(STORED_TOTAL_RECEIVED - 1n);
+  expect(BigInt(rows[0].total_shielded_received)).toBe(STORED_TOTAL_SHIELDED - 2n);
+});
+
 test('markAddressTxHistoryAsVoided', async () => {
   expect.hasAssertions();
 
@@ -2178,11 +2301,13 @@ test('filterTxOutputs', async () => {
     index: 0,
     walletId,
     transactions: 1,
+    bip32_account: 0,
   }, {
     address: addr2,
     index: 1,
     walletId,
     transactions: 1,
+    bip32_account: 0,
   }]);
 
   await addToUtxoTable(mysql, [{
@@ -2494,48 +2619,18 @@ test('getMinersList', async () => {
   ]));
 });
 
-test('getTotalSupply', async () => {
+test('getTotalSupply reads from token.total_supply', async () => {
   expect.hasAssertions();
 
-  const txId = 'txId';
-  const utxos = [
-    { value: 500n, address: 'HDeadDeadDeadDeadDeadDeadDeagTPgmn', tokenId: '00', locked: false },
-    { value: 5n, address: 'address1', tokenId: '00', locked: false },
-    { value: 15n, address: 'address1', tokenId: '00', locked: false },
-    { value: 25n, address: 'address2', tokenId: 'token2', timelock: 500, locked: true },
-    { value: 35n, address: 'address2', tokenId: 'token1', locked: false },
-    // authority utxo
-    { value: 0b11n, address: 'address1', tokenId: 'token1', locked: false, tokenData: 129 },
-  ];
+  await mysql.query(`INSERT INTO token (id, name, symbol, total_supply) VALUES ('00', 'Hathor', 'HTR', 12345)`);
 
-  // add to utxo table
-  const outputs = utxos.map((utxo, index) => createOutput(
-    index,
-    utxo.value,
-    utxo.address,
-    utxo.tokenId,
-    utxo.timelock || null,
-    utxo.locked,
-    utxo.tokenData || 0,
-  ));
+  expect(await getTotalSupply(mysql, '00')).toStrictEqual(12345n);
+});
 
-  await addUtxos(mysql, txId, outputs);
+test('getTotalSupply throws when token does not exist', async () => {
+  expect.hasAssertions();
 
-  expect(await getTotalSupply(mysql, '00')).toStrictEqual(20n);
-  expect(await getTotalSupply(mysql, 'token2')).toStrictEqual(25n);
-  expect(await getTotalSupply(mysql, 'token1')).toStrictEqual(35n);
-
-  const mysqlQuerySpy = jest.spyOn(mysql, 'query');
-  mysqlQuerySpy.mockImplementationOnce(() => Promise.resolve({ length: null }));
-
-  await expect(getTotalSupply(mysql, 'undefined-token')).rejects.toThrow('Total supply query returned no results');
-  expect(mockedAddAlert).toHaveBeenCalledWith(
-    'Total supply query returned no results',
-    '-',
-    Severity.MINOR,
-    { tokenId: 'undefined-token' },
-    logger,
-  );
+  await expect(getTotalSupply(mysql, 'nonexistent')).rejects.toThrow('Total supply query returned no results');
 });
 
 test('getExpiredTimelocksUtxos', async () => {
@@ -3770,6 +3865,7 @@ describe('getAddressByIndex', () => {
       walletId,
       transactions,
       seqnum,
+      bip32_account: 0,
     }]);
 
     await expect(getAddressAtIndex(mysql, walletId, index))
@@ -3919,7 +4015,7 @@ describe('hasTransactionsOnNonFirstAddress', () => {
     const walletId = 'test-wallet';
     await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5);
     await addToAddressTable(mysql, [
-      { address: ADDRESSES[0], index: 0, walletId, transactions: 5 },
+      { address: ADDRESSES[0], index: 0, walletId, transactions: 5, bip32_account: 0 },
     ]);
 
     const result = await Db.hasTransactionsOnNonFirstAddress(mysql, walletId);
@@ -3933,9 +4029,9 @@ describe('hasTransactionsOnNonFirstAddress', () => {
     const walletId = 'test-wallet';
     await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5);
     await addToAddressTable(mysql, [
-      { address: ADDRESSES[0], index: 0, walletId, transactions: 5 },
-      { address: ADDRESSES[1], index: 1, walletId, transactions: 0 },
-      { address: ADDRESSES[2], index: 2, walletId, transactions: 0 },
+      { address: ADDRESSES[0], index: 0, walletId, transactions: 5, bip32_account: 0 },
+      { address: ADDRESSES[1], index: 1, walletId, transactions: 0, bip32_account: 0 },
+      { address: ADDRESSES[2], index: 2, walletId, transactions: 0, bip32_account: 0 },
     ]);
 
     const result = await Db.hasTransactionsOnNonFirstAddress(mysql, walletId);
@@ -3949,8 +4045,8 @@ describe('hasTransactionsOnNonFirstAddress', () => {
     const walletId = 'test-wallet';
     await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5);
     await addToAddressTable(mysql, [
-      { address: ADDRESSES[0], index: 0, walletId, transactions: 5 },
-      { address: ADDRESSES[1], index: 1, walletId, transactions: 3 },
+      { address: ADDRESSES[0], index: 0, walletId, transactions: 5, bip32_account: 0 },
+      { address: ADDRESSES[1], index: 1, walletId, transactions: 3, bip32_account: 0 },
     ]);
 
     const result = await Db.hasTransactionsOnNonFirstAddress(mysql, walletId);
@@ -3967,8 +4063,8 @@ describe('hasTransactionsOnNonFirstAddress', () => {
     await createWallet(mysql, walletId2, XPUBKEY, AUTH_XPUBKEY, 5);
 
     await addToAddressTable(mysql, [
-      { address: ADDRESSES[0], index: 0, walletId: walletId1, transactions: 5 },
-      { address: ADDRESSES[1], index: 1, walletId: walletId2, transactions: 10 },
+      { address: ADDRESSES[0], index: 0, walletId: walletId1, transactions: 5, bip32_account: 0 },
+      { address: ADDRESSES[1], index: 1, walletId: walletId2, transactions: 10, bip32_account: 0 },
     ]);
 
     const result1 = await Db.hasTransactionsOnNonFirstAddress(mysql, walletId1);
