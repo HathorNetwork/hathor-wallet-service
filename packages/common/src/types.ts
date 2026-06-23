@@ -26,6 +26,23 @@ export enum Severity {
   INFO = 'info',
 }
 
+/**
+ * Lightweight projection of a shielded output for the realtime `new-tx`
+ * payload. Shielded values are encrypted, so clients can't derive balances
+ * from the wire — they intersect `Transaction.addresses` with their own and
+ * refetch. This carries only what's safe and useful for that: the kind,
+ * token slot, and decoded address. The on-chain crypto blobs (commitment,
+ * range_proof, ephemeral_pubkey, …) are intentionally omitted.
+ */
+export interface RealtimeShieldedOutput {
+  mode: number;
+  // Present only for AmountShielded (mode 1); FullyShielded (mode 2) hides the
+  // token, so there is no token slot to report.
+  // eslint-disable-next-line camelcase
+  token_data?: number;
+  decoded: { address: string } | null;
+}
+
 export interface Transaction {
   // eslint-disable-next-line camelcase
   tx_id: string;
@@ -45,6 +62,12 @@ export interface Transaction {
   token_name?: string | null;
   // eslint-disable-next-line camelcase
   token_symbol?: string | null;
+  // Additive shielded-outputs realtime fields (see RealtimeShieldedOutput).
+  // `addresses` is the full involved-address set the daemon computed for the
+  // vertex; the client intersects it with its own addresses and refetches.
+  // eslint-disable-next-line camelcase
+  shielded_outputs?: RealtimeShieldedOutput[];
+  addresses?: string[];
 }
 
 export interface TxInput {

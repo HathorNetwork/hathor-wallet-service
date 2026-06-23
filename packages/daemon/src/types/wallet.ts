@@ -34,6 +34,10 @@ export type TokenBalanceValue = {
   unlockedAuthorities: Record<string, unknown>;
   lockExpires: number | null;
   total: bigint;
+  // Net shielded balance change for this tx (unlocked + locked shielded),
+  // positive on a recovered shielded receive. `total` stays transparent-only;
+  // the push builder combines the two for the displayed amount.
+  shieldedAmount: bigint;
 }
 
 export interface WalletBalanceValue {
