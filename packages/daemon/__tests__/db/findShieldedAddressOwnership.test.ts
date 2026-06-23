@@ -8,6 +8,7 @@
 import { Connection } from 'mysql2/promise';
 import {
   findShieldedAddressOwnership,
+  findShieldedAddressOwnershipBatch,
   getDbConnection,
   upsertShieldedAddressObservation,
 } from '../../src/db';
@@ -89,5 +90,66 @@ describe('findShieldedAddressOwnership', () => {
       shielded_index: 7,
     });
     expect(result!.scan_privkey.equals(Buffer.alloc(32, 0x42))).toBe(true);
+  });
+});
+
+describe('findShieldedAddressOwnershipBatch', () => {
+  // Promote an observation row to a wallet-claimed CTSpend row (bip32_account = 2),
+  // mirroring what a wallet registration does. The void path relies on this exact
+  // shape to decide whether a same-address row gets its balance reversed.
+  const claimAddress = async (address: string, index: number): Promise<void> => {
+    await upsertShieldedAddressObservation(mysql, address);
+    await mysql.query(
+      `UPDATE address
+         SET wallet_id = 'wallet_alice', bip32_account = 2, \`index\` = ?, scan_privkey = ?
+       WHERE address = ?`,
+      [index, Buffer.alloc(32, 0x42), address],
+    );
+  };
+
+  test('returns an empty map for an empty address list (early return, no query)', async () => {
+    expect.hasAssertions();
+
+    const result = await findShieldedAddressOwnershipBatch(mysql, []);
+
+    expect(result.size).toBe(0);
+  });
+
+  test('deduplicates a repeated address into a single map entry', async () => {
+    expect.hasAssertions();
+
+    await claimAddress('WT4nOWNED', 7);
+
+    const result = await findShieldedAddressOwnershipBatch(mysql, ['WT4nOWNED', 'WT4nOWNED']);
+
+    expect(result.size).toBe(1);
+    expect(result.get('WT4nOWNED')).toMatchObject({
+      wallet_id: 'wallet_alice',
+      shielded_index: 7,
+    });
+  });
+
+  test('omits existing-but-unowned rows (NULL scan_privkey / non-CTSpend account)', async () => {
+    expect.hasAssertions();
+
+    // Owned CTSpend row — must be present in the map.
+    await claimAddress('WT4nOWNED', 7);
+    // Observation row that no wallet has claimed: scan_privkey stays NULL.
+    await upsertShieldedAddressObservation(mysql, 'WT4nUNOWNED');
+    // Legacy (bip32_account = 0) row for an unrelated address.
+    await mysql.query(
+      `INSERT INTO address (address, bip32_account, \`index\`, wallet_id, transactions)
+       VALUES ('WT4nLEGACY', 0, 0, 'wallet_alice', 1)`,
+    );
+
+    const result = await findShieldedAddressOwnershipBatch(
+      mysql,
+      ['WT4nOWNED', 'WT4nUNOWNED', 'WT4nLEGACY'],
+    );
+
+    expect(result.size).toBe(1);
+    expect(result.has('WT4nOWNED')).toBe(true);
+    expect(result.has('WT4nUNOWNED')).toBe(false);
+    expect(result.has('WT4nLEGACY')).toBe(false);
   });
 });

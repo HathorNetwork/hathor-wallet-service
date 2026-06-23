@@ -2207,6 +2207,16 @@ export const markWalletTxHistoryAsVoided = async (
 };
 
 /**
+ * Coerce a DB integer column (returned as a string under `supportBigNumbers`)
+ * to `bigint`, so lifetime-total arithmetic keeps full precision above
+ * Number.MAX_SAFE_INTEGER. The `?? 0` fallback handles a possibly-null read
+ * defensively; in practice these columns are NOT NULL and the SUM(... ELSE 0)
+ * is never null for an existing group, so the fallback arm is unreachable.
+ */
+/* istanbul ignore next */
+const dbIntToBigInt = (value: unknown): bigint => BigInt((value ?? 0) as string | number);
+
+/**
  * Rebuilds the address_balance table for the given addresses from
  * the tx_output table
 
@@ -2335,12 +2345,15 @@ export const rebuildAddressBalancesFromUtxos = async (
     address, tokenId, transactions, totalReceived, totalShieldedReceived,
   }) => {
     const diffTransactions = addressTransactionCount[`${address}_${tokenId}`] || 0;
-    const diff = addressTotalReceived[`${address}_${tokenId}`] || { totalReceived: 0, totalShieldedReceived: 0 };
+    const diff = addressTotalReceived[`${address}_${tokenId}`] || { totalReceived: 0n, totalShieldedReceived: 0n };
 
     return [
       transactions as number - diffTransactions,
-      totalReceived as number - diff.totalReceived,
-      totalShieldedReceived as number - diff.totalShieldedReceived,
+      // total_received / total_shielded_received are 64-bit DB integers; keep the
+      // arithmetic in bigint and stringify for MySQL so amounts above
+      // Number.MAX_SAFE_INTEGER don't lose precision during the rebuild.
+      (dbIntToBigInt(totalReceived) - diff.totalReceived).toString(),
+      (dbIntToBigInt(totalShieldedReceived) - diff.totalShieldedReceived).toString(),
       address,
       tokenId,
     ];
@@ -2840,12 +2853,12 @@ export const getAffectedTokenTxCountFromTxList = async (
  * @param mysql - Database connection
  * @param txList - A list of affected transactions
 
- * @returns {Promise<StringMap<number>>} A Map with address_tokenId as key and the affected total_received as values
+ * @returns {Promise<StringMap<bigint>>} A Map with address_tokenId as key and the affected total_received as values
  */
 export const getAffectedAddressTotalReceivedFromTxList = async (
   mysql: ServerlessMysql,
   txList: string[],
-): Promise<StringMap<{ totalReceived: number, totalShieldedReceived: number }>> => {
+): Promise<StringMap<{ totalReceived: bigint, totalShieldedReceived: bigint }>> => {
   // Partition the voided-output sum by `mode` so the lifetime accumulators are
   // adjusted per-kind: transparent (mode = 0) decrements `total_received`,
   // recovered shielded (mode IN (1, 2)) decrements `total_shielded_received`.
@@ -2864,14 +2877,14 @@ export const getAffectedAddressTotalReceivedFromTxList = async (
     const tokenId = result.tokenId as string;
 
     acc[`${address}_${tokenId}`] = {
-      totalReceived: result.total as number,
-      totalShieldedReceived: result.totalShielded as number,
+      totalReceived: dbIntToBigInt(result.total),
+      totalShieldedReceived: dbIntToBigInt(result.totalShielded),
     };
 
     return acc;
   }, {});
 
-  return addressTotalReceivedMap as StringMap<{ totalReceived: number, totalShieldedReceived: number }>;
+  return addressTotalReceivedMap as StringMap<{ totalReceived: bigint, totalShieldedReceived: bigint }>;
 };
 
 /**

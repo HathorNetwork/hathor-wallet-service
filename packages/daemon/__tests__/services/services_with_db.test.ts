@@ -3628,6 +3628,179 @@ describe('handleVoidedTx with shielded', () => {
     expect(prevOutput).not.toBeNull();
     expect(prevOutput!.spentBy).toBeNull();
   });
+
+  it('reverses a recovered shielded receive that landed in the locked column', async () => {
+    expect.hasAssertions();
+
+    // Same flow as the recovered-receive void above, but the shielded output
+    // is timelocked, so the credit lands in `locked_shielded_balance`. This is
+    // the only void test that drives the `locked_shielded_balance` subtract
+    // (and its cleanup-guard arm) with a non-zero value.
+    const fixture = buildReceiveVertex();
+    const so = fixture.event.data.shielded_outputs[0];
+    const futureTimelock = Math.floor(Date.now() / 1000) + 3600;
+    so.decoded.timelock = futureTimelock;
+
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [so.decoded.address, Buffer.alloc(32, 0x42)],
+    );
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES ('wallet_alice', ?, ?, 'ready', 20, ?, ?)`,
+      [XPUBKEY, XPUBKEY, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
+    );
+
+    resetCtCryptoMock();
+    primeAmountRewind({
+      commitment: COMMITMENT,
+      ephemeralPubkey: EPHEM_PUBKEY,
+      value: RECOVERED_VALUE,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+
+    const acceptContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+    await handleVertexAccepted(acceptContext as any, undefined as any);
+
+    // Sanity: the credit is in the LOCKED shielded column after accept.
+    const [wbBefore] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, locked_shielded_balance, total_shielded_received
+         FROM wallet_balance WHERE wallet_id = ? AND token_id = ?`,
+      ['wallet_alice', TOKEN_ID],
+    );
+    expect(wbBefore).toHaveLength(1);
+    expect(BigInt(wbBefore[0].unlocked_shielded_balance)).toBe(0n);
+    expect(BigInt(wbBefore[0].locked_shielded_balance)).toBe(RECOVERED_VALUE);
+    expect(BigInt(wbBefore[0].total_shielded_received)).toBe(RECOVERED_VALUE);
+
+    const voidContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildVoidEvent(fixture),
+    };
+    await handleVoidedTx(voidContext as any);
+
+    // The locked_shielded_balance subtract drops it back to zero, so the
+    // all-zeros cleanup removes both balance rows. A dropped subtract would
+    // leave locked_shielded_balance non-zero and the rows would survive.
+    const [wbAfter] = await mysql.query<any[]>(
+      `SELECT 1 FROM wallet_balance WHERE wallet_id = ? AND token_id = ?`,
+      ['wallet_alice', TOKEN_ID],
+    );
+    expect(wbAfter).toHaveLength(0);
+
+    const [abAfter] = await mysql.query<any[]>(
+      `SELECT 1 FROM address_balance WHERE address = ? AND token_id = ?`,
+      [SHIELDED_ADDRESS, TOKEN_ID],
+    );
+    expect(abAfter).toHaveLength(0);
+  });
+
+  it('reverses each row once when one voided tx has multiple shielded outputs to the same address', async () => {
+    expect.hasAssertions();
+
+    // Two recovered shielded outputs land on the SAME owned (address, token)
+    // row in a single tx. The void must reverse BOTH contributions — counting
+    // each tx_output row once despite the ownership lookup deduping the address.
+    const VALUE_A = 150n;
+    const VALUE_B = 250n;
+    const COMMITMENT_B = Buffer.from('0a'.repeat(33), 'hex');
+    const EPHEM_PUBKEY_B = Buffer.from('0b'.repeat(33), 'hex');
+
+    const fixture = buildReceiveVertex();
+    const so = fixture.event.data.shielded_outputs[0];
+    // Second shielded output to the same address, distinct commitment/ephemeral
+    // so the rewind mock keys them apart.
+    const secondOutput = JSON.parse(JSON.stringify(so));
+    secondOutput.commitment = COMMITMENT_B.toString('hex');
+    secondOutput.ephemeral_pubkey = EPHEM_PUBKEY_B.toString('hex');
+    fixture.event.data.shielded_outputs.push(secondOutput);
+
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [so.decoded.address, Buffer.alloc(32, 0x42)],
+    );
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES ('wallet_alice', ?, ?, 'ready', 20, ?, ?)`,
+      [XPUBKEY, XPUBKEY, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
+    );
+
+    resetCtCryptoMock();
+    primeAmountRewind({
+      commitment: COMMITMENT,
+      ephemeralPubkey: EPHEM_PUBKEY,
+      value: VALUE_A,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+    primeAmountRewind({
+      commitment: COMMITMENT_B,
+      ephemeralPubkey: EPHEM_PUBKEY_B,
+      value: VALUE_B,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+
+    const acceptContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+    await handleVertexAccepted(acceptContext as any, undefined as any);
+
+    // Sanity: both outputs credited the single row → sum of both values.
+    const [abBefore] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, total_shielded_received
+         FROM address_balance WHERE address = ? AND token_id = ?`,
+      [SHIELDED_ADDRESS, TOKEN_ID],
+    );
+    expect(abBefore).toHaveLength(1);
+    expect(BigInt(abBefore[0].unlocked_shielded_balance)).toBe(VALUE_A + VALUE_B);
+    expect(BigInt(abBefore[0].total_shielded_received)).toBe(VALUE_A + VALUE_B);
+
+    const voidContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildVoidEvent(fixture),
+    };
+    await handleVoidedTx(voidContext as any);
+
+    // Exact reversal of both contributions zeroes the row → it is cleaned up.
+    // Under-counting (treating the deduped address as one recovery) would leave
+    // a residual balance and the row would survive.
+    const [abAfter] = await mysql.query<any[]>(
+      `SELECT 1 FROM address_balance WHERE address = ? AND token_id = ?`,
+      [SHIELDED_ADDRESS, TOKEN_ID],
+    );
+    expect(abAfter).toHaveLength(0);
+
+    const [wbAfter] = await mysql.query<any[]>(
+      `SELECT 1 FROM wallet_balance WHERE wallet_id = ? AND token_id = ?`,
+      ['wallet_alice', TOKEN_ID],
+    );
+    expect(wbAfter).toHaveLength(0);
+  });
 });
 
 describe('handleUnvoidedTx with shielded', () => {

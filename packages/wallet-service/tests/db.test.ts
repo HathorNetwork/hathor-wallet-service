@@ -2184,6 +2184,52 @@ test('rebuildAddressBalancesFromUtxos partitions transparent and shielded column
   expect(BigInt(r.total_shielded_received)).toBe(250n);
 });
 
+test('rebuildAddressBalancesFromUtxos preserves bigint precision above Number.MAX_SAFE_INTEGER', async () => {
+  expect.hasAssertions();
+
+  const addr = 'addrBigIntRebuild';
+  const token = 'token1';
+
+  // Lifetime totals above 2^53 (9007199254740992). Subtracting the voided
+  // amounts via JS-number arithmetic would round these to the nearest double
+  // and corrupt the result; the rebuild must keep the arithmetic in bigint.
+  const STORED_TOTAL_RECEIVED = 9007199254740993n; // 2^53 + 1
+  const STORED_TOTAL_SHIELDED = 9007199254740995n; // 2^53 + 3
+
+  await mysql.query(
+    `INSERT INTO tx_output
+       (tx_id, \`index\`, mode, address, value, token_id, authorities,
+        timelock, heightlock, locked, voided, spent_by, recovery_state)
+     VALUES
+       ('txBigVoidT', 0, 0, ?, 1, ?, 0, NULL, NULL, FALSE, TRUE, NULL, NULL),
+       ('txBigVoidS', 0, 1, ?, 2, ?, 0, NULL, NULL, FALSE, TRUE, NULL, 'recovered')`,
+    [addr, token, addr, token],
+  );
+
+  await mysql.query(
+    `INSERT INTO address_balance
+       (address, token_id,
+        unlocked_balance, locked_balance, total_received,
+        unlocked_shielded_balance, locked_shielded_balance, total_shielded_received,
+        unlocked_authorities, locked_authorities, transactions)
+     VALUES (?, ?, 0, 0, ?, 0, 0, ?, 0, 0, 2)`,
+    [addr, token, STORED_TOTAL_RECEIVED.toString(), STORED_TOTAL_SHIELDED.toString()],
+  );
+
+  await rebuildAddressBalancesFromUtxos(mysql, [addr], ['txBigVoidT', 'txBigVoidS']);
+
+  const rows = await mysql.query(
+    `SELECT total_received, total_shielded_received
+       FROM address_balance WHERE address = ? AND token_id = ?`,
+    [addr, token],
+  );
+  expect(rows).toHaveLength(1);
+  // Exact bigint differences; a number-based subtraction would yield
+  // 9007199254740991 / 9007199254740994 here.
+  expect(BigInt(rows[0].total_received)).toBe(STORED_TOTAL_RECEIVED - 1n);
+  expect(BigInt(rows[0].total_shielded_received)).toBe(STORED_TOTAL_SHIELDED - 2n);
+});
+
 test('markAddressTxHistoryAsVoided', async () => {
   expect.hasAssertions();
 
