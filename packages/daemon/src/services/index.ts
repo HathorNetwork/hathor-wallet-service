@@ -10,7 +10,7 @@ import hathorLib from '@hathor/wallet-lib';
 import { Connection as MysqlConnection, PoolConnection } from 'mysql2/promise';
 import axios from 'axios';
 import { get } from 'lodash';
-import { NftUtils } from '@wallet-service/common';
+import { NftUtils, ShieldedOutputMode, RecoveryState, isShieldedMode } from '@wallet-service/common';
 import {
   StringMap,
   Wallet,
@@ -22,6 +22,7 @@ import {
   Context,
   EventTxInput,
   EventTxOutput,
+  ShieldedOutput,
   WalletStatus,
   FullNodeEventTypes,
   StandardFullNodeEvent,
@@ -34,10 +35,13 @@ import {
   TokenBalanceMap,
   TxOutputWithIndex,
   isDecodedValid,
+  isAuthority,
 } from '@wallet-service/common';
 import {
   prepareOutputs,
-  getAddressBalanceMap,
+  getInvolvedAddresses,
+  getUnifiedBalanceMap,
+  ShieldedRecoveryResult,
   getUnixTimestamp,
   unlockUtxos,
   unlockTimelockedUtxos,
@@ -85,7 +89,19 @@ import {
   voidWalletTransaction,
   getTxOutputs,
   clearTxProposalForVoidedTx,
+  insertTxOutput,
+  insertShieldedTxOutputData,
+  upsertShieldedAddressObservation,
+  findShieldedAddressOwnership,
+  findShieldedAddressOwnershipBatch,
+  markTxOutputRecovered,
+  markTxOutputRecoveryFailed,
+  bumpAddressInvolvement,
+  decrementAddressInvolvement,
+  setTokenTotalSupply,
+  incrementTokenTotalSupply,
 } from '../db';
+import { rewindAmount, rewindFully } from '../crypto/ctRewind';
 import getConfig, { VALIDATE_ADDRESS_BALANCES } from '../config';
 import logger from '../logger';
 import { invokeOnTxPushNotificationRequestedLambda, getDaemonUptime, retryWithBackoff } from '../utils';
@@ -247,6 +263,103 @@ export const isBlock = (version: number): boolean => version === hathorLib.const
   || version === hathorLib.constants.MERGED_MINED_BLOCK_VERSION
   || version === hathorLib.constants.POA_BLOCK_VERSION;
 
+// Sentinel burn address. Outputs sent here are non-spendable and reduce supply
+// when accounted in `applyTokenSupplyUpdates`. Duplicated locally — the
+// wallet-service has its own copy; the constant has not been promoted to
+// `@wallet-service/common` to keep this change minimal.
+const BURN_ADDRESS = 'HDeadDeadDeadDeadDeadDeadDeagTPgmn';
+
+/**
+ * Apply mint/melt/burn/block-reward deltas to `token.total_supply` for a
+ * single accepted vertex.
+ *
+ * Two independent code paths:
+ *  - Block reward: every block with value-bearing outputs increases HTR
+ *    supply by the sum of those outputs. Blocks never carry shielded outputs
+ *    in v1, so this path is not gated on `shieldedOutputCount`.
+ *  - Supply delta: gated on the vertex having NO shielded outputs. Computes
+ *    `sum(outputs) - sum(inputs)` per token, with outputs to BURN_ADDRESS
+ *    EXCLUDED from the outputs sum and authority rows excluded from both
+ *    sums. Applies the signed delta — positive for mint, negative for melt,
+ *    and negative for any burn-address loss (since the burned value
+ *    contributes to the inputs side but not the outputs side, naturally
+ *    appearing as a supply decrease).
+ *
+ * Reads from the prepared (transparent) `TxInput[]` / `TxOutputWithIndex[]`,
+ * which already carry resolved `token` UIDs.
+ *
+ * `sign` flips the direction of every delta: `+1` on ingest (the default),
+ * `-1` when reversing a voided / removed vertex. The shielded gate and the
+ * block short-circuit apply symmetrically to both directions.
+ */
+export async function applyTokenSupplyUpdates(
+  mysql: any,
+  version: number,
+  txOutputs: TxOutputWithIndex[],
+  txInputs: TxInput[],
+  shieldedOutputCount: number,
+  sign: 1 | -1 = 1,
+): Promise<void> {
+  const HTR = hathorLib.constants.NATIVE_TOKEN_UID;
+
+  // Block reward (not gated on shielded).
+  // The coinbase mints HTR; typically a single output but sum them for safety.
+  // Blocks have no real inputs to balance against the coinbase, so the
+  // generic supply-delta loop below would double-count if it ran for blocks —
+  // short out here once the block reward is recorded.
+  if (isBlock(version) && txOutputs.length > 0) {
+    let blockReward = 0n;
+    for (const o of txOutputs) {
+      blockReward += BigInt(o.value);
+    }
+    if (blockReward > 0n) {
+      await incrementTokenTotalSupply(mysql, HTR, BigInt(sign) * blockReward);
+    }
+    return;
+  }
+
+  // Token-creation vertices are skipped entirely: handleTokenCreated is the
+  // single authority for the created token's supply (set from the wire
+  // initial_amount on the TOKEN_CREATED event), and the HTR deposit a creation
+  // tx consumes is not a supply change. Applying the per-token delta here would
+  // double-count the created token and wrongly shrink HTR. Skipping is
+  // sign-agnostic, so the void/remove reversal stays symmetric with ingest.
+  if (version === hathorLib.constants.CREATE_TOKEN_TX_VERSION) return;
+
+  // Per-token supply delta. Gated on absence of shielded outputs.
+  if (shieldedOutputCount !== 0) return;
+
+  const outSumByToken = new Map<string, bigint>();
+  for (const o of txOutputs) {
+    // `prepareOutputs` does NOT zero authority values; the authority flag is
+    // still encoded in `token_data`. Exclude authority rows from the sum so
+    // their bit-pattern values don't pollute mint/melt accounting.
+    if (isAuthority(o.token_data)) continue;
+    // Outputs to the burn sentinel address are excluded from the outputs sum;
+    // their value naturally drops out of `total_supply` because the inputs
+    // funding them remain in the inputs sum.
+    if (o.decoded?.address === BURN_ADDRESS) continue;
+    outSumByToken.set(o.token, (outSumByToken.get(o.token) ?? 0n) + BigInt(o.value));
+  }
+
+  const inSumByToken = new Map<string, bigint>();
+  for (const i of txInputs) {
+    if (isAuthority(i.token_data)) continue;
+    inSumByToken.set(i.token, (inSumByToken.get(i.token) ?? 0n) + BigInt(i.value));
+  }
+
+  const touchedTokens = new Set<string>([
+    ...outSumByToken.keys(),
+    ...inSumByToken.keys(),
+  ]);
+  for (const tokenId of touchedTokens) {
+    const delta = BigInt(sign) * ((outSumByToken.get(tokenId) ?? 0n) - (inSumByToken.get(tokenId) ?? 0n));
+    if (delta !== 0n) {
+      await incrementTokenTotalSupply(mysql, tokenId, delta);
+    }
+  }
+}
+
 export function isNanoContract(headers: EventTxHeader[]) {
   for (const header of headers) {
     if (isNanoHeader(header)) {
@@ -336,8 +449,6 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
       span.setAttribute('tx.hash', hash);
       span.setAttribute('tx.version', version);
-
-      const isNano = isNanoContract(headers);
 
       // Duplicate check is a read-only lookup and runs outside the transaction
       // so an early return cannot leave a BEGIN open on a pooled connection.
@@ -432,18 +543,183 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         // Add utxos
         await withSpan('addUtxos', () => addUtxos(mysql, hash, txOutputs, heightlock));
 
-        // Mark tx utxos as spent
-        await withSpan('updateTxOutputSpentBy', () => updateTxOutputSpentBy(mysql, txInputs, hash));
+        // Resolve a shielded output's token_data to the matching token UID.
+        // Mirrors the transparent-path logic in `prepareOutputs`: a token_data
+        // of 0 selects the native token; otherwise it indexes into `vertex.tokens[]`.
+        const shieldedOutputs = fullNodeEvent.event.data.shielded_outputs ?? [];
+        const transparentCount = outputs.length;
+        const resolveShieldedTokenId = (tokenData: number): string | null => {
+          const idx = hathorLib.tokensUtils.getTokenIndexFromData(tokenData) - 1;
+          if (idx < 0) {
+            return hathorLib.constants.NATIVE_TOKEN_UID;
+          }
+          return tokens[idx] ?? null;
+        };
 
-        // Genesis tx has no inputs and outputs, so nothing to be updated, avoid it
-        // Nano contracts are a special case since they can have an address to update even without inputs/outputs
-        if (inputs.length > 0 || outputs.length > 0 || isNano) {
+        // Per-shielded-output rewind outcomes collected by the loop below
+        // and consumed by the unified balance-map builder. Only owned,
+        // successful recoveries land here; unowned outputs and rewind
+        // failures contribute nothing to the balance map (involvement is
+        // already covered by bumpAddressInvolvement).
+        const shieldedRecoveryResults: ShieldedRecoveryResult[] = [];
+
+        // Walk shielded_outputs[] with concatenated index = transparentCount + i.
+        // Each shielded output produces three rows: the unified `tx_output`, the
+        // `shielded_tx_output_data` satellite carrying the per-output crypto payload,
+        // and an `address` observation row (with bip32_account = Bip32Account.CTSpend).
+        // Every row lands in `recovery_state = 'unowned'` and is then promoted in-line
+        // below when a wallet has claimed the spend address.
+        for (let i = 0; i < shieldedOutputs.length; i++) {
+          const so = shieldedOutputs[i];
+          const idx = transparentCount + i;
+          const isAmount = so.mode === ShieldedOutputMode.AmountShielded;
+
+          // Shielded outputs don't carry a wire-level `locked` flag, so the
+          // daemon derives it locally from `decoded.timelock` (if present) and
+          // the vertex's `heightlock`. Mirrors the transparent path
+          // (`markLockedOutputs` in utils/wallet): locked iff any heightlock
+          // is in effect, or the explicit timelock is still in the future.
+          const shieldedTimelock = so.decoded.timelock ?? null;
+          const shieldedLocked = heightlock !== null
+            || (shieldedTimelock !== null && shieldedTimelock > now);
+
+          await insertTxOutput(mysql, {
+            tx_id: hash,
+            index: idx,
+            mode: so.mode,
+            address: so.decoded.address,
+            value: null,
+            token_id: isAmount ? resolveShieldedTokenId(so.token_data) : null,
+            authorities: 0,
+            timelock: shieldedTimelock,
+            heightlock,
+            locked: shieldedLocked,
+            voided: false,
+            recovery_state: RecoveryState.Unowned,
+          });
+
+          await insertShieldedTxOutputData(mysql, {
+            tx_id: hash,
+            index: idx,
+            mode: so.mode,
+            commitment: Buffer.from(so.commitment, 'hex'),
+            range_proof: Buffer.from(so.range_proof, 'hex'),
+            script: Buffer.from(so.script, 'hex'),
+            ephemeral_pubkey: Buffer.from(so.ephemeral_pubkey, 'hex'),
+            token_data: isAmount ? so.token_data : null,
+            asset_commitment: !isAmount ? Buffer.from(so.asset_commitment, 'hex') : null,
+            surjection_proof: !isAmount ? Buffer.from(so.surjection_proof, 'hex') : null,
+          });
+
+          await upsertShieldedAddressObservation(mysql, so.decoded.address);
+
+          // If a wallet has claimed this shielded address, attempt the rewind
+          // in line. Success → mark the output recovered with the revealed
+          // value/token; failure → mark it recovery_failed and emit an alert.
+          const owned = await findShieldedAddressOwnership(mysql, so.decoded.address);
+          if (owned) {
+            try {
+              const ephem = Buffer.from(so.ephemeral_pubkey, 'hex');
+              const commit = Buffer.from(so.commitment, 'hex');
+              const range = Buffer.from(so.range_proof, 'hex');
+
+              if (isAmount) {
+                const tokenIdHex = resolveShieldedTokenId(so.token_data);
+                if (tokenIdHex === null) {
+                  throw new Error('AmountShielded token_data does not resolve to a known token');
+                }
+                const tokenUid = Buffer.from(tokenIdHex, 'hex');
+                const r = rewindAmount({
+                  scanPrivkey: owned.scan_privkey,
+                  ephemeralPubkey: ephem,
+                  commitment: commit,
+                  rangeProof: range,
+                  tokenUid,
+                });
+                await markTxOutputRecovered(mysql, hash, idx, {
+                  value: r.value,
+                  token_id: tokenIdHex,
+                });
+                shieldedRecoveryResults.push({
+                  address: so.decoded.address,
+                  tokenId: tokenIdHex,
+                  value: r.value,
+                  locked: shieldedLocked,
+                });
+              } else {
+                const assetCommit = Buffer.from(so.asset_commitment, 'hex');
+                const r = rewindFully({
+                  scanPrivkey: owned.scan_privkey,
+                  ephemeralPubkey: ephem,
+                  commitment: commit,
+                  rangeProof: range,
+                  assetCommitment: assetCommit,
+                });
+                const tokenIdHexFull = r.tokenUid;
+                await markTxOutputRecovered(mysql, hash, idx, {
+                  value: r.value,
+                  token_id: tokenIdHexFull,
+                });
+                shieldedRecoveryResults.push({
+                  address: so.decoded.address,
+                  tokenId: tokenIdHexFull,
+                  value: r.value,
+                  locked: shieldedLocked,
+                });
+              }
+            } catch (e) {
+              await markTxOutputRecoveryFailed(mysql, hash, idx);
+              await addAlert(
+                'Shielded recovery failed',
+                `Failed to rewind shielded output ${hash}:${idx} for owned address`,
+                Severity.MAJOR,
+                { tx_id: hash, index: idx, error: String(e) },
+                logger,
+              );
+            }
+          }
+        }
+
+        // Bump address.transactions once per involved address using the
+        // pure wire-data set (transparent in/out + every shielded out +
+        // shielded in spent_output.decoded.address + nano-header addresses).
+        // This is now the single canonical writer of the involvement
+        // counter — updateAddressTablesWithTx no longer touches the
+        // address row directly; it only writes per-token rows.
+        const involvedAddresses = getInvolvedAddresses(inputs, outputs, shieldedOutputs, headers);
+        await withSpan('bumpAddressInvolvement', () => bumpAddressInvolvement(mysql, involvedAddresses));
+
+        // Mark tx utxos as spent. Kind-agnostic: only uses tx_id+index, so
+        // we pass the raw event inputs — both transparent and shielded —
+        // even though prepareInputs only emits transparent TxInput rows.
+        await withSpan('updateTxOutputSpentBy', () => updateTxOutputSpentBy(mysql, inputs, hash));
+
+        // Genesis tx has no inputs and outputs, so nothing to be updated.
+        // Nano contracts contribute an address even without inputs/outputs
+        // — covered by involvedAddresses through the header walk.
+        // Shielded-credit-only and shielded-spend-only vertices also flow
+        // through here because the involvement set always includes any
+        // shielded output / input address.
+        if (involvedAddresses.size > 0) {
           const tokenList: string[] = getTokenListFromInputsAndOutputs(txInputs, txOutputs);
 
           // Update transaction count with the new tx
           await incrementTokensTxCount(mysql, tokenList);
 
-          const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputs, headers);
+          // Unified per-(address, token) balance map. Includes:
+          //   - transparent inputs/outputs from prepared lists,
+          //   - shielded receives from the in-line rewind results above,
+          //   - shielded spend reversals sourced from local tx_output rows
+          //     (only for `recovery_state = 'recovered'` rows owned by us),
+          //   - header-only addresses seeded with an empty HTR entry.
+          const addressBalanceMap: StringMap<TokenBalanceMap> = await getUnifiedBalanceMap(
+            mysql,
+            txInputs,
+            txOutputs,
+            shieldedRecoveryResults,
+            inputs,
+            headers,
+          );
 
           // update address tables (address, address_balance, address_tx_history)
           await withSpan('updateAddressTablesWithTx', () => updateAddressTablesWithTx(mysql, hash, timestamp, addressBalanceMap));
@@ -530,6 +806,20 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             token_name,
             token_symbol,
             signal_bits: 0, // TODO: we should actually receive this and store in the database
+            // Additive realtime fields: a lightweight shielded-output projection
+            // (no crypto blobs) and the full involved-address set (reusing the
+            // same set bumpAddressInvolvement consumed). Clients intersect
+            // `addresses` with their own and refetch.
+            shielded_outputs: shieldedOutputs.map((so) => {
+              // `decoded` is schema-guaranteed present (the socket safeParse rejects
+              // any shielded output without it), matching the unguarded ingest path.
+              const decoded = { address: so.decoded.address };
+              // token_data only exists on AmountShielded; FullyShielded hides it.
+              return so.mode === ShieldedOutputMode.AmountShielded
+                ? { mode: so.mode, token_data: so.token_data, decoded }
+                : { mode: so.mode, decoded };
+            }),
+            addresses: Array.from(involvedAddresses),
           };
 
           try {
@@ -546,7 +836,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
           try {
             if (PUSH_NOTIFICATION_ENABLED) {
-              const walletBalanceMap = await getWalletBalancesForTx(mysql, txData);
+              const walletBalanceMap = await getWalletBalancesForTx(mysql, txData, addressBalanceMap);
               const { length: hasAffectWallets } = Object.keys(walletBalanceMap);
               if (hasAffectWallets) {
                 invokeOnTxPushNotificationRequestedLambda(walletBalanceMap)
@@ -558,12 +848,21 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             logger.error(e);
           }
 
-          const network = new hathorLib.Network(NETWORK);
+          // NFT detection on transactions that touch shielded data is deferred —
+          // shielded NFT detection is technical debt, so skip the handler when the
+          // vertex carries any shielded outputs OR spends any shielded input.
+          const hasShieldedInputs = inputs.some(
+            (input) => input?.spent_output && isShieldedMode(input.spent_output.mode),
+          );
+          if (shieldedOutputs.length === 0 && !hasShieldedInputs) {
+            const network = new hathorLib.Network(NETWORK);
 
-          // Call to process the data for NFT handling (if applicable)
-          // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
-          NftUtils.processNftEvent(fullNodeData, STAGE, SERVERLESS_DEPLOY_PREFIX, network, logger)
-            .catch((err: unknown) => logger.error('[ALERT] Error processing NFT event', err));
+            // Call to process the data for NFT handling (if applicable)
+            // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
+            // @ts-ignore - wallet-lib's FullNodeTransaction will be updated to know about the new spent_output union in the next release
+            NftUtils.processNftEvent(fullNodeData, STAGE, SERVERLESS_DEPLOY_PREFIX, network, logger)
+              .catch((err: unknown) => logger.error('[ALERT] Error processing NFT event', err));
+          }
         }
 
         // Need to check if there is a nano header and update the nc_address's seqnum if needed
@@ -577,6 +876,17 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             }
           }
         }
+
+        // Apply token.total_supply deltas: block reward (HTR, every block) and
+        // the per-token sum(outputs except burn) - sum(inputs) (gated on no
+        // shielded outputs).
+        await applyTokenSupplyUpdates(
+          mysql,
+          version,
+          txOutputs,
+          txInputs,
+          shieldedOutputs.length,
+        );
 
         await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
 
@@ -624,6 +934,7 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
           hash,
           outputs,
           inputs,
+          shielded_outputs: shieldedOutputs = [],
           tokens,
           headers = [],
           version,
@@ -644,6 +955,7 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
           hash,
           inputs,
           outputs,
+          shieldedOutputs,
           tokens,
           headers,
           version,
@@ -720,6 +1032,7 @@ export const voidTx = async (
   hash: string,
   inputs: EventTxInput[],
   outputs: EventTxOutput[],
+  shieldedOutputs: ShieldedOutput[],
   tokens: string[],
   headers: EventTxHeader[],
   version: number,
@@ -741,14 +1054,50 @@ export const voidTx = async (
     };
   });
 
-  const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputsWithLocked, headers);
+  // Build shielded output contributions from local tx_output rows.
+  // A shielded receive is only credited when it was recovered against an
+  // owned address; those same rows must be reversed when the vertex is voided.
+  // We read them from the DB now — before markUtxosAsVoided — so the rows
+  // are still present and still carry value / token_id.
+  //
+  // Ownership is resolved in one batch query to avoid N round-trips.
+  const candidateRows = dbTxOutputs.filter(
+    (r) => r.mode !== 0 && r.recoveryState === RecoveryState.Recovered && r.value !== null && r.tokenId !== null,
+  );
+  const ownershipMap = await findShieldedAddressOwnershipBatch(
+    mysql,
+    candidateRows.map((r) => r.address),
+  );
+  const shieldedRecoveryResults: ShieldedRecoveryResult[] = candidateRows
+    .filter((r) => ownershipMap.has(r.address))
+    .map((r) => ({
+      address: r.address,
+      tokenId: r.tokenId!,
+      value: r.value!,
+      locked: r.locked,
+    }));
+
+  const addressBalanceMap: StringMap<TokenBalanceMap> = await getUnifiedBalanceMap(
+    mysql,
+    txInputs,
+    txOutputsWithLocked,
+    shieldedRecoveryResults,
+    inputs,
+    headers,
+  );
 
   await withSpan('voidTransaction', () => voidTransaction(mysql, hash));
+
   // CRITICAL: markUtxosAsVoided must be called before voidAddressTransaction
   // and voidWalletTransaction as those methods recalculate balances based on
   // the UTXOs table.
   await withSpan('markUtxosAsVoided', () => markUtxosAsVoided(mysql, dbTxOutputs));
   await withSpan('voidAddressTransaction', () => voidAddressTransaction(mysql, hash, addressBalanceMap, version));
+
+  // Reverse the address-grain involvement counter for the SAME set the ingest
+  // path bumped via bumpAddressInvolvement.
+  const involvedAddresses = getInvolvedAddresses(inputs, outputs, shieldedOutputs, headers);
+  await withSpan('decrementAddressInvolvement', () => decrementAddressInvolvement(mysql, involvedAddresses));
 
   // CRITICAL: Unspend the inputs when voiding a transaction
   // The inputs of the voided transaction need to be marked as unspent
@@ -805,6 +1154,25 @@ export const voidTx = async (
     await deleteTokens(mysql, tokensCreated);
   }
 
+  // Reverse the token.total_supply deltas this vertex applied on ingest
+  // (block reward, mint/melt, burn) by replaying the same computation with the
+  // sign flipped. shieldedOutputCount comes from the local tx_output rows so
+  // the shielded gate fires identically to ingest. This runs AFTER deleteTokens
+  // on purpose: a token CREATED by this vertex (path 1) is reversed by its row
+  // deletion, so its row is already gone here and the UPDATE-only reversal
+  // no-ops for it — mirroring ingest, where applyTokenSupplyUpdates(+1) also
+  // no-ops because handleTokenCreated hasn't inserted the row yet. Only
+  // pre-existing tokens (paths 2-4) remain to be reversed.
+  const shieldedOutputCount = dbTxOutputs.filter((r) => r.mode !== 0).length;
+  await withSpan('reverseTokenSupplyUpdates', () => applyTokenSupplyUpdates(
+    mysql,
+    version,
+    txOutputs,
+    txInputs,
+    shieldedOutputCount,
+    -1,
+  ));
+
   if (VALIDATE_ADDRESS_BALANCES) {
     const addresses = Object.keys(addressBalanceMap);
     await validateAddressBalances(mysql, addresses);
@@ -825,6 +1193,7 @@ export const handleVoidedTx = async (context: Context) => {
           hash,
           outputs,
           inputs,
+          shielded_outputs: shieldedOutputs = [],
           tokens,
           headers = [],
           version,
@@ -837,6 +1206,7 @@ export const handleVoidedTx = async (context: Context) => {
           hash,
           inputs,
           outputs,
+          shieldedOutputs,
           tokens,
           headers,
           version,
@@ -1186,6 +1556,7 @@ export const handleTokenCreated = async (context: Context) => {
           token_symbol,
           token_version,
           nc_exec_info,
+          initial_amount,
         } = fullNodeEvent.event.data;
 
         span.setAttribute('token.uid', token_uid);
@@ -1218,7 +1589,20 @@ export const handleTokenCreated = async (context: Context) => {
           // Insert the new token
           await storeTokenInformation(mysql, token_uid, token_name, token_symbol, token_version);
           await insertTokenCreation(mysql, token_uid, txId, firstBlock);
-          logger.debug(`Inserted new token ${token_uid} with first_block=${firstBlock}, version=${token_version}`);
+
+          // Record the initial mint amount as the token's starting
+          // total_supply. The wire payload carries `initial_amount`
+          // directly, so we use it instead of reconstructing the sum
+          // from tx_output rows. handleTokenCreated is the single writer
+          // of token-creation supply; applyTokenSupplyUpdates (in
+          // handleVertexAccepted) only mutates existing token rows for
+          // mint/melt/burn deltas, so the two paths never compete on the
+          // same column. The `?? 0n` fallback covers events that omit
+          // the field defensively.
+          const initialSupply = BigInt(initial_amount ?? 0);
+          await setTokenTotalSupply(mysql, token_uid, initialSupply);
+
+          logger.debug(`Inserted new token ${token_uid} with first_block=${firstBlock}, version=${token_version}, initial_supply=${initialSupply}`);
         } else {
           logger.debug(`Token ${token_uid} already exists, skipping insertion`);
         }
