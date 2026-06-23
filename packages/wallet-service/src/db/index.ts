@@ -2207,6 +2207,16 @@ export const markWalletTxHistoryAsVoided = async (
 };
 
 /**
+ * Coerce a DB integer column (returned as a string under `supportBigNumbers`)
+ * to `bigint`, so lifetime-total arithmetic keeps full precision above
+ * Number.MAX_SAFE_INTEGER. The `?? 0` fallback handles a possibly-null read
+ * defensively; in practice these columns are NOT NULL and the SUM(... ELSE 0)
+ * is never null for an existing group, so the fallback arm is unreachable.
+ */
+/* istanbul ignore next */
+const dbIntToBigInt = (value: unknown): bigint => BigInt((value ?? 0) as string | number);
+
+/**
  * Rebuilds the address_balance table for the given addresses from
  * the tx_output table
 
@@ -2342,8 +2352,8 @@ export const rebuildAddressBalancesFromUtxos = async (
       // total_received / total_shielded_received are 64-bit DB integers; keep the
       // arithmetic in bigint and stringify for MySQL so amounts above
       // Number.MAX_SAFE_INTEGER don't lose precision during the rebuild.
-      (BigInt((totalReceived ?? 0) as string | number) - diff.totalReceived).toString(),
-      (BigInt((totalShieldedReceived ?? 0) as string | number) - diff.totalShieldedReceived).toString(),
+      (dbIntToBigInt(totalReceived) - diff.totalReceived).toString(),
+      (dbIntToBigInt(totalShieldedReceived) - diff.totalShieldedReceived).toString(),
       address,
       tokenId,
     ];
@@ -2867,8 +2877,8 @@ export const getAffectedAddressTotalReceivedFromTxList = async (
     const tokenId = result.tokenId as string;
 
     acc[`${address}_${tokenId}`] = {
-      totalReceived: BigInt((result.total ?? 0) as string | number),
-      totalShieldedReceived: BigInt((result.totalShielded ?? 0) as string | number),
+      totalReceived: dbIntToBigInt(result.total),
+      totalShieldedReceived: dbIntToBigInt(result.totalShielded),
     };
 
     return acc;
