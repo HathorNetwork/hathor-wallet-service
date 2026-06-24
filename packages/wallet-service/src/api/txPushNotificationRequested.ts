@@ -127,6 +127,10 @@ export const handleRequest: Handler<StringMap<WalletBalanceValue>, { success: bo
       // verify by the first token balance — count the shielded amount too so a
       // pure shielded receive (transparent total 0) still notifies.
       const firstBalance = wallet.walletBalanceForTx[0];
+      // No balance entries for this wallet → nothing to notify; skip it rather
+      // than dereferencing index 0 (an empty-but-valid payload would otherwise
+      // throw and fail the whole handler).
+      if (!firstBalance) return false;
       // Joi validates these as numbers, so compare as numbers (the declared
       // bigint types don't reflect the runtime values arriving over JSON).
       return Number(firstBalance.total) > 0 || Number(firstBalance.shieldedAmount ?? 0) > 0;
