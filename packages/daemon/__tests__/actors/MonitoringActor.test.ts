@@ -116,6 +116,32 @@ describe('MonitoringActor', () => {
     expect(processExitSpy).not.toHaveBeenCalled();
   });
 
+  it('should fire the idle alert with the configured IDLE_EVENT_SEVERITY', async () => {
+    config['IDLE_EVENT_SEVERITY'] = Severity.MINOR;
+    MonitoringActor(mockCallback, mockReceive, config);
+    sendEvent('CONNECTED');
+
+    jest.advanceTimersByTime(config['IDLE_EVENT_TIMEOUT_MS'] + 1);
+    await Promise.resolve();
+    await Promise.resolve(); // flush the .finally() microtask
+
+    expect(mockAddAlert).toHaveBeenCalledTimes(1);
+    expect(mockAddAlert.mock.calls[0][2]).toBe(Severity.MINOR);
+  });
+
+  it('should fall back to MAJOR when IDLE_EVENT_SEVERITY is not a valid severity', async () => {
+    config['IDLE_EVENT_SEVERITY'] = 'bogus';
+    MonitoringActor(mockCallback, mockReceive, config);
+    sendEvent('CONNECTED');
+
+    jest.advanceTimersByTime(config['IDLE_EVENT_TIMEOUT_MS'] + 1);
+    await Promise.resolve();
+    await Promise.resolve(); // flush the .finally() microtask
+
+    expect(mockAddAlert).toHaveBeenCalledTimes(1);
+    expect(mockAddAlert.mock.calls[0][2]).toBe(Severity.MAJOR);
+  });
+
   it('should NOT fire an idle alert when events keep arriving', async () => {
     MonitoringActor(mockCallback, mockReceive, config);
     sendEvent('CONNECTED');
