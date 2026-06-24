@@ -137,6 +137,9 @@ export const getDbConnection = async (): Promise<PoolConnection> => {
       user: DB_USER,
       port: DB_PORT,
       password: DB_PASS,
+      // BIGINT columns should be returned as strings to keep precision on the JS unsafe range.
+      supportBigNumbers: true,
+      bigNumberStrings: true,
     });
 
     pool = newPool;
@@ -510,8 +513,15 @@ export async function markTxOutputRecovered(
 
 /**
  * Record that the rewind threw for an output we believed we owned.
- * Terminal state — we don't keep retrying. Same idempotency guard as
- * markTxOutputRecovered.
+ *
+ * This is NOT a terminal state: an output can land here when the wallet is not
+ * yet registered (or recovery is otherwise impossible at ingest time), and the
+ * RFC requires `recovery_failed`/`unowned` rows to remain re-scannable so they
+ * can still reach `recovered` once the wallet registers. The follow-up catchup
+ * sweep (keyed on `address.catchup_state`) is what re-drives them; it is not
+ * implemented yet. The `recovery_state = 'unowned'` guard below only makes the
+ * inline ingest write idempotent against re-delivery of the same vertex — it
+ * does not preclude the future catchup from reprocessing the row.
  */
 export async function markTxOutputRecoveryFailed(
   conn: any,
@@ -2240,6 +2250,8 @@ export const fetchAddressBalance = async (
     tokenId: result.token_id as string,
     unlockedBalance: BigInt(result.unlocked_balance),
     lockedBalance: BigInt(result.locked_balance),
+    unlockedShieldedBalance: BigInt(result.unlocked_shielded_balance),
+    lockedShieldedBalance: BigInt(result.locked_shielded_balance),
     lockedAuthorities: result.locked_authorities as number,
     unlockedAuthorities: result.unlocked_authorities as number,
     timelockExpires: result.timelock_expires as number,
@@ -2265,6 +2277,7 @@ export const fetchAddressTxHistorySum = async (
     `SELECT address,
             token_id,
             SUM(\`balance\`) AS balance,
+            SUM(\`shielded_balance_delta\`) AS shielded_balance_delta,
             COUNT(\`tx_id\`) AS transactions
        FROM \`address_tx_history\`
       WHERE \`address\` IN (?)
@@ -2278,6 +2291,7 @@ export const fetchAddressTxHistorySum = async (
     address: result.address as string,
     tokenId: result.token_id as string,
     balance: BigInt(result.balance),
+    shieldedBalanceDelta: BigInt(result.shielded_balance_delta),
     transactions: parseInt(result.transactions),
   }));
 };

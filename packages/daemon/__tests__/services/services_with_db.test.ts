@@ -2329,6 +2329,75 @@ describe('handleVertexAccepted with shielded outputs', () => {
     expect(mockAddAlert).not.toHaveBeenCalled();
   });
 
+  it('marks a matched FullyShielded output recovery_failed and alerts when the rewind throws', async () => {
+    expect.hasAssertions();
+
+    // Mode-2 failure fork: distinct from the mode-1 failure test, which throws
+    // in token resolution before any rewind. Here the output is a genuine
+    // FullyShielded one and the rewind itself throws (unprimed mock), so the
+    // failure must come from the rewindFully call and land in the catch.
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0] = {
+      mode: 2,
+      commitment: '02'.repeat(33),
+      range_proof: '03'.repeat(64),
+      script: '04'.repeat(20),
+      ephemeral_pubkey: '05'.repeat(33),
+      asset_commitment: '06'.repeat(33),
+      surjection_proof: '07'.repeat(64),
+      decoded: {
+        address: 'WShieldedAddress1',
+      },
+    };
+    const txHash = fixture.event.data.hash;
+    const so = fixture.event.data.shielded_outputs[0];
+
+    // Owned shielded address (bip32_account = 2 = CTSpend) so the in-line rewind runs.
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [so.decoded.address, Buffer.alloc(32, 0x42)],
+    );
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+    // Intentionally do NOT prime the FullyShielded rewind: the mock throws for an
+    // unprimed (commitment, ephemeralPubkey), driving the recovery-failed fork.
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    const txOutput = await getTxOutput(mysql, txHash, 1, false);
+    expect(txOutput).not.toBeNull();
+    expect(txOutput!.mode).toBe(2);
+    expect(txOutput!.recoveryState).toBe('recovery_failed');
+    expect(txOutput!.value).toBeNull();
+    expect(txOutput!.tokenId).toBeNull();
+
+    // Exactly one alert, carrying the shielded output's concatenated index.
+    expect(mockAddAlert).toHaveBeenCalledTimes(1);
+    const [title, , severity, metadata] = mockAddAlert.mock.calls[0];
+    expect(title).toBe('Shielded recovery failed');
+    expect(severity).toBe(Severity.MAJOR);
+    expect(metadata).toMatchObject({ tx_id: txHash, index: 1 });
+
+    // Nothing recovered → no per-token balance row for the shielded address.
+    const [balRows] = await mysql.query<any[]>(
+      'SELECT * FROM `address_balance` WHERE `address` = ?',
+      [so.decoded.address],
+    );
+    expect(balRows).toHaveLength(0);
+  });
+
   it('writes shielded amount columns on the unified address_balance row for recovered shielded outputs', async () => {
     expect.hasAssertions();
 

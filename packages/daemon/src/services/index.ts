@@ -563,6 +563,12 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         // already covered by bumpAddressInvolvement).
         const shieldedRecoveryResults: ShieldedRecoveryResult[] = [];
 
+        // Shielded-recovery-failure alerts are collected here and emitted AFTER
+        // the transaction commits. addAlert performs an SQS round-trip, which
+        // must not run while the ingest transaction holds tx_output/address
+        // row locks.
+        const failedShieldedRecoveries: { txId: string; index: number; error: string }[] = [];
+
         // Walk shielded_outputs[] with concatenated index = transparentCount + i.
         // Each shielded output produces three rows: the unified `tx_output`, the
         // `shielded_tx_output_data` satellite carrying the per-output crypto payload,
@@ -669,13 +675,8 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
               }
             } catch (e) {
               await markTxOutputRecoveryFailed(mysql, hash, idx);
-              await addAlert(
-                'Shielded recovery failed',
-                `Failed to rewind shielded output ${hash}:${idx} for owned address`,
-                Severity.MAJOR,
-                { tx_id: hash, index: idx, error: String(e) },
-                logger,
-              );
+              // Defer the alert until after commit — see failedShieldedRecoveries.
+              failedShieldedRecoveries.push({ txId: hash, index: idx, error: String(e) });
             }
           }
         }
@@ -891,6 +892,19 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
 
         await mysql.commit();
+
+        // Transaction committed and its row locks released: now emit any
+        // deferred shielded-recovery-failure alerts. addAlert swallows its own
+        // errors, so this cannot affect the already-committed state.
+        for (const failure of failedShieldedRecoveries) {
+          await addAlert(
+            'Shielded recovery failed',
+            `Failed to rewind shielded output ${failure.txId}:${failure.index} for owned address`,
+            Severity.MAJOR,
+            { tx_id: failure.txId, index: failure.index, error: failure.error },
+            logger,
+          );
+        }
       } catch (e) {
         try {
           await mysql.rollback();

@@ -45,6 +45,7 @@ export interface AddressTxHistorySumRow extends RowDataPacket {
   address: string;
   token_id: string;
   balance: string;
+  shielded_balance_delta: string;
   transactions: string;
 }
 
@@ -68,6 +69,9 @@ export interface AddressBalanceRow extends RowDataPacket {
   token_id: string;
   unlocked_balance: number;
   locked_balance: number;
+  unlocked_shielded_balance: number;
+  locked_shielded_balance: number;
+  total_shielded_received: number;
   locked_authorities: number;
   unlocked_authorities: number;
   timelock_expires: number;
