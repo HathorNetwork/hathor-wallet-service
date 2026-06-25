@@ -644,8 +644,13 @@ export const validateAddressBalances = async (mysql: MysqlConnection, addresses:
       assert.fail(`No address_tx_history sum for ${key} despite transactions > 0`);
     }
 
-    // transparent balances must match the running sum of per-tx `balance`
-    assert.strictEqual(Number(addressBalance.unlockedBalance + addressBalance.lockedBalance), Number(addressTxHistorySum.balance));
+    // transparent balances must match the running sum of per-tx `balance`.
+    // Compare as bigint directly (both operands already are): Number() would
+    // lose precision above 2^53 and could mask a real mismatch on large balances.
+    assert.strictEqual(
+      addressBalance.unlockedBalance + addressBalance.lockedBalance,
+      addressTxHistorySum.balance,
+    );
 
     // shielded balances must match the signed running sum of per-tx
     // `shielded_balance_delta` (the SUM can be 0 even with movement).
