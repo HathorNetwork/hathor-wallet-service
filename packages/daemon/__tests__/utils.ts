@@ -225,7 +225,7 @@ export const countTxOutputTable = async (
   );
 
   if (results.length > 0) {
-    return results[0].count as number;
+    return Number(results[0].count);
   }
 
   return 0;
@@ -847,5 +847,5 @@ export const getWalletTxHistoryCount = async (mysql: MysqlConnection, walletId: 
     `SELECT COUNT(*) as count FROM \`wallet_tx_history\` WHERE \`wallet_id\` = ? AND \`tx_id\` = ?`,
     [walletId, txId]
   ) as [any[], any];
-  return results[0].count;
+  return Number(results[0].count);
 };

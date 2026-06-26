@@ -641,7 +641,14 @@ export const validateAddressBalances = async (mysql: MysqlConnection, addresses:
     const key = `${addressBalance.address}|${addressBalance.tokenId}`;
     const addressTxHistorySum = sumByKey.get(key);
     if (addressTxHistorySum === undefined) {
-      assert.fail(`No address_tx_history sum for ${key} despite transactions > 0`);
+      // No non-voided history rows for this (address, token): the running sum is
+      // 0, so both the transparent and shielded balances must also be 0.
+      assert.strictEqual(addressBalance.unlockedBalance + addressBalance.lockedBalance, 0n);
+      assert.strictEqual(
+        addressBalance.unlockedShieldedBalance + addressBalance.lockedShieldedBalance,
+        0n,
+      );
+      continue;
     }
 
     // transparent balances must match the running sum of per-tx `balance`.

@@ -3564,6 +3564,15 @@ describe('handleVoidedTx with shielded', () => {
        VALUES ('WShieldedSpendAddr', ?, 0, 0, 0, ?, 0, ?, 1)`,
       [TOKEN_ID, SEEDED_VALUE.toString(), SEEDED_VALUE.toString()],
     );
+    // Production writes the recovered receive to address_tx_history alongside the
+    // balance; seed it so the post-void consistency check has a matching
+    // non-voided sum (the spend's own history row is voided by the void under test).
+    await mysql.query(
+      `INSERT INTO \`address_tx_history\`
+         (address, tx_id, token_id, balance, shielded_balance_delta, timestamp, voided)
+       VALUES ('WShieldedSpendAddr', ?, ?, 0, ?, 1700000000, FALSE)`,
+      [PREV_TX_ID, TOKEN_ID, SEEDED_VALUE.toString()],
+    );
     await mysql.query(
       `INSERT INTO wallet_balance
          (wallet_id, token_id,

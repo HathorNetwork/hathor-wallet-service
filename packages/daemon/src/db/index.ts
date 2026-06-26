@@ -30,7 +30,7 @@ import {
 } from '@wallet-service/common';
 import { isAuthority, toTokenVersion, RecoveryState, Bip32Account } from '@wallet-service/common';
 import { getWalletBalanceMap } from '../utils/wallet';
-import { parseNullableBigInt } from '../utils/helpers';
+import { parseNullableBigInt, parseNullableNumber } from '../utils/helpers';
 import {
   AddressBalanceRow,
   AddressTxHistorySumRow,
@@ -1645,7 +1645,8 @@ export const getMinersList = async (
       address: result.address as string,
       firstBlock: result.first_block as string,
       lastBlock: result.last_block as string,
-      count: result.count as number,
+      // miner.count is BIGINT.UNSIGNED — read it as bigint to match the column.
+      count: BigInt(result.count),
     });
   }
 
@@ -2290,8 +2291,10 @@ export const fetchAddressTxHistorySum = async (
   return results.map((result): AddressTotalBalance => ({
     address: result.address as string,
     tokenId: result.token_id as string,
-    balance: BigInt(result.balance),
-    shieldedBalanceDelta: BigInt(result.shielded_balance_delta),
+    // SUM() can be null (and arrives as a string under bigNumberStrings); a null
+    // aggregate means zero, so coalesce to avoid BigInt(null) throwing.
+    balance: parseNullableBigInt(result.balance) ?? 0n,
+    shieldedBalanceDelta: parseNullableBigInt(result.shielded_balance_delta) ?? 0n,
     transactions: parseInt(result.transactions),
   }));
 };
@@ -2504,8 +2507,10 @@ export const getMaxIndicesForWallets = async (
   return new Map(results.map(r => [
     r.wallet_id,
     {
-      maxAmongAddresses: r.max_among_addresses,
-      maxWalletIndex: r.max_wallet_index
+      // MAX() is null when no rows match, and arrives as a string under
+      // bigNumberStrings — parse to a (bounded) number | null.
+      maxAmongAddresses: parseNullableNumber(r.max_among_addresses),
+      maxWalletIndex: parseNullableNumber(r.max_wallet_index)
     }
   ]));
 };

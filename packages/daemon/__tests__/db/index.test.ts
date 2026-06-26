@@ -1142,9 +1142,9 @@ describe('miner list', () => {
 
     expect(results).toHaveLength(3);
     expect(new Set(results)).toStrictEqual(new Set([
-      { address: 'address1', firstBlock: 'txId1', lastBlock: 'txId1', count: 1 },
-      { address: 'address2', firstBlock: 'txId2', lastBlock: 'txId2', count: 1 },
-      { address: 'address3', firstBlock: 'txId3', lastBlock: 'txId3', count: 1 },
+      { address: 'address1', firstBlock: 'txId1', lastBlock: 'txId1', count: 1n },
+      { address: 'address2', firstBlock: 'txId2', lastBlock: 'txId2', count: 1n },
+      { address: 'address3', firstBlock: 'txId3', lastBlock: 'txId3', count: 1n },
     ]));
 
     await addMiner(mysql, 'address3', 'txId4');
