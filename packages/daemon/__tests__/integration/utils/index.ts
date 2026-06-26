@@ -66,6 +66,8 @@ export const fetchAddressBalances = async (
     tokenId: result.token_id as string,
     unlockedBalance: BigInt(result.unlocked_balance),
     lockedBalance: BigInt(result.locked_balance),
+    unlockedShieldedBalance: BigInt(result.unlocked_shielded_balance),
+    lockedShieldedBalance: BigInt(result.locked_shielded_balance),
     lockedAuthorities: result.locked_authorities as number,
     unlockedAuthorities: result.unlocked_authorities as number,
     timelockExpires: result.timelock_expires as number,
