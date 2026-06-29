@@ -10,8 +10,8 @@
  * `handleTokenCreated`.
  *
  * Coverage:
- *  - Token creation sets total_supply to the SUM of non-authority transparent
- *    outputs in the creation tx (path 1).
+ *  - Token creation sets total_supply from the wire `initial_amount` on the
+ *    TOKEN_CREATED event (path 1).
  *  - Block reward increases HTR total_supply on every block (path 2).
  *  - Mint, melt, and burn-address outputs apply a signed delta via
  *    `sum(outputs except burn) - sum(inputs)` (path 3).

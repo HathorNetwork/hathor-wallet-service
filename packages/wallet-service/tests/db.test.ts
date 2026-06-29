@@ -2758,8 +2758,20 @@ test('getAvailableAuthorities', async () => {
     spentBy: null,
   }]);
 
+  // A shielded row (mode != 0) must never surface as a spendable authority,
+  // even if it somehow carried an authority bit (shielded outputs don't carry
+  // authorities, so this is a defensive guard). addToUtxoTable always writes
+  // mode = 0, so insert the shielded row directly and assert the `AND mode = 0`
+  // clause excludes it.
+  await mysql.query(
+    `INSERT INTO tx_output (tx_id, \`index\`, token_id, address, value, authorities, timelock, heightlock, locked, voided, spent_by, mode)
+     VALUES ('txId', 4, 'tokenShielded', 'addrShielded', 0, 1, NULL, NULL, FALSE, FALSE, NULL, 1)`,
+  );
+
   expect(await getAvailableAuthorities(mysql, 'token1')).toHaveLength(1);
   expect(await getAvailableAuthorities(mysql, 'token2')).toHaveLength(1);
+  // The shielded (mode = 1) authority row is filtered out by `AND mode = 0`.
+  expect(await getAvailableAuthorities(mysql, 'tokenShielded')).toHaveLength(0);
 });
 
 test('getUtxo, getAuthorityUtxo', async () => {

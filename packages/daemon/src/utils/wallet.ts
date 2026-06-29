@@ -628,14 +628,43 @@ export const validateAddressBalances = async (mysql: MysqlConnection, addresses:
     (addressBalance: AddressBalance) => addressBalance.transactions > 0
   );
 
-  for (let i = 0; i < addressTxHistorySums.length; i++) {
-    const addressBalance: AddressBalance = filteredAddressBalances[i];
-    const addressTxHistorySum: AddressTotalBalance = addressTxHistorySums[i];
+  // Key the history sums by (address, token_id) so each balance row is compared
+  // against its matching pair. A positional zip can misalign once a shielded-only
+  // token produces an address_balance row (transparent balance 0, shielded delta
+  // non-zero) whose ordering/length diverges from the history-sum list.
+  const sumByKey = new Map<string, AddressTotalBalance>();
+  for (const sum of addressTxHistorySums) {
+    sumByKey.set(`${sum.address}|${sum.tokenId}`, sum);
+  }
 
-    assert.strictEqual(addressBalance.tokenId, addressTxHistorySum.tokenId);
+  for (const addressBalance of filteredAddressBalances) {
+    const key = `${addressBalance.address}|${addressBalance.tokenId}`;
+    const addressTxHistorySum = sumByKey.get(key);
+    if (addressTxHistorySum === undefined) {
+      // No non-voided history rows for this (address, token): the running sum is
+      // 0, so both the transparent and shielded balances must also be 0.
+      assert.strictEqual(addressBalance.unlockedBalance + addressBalance.lockedBalance, 0n);
+      assert.strictEqual(
+        addressBalance.unlockedShieldedBalance + addressBalance.lockedShieldedBalance,
+        0n,
+      );
+      continue;
+    }
 
-    // balances must match
-    assert.strictEqual(Number(addressBalance.unlockedBalance + addressBalance.lockedBalance), Number(addressTxHistorySum.balance));
+    // transparent balances must match the running sum of per-tx `balance`.
+    // Compare as bigint directly (both operands already are): Number() would
+    // lose precision above 2^53 and could mask a real mismatch on large balances.
+    assert.strictEqual(
+      addressBalance.unlockedBalance + addressBalance.lockedBalance,
+      addressTxHistorySum.balance,
+    );
+
+    // shielded balances must match the signed running sum of per-tx
+    // `shielded_balance_delta` (the SUM can be 0 even with movement).
+    assert.strictEqual(
+      addressBalance.unlockedShieldedBalance + addressBalance.lockedShieldedBalance,
+      addressTxHistorySum.shieldedBalanceDelta,
+    );
   }
 };
 

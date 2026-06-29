@@ -23,6 +23,18 @@ export function parseNullableBigInt(value: number | string | null | undefined): 
   return value === null || value === undefined ? null : BigInt(value);
 }
 
+/**
+ * Parse a nullable numeric database column into a number.
+ *
+ * Aggregates (e.g. MAX) and BIGINT-typed reads may arrive as a `string` under
+ * `bigNumberStrings`, and `NULL` as `null`. Use this for bounded integer values
+ * (indices, counts) that are semantically numbers; use parseNullableBigInt for
+ * value columns that can exceed the JS safe-integer range.
+ */
+export function parseNullableNumber(value: number | string | null | undefined): number | null {
+  return value === null || value === undefined ? null : Number(value);
+}
+
 export const getFullnodeHttpUrl = () => {
   const { USE_SSL, FULLNODE_HOST } = getConfig();
   const protocol = USE_SSL ? 'https://' : 'http://';
