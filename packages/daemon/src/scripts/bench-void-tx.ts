@@ -203,6 +203,7 @@ async function seedScenario(
       tx_id: prevHash,
       index: 0,
       spent_output: {
+        mode: 0,
         value: value,
         token_data: 0,
         script: 'dqkUCEboPJo9txn548FA/NLLaMLsfsSIrA==',
@@ -361,7 +362,7 @@ async function main() {
       collectedSpans.length = 0;
 
       const t0 = process.hrtime.bigint();
-      await voidTx(conn, fx.targetHash, fx.inputs, fx.outputs, fx.tokens, [], 1);
+      await voidTx(conn, fx.targetHash, fx.inputs, fx.outputs, [], fx.tokens, [], 1);
       const t1 = process.hrtime.bigint();
       const totalMs = Number(t1 - t0) / 1e6;
 

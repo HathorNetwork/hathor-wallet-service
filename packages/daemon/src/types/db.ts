@@ -10,9 +10,9 @@ import { RowDataPacket } from 'mysql2/promise';
 export interface TxOutputRow extends RowDataPacket {
   tx_id: string;
   index: number;
-  token_id: string;
+  token_id: string | null;
   address: string;
-  value: number;
+  value: number | null;
   authorities: number;
   timelock: number;
   heightlock: number;
@@ -20,6 +20,8 @@ export interface TxOutputRow extends RowDataPacket {
   tx_proposal?: string;
   tx_proposal_index?: number;
   spent_by?: string;
+  mode: number;
+  recovery_state: string | null;
 }
 
 export interface LastSyncedEventRow extends RowDataPacket {
@@ -43,6 +45,7 @@ export interface AddressTxHistorySumRow extends RowDataPacket {
   address: string;
   token_id: string;
   balance: string;
+  shielded_balance_delta: string;
   transactions: string;
 }
 
@@ -66,6 +69,9 @@ export interface AddressBalanceRow extends RowDataPacket {
   token_id: string;
   unlocked_balance: number;
   locked_balance: number;
+  unlocked_shielded_balance: number;
+  locked_shielded_balance: number;
+  total_shielded_received: number;
   locked_authorities: number;
   unlocked_authorities: number;
   timelock_expires: number;

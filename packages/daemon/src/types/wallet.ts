@@ -34,6 +34,13 @@ export type TokenBalanceValue = {
   unlockedAuthorities: Record<string, unknown>;
   lockExpires: number | null;
   total: bigint;
+  // Gross shielded amount RECEIVED in this tx for this token: the sum of the
+  // positive (recovered) shielded receipts, suppressed to 0 on a pure spend.
+  // Always >= 0 — NOT a net delta. The push builder gates on `shieldedAmount > 0`
+  // and adds it to the displayed amount, so it must never carry a negative value
+  // (a "net" reading would emit -value on spends and break the gate). `total`
+  // stays transparent-only; the push builder combines the two.
+  shieldedAmount: bigint;
 }
 
 export interface WalletBalanceValue {

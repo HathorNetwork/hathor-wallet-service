@@ -88,6 +88,7 @@ export const createEventTxInput = (
     tx_id: txId,
     index,
     spent_output: {
+      mode: 0,
       value,
       token_data: tokenData,
       script: 'dqkUCEboPJo9txn548FA/NLLaMLsfsSIrA==',
@@ -224,7 +225,7 @@ export const countTxOutputTable = async (
   );
 
   if (results.length > 0) {
-    return results[0].count as number;
+    return Number(results[0].count);
   }
 
   return 0;
@@ -846,5 +847,5 @@ export const getWalletTxHistoryCount = async (mysql: MysqlConnection, walletId: 
     `SELECT COUNT(*) as count FROM \`wallet_tx_history\` WHERE \`wallet_id\` = ? AND \`tx_id\` = ?`,
     [walletId, txId]
   ) as [any[], any];
-  return results[0].count;
+  return Number(results[0].count);
 };
