@@ -119,6 +119,12 @@ test('convertApiVersionData omits the fraction for fullnodes that do not provide
   expect(converted.tokenDepositPercentageDenominator).toBeUndefined();
 });
 
+test('convertApiVersionData omits the deprecated float when the fullnode does not provide it', () => {
+  const data: FullNodeApiVersionResponse = { ...OLD_VERSION_DATA };
+  delete data.token_deposit_percentage;
+  expect(convertApiVersionData(data).tokenDepositPercentage).toBeUndefined();
+});
+
 test('convertApiVersionData handles nano_contracts_enabled correctly', async () => {
   // Test with nano_contracts_enabled = false
   const versionWithNanoFalse: FullNodeApiVersionResponse = {

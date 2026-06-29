@@ -95,7 +95,7 @@ export interface FullNodeVersionData {
   minTxWeightCoefficient: number;
   minTxWeightK: number;
   /** @deprecated Use tokenDepositPercentageNumerator/tokenDepositPercentageDenominator for exact integer math. */
-  tokenDepositPercentage: number;
+  tokenDepositPercentage?: number;
   tokenDepositPercentageNumerator?: number;
   tokenDepositPercentageDenominator?: number;
   rewardSpendMinBlocks: number;
@@ -121,8 +121,8 @@ export interface FullNodeApiVersionResponse {
   min_tx_weight: number;
   min_tx_weight_coefficient: number; // float
   min_tx_weight_k: number;
-  /** @deprecated Float kept for backward compatibility; use the integer fraction fields below. */
-  token_deposit_percentage: number;
+  /** @deprecated Float kept for backward compatibility; fullnodes may omit it in favor of the integer fraction fields below. */
+  token_deposit_percentage?: number;
   // Deposit percentage as an integer fraction in parts per billion; absent on older fullnodes.
   token_deposit_percentage_numerator?: number;
   token_deposit_percentage_denominator?: number;

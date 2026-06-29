@@ -24,8 +24,8 @@ export const FullnodeVersionSchema = Joi.object<FullNodeApiVersionResponse>({
   min_tx_weight: Joi.number().integer().positive().allow(0).required(),
   min_tx_weight_coefficient: Joi.number().positive().allow(0).required(),
   min_tx_weight_k: Joi.number().integer().positive().allow(0).required(),
-  // Deprecated float, always present; superseded by the integer numerator/denominator fraction.
-  token_deposit_percentage: Joi.number().positive().required(),
+  // Deprecated float, now optional: fullnodes may drop it in favor of the integer fraction below.
+  token_deposit_percentage: Joi.number().positive(),
   token_deposit_percentage_numerator: Joi.number().integer().positive(),
   token_deposit_percentage_denominator: Joi.number().integer().positive(),
   reward_spend_min_blocks: Joi.number().integer().positive().required(),
@@ -40,7 +40,20 @@ export const FullnodeVersionSchema = Joi.object<FullNodeApiVersionResponse>({
     symbol: Joi.string().min(1).max(5).required(),
     version: Joi.number().integer(),
   }),
-}).unknown(true);
+})
+  .unknown(true)
+  // Reject a response with no deposit-percentage source at all: without the deprecated
+  // float nor the integer fraction, clients would silently fall back to a compiled-in default.
+  .or(
+    'token_deposit_percentage',
+    'token_deposit_percentage_numerator',
+    'token_deposit_percentage_denominator',
+  )
+  // The integer fraction is only usable as a complete pair, so require both halves together.
+  .and(
+    'token_deposit_percentage_numerator',
+    'token_deposit_percentage_denominator',
+  );
 
 export const EnvironmentConfigSchema = Joi.object<EnvironmentConfig>({
   defaultServer: Joi.string().required(),
