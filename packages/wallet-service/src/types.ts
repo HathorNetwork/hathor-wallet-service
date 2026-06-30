@@ -432,6 +432,9 @@ export type TokenBalanceValue = {
   unlockedAuthorities: Record<string, unknown>;
   lockExpires: number | null;
   total: bigint;
+  // Net shielded balance change for this tx (transparent `total` excludes it).
+  // Optional for backwards-compatibility with daemons that predate the field.
+  shieldedAmount?: bigint;
 }
 
 export class WalletTokenBalance {

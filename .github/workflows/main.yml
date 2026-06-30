@@ -74,6 +74,7 @@ jobs:
         DB_PORT: 3306
         STREAM_ID: f7d9157c-9906-4bd2-bc84-cfb9f5b607d1
         FULLNODE_PEER_ID: bdf4fa876f5cdba84be0cab53b21fc9eb45fe4b3d6ede99f493119d37df4e560
+        NETWORK: mainnet
 
     - name: Run tests on the wallet-service
       run: |
