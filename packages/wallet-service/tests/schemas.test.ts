@@ -41,3 +41,67 @@ test('FullnodeVersionSchema rejects a non-integer native_token.version', () => {
   expect(error).toBeDefined();
   expect(error!.message).toMatch(/native_token\.version/);
 });
+
+// Forward-compat: the deprecated float is optional as long as the integer fraction is present.
+test('FullnodeVersionSchema accepts a payload that omits the deprecated token_deposit_percentage when the fraction is present', () => {
+  const payload = {
+    ...defaultTestVersionData(),
+    token_deposit_percentage_numerator: 10000000,
+    token_deposit_percentage_denominator: 1000000000,
+  };
+  delete (payload as { token_deposit_percentage?: number }).token_deposit_percentage;
+  const { error } = FullnodeVersionSchema.validate(payload);
+  expect(error).toBeUndefined();
+});
+
+// A response with no deposit-percentage source at all would silently fall back to a
+// compiled-in default downstream, so reject it instead.
+test('FullnodeVersionSchema rejects a payload that omits all deposit percentage fields', () => {
+  const payload = defaultTestVersionData();
+  delete (payload as { token_deposit_percentage?: number }).token_deposit_percentage;
+  const { error } = FullnodeVersionSchema.validate(payload);
+  expect(error).toBeDefined();
+  expect(error!.message).toMatch(/token_deposit_percentage/);
+});
+
+test('FullnodeVersionSchema accepts the token deposit percentage numerator/denominator', () => {
+  const payload = {
+    ...defaultTestVersionData(),
+    token_deposit_percentage_numerator: 10000000,
+    token_deposit_percentage_denominator: 1000000000,
+  };
+  const { error } = FullnodeVersionSchema.validate(payload);
+  expect(error).toBeUndefined();
+});
+
+test('FullnodeVersionSchema rejects a non-integer token_deposit_percentage_numerator', () => {
+  const payload = {
+    ...defaultTestVersionData(),
+    token_deposit_percentage_numerator: 1.5,
+  };
+  const { error } = FullnodeVersionSchema.validate(payload);
+  expect(error).toBeDefined();
+  expect(error!.message).toMatch(/token_deposit_percentage_numerator/);
+});
+
+// The fraction is only usable as a complete pair; a half-populated fraction would be
+// ignored downstream and silently fall back to the default, so reject it.
+test('FullnodeVersionSchema rejects a numerator without a denominator', () => {
+  const payload = {
+    ...defaultTestVersionData(),
+    token_deposit_percentage_numerator: 10000000,
+  };
+  const { error } = FullnodeVersionSchema.validate(payload);
+  expect(error).toBeDefined();
+  expect(error!.message).toMatch(/token_deposit_percentage_denominator/);
+});
+
+test('FullnodeVersionSchema rejects a denominator without a numerator', () => {
+  const payload = {
+    ...defaultTestVersionData(),
+    token_deposit_percentage_denominator: 1000000000,
+  };
+  const { error } = FullnodeVersionSchema.validate(payload);
+  expect(error).toBeDefined();
+  expect(error!.message).toMatch(/token_deposit_percentage_numerator/);
+});
