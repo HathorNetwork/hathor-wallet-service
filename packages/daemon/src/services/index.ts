@@ -35,7 +35,6 @@ import {
   TokenBalanceMap,
   TxOutputWithIndex,
   isDecodedValid,
-  isAuthority,
 } from '@wallet-service/common';
 import {
   prepareOutputs,
@@ -98,8 +97,6 @@ import {
   markTxOutputRecoveryFailed,
   bumpAddressInvolvement,
   decrementAddressInvolvement,
-  setTokenTotalSupply,
-  incrementTokenTotalSupply,
 } from '../db';
 import { rewindAmount, rewindFully } from '../crypto/ctRewind';
 import getConfig, { VALIDATE_ADDRESS_BALANCES } from '../config';
@@ -262,103 +259,6 @@ export const metadataDiff = async (_context: Context, event: Event) => {
 export const isBlock = (version: number): boolean => version === hathorLib.constants.BLOCK_VERSION
   || version === hathorLib.constants.MERGED_MINED_BLOCK_VERSION
   || version === hathorLib.constants.POA_BLOCK_VERSION;
-
-// Sentinel burn address. Outputs sent here are non-spendable and reduce supply
-// when accounted in `applyTokenSupplyUpdates`. Duplicated locally — the
-// wallet-service has its own copy; the constant has not been promoted to
-// `@wallet-service/common` to keep this change minimal.
-const BURN_ADDRESS = 'HDeadDeadDeadDeadDeadDeadDeagTPgmn';
-
-/**
- * Apply mint/melt/burn/block-reward deltas to `token.total_supply` for a
- * single accepted vertex.
- *
- * Two independent code paths:
- *  - Block reward: every block with value-bearing outputs increases HTR
- *    supply by the sum of those outputs. Blocks never carry shielded outputs
- *    in v1, so this path is not gated on `shieldedOutputCount`.
- *  - Supply delta: gated on the vertex having NO shielded outputs. Computes
- *    `sum(outputs) - sum(inputs)` per token, with outputs to BURN_ADDRESS
- *    EXCLUDED from the outputs sum and authority rows excluded from both
- *    sums. Applies the signed delta — positive for mint, negative for melt,
- *    and negative for any burn-address loss (since the burned value
- *    contributes to the inputs side but not the outputs side, naturally
- *    appearing as a supply decrease).
- *
- * Reads from the prepared (transparent) `TxInput[]` / `TxOutputWithIndex[]`,
- * which already carry resolved `token` UIDs.
- *
- * `sign` flips the direction of every delta: `+1` on ingest (the default),
- * `-1` when reversing a voided / removed vertex. The shielded gate and the
- * block short-circuit apply symmetrically to both directions.
- */
-export async function applyTokenSupplyUpdates(
-  mysql: any,
-  version: number,
-  txOutputs: TxOutputWithIndex[],
-  txInputs: TxInput[],
-  shieldedOutputCount: number,
-  sign: 1 | -1 = 1,
-): Promise<void> {
-  const HTR = hathorLib.constants.NATIVE_TOKEN_UID;
-
-  // Block reward (not gated on shielded).
-  // The coinbase mints HTR; typically a single output but sum them for safety.
-  // Blocks have no real inputs to balance against the coinbase, so the
-  // generic supply-delta loop below would double-count if it ran for blocks —
-  // short out here once the block reward is recorded.
-  if (isBlock(version) && txOutputs.length > 0) {
-    let blockReward = 0n;
-    for (const o of txOutputs) {
-      blockReward += BigInt(o.value);
-    }
-    if (blockReward > 0n) {
-      await incrementTokenTotalSupply(mysql, HTR, BigInt(sign) * blockReward);
-    }
-    return;
-  }
-
-  // Token-creation vertices are skipped entirely: handleTokenCreated is the
-  // single authority for the created token's supply (set from the wire
-  // initial_amount on the TOKEN_CREATED event), and the HTR deposit a creation
-  // tx consumes is not a supply change. Applying the per-token delta here would
-  // double-count the created token and wrongly shrink HTR. Skipping is
-  // sign-agnostic, so the void/remove reversal stays symmetric with ingest.
-  if (version === hathorLib.constants.CREATE_TOKEN_TX_VERSION) return;
-
-  // Per-token supply delta. Gated on absence of shielded outputs.
-  if (shieldedOutputCount !== 0) return;
-
-  const outSumByToken = new Map<string, bigint>();
-  for (const o of txOutputs) {
-    // `prepareOutputs` does NOT zero authority values; the authority flag is
-    // still encoded in `token_data`. Exclude authority rows from the sum so
-    // their bit-pattern values don't pollute mint/melt accounting.
-    if (isAuthority(o.token_data)) continue;
-    // Outputs to the burn sentinel address are excluded from the outputs sum;
-    // their value naturally drops out of `total_supply` because the inputs
-    // funding them remain in the inputs sum.
-    if (o.decoded?.address === BURN_ADDRESS) continue;
-    outSumByToken.set(o.token, (outSumByToken.get(o.token) ?? 0n) + BigInt(o.value));
-  }
-
-  const inSumByToken = new Map<string, bigint>();
-  for (const i of txInputs) {
-    if (isAuthority(i.token_data)) continue;
-    inSumByToken.set(i.token, (inSumByToken.get(i.token) ?? 0n) + BigInt(i.value));
-  }
-
-  const touchedTokens = new Set<string>([
-    ...outSumByToken.keys(),
-    ...inSumByToken.keys(),
-  ]);
-  for (const tokenId of touchedTokens) {
-    const delta = BigInt(sign) * ((outSumByToken.get(tokenId) ?? 0n) - (inSumByToken.get(tokenId) ?? 0n));
-    if (delta !== 0n) {
-      await incrementTokenTotalSupply(mysql, tokenId, delta);
-    }
-  }
-}
 
 export function isNanoContract(headers: EventTxHeader[]) {
   for (const header of headers) {
@@ -878,17 +778,6 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
           }
         }
 
-        // Apply token.total_supply deltas: block reward (HTR, every block) and
-        // the per-token sum(outputs except burn) - sum(inputs) (gated on no
-        // shielded outputs).
-        await applyTokenSupplyUpdates(
-          mysql,
-          version,
-          txOutputs,
-          txInputs,
-          shieldedOutputs.length,
-        );
-
         await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
 
         await mysql.commit();
@@ -1167,25 +1056,6 @@ export const voidTx = async (
     logger.debug(`Voiding transaction ${hash} created ${tokensCreated.length} token(s), deleting them`);
     await deleteTokens(mysql, tokensCreated);
   }
-
-  // Reverse the token.total_supply deltas this vertex applied on ingest
-  // (block reward, mint/melt, burn) by replaying the same computation with the
-  // sign flipped. shieldedOutputCount comes from the local tx_output rows so
-  // the shielded gate fires identically to ingest. This runs AFTER deleteTokens
-  // on purpose: a token CREATED by this vertex (path 1) is reversed by its row
-  // deletion, so its row is already gone here and the UPDATE-only reversal
-  // no-ops for it — mirroring ingest, where applyTokenSupplyUpdates(+1) also
-  // no-ops because handleTokenCreated hasn't inserted the row yet. Only
-  // pre-existing tokens (paths 2-4) remain to be reversed.
-  const shieldedOutputCount = dbTxOutputs.filter((r) => r.mode !== 0).length;
-  await withSpan('reverseTokenSupplyUpdates', () => applyTokenSupplyUpdates(
-    mysql,
-    version,
-    txOutputs,
-    txInputs,
-    shieldedOutputCount,
-    -1,
-  ));
 
   if (VALIDATE_ADDRESS_BALANCES) {
     const addresses = Object.keys(addressBalanceMap);
@@ -1570,7 +1440,6 @@ export const handleTokenCreated = async (context: Context) => {
           token_symbol,
           token_version,
           nc_exec_info,
-          initial_amount,
         } = fullNodeEvent.event.data;
 
         span.setAttribute('token.uid', token_uid);
@@ -1604,19 +1473,7 @@ export const handleTokenCreated = async (context: Context) => {
           await storeTokenInformation(mysql, token_uid, token_name, token_symbol, token_version);
           await insertTokenCreation(mysql, token_uid, txId, firstBlock);
 
-          // Record the initial mint amount as the token's starting
-          // total_supply. The wire payload carries `initial_amount`
-          // directly, so we use it instead of reconstructing the sum
-          // from tx_output rows. handleTokenCreated is the single writer
-          // of token-creation supply; applyTokenSupplyUpdates (in
-          // handleVertexAccepted) only mutates existing token rows for
-          // mint/melt/burn deltas, so the two paths never compete on the
-          // same column. The `?? 0n` fallback covers events that omit
-          // the field defensively.
-          const initialSupply = BigInt(initial_amount ?? 0);
-          await setTokenTotalSupply(mysql, token_uid, initialSupply);
-
-          logger.debug(`Inserted new token ${token_uid} with first_block=${firstBlock}, version=${token_version}, initial_supply=${initialSupply}`);
+          logger.debug(`Inserted new token ${token_uid} with first_block=${firstBlock}, version=${token_version}`);
         } else {
           logger.debug(`Token ${token_uid} already exists, skipping insertion`);
         }

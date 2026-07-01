@@ -61,7 +61,6 @@ import {
   getTxProposalInputs,
   addMiner,
   getMinersList,
-  getTotalSupply,
   getExpiredTimelocksUtxos,
   getTotalTransactions,
   getAvailableAuthorities,
@@ -2617,20 +2616,6 @@ test('getMinersList', async () => {
     { address: 'address2', firstBlock: 'txId2', lastBlock: 'txId2', count: 1 },
     { address: 'address3', firstBlock: 'txId3', lastBlock: 'txId5', count: 3 },
   ]));
-});
-
-test('getTotalSupply reads from token.total_supply', async () => {
-  expect.hasAssertions();
-
-  await mysql.query(`INSERT INTO token (id, name, symbol, total_supply) VALUES ('00', 'Hathor', 'HTR', 12345)`);
-
-  expect(await getTotalSupply(mysql, '00')).toStrictEqual(12345n);
-});
-
-test('getTotalSupply throws when token does not exist', async () => {
-  expect.hasAssertions();
-
-  await expect(getTotalSupply(mysql, 'nonexistent')).rejects.toThrow('Total supply query returned no results');
 });
 
 test('getExpiredTimelocksUtxos', async () => {

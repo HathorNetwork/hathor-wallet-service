@@ -340,8 +340,7 @@ export const TokenCreatedEventSchema = FullNodeEventBaseSchema.extend({
       // Token amounts are BIGINT on the wire (up to 2^63-1). JSONBigInt parses
       // any value above Number.MAX_SAFE_INTEGER as a BigInt before Zod runs, so
       // a bare z.number() would reject large supplies and fail the whole event.
-      // Match `value`/`nonce` and coerce, since handleTokenCreated feeds this
-      // straight into setTokenTotalSupply.
+      // Match `value`/`nonce` and coerce so large amounts validate cleanly.
       initial_amount: bigIntUtils.bigIntCoercibleSchema.optional(),
     }),
     group_id: z.number().nullable(),
