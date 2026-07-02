@@ -6,18 +6,23 @@
  */
 
 /**
- * Deterministic mock for the ctRewind wrapper used by integration tests.
+ * Deterministic shielded-crypto provider for daemon tests.
  *
- * Calls to rewindAmount / rewindFully look up a priming map keyed by
- * (commitment, ephemeralPubkey). Tests prime the map before exercising the
- * daemon; unprimed calls throw.
+ * Implements the two rewind methods of `IShieldedCryptoProvider` against a
+ * priming map keyed by (commitment, ephemeralPubkey). Tests prime the map, then
+ * register this provider via `resetCtCryptoMock()` (which the common rewind
+ * wrapper delegates to). Unprimed calls throw, so the daemon marks the output
+ * `recovery_failed`.
  *
- * Tests that want this mock active should call:
- *   jest.mock('../../src/crypto/ctRewind', () => require('<path>/ct-crypto-node').mockCtCrypto);
- *
- * The mock is NOT installed globally (no moduleNameMapper) — unit tests that
- * need the real stub remain unaffected.
+ * Usage in a test file:
+ *   import { resetCtCryptoMock, primeAmountRewind } from '../mocks/ct-crypto-node';
+ *   beforeEach(() => resetCtCryptoMock());   // clears priming + registers provider
  */
+
+import {
+  setShieldedCryptoProvider,
+  IShieldedCryptoProvider,
+} from '@wallet-service/common';
 
 interface AmountPriming {
   commitment: Buffer;
@@ -36,11 +41,6 @@ function key(commitment: Buffer, ephem: Buffer): string {
   return commitment.toString('hex') + ':' + ephem.toString('hex');
 }
 
-export function resetCtCryptoMock(): void {
-  amountMap.clear();
-  fullyMap.clear();
-}
-
 export function primeAmountRewind(p: AmountPriming): void {
   amountMap.set(key(p.commitment, p.ephemeralPubkey), p);
 }
@@ -49,21 +49,30 @@ export function primeFullyRewind(p: FullyPriming): void {
   fullyMap.set(key(p.commitment, p.ephemeralPubkey), p);
 }
 
-// The mock surface that stands in for ../../src/crypto/ctRewind.
-export const mockCtCrypto = {
-  rewindAmount(args: { ephemeralPubkey: Buffer; commitment: Buffer; [k: string]: unknown }) {
-    const p = amountMap.get(key(args.commitment, args.ephemeralPubkey));
+/**
+ * A provider that resolves rewinds from the priming maps. Only the two rewind
+ * methods used by the wrapper are implemented; the rest of the interface is
+ * unused by these tests.
+ */
+const mockProvider = {
+  async rewindAmountShieldedOutput(
+    _privateKey: Buffer,
+    ephemeralPubkey: Buffer,
+    commitment: Buffer,
+  ) {
+    const p = amountMap.get(key(commitment, ephemeralPubkey));
     if (!p) {
       throw new Error('mock: no AmountShielded priming for (commitment, ephemeralPubkey)');
     }
-    return {
-      value: p.value,
-      blindingFactor: Buffer.alloc(32),
-    };
+    return { value: p.value, blindingFactor: Buffer.alloc(32) };
   },
 
-  rewindFully(args: { ephemeralPubkey: Buffer; commitment: Buffer; [k: string]: unknown }) {
-    const p = fullyMap.get(key(args.commitment, args.ephemeralPubkey));
+  async rewindFullShieldedOutput(
+    _privateKey: Buffer,
+    ephemeralPubkey: Buffer,
+    commitment: Buffer,
+  ) {
+    const p = fullyMap.get(key(commitment, ephemeralPubkey));
     if (!p) {
       throw new Error('mock: no FullyShielded priming for (commitment, ephemeralPubkey)');
     }
@@ -74,4 +83,11 @@ export const mockCtCrypto = {
       assetBlindingFactor: Buffer.alloc(32),
     };
   },
-};
+} as unknown as IShieldedCryptoProvider;
+
+/** Clear priming and register the mock provider as the active shielded crypto provider. */
+export function resetCtCryptoMock(): void {
+  amountMap.clear();
+  fullyMap.clear();
+  setShieldedCryptoProvider(mockProvider);
+}

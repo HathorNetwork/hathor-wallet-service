@@ -13,6 +13,7 @@
   "dependencies": {
     "@aws-sdk/client-lambda": "3.540.0",
     "@aws-sdk/client-sqs": "3.540.0",
+    "@hathor/ct-crypto-provider": "0.0.1-shielded",
     "winston": "3.13.0"
   },
   "devDependencies": {

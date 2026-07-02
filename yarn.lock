@@ -3734,6 +3734,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@hathor/ct-crypto-provider@npm:0.0.1-shielded":
+  version: 0.0.1-shielded
+  resolution: "@hathor/ct-crypto-provider@npm:0.0.1-shielded"
+  checksum: 10/1543479d5f4beef2da3505ab00424ecffdbbcc2b913718a8252ad9d78cfdc3db72269ec4485b1aa093ba3ff70d77b3e892cbfab4784b38d7b3c3a6ea6b3c2c7e
+  languageName: node
+  linkType: hard
+
 "@hathor/healthcheck-lib@npm:0.1.0":
   version: 0.1.0
   resolution: "@hathor/healthcheck-lib@npm:0.1.0"
@@ -8860,6 +8867,7 @@ __metadata:
   dependencies:
     "@aws-sdk/client-lambda": "npm:3.540.0"
     "@aws-sdk/client-sqs": "npm:3.540.0"
+    "@hathor/ct-crypto-provider": "npm:0.0.1-shielded"
     "@types/aws-lambda": "npm:8.10.136"
     "@types/node": "npm:20.11.30"
     jest: "npm:29.6.4"

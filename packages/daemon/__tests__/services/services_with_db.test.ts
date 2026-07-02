@@ -12,10 +12,9 @@
 // gap-fill in these tests by pre-seeding addresses or mocking the derivation.
 jest.setTimeout(30000);
 
-// Redirect the ct-crypto NAPI binding to the deterministic mock for ALL tests
-// in this file. The shielded recovery tests prime the mock; everything else
-// never touches it, so existing tests are unaffected.
-jest.mock('../../src/crypto/ctRewind', () => require('../mocks/ct-crypto-node').mockCtCrypto);
+// Shielded recovery tests register the deterministic mock provider via
+// resetCtCryptoMock() and prime it before ingesting; non-shielded tests never
+// touch it, so the real (unregistered) rewind wrapper stays inert for them.
 
 // Stub addAlert so the recovery-failed path doesn't reach SQS; keep the rest
 // of @wallet-service/common live by spreading the real module.

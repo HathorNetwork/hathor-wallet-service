@@ -5,22 +5,19 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-// Replace the ctRewind wrapper with the deterministic mock for this test file.
-jest.mock('../../src/crypto/ctRewind', () => require('./ct-crypto-node').mockCtCrypto);
-
 import { resetCtCryptoMock, primeAmountRewind, primeFullyRewind } from './ct-crypto-node';
-import { rewindAmount, rewindFully } from '../../src/crypto/ctRewind';
+import { rewindAmount, rewindFully } from '@wallet-service/common';
 
 describe('ctRewind mock', () => {
   beforeEach(() => resetCtCryptoMock());
 
-  it('primeAmountRewind makes rewindAmount return the primed value', () => {
+  it('primeAmountRewind makes rewindAmount return the primed value', async () => {
     const commitment = Buffer.alloc(33, 0xaa);
     const ephem = Buffer.alloc(33, 0xbb);
     const tokenUid = Buffer.alloc(32, 0xcc);
     primeAmountRewind({ commitment, ephemeralPubkey: ephem, value: 1500n, tokenUid });
 
-    const r = rewindAmount({
+    const r = await rewindAmount({
       scanPrivkey: Buffer.alloc(32),
       ephemeralPubkey: ephem,
       commitment,
@@ -30,8 +27,8 @@ describe('ctRewind mock', () => {
     expect(r.value).toBe(1500n);
   });
 
-  it('rewindAmount throws when no priming exists', () => {
-    expect(() =>
+  it('rewindAmount rejects when no priming exists', async () => {
+    await expect(
       rewindAmount({
         scanPrivkey: Buffer.alloc(32),
         ephemeralPubkey: Buffer.alloc(33),
@@ -39,10 +36,10 @@ describe('ctRewind mock', () => {
         rangeProof: Buffer.alloc(64),
         tokenUid: Buffer.alloc(32),
       }),
-    ).toThrow();
+    ).rejects.toThrow();
   });
 
-  it('primeFullyRewind makes rewindFully return the primed value and token uid', () => {
+  it('primeFullyRewind makes rewindFully return the primed value and token uid', async () => {
     const commitment = Buffer.alloc(33, 0xdd);
     const ephem = Buffer.alloc(33, 0xee);
     const tokenUid = Buffer.from('aa'.repeat(32), 'hex');
@@ -54,7 +51,7 @@ describe('ctRewind mock', () => {
       assetCommitment: Buffer.alloc(33),
     });
 
-    const r = rewindFully({
+    const r = await rewindFully({
       scanPrivkey: Buffer.alloc(32),
       ephemeralPubkey: ephem,
       commitment,
