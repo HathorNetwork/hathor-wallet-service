@@ -3748,10 +3748,11 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@hathor/wallet-lib@npm:2.12.0":
-  version: 2.12.0
-  resolution: "@hathor/wallet-lib@npm:2.12.0"
+"@hathor/wallet-lib@npm:4.0.0":
+  version: 4.0.0
+  resolution: "@hathor/wallet-lib@npm:4.0.0"
   dependencies:
+    "@hathor/ct-crypto-provider": "npm:0.0.1-shielded"
     axios: "npm:1.7.7"
     bitcore-lib: "npm:8.25.10"
     bitcore-mnemonic: "npm:8.25.10"
@@ -3762,7 +3763,7 @@ __metadata:
     queue-microtask: "npm:1.2.3"
     ws: "npm:8.17.1"
     zod: "npm:3.23.8"
-  checksum: 10/218662f2e7ef397a5b9e920e5006fa8f072db13cba7593653c81e8b62c5e5ea28f26ba044960bd1d62963ae2ce9581cb97cbb9365690a5902de2b5d561ac3c12
+  checksum: 10/d1e316c1ff767f693587d99605244bce14c37624d8c0f397f4c7b2457fb591f0a39674af0e5a700f263d39b60007b4d85b4ee00f71f128ed90a57a11e0cf100e
   languageName: node
   linkType: hard
 
@@ -8875,7 +8876,7 @@ __metadata:
     typescript: "npm:5.4.3"
     winston: "npm:3.13.0"
   peerDependencies:
-    "@hathor/wallet-lib": 2.12.0
+    "@hathor/wallet-lib": 4.0.0
   languageName: unknown
   linkType: soft
 
@@ -12660,7 +12661,7 @@ __metadata:
     ws: "npm:8.18.0"
     zod: "npm:3.23.8"
   peerDependencies:
-    "@hathor/wallet-lib": ">=2.8.3"
+    "@hathor/wallet-lib": 4.0.0
   languageName: unknown
   linkType: soft
 
@@ -14096,7 +14097,7 @@ __metadata:
     "@aws-sdk/client-apigatewaymanagementapi": "npm:3.540.0"
     "@aws-sdk/client-lambda": "npm:3.540.0"
     "@aws-sdk/client-sqs": "npm:3.540.0"
-    "@hathor/wallet-lib": "npm:2.12.0"
+    "@hathor/wallet-lib": "npm:4.0.0"
     "@types/jest": "npm:29.5.13"
     "@typescript-eslint/eslint-plugin": "npm:8.58.2"
     "@typescript-eslint/parser": "npm:8.58.2"
@@ -19876,7 +19877,7 @@ __metadata:
     xstate: "npm:4.38.2"
     zod: "npm:3.23.8"
   peerDependencies:
-    "@hathor/wallet-lib": 2.12.0
+    "@hathor/wallet-lib": 4.0.0
     "@wallet-service/common": 1.5.0
   languageName: unknown
   linkType: soft
@@ -21074,7 +21075,7 @@ __metadata:
     webpack-node-externals: "npm:3.0.0"
     winston: "npm:3.13.0"
   peerDependencies:
-    "@hathor/wallet-lib": 2.12.0
+    "@hathor/wallet-lib": 4.0.0
     "@wallet-service/common": 1.5.0
   languageName: unknown
   linkType: soft

@@ -55,7 +55,7 @@
     "winston": "3.13.0"
   },
   "peerDependencies": {
-    "@hathor/wallet-lib": "2.12.0",
+    "@hathor/wallet-lib": "4.0.0",
     "@wallet-service/common": "1.5.0"
   },
   "devDependencies": {
