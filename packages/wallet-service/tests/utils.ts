@@ -74,6 +74,7 @@ export const cleanDatabase = async (mysql: ServerlessMysql): Promise<void> => {
     'wallet_tx_history',
     'miner',
     'push_devices',
+    'shielded_tx_output_data',
   ];
   await mysql.query('SET FOREIGN_KEY_CHECKS = 0');
   for (const table of TABLES) {
