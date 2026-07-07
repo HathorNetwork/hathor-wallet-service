@@ -30,8 +30,6 @@ import {
   getTxOutputsFromTx,
   getUtxosLockedAtHeight,
   incrementTokensTxCount,
-  incrementTokenTotalSupply,
-  setTokenTotalSupply,
   bumpAddressInvolvement,
   markUtxosAsVoided,
   storeTokenInformation,
@@ -1795,72 +1793,6 @@ describe('token creation mapping methods', () => {
     // even though null != 'some-block' because token_id = tx_id
     const tokens = await getReexecNanoTokens(mysql, txId, 'some-block');
     expect(tokens).toHaveLength(0);
-  });
-});
-
-describe('incrementTokenTotalSupply', () => {
-  const tokenId = 'total-supply-token';
-
-  const getTotalSupply = async (id: string): Promise<bigint | null> => {
-    const [rows] = await mysql.query<RowDataPacket[]>(
-      'SELECT `total_supply` FROM `token` WHERE `id` = ?',
-      [id],
-    );
-    if (rows.length === 0) return null;
-    return BigInt(rows[0].total_supply);
-  };
-
-  const seedToken = async (initial: bigint): Promise<void> => {
-    await addToTokenTable(mysql, [
-      { id: tokenId, name: 'My Token', symbol: 'MTK', version: TokenVersion.DEPOSIT, transactions: 0 },
-    ]);
-    await setTokenTotalSupply(mysql, tokenId, initial);
-  };
-
-  test('applies a positive delta (mint)', async () => {
-    await seedToken(100n);
-
-    await incrementTokenTotalSupply(mysql, tokenId, 50n);
-
-    expect(await getTotalSupply(tokenId)).toEqual(150n);
-  });
-
-  test('applies a negative delta that stays non-negative (melt)', async () => {
-    await seedToken(100n);
-
-    await incrementTokenTotalSupply(mysql, tokenId, -40n);
-
-    expect(await getTotalSupply(tokenId)).toEqual(60n);
-  });
-
-  test('no-ops against a non-existent token row', async () => {
-    // No token row is seeded: the UPDATE matches zero rows and must not
-    // create one (the helper is UPDATE-only by contract).
-    await incrementTokenTotalSupply(mysql, 'missing-token', 25n);
-
-    expect(await getTotalSupply('missing-token')).toBeNull();
-  });
-
-  test('throws on underflow under STRICT_TRANS_TABLES', async () => {
-    await seedToken(10n);
-
-    // Pin the session mode so the test asserts the documented contract
-    // regardless of the server's ambient default, then restore it so the
-    // shared connection is left untouched for sibling tests.
-    const [[{ sql_mode: original }]] = await mysql.query<RowDataPacket[]>(
-      'SELECT @@SESSION.sql_mode AS sql_mode',
-    );
-    await mysql.query("SET SESSION sql_mode = 'STRICT_TRANS_TABLES'");
-    try {
-      await expect(
-        incrementTokenTotalSupply(mysql, tokenId, -20n),
-      ).rejects.toThrow();
-
-      // The rejected UPDATE left the supply untouched.
-      expect(await getTotalSupply(tokenId)).toEqual(10n);
-    } finally {
-      await mysql.query('SET SESSION sql_mode = ?', [original]);
-    }
   });
 });
 

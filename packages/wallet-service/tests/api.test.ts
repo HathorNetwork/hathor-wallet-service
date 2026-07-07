@@ -1631,6 +1631,8 @@ test('GET /version', async () => {
     min_tx_weight_coefficient: 1.6,
     min_tx_weight_k: 100,
     token_deposit_percentage: 0.01,
+    token_deposit_percentage_numerator: 10000000,
+    token_deposit_percentage_denominator: 1000000000,
     reward_spend_min_blocks: 300,
     max_number_inputs: 255,
     max_number_outputs: 255,

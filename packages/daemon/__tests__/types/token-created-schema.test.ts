@@ -13,7 +13,7 @@ import { FullNodeEventSchema } from '../../src/types';
  * validation (see WebSocketActor). Any integer above Number.MAX_SAFE_INTEGER is
  * returned as a BigInt, so `TOKEN_CREATED.initial_amount` must accept bigint —
  * a bare `z.number()` would reject large token supplies and fail the whole
- * event, so the token would never be inserted and `total_supply` never set.
+ * event.
  */
 describe('TOKEN_CREATED initial_amount schema', () => {
   const buildEventJson = (initialAmount: string): string => `{

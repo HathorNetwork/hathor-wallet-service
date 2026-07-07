@@ -188,7 +188,7 @@ describe('getWalletBalancesForTx shielded amounts (push payload)', () => {
        VALUES ('WCTSpend1', 'wallet_alice', 7, 2, 0)`,
     );
     await mysql.query(
-      `INSERT INTO token (id, name, symbol, total_supply) VALUES ('00', 'Hathor', 'HTR', 0)`,
+      `INSERT INTO token (id, name, symbol) VALUES ('00', 'Hathor', 'HTR')`,
     );
 
     // Unified balance map for the vertex: a recovered shielded HTR receive of
@@ -222,7 +222,7 @@ describe('getWalletBalancesForTx shielded amounts (push payload)', () => {
        VALUES ('WCTSpend1', 'wallet_alice', 7, 2, 0)`,
     );
     await mysql.query(
-      `INSERT INTO token (id, name, symbol, total_supply) VALUES ('00', 'Hathor', 'HTR', 0)`,
+      `INSERT INTO token (id, name, symbol) VALUES ('00', 'Hathor', 'HTR')`,
     );
 
     // A shielded SPEND contributes a negative shielded delta; the gross-received
@@ -253,7 +253,7 @@ describe('getWalletBalancesForTx shielded amounts (push payload)', () => {
        VALUES ('WCTSpend1', 'wallet_alice', 7, 2, 0)`,
     );
     await mysql.query(
-      `INSERT INTO token (id, name, symbol, total_supply) VALUES ('00', 'Hathor', 'HTR', 0)`,
+      `INSERT INTO token (id, name, symbol) VALUES ('00', 'Hathor', 'HTR')`,
     );
 
     // Same token, same tx: a shielded receive of 100 and a shielded spend of 300.

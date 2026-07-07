@@ -227,12 +227,6 @@ functions:
     warmup:
       walletWarmer:
         enabled: false
-  onTotalSupplyRequest:
-    handler: src/api/totalSupply.onTotalSupplyRequest
-    timeout: 120 # 2 minutes
-    warmup:
-      walletWarmer:
-        enabled: false
   onNewNftEvent:
     handler: src/txProcessor.onNewNftEvent
     warmup:
