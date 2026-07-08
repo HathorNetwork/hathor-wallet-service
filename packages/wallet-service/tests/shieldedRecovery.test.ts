@@ -112,4 +112,38 @@ describe('recoverShieldedOutput', () => {
       logger,
     );
   });
+
+  it('fails an amount-shielded output whose token id is missing', async () => {
+    await insertShieldedOutput('tx4', 0, 'a1', 1, 'unowned');
+    const out = amountOutput({ txId: 'tx4', tokenId: null }); // mode 1 must carry its token
+
+    const outcome = await recoverShieldedOutput(mysql, 'w1', out, logger);
+
+    expect(outcome.recovered).toBe(false);
+    expect((await readOutput('tx4', 0)).recovery_state).toBe('recovery_failed');
+    expect(mockedAddAlert).toHaveBeenCalledWith(
+      'Shielded recovery failed',
+      expect.any(String),
+      Severity.MAJOR,
+      expect.objectContaining({ error: expect.stringContaining('missing its token id') }),
+      logger,
+    );
+  });
+
+  it('fails a fully-shielded output whose asset commitment is missing', async () => {
+    await insertShieldedOutput('tx5', 0, 'a1', 2, 'unowned');
+    const out = amountOutput({ txId: 'tx5', mode: 2, assetCommitment: null }); // mode 2 needs it
+
+    const outcome = await recoverShieldedOutput(mysql, 'w1', out, logger);
+
+    expect(outcome.recovered).toBe(false);
+    expect((await readOutput('tx5', 0)).recovery_state).toBe('recovery_failed');
+    expect(mockedAddAlert).toHaveBeenCalledWith(
+      'Shielded recovery failed',
+      expect.any(String),
+      Severity.MAJOR,
+      expect.objectContaining({ error: expect.stringContaining('missing its asset commitment') }),
+      logger,
+    );
+  });
 });

@@ -122,6 +122,11 @@ describe('rebuildShieldedAddressBalances', () => {
     expect(String(ab.u)).toBe('100');
     expect(String(ab.tu)).toBe('777'); // transparent unlocked_balance preserved
   });
+
+  it('is a no-op for an empty address list', async () => {
+    await rebuildShieldedAddressBalances(mysql, []);
+    expect(Number((await mysql.query('SELECT COUNT(*) AS c FROM `address_balance`'))[0].c)).toBe(0);
+  });
 });
 
 describe('rebuildShieldedAddressTxHistory', () => {
@@ -157,6 +162,11 @@ describe('rebuildShieldedAddressTxHistory', () => {
     expect(String(h.d)).toBe('100'); // replaced, not 200
     expect(String(h.balance)).toBe('500'); // transparent balance preserved
   });
+
+  it('is a no-op for an empty address list', async () => {
+    await rebuildShieldedAddressTxHistory(mysql, []);
+    expect(Number((await mysql.query('SELECT COUNT(*) AS c FROM `address_tx_history`'))[0].c)).toBe(0);
+  });
 });
 
 describe('rebuildWalletBalance', () => {
@@ -187,6 +197,11 @@ describe('rebuildWalletBalance', () => {
     const wb = await readWalletBalance('w1', '00');
     expect(String(wb.usb)).toBe('100');
     expect(Number(wb.txns)).toBe(1);
+  });
+
+  it('is a no-op for an empty address list', async () => {
+    await rebuildWalletBalance(mysql, 'w1', []);
+    expect(Number((await mysql.query('SELECT COUNT(*) AS c FROM `wallet_balance`'))[0].c)).toBe(0);
   });
 });
 
@@ -219,5 +234,10 @@ describe('rebuildWalletTxHistory', () => {
       ['w1', '00', 'rtx1'],
     ))[0];
     expect(String(row.d)).toBe('100');
+  });
+
+  it('is a no-op for an empty address list', async () => {
+    await rebuildWalletTxHistory(mysql, 'w1', []);
+    expect(Number((await mysql.query('SELECT COUNT(*) AS c FROM `wallet_tx_history`'))[0].c)).toBe(0);
   });
 });
