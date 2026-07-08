@@ -6,8 +6,11 @@
  */
 
 import { ServerlessMysql } from 'serverless-mysql';
-import { Bip32Account } from '@wallet-service/common';
+import { Bip32Account, RecoveryState, ShieldedOutputMode } from '@wallet-service/common';
 import { DbSelectResult } from '@src/types';
+
+// The two shielded output modes (AmountShielded, FullyShielded) as query params.
+const SHIELDED_MODES = [ShieldedOutputMode.AmountShielded, ShieldedOutputMode.FullyShielded];
 
 export interface ShieldedAddressOwnership {
   walletId: string;
@@ -85,9 +88,9 @@ export const markShieldedTxOutputRecovered = async (
 ): Promise<{ affectedRows: number }> => {
   const result = await mysql.query(
     `UPDATE \`tx_output\`
-        SET \`value\` = ?, \`token_id\` = ?, \`recovery_state\` = 'recovered'
-      WHERE \`tx_id\` = ? AND \`index\` = ? AND \`recovery_state\` <> 'recovered'`,
-    [recovered.value.toString(), recovered.tokenId, txId, index],
+        SET \`value\` = ?, \`token_id\` = ?, \`recovery_state\` = ?
+      WHERE \`tx_id\` = ? AND \`index\` = ? AND \`recovery_state\` <> ?`,
+    [recovered.value.toString(), recovered.tokenId, RecoveryState.Recovered, txId, index, RecoveryState.Recovered],
   ) as unknown as { affectedRows: number };
   return { affectedRows: result.affectedRows };
 };
@@ -104,9 +107,9 @@ export const markShieldedTxOutputRecoveryFailed = async (
 ): Promise<void> => {
   await mysql.query(
     `UPDATE \`tx_output\`
-        SET \`recovery_state\` = 'recovery_failed'
-      WHERE \`tx_id\` = ? AND \`index\` = ? AND \`recovery_state\` <> 'recovered'`,
-    [txId, index],
+        SET \`recovery_state\` = ?
+      WHERE \`tx_id\` = ? AND \`index\` = ? AND \`recovery_state\` <> ?`,
+    [RecoveryState.RecoveryFailed, txId, index, RecoveryState.Recovered],
   );
 };
 
@@ -144,9 +147,12 @@ export const getShieldedOutputsToRecover = async (
   // stays in the result set, plain re-querying would revisit it — advancing past
   // the last row seen guarantees forward progress.
   const cursor = after ? 'AND (t.`tx_id` > ? OR (t.`tx_id` = ? AND t.`index` > ?))' : '';
+  // Placeholder order follows the SQL text: join account, wallet, the two shielded
+  // modes, the recovered-guard, then (optional) cursor keys, then limit.
+  const head = [Bip32Account.CTSpend, walletId, ...SHIELDED_MODES, RecoveryState.Recovered];
   const params = after
-    ? [Bip32Account.CTSpend, walletId, after.txId, after.txId, after.index, limit]
-    : [Bip32Account.CTSpend, walletId, limit];
+    ? [...head, after.txId, after.txId, after.index, limit]
+    : [...head, limit];
   const results: DbSelectResult = await mysql.query(
     `SELECT t.\`tx_id\` AS tx_id, t.\`index\` AS \`index\`, t.\`address\` AS address,
             t.\`mode\` AS mode, t.\`token_id\` AS token_id,
@@ -160,9 +166,9 @@ export const getShieldedOutputsToRecover = async (
          ON a.\`address\` = t.\`address\` AND a.\`bip32_account\` = ?
       WHERE a.\`wallet_id\` = ?
         AND a.\`scan_privkey\` IS NOT NULL
-        AND t.\`mode\` IN (1, 2)
+        AND t.\`mode\` IN (?, ?)
         AND t.\`voided\` = FALSE
-        AND t.\`recovery_state\` <> 'recovered'
+        AND t.\`recovery_state\` <> ?
         ${cursor}
       ORDER BY t.\`tx_id\`, t.\`index\`
       LIMIT ?`,
@@ -206,14 +212,14 @@ export const rebuildShieldedAddressBalances = async (
         COALESCE(SUM(t.\`value\`), 0),
         0, 0, 0
        FROM \`tx_output\` t
-      WHERE t.\`address\` IN (?) AND t.\`mode\` IN (1, 2)
-        AND t.\`recovery_state\` = 'recovered' AND t.\`voided\` = FALSE
+      WHERE t.\`address\` IN (?) AND t.\`mode\` IN (?, ?)
+        AND t.\`recovery_state\` = ? AND t.\`voided\` = FALSE
       GROUP BY t.\`address\`, t.\`token_id\`
      ON DUPLICATE KEY UPDATE
         \`unlocked_shielded_balance\` = VALUES(\`unlocked_shielded_balance\`),
         \`locked_shielded_balance\` = VALUES(\`locked_shielded_balance\`),
         \`total_shielded_received\` = VALUES(\`total_shielded_received\`)`,
-    [addresses],
+    [addresses, ...SHIELDED_MODES, RecoveryState.Recovered],
   );
 };
 
@@ -239,11 +245,11 @@ export const rebuildShieldedAddressTxHistory = async (
         COALESCE(SUM(t.\`value\`), 0), tx.\`timestamp\`, FALSE
        FROM \`tx_output\` t
        INNER JOIN \`transaction\` tx ON tx.\`tx_id\` = t.\`tx_id\`
-      WHERE t.\`address\` IN (?) AND t.\`mode\` IN (1, 2)
-        AND t.\`recovery_state\` = 'recovered' AND t.\`voided\` = FALSE
+      WHERE t.\`address\` IN (?) AND t.\`mode\` IN (?, ?)
+        AND t.\`recovery_state\` = ? AND t.\`voided\` = FALSE
       GROUP BY t.\`address\`, t.\`tx_id\`, t.\`token_id\`, tx.\`timestamp\`
      ON DUPLICATE KEY UPDATE \`shielded_balance_delta\` = VALUES(\`shielded_balance_delta\`)`,
-    [addresses],
+    [addresses, ...SHIELDED_MODES, RecoveryState.Recovered],
   );
 };
 
