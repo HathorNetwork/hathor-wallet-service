@@ -279,24 +279,20 @@ export const xpubDeriveChild = (xpubkey: string, index: number): string => (
 );
 
 /**
- * Verify a signature for a given timestamp and xpubkey
- *
- * @param signature - The signature done by the xpriv of the wallet
- * @param timestamp - Unix Timestamp of the signature
- * @param address - The address of the xpubkey used to create the walletId
- * @param walletId - The walletId, a sha512d of the xpubkey
- *
- * @returns true if the signature matches the other params
+ * Build the canonical message an authenticated request signs: the timestamp,
+ * the walletId, and a payload (an address, an xpub, or a ct_address),
+ * concatenated in that order.
  */
-export const verifySignature = (
-  signature: string,
-  timestamp: number,
-  address: string,
-  walletId: string,
-): boolean => {
-  try {
-    const message = String(timestamp).concat(walletId).concat(address);
+export const buildAuthMessage = (timestamp: number, walletId: string, payload: string): string =>
+  String(timestamp).concat(walletId).concat(payload);
 
+/**
+ * Verify that `address` produced `signature` over `message` using the Hathor
+ * message prefix. Never throws — user-supplied input that can't be parsed
+ * verifies as false.
+ */
+export const verifyMessageSignature = (signature: string, message: string, address: string): boolean => {
+  try {
     return bitcoinMessage.verify(
       message,
       address,
@@ -313,6 +309,19 @@ export const verifySignature = (
     return false;
   }
 };
+
+/**
+ * Verify a signature for a given timestamp and xpubkey — the signed message is
+ * `timestamp || walletId || address`.
+ *
+ * @returns true if the signature matches the other params
+ */
+export const verifySignature = (
+  signature: string,
+  timestamp: number,
+  address: string,
+  walletId: string,
+): boolean => verifyMessageSignature(signature, buildAuthMessage(timestamp, walletId, address), address);
 
 /**
  * Returns an address (as a string) from a string xpubkey
