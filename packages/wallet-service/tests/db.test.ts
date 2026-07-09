@@ -92,6 +92,7 @@ import {
   beginTransaction,
   rollbackTransaction,
   commitTransaction,
+  computeUnifiedStatus,
 } from '@src/db/utils';
 import {
   Authorities,
@@ -4069,5 +4070,26 @@ describe('hasTransactionsOnNonFirstAddress', () => {
 
     expect(result1).toBe(false);
     expect(result2).toBe(true);
+  });
+});
+
+describe('computeUnifiedStatus', () => {
+  it('returns the transparent status when no shielded keys are registered', () => {
+    expect(computeUnifiedStatus(WalletStatus.READY, 'none')).toBe(WalletStatus.READY);
+    expect(computeUnifiedStatus(WalletStatus.CREATING, 'none')).toBe(WalletStatus.CREATING);
+  });
+
+  it('is error when either side errored', () => {
+    expect(computeUnifiedStatus(WalletStatus.READY, WalletStatus.ERROR)).toBe(WalletStatus.ERROR);
+    expect(computeUnifiedStatus(WalletStatus.ERROR, WalletStatus.READY)).toBe(WalletStatus.ERROR);
+  });
+
+  it('is creating when either side is still creating (and neither errored)', () => {
+    expect(computeUnifiedStatus(WalletStatus.READY, WalletStatus.CREATING)).toBe(WalletStatus.CREATING);
+    expect(computeUnifiedStatus(WalletStatus.CREATING, WalletStatus.READY)).toBe(WalletStatus.CREATING);
+  });
+
+  it('is ready only when both sides are ready', () => {
+    expect(computeUnifiedStatus(WalletStatus.READY, WalletStatus.READY)).toBe(WalletStatus.READY);
   });
 });
