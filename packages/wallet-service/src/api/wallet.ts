@@ -33,11 +33,15 @@ import {
   getDbConnection,
   getWalletId,
   verifySignature,
+  verifyMessageSignature,
+  buildAuthMessage,
   getAddressFromXpub,
   confirmFirstAddress,
   validateAuthTimestamp,
   AUTH_MAX_TIMESTAMP_SHIFT_IN_SECONDS,
 } from '@src/utils';
+import { deriveCtAddress } from '@wallet-service/common/src/crypto/shieldedAddress';
+import { Network } from '@hathor/wallet-lib';
 import { closeDbAndGetError, warmupMiddleware } from '@src/api/utils';
 import { walletIdProxyHandler } from '@src/commons';
 import middy from '@middy/core';
@@ -52,6 +56,10 @@ import errorHandler from '@src/api/middlewares/errorHandler';
 const mysql = getDbConnection();
 
 const MAX_LOAD_WALLET_RETRIES: number = config.maxLoadWalletRetries;
+
+// Network instance used to encode shielded (ct) addresses — carries the
+// shielded/p2pkh version bytes that address derivation reads.
+const shieldedNetwork = new Network(config.network);
 
 /*
  * Get the status of a wallet
@@ -156,6 +164,69 @@ export const validateSignatures = (
   const authXpubValid = verifySignature(authXpubkeySignature, timestamp, authXpubAddress, walletId.toString());
 
   return xpubValid && authXpubValid;
+};
+
+export interface ShieldedRegistration {
+  timestamp: number;
+  walletId: string;
+  authXpubkey: string;
+  scanXpriv: string;
+  spendXpub: string;
+  firstCtAddress: string;
+  spendXpubSignature: string;
+  ctAddressSignature: string;
+}
+
+type ShieldedValidation = { ok: true } | { ok: false; code: 400 | 403; message: string };
+
+/**
+ * Validate the proof accompanying a shielded-key registration:
+ *
+ *  1. The submitted scanXpriv + spendXpub must re-derive to the submitted
+ *     firstCtAddress — this proves they are a matched pair for the same account
+ *     and that neither was tampered with in transit.
+ *  2. `spendXpubSignature` must be a signature of the spendXpub by the spend key
+ *     itself — proving control of the spend key.
+ *  3. `ctAddressSignature` must be a signature of the firstCtAddress by the
+ *     wallet's auth key — proving the wallet authority consented to these exact
+ *     keys. The signed message embeds the timestamp, so it is not replayable.
+ *
+ * Both signed messages use the canonical `timestamp || walletId || payload`
+ * form. Returns `{ ok: true }` or a `{ code, message }` describing the failure.
+ */
+export const validateShieldedRegistration = (reg: ShieldedRegistration): ShieldedValidation => {
+  // 1. matched pair + integrity: re-derive the first ct_address from the keys.
+  let derivedCtAddress: string;
+  try {
+    derivedCtAddress = deriveCtAddress(reg.scanXpriv, reg.spendXpub, 0, shieldedNetwork).ctAddress;
+  } catch (e) {
+    return { ok: false, code: 400, message: 'Invalid scanXpriv or spendXpub' };
+  }
+  if (derivedCtAddress !== reg.firstCtAddress) {
+    return { ok: false, code: 400, message: 'firstCtAddress does not match the submitted keys' };
+  }
+
+  // 2. spend-key control: the spend key signed its own xpub.
+  const spendValid = verifyMessageSignature(
+    reg.spendXpubSignature,
+    buildAuthMessage(reg.timestamp, reg.walletId, reg.spendXpub),
+    getAddressFromXpub(reg.spendXpub),
+  );
+  if (!spendValid) {
+    return { ok: false, code: 403, message: 'spendXpub signature is not valid' };
+  }
+
+  // 3. auth consent + anti-replay: the auth key signed the first ct_address.
+  const authValid = verifyMessageSignature(
+    reg.ctAddressSignature,
+    buildAuthMessage(reg.timestamp, reg.walletId, reg.firstCtAddress),
+    getAddressFromXpub(reg.authXpubkey),
+  );
+  if (!authValid) {
+    return { ok: false, code: 403, message: 'ctAddress signature is not valid' };
+  }
+
+  return { ok: true };
 };
 
 /*

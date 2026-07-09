@@ -24,7 +24,11 @@ import {
   loadWallet,
   loadWalletFailed,
   changeAuthXpub,
+  validateShieldedRegistration,
 } from '@src/api/wallet';
+import BIP32Factory from 'bip32';
+import * as ecc from 'tiny-secp256k1';
+import * as bitcoinMessage from 'bitcoinjs-message';
 import {
   updateVersionData,
   createWallet,
@@ -32,10 +36,10 @@ import {
 import * as Wallet from '@src/api/wallet';
 import * as Db from '@src/db';
 import { ApiError } from '@src/api/errors';
-import { closeDbConnection, getDbConnection, getUnixTimestamp, getWalletId } from '@src/utils';
+import { closeDbConnection, getDbConnection, getUnixTimestamp, getWalletId, buildAuthMessage } from '@src/utils';
 import { STATUS_CODE_TABLE } from '@src/api/utils';
 import { WalletStatus, FullNodeApiVersionResponse } from '@src/types';
-import { walletUtils, addressUtils, constants, network, HathorWalletServiceWallet } from '@hathor/wallet-lib';
+import { walletUtils, addressUtils, constants, network, HathorWalletServiceWallet, Network } from '@hathor/wallet-lib';
 import bitcore from 'bitcore-lib';
 import {
   ADDRESSES,
@@ -63,6 +67,7 @@ import {
 import fullnode from '@src/fullnode';
 import { getHealthcheck } from '@src/api/healthcheck';
 import { Severity } from '@wallet-service/common';
+import { deriveCtAddress } from '@wallet-service/common/src/crypto/shieldedAddress';
 import { convertApiVersionData } from '@src/nodeConfig';
 
 // Monkey patch bitcore-lib
@@ -2372,6 +2377,80 @@ test('GET /address/info', async () => {
   expect(returnBody.success).toBe(false);
   expect(returnBody.error).toBe(ApiError.INVALID_PAYLOAD);
   expect(returnBody.details[0].message).toBeDefined();
+});
+
+const bip32lib = BIP32Factory(ecc);
+const HATHOR_MSG_PREFIX = 'Hathor Signed Message:\n';
+
+/**
+ * Build a valid shielded-registration field set for a wallet: a matched
+ * scan/spend pair (change-level), the first ct_address, and both signatures.
+ * `authXpubkey` is returned so callers pass it back in for verification.
+ */
+const buildShieldedFields = (walletId: string, timestamp: number, seedHex = '01'.repeat(32)) => {
+  const root = bip32lib.fromSeed(Buffer.from(seedHex, 'hex'));
+  const scanXpriv = root.derivePath("m/44'/280'/1'/0").toBase58();
+  const spendNode = root.derivePath("m/44'/280'/2'/0");
+  const spendXpub = spendNode.neutered().toBase58();
+  const authNode = root.derivePath("m/44'/280'/280'");
+  const authXpubkey = authNode.neutered().toBase58();
+
+  const firstCtAddress = deriveCtAddress(scanXpriv, spendXpub, 0, new Network('mainnet')).ctAddress;
+
+  const sign = (payload: string, priv: Buffer): string => bitcoinMessage
+    .sign(buildAuthMessage(timestamp, walletId, payload), priv, true, HATHOR_MSG_PREFIX)
+    .toString('base64');
+
+  return {
+    scanXpriv,
+    spendXpub,
+    firstCtAddress,
+    spendXpubSignature: sign(spendXpub, spendNode.privateKey as Buffer),
+    ctAddressSignature: sign(firstCtAddress, authNode.privateKey as Buffer),
+    authXpubkey,
+  };
+};
+
+describe('validateShieldedRegistration', () => {
+  const now = 1700000000;
+  const walletId = 'wallet-id';
+
+  test('accepts a valid matched set', () => {
+    const f = buildShieldedFields(walletId, now);
+    expect(validateShieldedRegistration({ timestamp: now, walletId, ...f })).toEqual({ ok: true });
+  });
+
+  test('rejects a tampered auth (ct_address) signature with 403', () => {
+    const f = buildShieldedFields(walletId, now);
+    const res = validateShieldedRegistration({
+      timestamp: now, walletId, ...f, ctAddressSignature: f.spendXpubSignature,
+    });
+    expect(res).toEqual({ ok: false, code: 403, message: expect.any(String) });
+  });
+
+  test('rejects a tampered spend self-signature with 403', () => {
+    const f = buildShieldedFields(walletId, now);
+    const res = validateShieldedRegistration({
+      timestamp: now, walletId, ...f, spendXpubSignature: f.ctAddressSignature,
+    });
+    expect(res).toEqual({ ok: false, code: 403, message: expect.any(String) });
+  });
+
+  test('rejects a firstCtAddress that does not match the submitted keys with 400', () => {
+    const f = buildShieldedFields(walletId, now);
+    const res = validateShieldedRegistration({
+      timestamp: now, walletId, ...f, firstCtAddress: f.spendXpub, // any non-matching value
+    });
+    expect(res).toEqual({ ok: false, code: 400, message: expect.any(String) });
+  });
+
+  test('rejects an unparseable spendXpub with 400', () => {
+    const f = buildShieldedFields(walletId, now);
+    const res = validateShieldedRegistration({
+      timestamp: now, walletId, ...f, spendXpub: 'not-an-xpub',
+    });
+    expect(res).toEqual({ ok: false, code: 400, message: expect.any(String) });
+  });
 });
 
 describe('shielded wallet registration', () => {
