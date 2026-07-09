@@ -2373,3 +2373,40 @@ test('GET /address/info', async () => {
   expect(returnBody.error).toBe(ApiError.INVALID_PAYLOAD);
   expect(returnBody.details[0].message).toBeDefined();
 });
+
+describe('shielded wallet registration', () => {
+  test('load rejects partial shielded fields with 400', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const { xpubkey, xpubkeySignature, authXpubkey, authXpubkeySignature, firstAddress, timestamp } = getAuthData(now);
+
+    // Only one of the five all-or-none shielded fields is present.
+    const event = makeGatewayEvent({}, JSON.stringify({
+      xpubkey, xpubkeySignature, authXpubkey, authXpubkeySignature, firstAddress, timestamp,
+      scanXpriv: 'scan',
+    }));
+
+    const result = await walletLoad(event, null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(400);
+    expect(JSON.parse(result.body as string).error).toBe(ApiError.INVALID_PAYLOAD);
+  });
+
+  test('load accepts a complete shielded field set at the schema layer', async () => {
+    await cleanDatabase(mysql);
+    jest.spyOn(Wallet, 'invokeLoadWalletAsync').mockResolvedValueOnce(undefined);
+
+    const now = Math.floor(Date.now() / 1000);
+    const { xpubkey, xpubkeySignature, authXpubkey, authXpubkeySignature, firstAddress, timestamp } = getAuthData(now);
+
+    // All five shielded fields present (dummy values — schema only validates their
+    // types here; the proof is validated in a later step).
+    const event = makeGatewayEvent({}, JSON.stringify({
+      xpubkey, xpubkeySignature, authXpubkey, authXpubkeySignature, firstAddress, timestamp,
+      scanXpriv: 'scan', spendXpub: 'spend', firstCtAddress: 'ct',
+      spendXpubSignature: 'sps', ctAddressSignature: 'cts',
+    }));
+
+    const result = await walletLoad(event, null, null) as APIGatewayProxyResult;
+    // Before the schema accepted these fields, the unknown keys yielded 400 INVALID_PAYLOAD.
+    expect(JSON.parse(result.body as string).error).not.toBe(ApiError.INVALID_PAYLOAD);
+  });
+});

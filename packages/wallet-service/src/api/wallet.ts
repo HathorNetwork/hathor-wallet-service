@@ -90,7 +90,14 @@ const loadBodySchema = Joi.object({
     .required(),
   timestamp: Joi.number().positive().required(),
   firstAddress: firstAddressJoi,
-});
+  // Optional shielded registration — all-or-none: providing any of these five
+  // fields requires all of them.
+  scanXpriv: Joi.string(),
+  spendXpub: Joi.string(),
+  firstCtAddress: Joi.string(),
+  spendXpubSignature: Joi.string(),
+  ctAddressSignature: Joi.string(),
+}).and('scanXpriv', 'spendXpub', 'firstCtAddress', 'spendXpubSignature', 'ctAddressSignature');
 
 /**
  * Invoke the loadWalletAsync function
