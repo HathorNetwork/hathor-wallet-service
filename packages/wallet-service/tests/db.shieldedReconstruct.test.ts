@@ -58,26 +58,27 @@ const readAddressBalance = async (address: string, tokenId: string) => (await my
 
 const insertAddressBalance = (
   address: string, tokenId: string,
-  c: { ub?: number; lb?: number; tr?: number; usb?: number; lsb?: number; tsr?: number },
+  c: { ub?: number; lb?: number; tr?: number; usb?: number; lsb?: number; tsr?: number; ua?: number; la?: number; te?: number | null },
 ) => mysql.query(
   `INSERT INTO \`address_balance\`
      (\`address\`, \`token_id\`, \`unlocked_balance\`, \`locked_balance\`, \`total_received\`,
       \`unlocked_shielded_balance\`, \`locked_shielded_balance\`, \`total_shielded_received\`,
       \`unlocked_authorities\`, \`locked_authorities\`, \`timelock_expires\`, \`transactions\`)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, NULL, 0)`,
-  [address, tokenId, c.ub ?? 0, c.lb ?? 0, c.tr ?? 0, c.usb ?? 0, c.lsb ?? 0, c.tsr ?? 0],
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+  [address, tokenId, c.ub ?? 0, c.lb ?? 0, c.tr ?? 0, c.usb ?? 0, c.lsb ?? 0, c.tsr ?? 0, c.ua ?? 0, c.la ?? 0, c.te ?? null],
 );
 
-const insertAddressHistoryRow = (address: string, txId: string, tokenId: string, balance: number, shieldedDelta: number) => mysql.query(
+const insertAddressHistoryRow = (address: string, txId: string, tokenId: string, balance: number, shieldedDelta: number, voided = false) => mysql.query(
   `INSERT INTO \`address_tx_history\`
      (\`address\`, \`tx_id\`, \`token_id\`, \`balance\`, \`shielded_balance_delta\`, \`timestamp\`, \`voided\`)
-   VALUES (?, ?, ?, ?, ?, 0, FALSE)`,
-  [address, txId, tokenId, balance, shieldedDelta],
+   VALUES (?, ?, ?, ?, ?, 0, ?)`,
+  [address, txId, tokenId, balance, shieldedDelta, voided],
 );
 
 const readWalletBalance = async (walletId: string, tokenId: string) => (await mysql.query(
   `SELECT \`unlocked_balance\` AS ub, \`total_received\` AS tr, \`transactions\` AS txns,
-          \`unlocked_shielded_balance\` AS usb, \`locked_shielded_balance\` AS lsb, \`total_shielded_received\` AS tsr
+          \`unlocked_shielded_balance\` AS usb, \`locked_shielded_balance\` AS lsb, \`total_shielded_received\` AS tsr,
+          \`unlocked_authorities\` AS ua, \`locked_authorities\` AS la, \`timelock_expires\` AS te
      FROM \`wallet_balance\` WHERE \`wallet_id\` = ? AND \`token_id\` = ?`,
   [walletId, tokenId],
 ))[0];
@@ -96,13 +97,14 @@ describe('rebuildShieldedAddressBalances', () => {
     await insertOutput('rtx2', 0, 'a1', { value: '50', spentBy: 'in0' }); // spent
     await insertOutput('rtx3', 0, 'a1', { value: '30', locked: true }); // unspent, locked
     await insertOutput('rtx4', 0, 'a1', { value: null, recoveryState: 'unowned' }); // not recovered
+    await insertOutput('rtxV', 0, 'a1', { value: '999', voided: true }); // voided -> excluded
 
     await rebuildShieldedAddressBalances(mysql, ['a1']);
 
     const ab = await readAddressBalance('a1', '00');
     expect(String(ab.u)).toBe('100'); // unlocked_shielded_balance
     expect(String(ab.l)).toBe('30'); // locked_shielded_balance
-    expect(String(ab.t)).toBe('180'); // total_shielded_received (100+50+30, spent counts)
+    expect(String(ab.t)).toBe('180'); // total_shielded_received (100+50+30, spent counts; voided 999 excluded)
   });
 
   it('is idempotent and leaves the transparent balance untouched', async () => {
@@ -187,6 +189,29 @@ describe('rebuildWalletBalance', () => {
     expect(Number(wb.txns)).toBe(2); // t1 + rtx1
   });
 
+  it('folds authority bits (BIT_OR) and the earliest timelock (MIN) across addresses', async () => {
+    await insertAddressBalance('a1', '00', { ua: 0b01, la: 0b00, te: 900 });
+    await insertAddressBalance('a2', '00', { ua: 0b10, la: 0b01, te: 500 });
+
+    await rebuildWalletBalance(mysql, 'w1', ['a1', 'a2']);
+
+    const wb = await readWalletBalance('w1', '00');
+    expect(Number(wb.ua)).toBe(0b11); // BIT_OR(01, 10)
+    expect(Number(wb.la)).toBe(0b01); // BIT_OR(00, 01)
+    expect(Number(wb.te)).toBe(500); // MIN(900, 500)
+  });
+
+  it('counts a tx touching two wallet addresses once (COUNT DISTINCT)', async () => {
+    await insertAddressBalance('a1', '00', { usb: 100, tsr: 100 });
+    await insertAddressBalance('a2', '00', { usb: 50, tsr: 50 });
+    await insertAddressHistoryRow('a1', 'shared', '00', 0, 100); // same tx on both addresses
+    await insertAddressHistoryRow('a2', 'shared', '00', 0, 50);
+
+    await rebuildWalletBalance(mysql, 'w1', ['a1', 'a2']);
+
+    expect(Number((await readWalletBalance('w1', '00')).txns)).toBe(1); // COUNT(DISTINCT tx_id); non-distinct -> 2
+  });
+
   it('is idempotent', async () => {
     await insertAddressBalance('ca', '00', { usb: 100, tsr: 100 });
     await insertAddressHistoryRow('ca', 'rtx1', '00', 0, 100);
@@ -221,6 +246,16 @@ describe('rebuildWalletTxHistory', () => {
     expect(String((await read('t1')).b)).toBe('200');
     expect(String((await read('rtx1')).d)).toBe('100');
     expect(String((await read('shared')).b)).toBe('80'); // 50 + 30
+  });
+
+  it('excludes voided address-history rows from the wallet aggregation', async () => {
+    await insertAddressHistoryRow('ca', 'good', '00', 0, 100);
+    await insertAddressHistoryRow('ca', 'bad', '00', 0, 999, true); // voided -> excluded
+
+    await rebuildWalletTxHistory(mysql, 'w1', ['ca']);
+
+    const rows = await mysql.query('SELECT `tx_id` FROM `wallet_tx_history` WHERE `wallet_id` = ?', ['w1']);
+    expect((rows as { tx_id: string }[]).map((r) => r.tx_id)).toEqual(['good']);
   });
 
   it('is idempotent', async () => {

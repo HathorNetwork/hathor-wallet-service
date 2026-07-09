@@ -38,12 +38,13 @@ const seedCtSpendAddress = (address: string, walletId: string, index: number, sc
 const insertShieldedOutput = (
   txId: string, index: number, address: string, mode: number,
   recoveryState: string, value: string | null, tokenId: string | null,
+  voided = false,
 ) => mysql.query(
   `INSERT INTO \`tx_output\`
      (\`tx_id\`, \`index\`, \`address\`, \`value\`, \`token_id\`, \`authorities\`,
       \`timelock\`, \`heightlock\`, \`locked\`, \`voided\`, \`mode\`, \`recovery_state\`)
-   VALUES (?, ?, ?, ?, ?, 0, NULL, NULL, FALSE, FALSE, ?, ?)`,
-  [txId, index, address, value, tokenId, mode, recoveryState],
+   VALUES (?, ?, ?, ?, ?, 0, NULL, NULL, FALSE, ?, ?, ?)`,
+  [txId, index, address, value, tokenId, voided, mode, recoveryState],
 );
 
 const insertSatellite = (
@@ -91,6 +92,24 @@ describe('shielded db: ownership resolution', () => {
 
     expect(await findShieldedAddressOwnership(mysql, 'addr_t')).toBeNull();
     expect(await findShieldedAddressOwnership(mysql, 'nope')).toBeNull();
+  });
+
+  it('returns null for a CTSpend address missing its wallet or scan key', async () => {
+    await seedWallet('w1');
+    // Explicit inserts so each row violates exactly one ownership guard.
+    await mysql.query(
+      `INSERT INTO \`address\`
+         (\`address\`, \`index\`, \`wallet_id\`, \`transactions\`, \`seqnum\`, \`bip32_account\`, \`scan_privkey\`, \`catchup_state\`, \`ct_address\`)
+       VALUES
+         ('ct_nokey',   0, 'w1',  0, 0, ?, NULL, NULL, NULL),
+         ('ct_noowner', 1, NULL,  0, 0, ?, ?,    NULL, NULL)`,
+      [Bip32Account.CTSpend, Bip32Account.CTSpend, Buffer.alloc(32, 7)],
+    );
+
+    // ct_nokey: claimed CTSpend row with no scan key -> excluded by `scan_privkey IS NOT NULL`
+    expect(await findShieldedAddressOwnership(mysql, 'ct_nokey')).toBeNull();
+    // ct_noowner: CTSpend row with a scan key but unclaimed -> excluded by `wallet_id IS NOT NULL`
+    expect(await findShieldedAddressOwnership(mysql, 'ct_noowner')).toBeNull();
   });
 
   it('findShieldedAddressOwnershipBatch resolves many and skips misses', async () => {
@@ -187,6 +206,9 @@ describe('shielded db: outputs to recover', () => {
     await insertSatellite('recovered', 0, { commitment: Buffer.alloc(33), rangeProof: Buffer.alloc(8), ephemeralPubkey: Buffer.alloc(33) });
     await insertShieldedOutput('other', 0, 'a2', 1, 'unowned', null, '00'); // wallet w2
     await insertSatellite('other', 0, { commitment: Buffer.alloc(33, 2), rangeProof: Buffer.alloc(8), ephemeralPubkey: Buffer.alloc(33, 2) });
+    // own-wallet (w1), unowned, but VOIDED -> only the `voided = FALSE` filter excludes it
+    await insertShieldedOutput('voided', 0, 'a1', 1, 'unowned', null, '00', true);
+    await insertSatellite('voided', 0, { commitment: Buffer.alloc(33, 3), rangeProof: Buffer.alloc(8), ephemeralPubkey: Buffer.alloc(33, 3) });
 
     expect(await getShieldedOutputsToRecover(mysql, 'w1', 100)).toHaveLength(0);
   });
@@ -200,5 +222,18 @@ describe('shielded db: outputs to recover', () => {
     expect(first.map((o) => o.txId)).toEqual(['lim0', 'lim1', 'lim2']);
     const next = await getShieldedOutputsToRecover(mysql, 'w1', 3, { txId: 'lim2', index: 0 });
     expect(next.map((o) => o.txId)).toEqual(['lim3', 'lim4']);
+  });
+
+  it('cursors within a single tx_id using the index tie-breaker', async () => {
+    // one tx, three outputs at indexes 0/1/2 -> same tx_id, so paging forward must
+    // fall back to the `index > ?` branch of the keyset cursor
+    for (const idx of [0, 1, 2]) {
+      await insertShieldedOutput('multi', idx, 'a1', 1, 'unowned', null, '00');
+      await insertSatellite('multi', idx, { commitment: Buffer.alloc(33, idx), rangeProof: Buffer.alloc(8), ephemeralPubkey: Buffer.alloc(33, idx) });
+    }
+    const first = await getShieldedOutputsToRecover(mysql, 'w1', 2);
+    expect(first.map((o) => [o.txId, o.index])).toEqual([['multi', 0], ['multi', 1]]);
+    const next = await getShieldedOutputsToRecover(mysql, 'w1', 2, { txId: 'multi', index: 1 });
+    expect(next.map((o) => [o.txId, o.index])).toEqual([['multi', 2]]);
   });
 });

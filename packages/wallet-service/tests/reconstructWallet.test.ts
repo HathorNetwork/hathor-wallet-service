@@ -10,7 +10,7 @@ import { ServerlessMysql } from 'serverless-mysql';
 import { addAlert, Bip32Account } from '@wallet-service/common';
 import { getDbConnection, closeDbConnection } from '@src/utils';
 import { cleanDatabase, addToWalletTable, addToAddressTable } from '@tests/utils';
-import { resetCtCryptoMock, primeAmountRewind } from '@tests/utils/ct-crypto-mock';
+import { resetCtCryptoMock, primeAmountRewind, primeFullyRewind } from '@tests/utils/ct-crypto-mock';
 import { findAndRewindShielded, reconstructWallet } from '@src/shieldedRecovery';
 
 jest.mock('@wallet-service/common', () => ({
@@ -31,19 +31,19 @@ const seedCtSpendAddress = (address: string, walletId: string, index: number) =>
     address, index, walletId, transactions: 0, bip32_account: Bip32Account.CTSpend, scan_privkey: Buffer.alloc(32, index + 1),
   }]);
 
-const insertUnownedOutput = (txId: string, address: string, tokenId: string) => mysql.query(
+const insertUnownedOutput = (txId: string, address: string, tokenId: string | null, mode = 1) => mysql.query(
   `INSERT INTO \`tx_output\`
      (\`tx_id\`, \`index\`, \`address\`, \`value\`, \`token_id\`, \`authorities\`,
       \`timelock\`, \`heightlock\`, \`locked\`, \`voided\`, \`mode\`, \`recovery_state\`)
-   VALUES (?, 0, ?, NULL, ?, 0, NULL, NULL, FALSE, FALSE, 1, 'unowned')`,
-  [txId, address, tokenId],
+   VALUES (?, 0, ?, NULL, ?, 0, NULL, NULL, FALSE, FALSE, ?, 'unowned')`,
+  [txId, address, tokenId, mode],
 );
 
-const insertSatellite = (txId: string, commitment: Buffer, ephemeralPubkey: Buffer) => mysql.query(
+const insertSatellite = (txId: string, commitment: Buffer, ephemeralPubkey: Buffer, assetCommitment: Buffer | null = null) => mysql.query(
   `INSERT INTO \`shielded_tx_output_data\`
      (\`tx_id\`, \`index\`, \`commitment\`, \`range_proof\`, \`script\`, \`ephemeral_pubkey\`, \`asset_commitment\`)
-   VALUES (?, 0, ?, ?, ?, ?, NULL)`,
-  [txId, commitment, Buffer.alloc(8), Buffer.alloc(1), ephemeralPubkey],
+   VALUES (?, 0, ?, ?, ?, ?, ?)`,
+  [txId, commitment, Buffer.alloc(8), Buffer.alloc(1), ephemeralPubkey, assetCommitment],
 );
 
 const readState = async (txId: string) => (await mysql.query(
@@ -175,5 +175,54 @@ describe('reconstructWallet', () => {
     expect(String(wb.usb)).toBe('0');
     expect(Number(wb.txns)).toBe(1);
     expect(mockedAddAlert).not.toHaveBeenCalled();
+  });
+
+  it('is idempotent end-to-end (safe to re-run)', async () => {
+    await seedWallet('w1');
+    await seedTransparentAddress('ta', 'w1', 0);
+    await seedCtSpendAddress('ca', 'w1', 0);
+    await insertTx('t1', 500);
+    await seedTransparentBalance('ta', 't1');
+    for (const [tx, byte, ts] of [['so1', 0xb1, 600], ['so2', 0xb2, 700]] as [string, number, number][]) {
+      await insertTx(tx, ts);
+      await insertUnownedOutput(tx, 'ca', '00');
+      await insertSatellite(tx, Buffer.alloc(33, byte), Buffer.alloc(33, byte));
+    }
+    primeAmountRewind({ commitment: Buffer.alloc(33, 0xb1), ephemeralPubkey: Buffer.alloc(33, 0xb1), value: 100n, tokenUid: Buffer.from('00', 'hex') });
+    primeAmountRewind({ commitment: Buffer.alloc(33, 0xb2), ephemeralPubkey: Buffer.alloc(33, 0xb2), value: 250n, tokenUid: Buffer.from('00', 'hex') });
+
+    const first = await reconstructWallet(mysql, 'w1', ['ta'], ['ca'], logger);
+    expect(first).toEqual({ recovered: 2, failed: 0 });
+    // second pass: outputs are already 'recovered', so nothing is rewound and the
+    // rebuilds re-snapshot (replace, not add)
+    const second = await reconstructWallet(mysql, 'w1', ['ta'], ['ca'], logger);
+    expect(second).toEqual({ recovered: 0, failed: 0 });
+
+    const wb = await readWalletBalance('w1');
+    expect(String(wb.usb)).toBe('350'); // 100 + 250, not doubled
+    expect(Number(wb.txns)).toBe(3); // t1 + so1 + so2
+    expect(await countWalletHistory('w1')).toBe(3);
+  });
+
+  it('recovers a fully-shielded (mode 2) output and folds a second token via GROUP BY token_id', async () => {
+    await seedWallet('w1');
+    await seedCtSpendAddress('ca', 'w1', 0);
+    const tokenB = 'ab'.repeat(32);
+    await insertTx('m1', 600);
+    await insertTx('m2', 700);
+    await insertUnownedOutput('m1', 'ca', '00', 1); // mode-1, token 00
+    await insertSatellite('m1', Buffer.alloc(33, 0xc1), Buffer.alloc(33, 0xc1));
+    await insertUnownedOutput('m2', 'ca', null, 2); // mode-2, token comes from the rewind
+    await insertSatellite('m2', Buffer.alloc(33, 0xc2), Buffer.alloc(33, 0xc2), Buffer.alloc(33, 0xd2));
+    primeAmountRewind({ commitment: Buffer.alloc(33, 0xc1), ephemeralPubkey: Buffer.alloc(33, 0xc1), value: 100n, tokenUid: Buffer.from('00', 'hex') });
+    primeFullyRewind({ commitment: Buffer.alloc(33, 0xc2), ephemeralPubkey: Buffer.alloc(33, 0xc2), value: 42n, tokenUid: Buffer.from(tokenB, 'hex'), assetCommitment: Buffer.alloc(33, 0xd2) });
+
+    expect(await reconstructWallet(mysql, 'w1', [], ['ca'], logger)).toEqual({ recovered: 2, failed: 0 });
+
+    expect(String((await readWalletBalance('w1')).usb)).toBe('100'); // token '00' row
+    const wbB = (await mysql.query(
+      "SELECT `unlocked_shielded_balance` AS usb FROM `wallet_balance` WHERE `wallet_id` = 'w1' AND `token_id` = ?", [tokenB],
+    ))[0];
+    expect(String(wbB.usb)).toBe('42'); // recovered token -> second GROUP BY token_id row
   });
 });
