@@ -146,4 +146,17 @@ describe('recoverShieldedOutput', () => {
       logger,
     );
   });
+
+  it('never rejects even if failure-reporting (addAlert) throws', async () => {
+    await insertShieldedOutput('tx6', 0, 'a1', 1, 'unowned');
+    const out = amountOutput({ txId: 'tx6' }); // unprimed -> rewind throws
+    mockedAddAlert.mockRejectedValueOnce(new Error('sqs unavailable'));
+
+    // the reporting path throwing must not escape: resolves recovered:false, no rejection
+    await expect(recoverShieldedOutput(mysql, 'w1', out, logger)).resolves.toEqual(
+      expect.objectContaining({ txId: 'tx6', index: 0, recovered: false }),
+    );
+    // the mark ran before the alert threw, so the row is still left for re-drive
+    expect((await readOutput('tx6', 0)).recovery_state).toBe('recovery_failed');
+  });
 });

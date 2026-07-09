@@ -87,20 +87,32 @@ export const recoverShieldedOutput = async (
     await markShieldedTxOutputRecovered(mysql, output.txId, output.index, { value, tokenId });
     return { ...base, recovered: true, tokenId, value };
   } catch (e) {
-    await markShieldedTxOutputRecoveryFailed(mysql, output.txId, output.index);
-    await addAlert(
-      'Shielded recovery failed',
-      `Failed to rewind shielded output ${output.txId}:${output.index} for wallet ${walletId}`,
-      Severity.MAJOR,
-      {
-        tx_id: output.txId,
+    // The failure-reporting path must not throw either: a transient DB/SQS blip here
+    // would otherwise escape the catch-up loop and abort the whole batch. A swallowed
+    // mark just leaves the output non-recovered, so the next catch-up re-drives it.
+    try {
+      await markShieldedTxOutputRecoveryFailed(mysql, output.txId, output.index);
+      await addAlert(
+        'Shielded recovery failed',
+        `Failed to rewind shielded output ${output.txId}:${output.index} for wallet ${walletId}`,
+        Severity.MAJOR,
+        {
+          tx_id: output.txId,
+          index: output.index,
+          wallet_id: walletId,
+          error: String(e),
+          source: 'wallet-service',
+        },
+        logger,
+      );
+    } catch (reportErr) {
+      logger.error('Shielded recovery failure-reporting threw; leaving output for re-drive', {
+        txId: output.txId,
         index: output.index,
-        wallet_id: walletId,
-        error: String(e),
-        source: 'wallet-service',
-      },
-      logger,
-    );
+        walletId,
+        error: String(reportErr),
+      });
+    }
     return { ...base, recovered: false };
   }
 };
