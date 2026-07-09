@@ -10,8 +10,6 @@
 // DB-backed shielded suites.
 jest.setTimeout(30000);
 
-jest.mock('../../src/crypto/ctRewind', () => require('../mocks/ct-crypto-node').mockCtCrypto);
-
 const mockAddAlert = jest.fn();
 jest.mock('@wallet-service/common', () => {
   const actual = jest.requireActual('@wallet-service/common');

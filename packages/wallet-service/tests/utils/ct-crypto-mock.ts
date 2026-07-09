@@ -6,17 +6,12 @@
  */
 
 /**
- * Deterministic shielded-crypto provider for daemon tests.
+ * Deterministic shielded-crypto provider for wallet-service tests.
  *
  * Implements the two rewind methods of `IShieldedCryptoProvider` against a
  * priming map keyed by (commitment, ephemeralPubkey). Tests prime the map, then
  * register this provider via `resetCtCryptoMock()` (which the common rewind
- * wrapper delegates to). Unprimed calls throw, so the daemon marks the output
- * `recovery_failed`.
- *
- * Usage in a test file:
- *   import { resetCtCryptoMock, primeAmountRewind } from '../mocks/ct-crypto-node';
- *   beforeEach(() => resetCtCryptoMock());   // clears priming + registers provider
+ * wrapper delegates to). Unprimed calls throw, so recovery is marked failed.
  */
 
 import {
@@ -49,11 +44,6 @@ export function primeFullyRewind(p: FullyPriming): void {
   fullyMap.set(key(p.commitment, p.ephemeralPubkey), p);
 }
 
-/**
- * A provider that resolves rewinds from the priming maps. Only the two rewind
- * methods used by the wrapper are implemented; the rest of the interface is
- * unused by these tests.
- */
 const mockProvider = {
   async rewindAmountShieldedOutput(
     _privateKey: Buffer,

@@ -98,7 +98,7 @@ import {
   bumpAddressInvolvement,
   decrementAddressInvolvement,
 } from '../db';
-import { rewindAmount, rewindFully } from '../crypto/ctRewind';
+import { rewindAmount, rewindFully } from '@wallet-service/common';
 import getConfig, { VALIDATE_ADDRESS_BALANCES } from '../config';
 import logger from '../logger';
 import { invokeOnTxPushNotificationRequestedLambda, getDaemonUptime, retryWithBackoff } from '../utils';
@@ -535,7 +535,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
                   throw new Error('AmountShielded token_data does not resolve to a known token');
                 }
                 const tokenUid = Buffer.from(tokenIdHex, 'hex');
-                const r = rewindAmount({
+                const r = await rewindAmount({
                   scanPrivkey: owned.scan_privkey,
                   ephemeralPubkey: ephem,
                   commitment: commit,
@@ -554,7 +554,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
                 });
               } else {
                 const assetCommit = Buffer.from(so.asset_commitment, 'hex');
-                const r = rewindFully({
+                const r = await rewindFully({
                   scanPrivkey: owned.scan_privkey,
                   ephemeralPubkey: ephem,
                   commitment: commit,
