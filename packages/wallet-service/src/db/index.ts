@@ -356,6 +356,35 @@ export const updateWalletAuthXpub = async (
 };
 
 /**
+ * Persist a wallet's shielded registration keys and move its shielded lifecycle
+ * into `creating`. `scan_xpriv` is a BLOB: the base58 xpriv is stored as its
+ * UTF-8 bytes so it round-trips back to the string address derivation consumes.
+ *
+ * @param mysql - Database connection
+ * @param walletId - The wallet id
+ * @param scanXpriv - The change-level scan xpriv (base58)
+ * @param spendXpub - The change-level spend xpub (base58)
+ * @param shieldedMaxGap - The shielded gap limit
+ */
+export const registerWalletShieldedKeys = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+  scanXpriv: string,
+  spendXpub: string,
+  shieldedMaxGap: number,
+): Promise<void> => {
+  await mysql.query(
+    `UPDATE \`wallet\`
+        SET \`scan_xpriv\` = ?,
+            \`spend_xpub\` = ?,
+            \`shielded_max_gap\` = ?,
+            \`ct_status\` = 'creating'
+      WHERE \`id\` = ?`,
+    [Buffer.from(scanXpriv, 'utf8'), spendXpub, shieldedMaxGap, walletId],
+  );
+};
+
+/**
  * Add addresses to address table.
  *
  * @remarks

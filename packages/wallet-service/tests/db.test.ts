@@ -4093,3 +4093,18 @@ describe('computeUnifiedStatus', () => {
     expect(computeUnifiedStatus(WalletStatus.READY, WalletStatus.READY)).toBe(WalletStatus.READY);
   });
 });
+
+describe('registerWalletShieldedKeys', () => {
+  it('persists the shielded keys and flips ct_status to creating', async () => {
+    const walletId = 'wsk-wallet';
+    await createWallet(mysql, walletId, 'xpub', 'authxpub', 20);
+
+    await Db.registerWalletShieldedKeys(mysql, walletId, 'scanxprivstr', 'spendxpubstr', 15);
+
+    const wallet = await getWallet(mysql, walletId);
+    expect(wallet.scanXpriv).toBe('scanxprivstr');
+    expect(wallet.spendXpub).toBe('spendxpubstr');
+    expect(wallet.shieldedMaxGap).toBe(15);
+    expect(wallet.ctStatus).toBe('creating');
+  });
+});
