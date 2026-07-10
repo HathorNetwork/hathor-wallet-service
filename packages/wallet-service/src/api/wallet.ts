@@ -21,13 +21,15 @@ import {
   updateExistingAddresses,
   updateWalletStatus,
   updateWalletAuthXpub,
+  registerWalletShieldedKeys,
 } from '@src/db';
 import {
   beginTransaction,
   commitTransaction,
   rollbackTransaction,
+  computeUnifiedStatus,
 } from '@src/db/utils';
-import { WalletStatus } from '@src/types';
+import { WalletStatus, Wallet } from '@src/types';
 import {
   closeDbConnection,
   getDbConnection,
@@ -61,6 +63,30 @@ const MAX_LOAD_WALLET_RETRIES: number = config.maxLoadWalletRetries;
 // shielded/p2pkh version bytes that address derivation reads.
 const shieldedNetwork = new Network(config.network);
 
+// Default shielded gap limit (matches the transparent default and the
+// wallet.shielded_max_gap column default).
+const DEFAULT_SHIELDED_MAX_GAP = 20;
+
+/**
+ * Shape a wallet row into the API status payload: the `status` field is the
+ * unified transparent+shielded lifecycle value, and the two shielded fields are
+ * surfaced for clients that use them. Scan/spend keys are deliberately omitted —
+ * `scan_xpriv` is a secret and must never leave the service.
+ */
+export const toWalletStatusResponse = (wallet: Wallet): Record<string, unknown> => ({
+  walletId: wallet.walletId,
+  xpubkey: wallet.xpubkey,
+  authXpubkey: wallet.authXpubkey,
+  status: computeUnifiedStatus(wallet.status, wallet.ctStatus ?? 'none'),
+  retryCount: wallet.retryCount,
+  maxGap: wallet.maxGap,
+  createdAt: wallet.createdAt,
+  readyAt: wallet.readyAt,
+  lastUsedAddressIndex: wallet.lastUsedAddressIndex,
+  shieldedMaxGap: wallet.shieldedMaxGap ?? null,
+  lastUsedShieldedIndex: wallet.lastUsedShieldedIndex ?? null,
+});
+
 /*
  * Get the status of a wallet
  *
@@ -76,7 +102,7 @@ export const get: APIGatewayProxyHandler = middy(walletIdProxyHandler(async (wal
 
   return {
     statusCode: 200,
-    body: JSON.stringify({ success: true, status }),
+    body: JSON.stringify({ success: true, status: toWalletStatusResponse(status) }),
   };
 })).use(cors())
   .use(warmupMiddleware())
@@ -391,16 +417,24 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
   const walletId = getWalletId(xpubkeyStr);
   let wallet = await getWallet(mysql, walletId);
 
+  // A request carrying shielded fields (all-or-none, guaranteed by the schema)
+  // may be a shielded upgrade of an already-loaded wallet, so the "already
+  // loaded" early-returns below apply only to transparent-only requests. The
+  // transparent scan is likewise skipped when the transparent side is settled.
+  const hasShielded = value.scanXpriv != null;
+  const transparentSettled = !!wallet
+    && (wallet.status === WalletStatus.READY || wallet.status === WalletStatus.CREATING);
+
   // check if wallet is already loaded so we can fail early
-  if (wallet) {
+  if (wallet && !hasShielded) {
     if (wallet.status === WalletStatus.READY
       || wallet.status === WalletStatus.CREATING) {
-      return closeDbAndGetError(mysql, ApiError.WALLET_ALREADY_LOADED, { status: wallet });
+      return closeDbAndGetError(mysql, ApiError.WALLET_ALREADY_LOADED, { status: toWalletStatusResponse(wallet) });
     }
 
     if (wallet.status === WalletStatus.ERROR
         && wallet.retryCount >= MAX_LOAD_WALLET_RETRIES) {
-      return closeDbAndGetError(mysql, ApiError.WALLET_MAX_RETRIES, { status: wallet });
+      return closeDbAndGetError(mysql, ApiError.WALLET_MAX_RETRIES, { status: toWalletStatusResponse(wallet) });
     }
   }
 
@@ -428,23 +462,68 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
     };
   }
 
-  // if wallet does not exist at this point, we should add it to the wallet table with 'creating' status
-  if (!wallet) {
-    wallet = await createWallet(mysql, walletId, xpubkeyStr, authXpubkeyStr, maxGap);
+  // Validate the shielded proof before mutating anything, so an invalid shielded
+  // upgrade cannot leave the transparent side half-processed.
+  if (hasShielded) {
+    const reg = validateShieldedRegistration({
+      timestamp,
+      walletId,
+      authXpubkey: authXpubkeyStr,
+      scanXpriv: value.scanXpriv,
+      spendXpub: value.spendXpub,
+      firstCtAddress: value.firstCtAddress,
+      spendXpubSignature: value.spendXpubSignature,
+      ctAddressSignature: value.ctAddressSignature,
+    });
+    if (reg.ok === false) {
+      await closeDbConnection(mysql);
+      return {
+        statusCode: reg.code,
+        body: JSON.stringify({ success: false, details: [{ message: reg.message }] }),
+      };
+    }
   }
 
-  try {
-    /* This calls the lambda function as a "Event", so we don't care here for the response,
-     * we only care if the invokation failed or not
-     */
-    await invokeLoadWalletAsync(xpubkeyStr, maxGap);
-  } catch (e) {
-    logger.error(e);
-    const newRetryCount = wallet.retryCount ? wallet.retryCount + 1 : 1;
-    // update wallet status to 'error'
-    await updateWalletStatus(mysql, walletId, WalletStatus.ERROR, newRetryCount);
+  // Transparent load: create the wallet + kick off the async scan, but only when
+  // the transparent side isn't already loaded — a shielded-only upgrade must not
+  // re-scan an existing wallet.
+  if (!transparentSettled) {
+    // if wallet does not exist at this point, we should add it to the wallet table with 'creating' status
+    if (!wallet) {
+      wallet = await createWallet(mysql, walletId, xpubkeyStr, authXpubkeyStr, maxGap);
+    }
 
-    // refresh the variable with latest status, so we can return it properly
+    try {
+      /* This calls the lambda function as a "Event", so we don't care here for the response,
+       * we only care if the invokation failed or not
+       */
+      await invokeLoadWalletAsync(xpubkeyStr, maxGap);
+    } catch (e) {
+      logger.error(e);
+      const newRetryCount = wallet.retryCount ? wallet.retryCount + 1 : 1;
+      // update wallet status to 'error'
+      await updateWalletStatus(mysql, walletId, WalletStatus.ERROR, newRetryCount);
+
+      // refresh the variable with latest status, so we can return it properly
+      wallet = await getWallet(mysql, walletId);
+    }
+  }
+
+  // Shielded reconciliation: register the keys on first submission, no-op on an
+  // identical re-submission, reject a different key set as a conflict.
+  if (hasShielded) {
+    const current = await getWallet(mysql, walletId);
+    if (current.scanXpriv == null) {
+      await registerWalletShieldedKeys(mysql, walletId, value.scanXpriv, value.spendXpub, DEFAULT_SHIELDED_MAX_GAP);
+      // follow-up: derive the initial shielded address pool and enqueue the catch-up scan
+    } else if (current.scanXpriv !== value.scanXpriv || current.spendXpub !== value.spendXpub) {
+      await closeDbConnection(mysql);
+      return {
+        statusCode: 409,
+        body: JSON.stringify({ success: false, error: ApiError.SHIELDED_KEYS_CONFLICT }),
+      };
+    }
+    // else: identical keys already stored -> no-op
     wallet = await getWallet(mysql, walletId);
   }
 
@@ -452,7 +531,7 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
 
   return {
     statusCode: 200,
-    body: JSON.stringify({ success: true, status: wallet }),
+    body: JSON.stringify({ success: true, status: toWalletStatusResponse(wallet) }),
   };
 }).use(cors())
   .use(warmupMiddleware())
