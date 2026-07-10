@@ -4108,3 +4108,20 @@ describe('registerWalletShieldedKeys', () => {
     expect(wallet.ctStatus).toBe('creating');
   });
 });
+
+describe('createWallet with shielded keys', () => {
+  it('registers the shielded keys in a single insert, matching a getWallet read', async () => {
+    const walletId = 'wsk-combined';
+    const ret = await createWallet(mysql, walletId, 'xpub', 'authxpub', 20, {
+      scanXpriv: 'scanx', spendXpub: 'spendx', shieldedMaxGap: 15,
+    });
+
+    expect(ret.ctStatus).toBe(WalletStatus.CREATING);
+    expect(ret.scanXpriv).toBe('scanx');
+    expect(ret.spendXpub).toBe('spendx');
+    expect(ret.shieldedMaxGap).toBe(15);
+
+    // the in-memory result matches what a subsequent getWallet reads back.
+    expect(await getWallet(mysql, walletId)).toStrictEqual(ret);
+  });
+});

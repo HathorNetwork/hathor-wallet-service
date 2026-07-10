@@ -1053,6 +1053,7 @@ test('POST /wallet should fail with ApiError.WALLET_MAX_RETRIES when max retries
   expect(returnBody.status.status).toStrictEqual(WalletStatus.ERROR);
   expect(returnBody.status.retryCount).toStrictEqual(5);
 
+  mockedAddAlert.mockClear();
   event = makeGatewayEvent({}, JSON.stringify(params));
   result = await walletLoad(event, null, null) as APIGatewayProxyResult;
   returnBody = JSON.parse(result.body as string);
@@ -1060,6 +1061,8 @@ test('POST /wallet should fail with ApiError.WALLET_MAX_RETRIES when max retries
   expect(returnBody.status.status).toStrictEqual(WalletStatus.ERROR);
   expect(returnBody.error).toStrictEqual(ApiError.WALLET_MAX_RETRIES);
   expect(returnBody.status.retryCount).toStrictEqual(5);
+  // Reaching the retry cap raises an ops alert.
+  expect(mockedAddAlert).toHaveBeenCalledTimes(1);
 }, 30000); // This is huge for a test, but bitcore-lib takes too long
 
 test('POST /wallet/init should validate attributes properly', async () => {
@@ -2657,5 +2660,47 @@ describe('shielded wallet registration', () => {
     expect(await Db.getWallet(mysql, getWalletId(XPUBKEY))).toBeNull();
     expect(combined).not.toHaveBeenCalled();
     expect(deprecated).not.toHaveBeenCalled();
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('re-runs the combined load when the same keys are re-submitted after a failed load', async () => {
+    await cleanDatabase(mysql);
+    const walletId = getWalletId(XPUBKEY);
+    const { combined, deprecated } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    const body = buildShieldedLoadBody(now);
+    // The wallet holds these keys but a previous load errored (retryCount below the cap).
+    await addToWalletTable(mysql, [{
+      id: walletId, xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY, status: 'error', maxGap: 5, createdAt: 10000, readyAt: 10001,
+    }]);
+    await Db.registerWalletShieldedKeys(mysql, walletId, body.scanXpriv, body.spendXpub, 20);
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(200);
+    // Same keys + error state -> retry via the combined load.
+    expect(combined).toHaveBeenCalledTimes(1);
+    expect(deprecated).not.toHaveBeenCalled();
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('rejects a shielded resubmit with WALLET_MAX_RETRIES + alert once the cap is reached', async () => {
+    await cleanDatabase(mysql);
+    const walletId = getWalletId(XPUBKEY);
+    const { combined, deprecated } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    const body = buildShieldedLoadBody(now);
+    await addToWalletTable(mysql, [{
+      id: walletId, xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY, status: 'error', maxGap: 5, createdAt: 10000, readyAt: 10001,
+    }]);
+    await Db.registerWalletShieldedKeys(mysql, walletId, body.scanXpriv, body.spendXpub, 20);
+    // Push retry_count to the cap (MAX_LOAD_WALLET_RETRIES is 5 in the test env).
+    await mysql.query('UPDATE `wallet` SET `retry_count` = 5 WHERE `id` = ?', [walletId]);
+    mockedAddAlert.mockClear();
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(400);
+    expect(JSON.parse(result.body as string).error).toBe(ApiError.WALLET_MAX_RETRIES);
+    // No retry is kicked off, and reaching the cap raises an ops alert.
+    expect(combined).not.toHaveBeenCalled();
+    expect(deprecated).not.toHaveBeenCalled();
+    expect(mockedAddAlert).toHaveBeenCalledTimes(1);
   }, SHIELDED_TEST_TIMEOUT_MS);
 });

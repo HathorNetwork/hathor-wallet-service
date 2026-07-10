@@ -282,6 +282,7 @@ export const createWallet = async (
   xpubkey: string,
   authXpubkey: string,
   maxGap: number,
+  shielded?: { scanXpriv: string; spendXpub: string; shieldedMaxGap: number },
 ): Promise<Wallet> => {
   const ts = getUnixTimestamp();
   const entry = {
@@ -292,6 +293,14 @@ export const createWallet = async (
     created_at: ts,
     max_gap: maxGap,
     last_used_address_index: -1,
+    // Register shielded keys in the same insert when provided (rather than a
+    // create-then-update). scan_xpriv is a BLOB — store the base58 xpriv's bytes.
+    ...(shielded ? {
+      scan_xpriv: Buffer.from(shielded.scanXpriv, 'utf8'),
+      spend_xpub: shielded.spendXpub,
+      shielded_max_gap: shielded.shieldedMaxGap,
+      ct_status: WalletStatus.CREATING,
+    } : {}),
   };
   await mysql.query(
     `INSERT INTO \`wallet\`
@@ -308,12 +317,12 @@ export const createWallet = async (
     createdAt: ts,
     readyAt: null,
     lastUsedAddressIndex: -1,
-    // Shielded columns take their DB defaults on insert; mirror them here so the
-    // in-memory result matches a subsequent getWallet read.
-    ctStatus: 'none',
-    scanXpriv: null,
-    spendXpub: null,
-    shieldedMaxGap: 20,
+    // Mirror the persisted shielded columns so the in-memory result matches a
+    // subsequent getWallet read (defaults when no shielded keys are provided).
+    ctStatus: shielded ? WalletStatus.CREATING : 'none',
+    scanXpriv: shielded ? shielded.scanXpriv : null,
+    spendXpub: shielded ? shielded.spendXpub : null,
+    shieldedMaxGap: shielded ? shielded.shieldedMaxGap : 20,
     lastUsedShieldedIndex: null,
   };
 };

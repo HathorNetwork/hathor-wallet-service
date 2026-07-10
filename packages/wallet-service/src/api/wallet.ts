@@ -431,11 +431,25 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
   // is wallet already loaded/loading?
   const walletId = getWalletId(xpubkeyStr);
   let wallet = await getWallet(mysql, walletId);
+  const walletExisted = !!wallet;
 
   // A request carrying shielded fields (all-or-none, guaranteed by the schema)
   // may be a shielded upgrade of an already-loaded wallet, so the "already
-  // loaded" early-returns below apply only to transparent-only requests.
+  // loaded" early-return below applies only to transparent-only requests.
   const hasShielded = value.scanXpriv != null;
+
+  // Alert ops + reject when a wallet has failed to load too many times. The cap is
+  // shared by the transparent, shielded and upgrade paths.
+  const rejectMaxRetries = async () => {
+    await addAlert(
+      'Wallet load exceeded max retries',
+      `Wallet ${walletId} reached the load-retry limit (${MAX_LOAD_WALLET_RETRIES}) and will not be retried.`,
+      Severity.MINOR,
+      { wallet_id: walletId, retry_count: wallet.retryCount, source: 'wallet-service' },
+      logger,
+    );
+    return closeDbAndGetError(mysql, ApiError.WALLET_MAX_RETRIES, { status: toWalletStatusResponse(wallet) });
+  };
 
   // check if wallet is already loaded so we can fail early
   if (wallet && !hasShielded) {
@@ -446,7 +460,7 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
 
     if (wallet.status === WalletStatus.ERROR
         && wallet.retryCount >= MAX_LOAD_WALLET_RETRIES) {
-      return closeDbAndGetError(mysql, ApiError.WALLET_MAX_RETRIES, { status: toWalletStatusResponse(wallet) });
+      return rejectMaxRetries();
     }
   }
 
@@ -496,9 +510,16 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
     }
   }
 
-  // if wallet does not exist at this point, we should add it to the wallet table with 'creating' status
+  // Create the wallet if new — registering the shielded keys in the same insert
+  // when this is a fresh shielded registration (rather than create-then-update).
   if (!wallet) {
-    wallet = await createWallet(mysql, walletId, xpubkeyStr, authXpubkeyStr, maxGap);
+    wallet = hasShielded
+      ? await createWallet(mysql, walletId, xpubkeyStr, authXpubkeyStr, maxGap, {
+        scanXpriv: value.scanXpriv,
+        spendXpub: value.spendXpub,
+        shieldedMaxGap: DEFAULT_SHIELDED_MAX_GAP,
+      })
+      : await createWallet(mysql, walletId, xpubkeyStr, authXpubkeyStr, maxGap);
   }
 
   /* The async loads below are invoked as "Event", so we don't care about the
@@ -512,28 +533,44 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
   };
 
   if (hasShielded) {
-    // Shielded reconciliation: register the keys on first submission, no-op on an
-    // identical re-submission, reject a different key set as a conflict.
-    const current = await getWallet(mysql, walletId);
-    if (current.scanXpriv == null) {
-      await registerWalletShieldedKeys(mysql, walletId, value.scanXpriv, value.spendXpub, DEFAULT_SHIELDED_MAX_GAP);
+    // Reconcile keys for an existing wallet: reject a conflicting set; attach keys
+    // to a transparent wallet being upgraded. A fresh wallet already has its keys.
+    if (walletExisted) {
+      if (wallet.scanXpriv == null) {
+        await registerWalletShieldedKeys(mysql, walletId, value.scanXpriv, value.spendXpub, DEFAULT_SHIELDED_MAX_GAP);
+      } else if (wallet.scanXpriv !== value.scanXpriv || wallet.spendXpub !== value.spendXpub) {
+        await closeDbConnection(mysql);
+        return {
+          statusCode: 409,
+          body: JSON.stringify({ success: false, error: ApiError.SHIELDED_KEYS_CONFLICT }),
+        };
+      }
+    }
 
-      // Kick off the canonical async load, which derives both the transparent and
-      // shielded address paths and reconstructs both balances in one pass —
-      // subsuming the transparent-only load even for an upgrade (idempotent).
+    // A wallet that already failed too many times is alerted + rejected, not retried.
+    if (walletExisted
+      && computeUnifiedStatus(wallet.status, wallet.ctStatus ?? 'none') === WalletStatus.ERROR
+      && wallet.retryCount >= MAX_LOAD_WALLET_RETRIES) {
+      return rejectMaxRetries();
+    }
+
+    // (Re)invoke the canonical combined load — which derives both the transparent
+    // and shielded address paths and reconstructs both balances in one pass —
+    // unless this is an identical resubmit on a wallet that is already loaded or in
+    // progress. Fresh registrations and upgrades always load; a same-keys resubmit
+    // re-loads only to retry a previous failure.
+    const settledWithSameKeys = walletExisted
+      && wallet.scanXpriv === value.scanXpriv
+      && wallet.spendXpub === value.spendXpub
+      && computeUnifiedStatus(wallet.status, wallet.ctStatus ?? 'none') !== WalletStatus.ERROR;
+
+    if (!settledWithSameKeys) {
       try {
         await invokeLoadWalletAsync(xpubkeyStr, maxGap);
       } catch (e) {
         await onAsyncInvokeError(e);
       }
-    } else if (current.scanXpriv !== value.scanXpriv || current.spendXpub !== value.spendXpub) {
-      await closeDbConnection(mysql);
-      return {
-        statusCode: 409,
-        body: JSON.stringify({ success: false, error: ApiError.SHIELDED_KEYS_CONFLICT }),
-      };
     }
-    // else: identical keys already stored -> no-op, don't re-run the load.
     wallet = await getWallet(mysql, walletId);
   } else {
     // Transparent-only load: the deprecated path, kept until the combined load
