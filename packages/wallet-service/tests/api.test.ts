@@ -2416,7 +2416,7 @@ const buildShieldedFields = (walletId: string, timestamp: number, opts: Shielded
   const authNode = root.derivePath("m/44'/280'/280'");
   const authXpubkey = opts.authXpubkey ?? authNode.neutered().toBase58();
 
-  const firstCtAddress = deriveCtAddress(scanXpriv, spendXpub, 0, new Network('mainnet')).ctAddress;
+  const firstCtAddress = deriveCtAddress(scanXpriv, spendXpub, 0, new Network(process.env.NETWORK as string)).ctAddress;
 
   const sign = (payload: string, priv: Buffer): string => bitcoinMessage
     .sign(buildAuthMessage(timestamp, walletId, payload), priv, true, HATHOR_MSG_PREFIX)

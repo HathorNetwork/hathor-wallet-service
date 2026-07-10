@@ -367,7 +367,7 @@ export const changeAuthXpub: APIGatewayProxyHandler = middy(async (event) => {
     statusCode: 200,
     body: JSON.stringify({
       success: true,
-      status: updatedWallet,
+      status: toWalletStatusResponse(updatedWallet),
     }),
   };
 }).use(cors())
