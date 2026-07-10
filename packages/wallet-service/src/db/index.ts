@@ -308,6 +308,13 @@ export const createWallet = async (
     createdAt: ts,
     readyAt: null,
     lastUsedAddressIndex: -1,
+    // Shielded columns take their DB defaults on insert; mirror them here so the
+    // in-memory result matches a subsequent getWallet read.
+    ctStatus: 'none',
+    scanXpriv: null,
+    spendXpub: null,
+    shieldedMaxGap: 20,
+    lastUsedShieldedIndex: null,
   };
 };
 
