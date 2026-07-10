@@ -140,7 +140,7 @@ const loadBodySchema = Joi.object({
  * @param maxGap - The max gap
  */
 /* istanbul ignore next */
-export const invokeLoadWalletAsync = async (xpubkey: string, maxGap: number): Promise<void> => {
+const invokeAsyncLoad = async (functionName: string, xpubkey: string, maxGap: number): Promise<void> => {
   const client = createLambdaClient({
     endpoint: config.stage === 'dev'
       ? 'http://localhost:3002'
@@ -149,7 +149,7 @@ export const invokeLoadWalletAsync = async (xpubkey: string, maxGap: number): Pr
   });
   const command = new InvokeCommand({
     // FunctionName is composed of: service name - stage - function name
-    FunctionName: `${config.serviceName}-${config.stage}-loadWalletAsync`,
+    FunctionName: `${config.serviceName}-${config.stage}-${functionName}`,
     InvocationType: 'Event',
     Payload: JSON.stringify({ xpubkey, maxGap }),
   });
@@ -161,6 +161,21 @@ export const invokeLoadWalletAsync = async (xpubkey: string, maxGap: number): Pr
     throw new Error('Lambda invoke failed');
   }
 };
+
+/**
+ * Invoke the canonical async wallet load — derives both the transparent and
+ * shielded address paths and reconstructs both balances in a single pass. Used
+ * whenever a load request carries shielded keys.
+ */
+/* istanbul ignore next */
+export const invokeLoadWalletAsync = (xpubkey: string, maxGap: number): Promise<void> => invokeAsyncLoad('loadWalletAsync', xpubkey, maxGap);
+
+/**
+ * Invoke the deprecated transparent-only async wallet load. Still used for load
+ * requests that carry no shielded keys, until the combined load subsumes it.
+ */
+/* istanbul ignore next */
+export const invokeDeprecatedLoadWalletAsync = (xpubkey: string, maxGap: number): Promise<void> => invokeAsyncLoad('deprecatedLoadWalletAsync', xpubkey, maxGap);
 
 /**
  * Calls verifySignature for both the wallet's xpub signature and
@@ -419,11 +434,8 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
 
   // A request carrying shielded fields (all-or-none, guaranteed by the schema)
   // may be a shielded upgrade of an already-loaded wallet, so the "already
-  // loaded" early-returns below apply only to transparent-only requests. The
-  // transparent scan is likewise skipped when the transparent side is settled.
+  // loaded" early-returns below apply only to transparent-only requests.
   const hasShielded = value.scanXpriv != null;
-  const transparentSettled = !!wallet
-    && (wallet.status === WalletStatus.READY || wallet.status === WalletStatus.CREATING);
 
   // check if wallet is already loaded so we can fail early
   if (wallet && !hasShielded) {
@@ -484,38 +496,36 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
     }
   }
 
-  // Transparent load: create the wallet + kick off the async scan, but only when
-  // the transparent side isn't already loaded — a shielded-only upgrade must not
-  // re-scan an existing wallet.
-  if (!transparentSettled) {
-    // if wallet does not exist at this point, we should add it to the wallet table with 'creating' status
-    if (!wallet) {
-      wallet = await createWallet(mysql, walletId, xpubkeyStr, authXpubkeyStr, maxGap);
-    }
-
-    try {
-      /* This calls the lambda function as a "Event", so we don't care here for the response,
-       * we only care if the invokation failed or not
-       */
-      await invokeLoadWalletAsync(xpubkeyStr, maxGap);
-    } catch (e) {
-      logger.error(e);
-      const newRetryCount = wallet.retryCount ? wallet.retryCount + 1 : 1;
-      // update wallet status to 'error'
-      await updateWalletStatus(mysql, walletId, WalletStatus.ERROR, newRetryCount);
-
-      // refresh the variable with latest status, so we can return it properly
-      wallet = await getWallet(mysql, walletId);
-    }
+  // if wallet does not exist at this point, we should add it to the wallet table with 'creating' status
+  if (!wallet) {
+    wallet = await createWallet(mysql, walletId, xpubkeyStr, authXpubkeyStr, maxGap);
   }
 
-  // Shielded reconciliation: register the keys on first submission, no-op on an
-  // identical re-submission, reject a different key set as a conflict.
+  /* The async loads below are invoked as "Event", so we don't care about the
+   * response here, only whether the invocation itself failed. On failure the
+   * wallet is marked 'error' and the latest status is re-read for the response. */
+  const onAsyncInvokeError = async (e: unknown): Promise<void> => {
+    logger.error(e);
+    const newRetryCount = wallet.retryCount ? wallet.retryCount + 1 : 1;
+    await updateWalletStatus(mysql, walletId, WalletStatus.ERROR, newRetryCount);
+    wallet = await getWallet(mysql, walletId);
+  };
+
   if (hasShielded) {
+    // Shielded reconciliation: register the keys on first submission, no-op on an
+    // identical re-submission, reject a different key set as a conflict.
     const current = await getWallet(mysql, walletId);
     if (current.scanXpriv == null) {
       await registerWalletShieldedKeys(mysql, walletId, value.scanXpriv, value.spendXpub, DEFAULT_SHIELDED_MAX_GAP);
-      // follow-up: derive the initial shielded address pool and enqueue the catch-up scan
+
+      // Kick off the canonical async load, which derives both the transparent and
+      // shielded address paths and reconstructs both balances in one pass —
+      // subsuming the transparent-only load even for an upgrade (idempotent).
+      try {
+        await invokeLoadWalletAsync(xpubkeyStr, maxGap);
+      } catch (e) {
+        await onAsyncInvokeError(e);
+      }
     } else if (current.scanXpriv !== value.scanXpriv || current.spendXpub !== value.spendXpub) {
       await closeDbConnection(mysql);
       return {
@@ -523,8 +533,16 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
         body: JSON.stringify({ success: false, error: ApiError.SHIELDED_KEYS_CONFLICT }),
       };
     }
-    // else: identical keys already stored -> no-op
+    // else: identical keys already stored -> no-op, don't re-run the load.
     wallet = await getWallet(mysql, walletId);
+  } else {
+    // Transparent-only load: the deprecated path, kept until the combined load
+    // subsumes it entirely.
+    try {
+      await invokeDeprecatedLoadWalletAsync(xpubkeyStr, maxGap);
+    } catch (e) {
+      await onAsyncInvokeError(e);
+    }
   }
 
   await closeDbConnection(mysql);
@@ -623,8 +641,10 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
 };
 
 /*
- * This does the "heavy" work when loading a new wallet, updating the database tables accordingly. It
- * expects a wallet entry already on the database
+ * Deprecated transparent-only async wallet load: derives the transparent address
+ * path and seeds the transparent balance. Kept for load requests that carry no
+ * shielded keys, until the combined load subsumes it. It expects a wallet entry
+ * already on the database.
  *
  * This lambda is called async by another lambda, the one reponsible for the load wallet API
  */
@@ -693,4 +713,25 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
       xpubkey,
     };
   }
+};
+
+/*
+ * Canonical async wallet load: derives both the transparent and shielded address
+ * paths and reconstructs both balances (via reconstructWallet) in one pass. It
+ * expects a wallet entry (with shielded keys) already on the database.
+ *
+ * Invoked async by the load-wallet API whenever the request carries shielded keys.
+ *
+ * NOTE: the body is implemented in a follow-up PR; for now this is a registered
+ * stub so the API has a stable invoke target. It leaves the wallet in 'creating'.
+ */
+export const loadWalletCombined: Handler<LoadEvent, LoadResult> = async (event) => {
+  const logger = createDefaultLogger();
+  if (event.source === 'serverless-plugin-warmup') {
+    return { success: true, walletId: '', xpubkey: '' };
+  }
+  logger.info('loadWalletCombined invoked (stub — combined transparent+shielded load lands in a follow-up)', {
+    xpubkey: event.xpubkey,
+  });
+  return { success: true, walletId: getWalletId(event.xpubkey), xpubkey: event.xpubkey };
 };

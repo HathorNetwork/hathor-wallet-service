@@ -867,7 +867,7 @@ test('POST /wallet', async () => {
 
   await cleanDatabase(mysql);
 
-  const spy = jest.spyOn(Wallet, 'invokeLoadWalletAsync');
+  const spy = jest.spyOn(Wallet, 'invokeDeprecatedLoadWalletAsync');
 
   const mockImplementationSuccess = jest.fn(() => Promise.resolve());
   const mockImplementationFailure = jest.fn(() => Promise.reject(new Error('error!')));
@@ -1003,7 +1003,7 @@ test('POST /wallet should fail with ApiError.WALLET_MAX_RETRIES when max retries
   const authMessage = new bitcore.Message(String(now).concat(walletId).concat(authAddress));
   const authXpubkeySignature = authMessage.sign(authDerivedPrivKey.privateKey);
 
-  const spy = jest.spyOn(Wallet, 'invokeLoadWalletAsync');
+  const spy = jest.spyOn(Wallet, 'invokeDeprecatedLoadWalletAsync');
   const mockImplementationFailure = jest.fn(() => Promise.reject(new Error('error!')));
   spy.mockImplementation(mockImplementationFailure);
 
@@ -1308,7 +1308,7 @@ test('loadWallet API should fail if a wrong signature is sent', async () => {
   const authMessage = new bitcore.Message(String(now).concat(walletId).concat(authAddress));
   const authXpubkeySignature = authMessage.sign(authDerivedPrivKey.privateKey);
 
-  const loadWalletAsyncSpy = jest.spyOn(Wallet, 'invokeLoadWalletAsync');
+  const loadWalletAsyncSpy = jest.spyOn(Wallet, 'invokeDeprecatedLoadWalletAsync');
   const mockImplementationSuccess = jest.fn(() => Promise.resolve());
   loadWalletAsyncSpy.mockImplementation(mockImplementationSuccess);
 
@@ -1376,7 +1376,7 @@ test('loadWallet should update wallet status to ERROR if an error occurs', async
     firstAddress,
   } = getAuthData(now);
 
-  const loadWalletAsyncSpy = jest.spyOn(Wallet, 'invokeLoadWalletAsync');
+  const loadWalletAsyncSpy = jest.spyOn(Wallet, 'invokeDeprecatedLoadWalletAsync');
   const mockImplementationSuccess = jest.fn(() => Promise.resolve());
   loadWalletAsyncSpy.mockImplementation(mockImplementationSuccess);
 
@@ -2554,9 +2554,20 @@ describe('shielded wallet registration', () => {
     readyAt: 10001,
   }]);
 
-  test('registers shielded keys on a brand-new wallet and never leaks scan_xpriv', async () => {
+  // Spy both async-load invokes, cleared (spyOn accumulates calls across tests).
+  // `combined` is the canonical transparent+shielded load; `deprecated` is the
+  // transparent-only load, which a shielded request must never trigger.
+  const spyInvokes = () => {
+    const combined = jest.spyOn(Wallet, 'invokeLoadWalletAsync').mockResolvedValue(undefined);
+    const deprecated = jest.spyOn(Wallet, 'invokeDeprecatedLoadWalletAsync').mockResolvedValue(undefined);
+    combined.mockClear();
+    deprecated.mockClear();
+    return { combined, deprecated };
+  };
+
+  test('registers shielded keys on a brand-new wallet via the combined load and never leaks scan_xpriv', async () => {
     await cleanDatabase(mysql);
-    jest.spyOn(Wallet, 'invokeLoadWalletAsync').mockResolvedValue(undefined);
+    const { combined, deprecated } = spyInvokes();
     const now = Math.floor(Date.now() / 1000);
     const body = buildShieldedLoadBody(now);
 
@@ -2573,14 +2584,16 @@ describe('shielded wallet registration', () => {
     expect(wallet.ctStatus).toBe('creating');
     expect(wallet.scanXpriv).toBe(body.scanXpriv);
     expect(wallet.spendXpub).toBe(body.spendXpub);
+
+    // Shielded requests go through the canonical combined load, never the deprecated one.
+    expect(combined).toHaveBeenCalledTimes(1);
+    expect(deprecated).not.toHaveBeenCalled();
   }, SHIELDED_TEST_TIMEOUT_MS);
 
-  test('upgrades an already-loaded transparent wallet without re-scanning it', async () => {
+  test('upgrades an already-loaded transparent wallet via the combined load', async () => {
     await cleanDatabase(mysql);
     await seedReadyWallet();
-    // clear call history — spyOn on the same method accumulates calls across tests.
-    const invokeSpy = jest.spyOn(Wallet, 'invokeLoadWalletAsync').mockResolvedValue(undefined);
-    invokeSpy.mockClear();
+    const { combined, deprecated } = spyInvokes();
     const now = Math.floor(Date.now() / 1000);
     const body = buildShieldedLoadBody(now);
 
@@ -2591,14 +2604,16 @@ describe('shielded wallet registration', () => {
     const wallet = await Db.getWallet(mysql, getWalletId(XPUBKEY));
     expect(wallet.ctStatus).toBe('creating');
     expect(wallet.scanXpriv).toBe(body.scanXpriv);
-    // Transparent side was already loaded, so no re-scan is kicked off.
-    expect(invokeSpy).not.toHaveBeenCalled();
+    // The upgrade runs the combined load (which idempotently re-reconstructs
+    // transparent too), not the deprecated transparent-only load.
+    expect(combined).toHaveBeenCalledTimes(1);
+    expect(deprecated).not.toHaveBeenCalled();
   }, SHIELDED_TEST_TIMEOUT_MS);
 
   test('is a no-op when the same shielded keys are re-submitted', async () => {
     await cleanDatabase(mysql);
     await seedReadyWallet();
-    jest.spyOn(Wallet, 'invokeLoadWalletAsync').mockResolvedValue(undefined);
+    const { combined, deprecated } = spyInvokes();
     const now = Math.floor(Date.now() / 1000);
     const body = buildShieldedLoadBody(now);
     await Db.registerWalletShieldedKeys(mysql, getWalletId(XPUBKEY), body.scanXpriv, body.spendXpub, 20);
@@ -2608,12 +2623,15 @@ describe('shielded wallet registration', () => {
 
     const wallet = await Db.getWallet(mysql, getWalletId(XPUBKEY));
     expect(wallet.scanXpriv).toBe(body.scanXpriv);
+    // Identical keys already stored -> no load is (re-)triggered.
+    expect(combined).not.toHaveBeenCalled();
+    expect(deprecated).not.toHaveBeenCalled();
   }, SHIELDED_TEST_TIMEOUT_MS);
 
   test('rejects a different shielded key set with 409', async () => {
     await cleanDatabase(mysql);
     await seedReadyWallet();
-    jest.spyOn(Wallet, 'invokeLoadWalletAsync').mockResolvedValue(undefined);
+    const { combined, deprecated } = spyInvokes();
     const now = Math.floor(Date.now() / 1000);
     // Store one key set, then submit a different one.
     const stored = buildShieldedFields(getWalletId(XPUBKEY), now, { seedHex: '02'.repeat(32) });
@@ -2623,17 +2641,21 @@ describe('shielded wallet registration', () => {
     const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
     expect(result.statusCode).toBe(409);
     expect(JSON.parse(result.body as string).error).toBe(ApiError.SHIELDED_KEYS_CONFLICT);
+    expect(combined).not.toHaveBeenCalled();
+    expect(deprecated).not.toHaveBeenCalled();
   }, SHIELDED_TEST_TIMEOUT_MS);
 
   test('rejects an invalid shielded signature with 403', async () => {
     await cleanDatabase(mysql);
-    jest.spyOn(Wallet, 'invokeLoadWalletAsync').mockResolvedValue(undefined);
+    const { combined, deprecated } = spyInvokes();
     const now = Math.floor(Date.now() / 1000);
     const body = { ...buildShieldedLoadBody(now), ctAddressSignature: Buffer.from('invalid').toString('base64') };
 
     const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
     expect(result.statusCode).toBe(403);
-    // No wallet should have been created — shielded validation runs before the transparent load.
+    // No wallet should have been created — shielded validation runs before any load.
     expect(await Db.getWallet(mysql, getWalletId(XPUBKEY))).toBeNull();
+    expect(combined).not.toHaveBeenCalled();
+    expect(deprecated).not.toHaveBeenCalled();
   }, SHIELDED_TEST_TIMEOUT_MS);
 });
