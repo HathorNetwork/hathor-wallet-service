@@ -6,7 +6,11 @@
  */
 
 import { ServerlessMysql } from 'serverless-mysql';
+import BIP32Factory from 'bip32';
+import * as ecc from 'tiny-secp256k1';
+import { Network } from '@hathor/wallet-lib';
 import { Bip32Account } from '@wallet-service/common';
+import { deriveCtAddress } from '@wallet-service/common/src/crypto/shieldedAddress';
 import { DbSelectResult } from '@src/types';
 import { getDbConnection, closeDbConnection } from '@src/utils';
 import { cleanDatabase, addToWalletTable, addToAddressTable } from '@tests/utils';
@@ -19,6 +23,7 @@ import {
   upsertShieldedAddressOwnership,
   getWalletCtSpendAddresses,
   markShieldedCatchupDone,
+  generateShieldedAddresses,
 } from '@src/db/shielded';
 
 const mysql: ServerlessMysql = getDbConnection();
@@ -311,5 +316,61 @@ describe('markShieldedCatchupDone', () => {
     await markShieldedCatchupDone(mysql, 'w1', 1);
     const res: DbSelectResult = await mysql.query('SELECT `index`, `catchup_state` FROM `address` ORDER BY `index`');
     expect(res.map((r) => r.catchup_state)).toStrictEqual(['done', 'done', 'pending']);
+  });
+});
+
+describe('generateShieldedAddresses', () => {
+  const bip32lib = BIP32Factory(ecc);
+  const gapRoot = bip32lib.fromSeed(Buffer.from('02'.repeat(32), 'hex'));
+  const gapScanXpriv = gapRoot.derivePath("m/44'/280'/1'/0").toBase58();
+  const gapSpendXpub = gapRoot.derivePath("m/44'/280'/2'/0").neutered().toBase58();
+  const gapNetwork = new Network(process.env.NETWORK as string);
+  const derivedAt = (i: number) => deriveCtAddress(gapScanXpriv, gapSpendXpub, i, gapNetwork);
+
+  const seedOutputAt = (address: string, txId: string, mode = 1, voided = false) => mysql.query(
+    `INSERT INTO \`tx_output\`
+       (\`tx_id\`, \`index\`, \`address\`, \`value\`, \`token_id\`, \`authorities\`,
+        \`timelock\`, \`heightlock\`, \`locked\`, \`voided\`, \`mode\`, \`recovery_state\`)
+     VALUES (?, 0, ?, NULL, NULL, 0, NULL, NULL, FALSE, ?, ?, 'unowned')`,
+    [txId, address, voided, mode],
+  );
+
+  it('derives exactly maxGap addresses when nothing was ever used', async () => {
+    const res = await generateShieldedAddresses(mysql, gapScanXpriv, gapSpendXpub, 5, gapNetwork);
+    expect(res.rows).toHaveLength(5);
+    expect(res.lastUsedShieldedIndex).toBeNull();
+    expect(res.rows[0]).toStrictEqual({
+      index: 0,
+      spendAddress: derivedAt(0).spendAddress,
+      ctAddress: derivedAt(0).ctAddress,
+      scanPrivkey: derivedAt(0).scanPrivkey,
+    });
+    expect(res.addresses).toStrictEqual(res.rows.map((r) => r.spendAddress));
+  });
+
+  it('extends the window past chained usage into a later block', async () => {
+    // usage at 3 pulls the window to 0..8; usage at 7 (found in the second
+    // block) pulls it to 0..12. An isolated use at 7 with 0..6 unused would
+    // violate the gap rule itself and is correctly out of reach.
+    await seedOutputAt(derivedAt(3).spendAddress, 'gap-tx0');
+    await seedOutputAt(derivedAt(7).spendAddress, 'gap-tx1');
+    const res = await generateShieldedAddresses(mysql, gapScanXpriv, gapSpendXpub, 5, gapNetwork);
+    expect(res.lastUsedShieldedIndex).toBe(7);
+    expect(res.rows).toHaveLength(13); // 0..12 = lastUsed + maxGap
+    expect(res.rows[12].index).toBe(12);
+  });
+
+  it('counts a transparent (mode 0) output to a shielded spend address as usage', async () => {
+    await seedOutputAt(derivedAt(2).spendAddress, 'gap-tx2', 0);
+    const res = await generateShieldedAddresses(mysql, gapScanXpriv, gapSpendXpub, 5, gapNetwork);
+    expect(res.lastUsedShieldedIndex).toBe(2);
+    expect(res.rows).toHaveLength(8); // 0..7
+  });
+
+  it('ignores voided outputs', async () => {
+    await seedOutputAt(derivedAt(3).spendAddress, 'gap-tx3', 1, true);
+    const res = await generateShieldedAddresses(mysql, gapScanXpriv, gapSpendXpub, 5, gapNetwork);
+    expect(res.lastUsedShieldedIndex).toBeNull();
+    expect(res.rows).toHaveLength(5);
   });
 });

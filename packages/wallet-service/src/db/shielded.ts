@@ -7,6 +7,8 @@
 
 import { ServerlessMysql } from 'serverless-mysql';
 import { Bip32Account, RecoveryState, ShieldedOutputMode } from '@wallet-service/common';
+import { deriveCtAddress } from '@wallet-service/common/src/crypto/shieldedAddress';
+import type { Network } from '@hathor/wallet-lib';
 import { DbSelectResult } from '@src/types';
 
 // The two shielded output modes (AmountShielded, FullyShielded) as query params.
@@ -411,4 +413,64 @@ export const markShieldedCatchupDone = async (
     'UPDATE `address` SET `catchup_state` = ? WHERE `wallet_id` = ? AND `bip32_account` = ? AND `index` <= ?',
     ['done', walletId, Bip32Account.CTSpend, maxIndex],
   );
+};
+
+export interface GenerateShieldedAddresses {
+  rows: ShieldedOwnershipRow[];
+  addresses: string[];
+  lastUsedShieldedIndex: number | null;
+}
+
+/**
+ * Derive the wallet's shielded (CTSpend) address window under the BIP32 gap
+ * rule: keep deriving blocks of maxGap until maxGap consecutive trailing
+ * addresses show no on-chain usage. Usage is decided from observed non-voided
+ * `tx_output` rows at the derived spend address — any mode, since these P2PKH
+ * addresses can also receive transparent outputs — with no rewinding involved.
+ * Read-only: claiming the rows is the caller's job.
+ */
+export const generateShieldedAddresses = async (
+  mysql: ServerlessMysql,
+  scanXpriv: string,
+  spendXpub: string,
+  maxGap: number,
+  network: Network,
+): Promise<GenerateShieldedAddresses> => {
+  const allRows: ShieldedOwnershipRow[] = [];
+  let highestCheckedIndex = -1;
+  let lastUsedIndex = -1;
+
+  do {
+    const blockStart = highestCheckedIndex + 1;
+    const block: ShieldedOwnershipRow[] = [];
+    for (let index = blockStart; index < blockStart + maxGap; index++) {
+      const derived = deriveCtAddress(scanXpriv, spendXpub, index, network);
+      block.push({
+        index,
+        spendAddress: derived.spendAddress,
+        ctAddress: derived.ctAddress,
+        scanPrivkey: derived.scanPrivkey,
+      });
+    }
+    allRows.push(...block);
+
+    const results: DbSelectResult = await mysql.query(
+      'SELECT DISTINCT `address` FROM `tx_output` WHERE `address` IN (?) AND `voided` = FALSE',
+      [block.map((r) => r.spendAddress)],
+    );
+    const used = new Set(results.map((r) => r.address as string));
+    for (const row of block) {
+      if (used.has(row.spendAddress) && row.index > lastUsedIndex) {
+        lastUsedIndex = row.index;
+      }
+    }
+    highestCheckedIndex += maxGap;
+  } while (lastUsedIndex + maxGap > highestCheckedIndex);
+
+  const rows = allRows.filter((r) => r.index <= lastUsedIndex + maxGap);
+  return {
+    rows,
+    addresses: rows.map((r) => r.spendAddress),
+    lastUsedShieldedIndex: lastUsedIndex === -1 ? null : lastUsedIndex,
+  };
 };
