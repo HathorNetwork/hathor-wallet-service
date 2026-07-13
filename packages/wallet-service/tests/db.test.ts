@@ -4,8 +4,13 @@ import { v4 as uuidv4 } from 'uuid';
 import {
   addNewAddresses,
   addUtxos,
+  advanceLastUsedShieldedIndex,
+  casWalletErrorToCreating,
   createTxProposal,
   createWallet,
+  markWalletCombinedError,
+  markWalletCombinedReady,
+  upsertNewAddresses,
   generateAddresses,
   getAddressWalletInfo,
   getBlockByHeight,
@@ -4123,5 +4128,72 @@ describe('createWallet with shielded keys', () => {
 
     // the in-memory result matches what a subsequent getWallet reads back.
     expect(await getWallet(mysql, walletId)).toStrictEqual(ret);
+  });
+});
+
+describe('combined-load wallet helpers', () => {
+  const wid = 'combined-w';
+  beforeEach(async () => { await createWallet(mysql, wid, 'xpub', 'authxpub', 5); });
+
+  it('upsertNewAddresses tolerates pre-existing rows and never regresses last_used_address_index', async () => {
+    // daemon raced us: the row already exists, claimed, and the frontier moved to 7
+    await mysql.query('INSERT INTO `address` (`address`, `index`, `wallet_id`, `transactions`) VALUES (?, 1, ?, 2)', ['addr1', wid]);
+    await mysql.query('UPDATE `wallet` SET `last_used_address_index` = 7 WHERE `id` = ?', [wid]);
+    await upsertNewAddresses(mysql, wid, { addr0: 0, addr1: 1 }, 3); // stale frontier 3
+    const rows = await mysql.query('SELECT `address`, `transactions` FROM `address` ORDER BY `index`');
+    expect(rows).toHaveLength(2); // no dup-key crash
+    expect(Number(rows[1].transactions)).toBe(2); // untouched on duplicate
+    const w = await getWallet(mysql, wid);
+    expect(w.lastUsedAddressIndex).toBe(7); // GREATEST kept the newer frontier
+  });
+
+  it('advanceLastUsedShieldedIndex distinguishes NULL from 0 and never regresses', async () => {
+    expect((await getWallet(mysql, wid)).lastUsedShieldedIndex).toBeNull();
+    await advanceLastUsedShieldedIndex(mysql, wid, 0);
+    expect((await getWallet(mysql, wid)).lastUsedShieldedIndex).toBe(0);
+    await advanceLastUsedShieldedIndex(mysql, wid, 5);
+    await advanceLastUsedShieldedIndex(mysql, wid, 2); // stale write
+    expect((await getWallet(mysql, wid)).lastUsedShieldedIndex).toBe(5);
+  });
+
+  it('markWalletCombinedReady flips statuses and resets retry_count', async () => {
+    await mysql.query('UPDATE `wallet` SET `retry_count` = 3, `ct_status` = ? WHERE `id` = ?', ['creating', wid]);
+    await markWalletCombinedReady(mysql, wid, true);
+    let w = await getWallet(mysql, wid);
+    expect(w.status).toBe(WalletStatus.READY);
+    expect(w.ctStatus).toBe(WalletStatus.READY);
+    expect(w.retryCount).toBe(0);
+
+    // upgrade variant: transparent already ready and left alone
+    await mysql.query('UPDATE `wallet` SET `retry_count` = 2, `ct_status` = ?, `ready_at` = 123 WHERE `id` = ?', ['creating', wid]);
+    await markWalletCombinedReady(mysql, wid, false);
+    w = await getWallet(mysql, wid);
+    expect(w.ctStatus).toBe(WalletStatus.READY);
+    expect(w.retryCount).toBe(0);
+    expect(w.readyAt).toBe(123); // untouched
+  });
+
+  it('markWalletCombinedError sets error states with an atomic retry bump', async () => {
+    await markWalletCombinedError(mysql, wid, true);
+    let w = await getWallet(mysql, wid);
+    expect(w.status).toBe(WalletStatus.ERROR);
+    expect(w.ctStatus).toBe(WalletStatus.ERROR);
+    expect(w.retryCount).toBe(1);
+    await markWalletCombinedError(mysql, wid, false); // upgrade variant: transparent untouched
+    w = await getWallet(mysql, wid);
+    expect(w.retryCount).toBe(2);
+  });
+
+  it('casWalletErrorToCreating wins only from an error state', async () => {
+    expect(await casWalletErrorToCreating(mysql, wid)).toBe(false); // creating/none — nothing to flip
+    await mysql.query('UPDATE `wallet` SET `status` = ?, `ct_status` = ? WHERE `id` = ?', ['error', 'error', wid]);
+    expect(await casWalletErrorToCreating(mysql, wid)).toBe(true);
+    const w = await getWallet(mysql, wid);
+    expect(w.status).toBe(WalletStatus.CREATING);
+    expect(w.ctStatus).toBe(WalletStatus.CREATING);
+    // ct-only error also flips
+    await mysql.query('UPDATE `wallet` SET `status` = ?, `ct_status` = ? WHERE `id` = ?', ['ready', 'error', wid]);
+    expect(await casWalletErrorToCreating(mysql, wid)).toBe(true);
+    expect((await getWallet(mysql, wid)).status).toBe(WalletStatus.READY); // untouched
   });
 });

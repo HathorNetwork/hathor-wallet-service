@@ -401,6 +401,114 @@ export const registerWalletShieldedKeys = async (
 };
 
 /**
+ * Upsert-variant of addNewAddresses for the combined load: an upgrade runs on a
+ * live wallet whose gap the daemon may extend concurrently, so pre-existing rows
+ * must not dup-key crash, and the frontier index only ever moves forward.
+ */
+export const upsertNewAddresses = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+  addresses: AddressIndexMap,
+  lastUsedAddressIndex: number,
+): Promise<void> => {
+  if (Object.keys(addresses).length > 0) {
+    const entries = Object.entries(addresses).map(([address, index]) => [address, index, walletId, 0]);
+    await mysql.query(
+      `INSERT INTO \`address\`(\`address\`, \`index\`, \`wallet_id\`, \`transactions\`)
+       VALUES ?
+       ON DUPLICATE KEY UPDATE \`wallet_id\` = VALUES(\`wallet_id\`), \`index\` = VALUES(\`index\`)`,
+      [entries],
+    );
+  }
+  await mysql.query(
+    'UPDATE `wallet` SET `last_used_address_index` = GREATEST(`last_used_address_index`, ?) WHERE `id` = ?',
+    [lastUsedAddressIndex, walletId],
+  );
+};
+
+/**
+ * Advance the shielded usage frontier — never regresses (the daemon's live path
+ * may move it concurrently) and preserves the NULL = "never used" semantics: only
+ * call this when a used index actually exists.
+ */
+export const advanceLastUsedShieldedIndex = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+  index: number,
+): Promise<void> => {
+  await mysql.query(
+    'UPDATE `wallet` SET `last_used_shielded_index` = GREATEST(COALESCE(`last_used_shielded_index`, -1), ?) WHERE `id` = ?',
+    [index, walletId],
+  );
+};
+
+/**
+ * Finalize a successful combined load in one statement: shielded side ready,
+ * retry counter cleared, and — unless the transparent side was already ready
+ * before the load (upgrade) — transparent status/ready_at too.
+ */
+export const markWalletCombinedReady = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+  alsoTransparent: boolean,
+): Promise<void> => {
+  if (alsoTransparent) {
+    await mysql.query(
+      'UPDATE `wallet` SET `status` = ?, `ready_at` = ?, `retry_count` = 0, `ct_status` = ? WHERE `id` = ?',
+      [WalletStatus.READY, getUnixTimestamp(), WalletStatus.READY, walletId],
+    );
+  } else {
+    await mysql.query(
+      'UPDATE `wallet` SET `ct_status` = ?, `retry_count` = 0 WHERE `id` = ?',
+      [WalletStatus.READY, walletId],
+    );
+  }
+};
+
+/**
+ * Record a combined-load failure in one statement with an atomic retry bump
+ * (concurrent executions must not lose increments). The transparent status is
+ * only marked when it was not already ready before the load — an upgrade
+ * failure must leave a working transparent wallet untouched.
+ */
+export const markWalletCombinedError = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+  alsoTransparent: boolean,
+): Promise<void> => {
+  if (alsoTransparent) {
+    await mysql.query(
+      'UPDATE `wallet` SET `status` = ?, `ct_status` = ?, `retry_count` = `retry_count` + 1 WHERE `id` = ?',
+      [WalletStatus.ERROR, WalletStatus.ERROR, walletId],
+    );
+  } else {
+    await mysql.query(
+      'UPDATE `wallet` SET `ct_status` = ?, `retry_count` = `retry_count` + 1 WHERE `id` = ?',
+      [WalletStatus.ERROR, walletId],
+    );
+  }
+};
+
+/**
+ * Atomically transition an errored wallet back to creating before re-invoking
+ * the async load. Returns false when there was nothing to flip — the caller
+ * lost the race to another request and must not spawn a duplicate load.
+ */
+export const casWalletErrorToCreating = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+): Promise<boolean> => {
+  const result: OkPacket = await mysql.query(
+    `UPDATE \`wallet\`
+        SET \`status\` = IF(\`status\` = 'error', 'creating', \`status\`),
+            \`ct_status\` = IF(\`ct_status\` = 'error', 'creating', \`ct_status\`)
+      WHERE \`id\` = ? AND (\`status\` = 'error' OR \`ct_status\` = 'error')`,
+    [walletId],
+  );
+  return result.affectedRows > 0;
+};
+
+/**
  * Add addresses to address table.
  *
  * @remarks
