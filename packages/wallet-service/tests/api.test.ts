@@ -2790,4 +2790,41 @@ describe('shielded wallet registration', () => {
       expect.anything(),
     );
   }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('a same-keys retry flips the wallet back to creating before re-invoking', async () => {
+    await cleanDatabase(mysql);
+    const walletId = getWalletId(XPUBKEY);
+    const { combined } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    const body = buildShieldedLoadBody(now);
+    await addToWalletTable(mysql, [{
+      id: walletId, xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY, status: 'error', maxGap: 5, createdAt: 10000, readyAt: 10001,
+    }]);
+    await Db.registerWalletShieldedKeys(mysql, walletId, body.scanXpriv, body.spendXpub, 20);
+    await mysql.query('UPDATE `wallet` SET `ct_status` = ? WHERE `id` = ?', ['error', walletId]);
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(200);
+    expect(combined).toHaveBeenCalledTimes(1);
+    const w = await Db.getWallet(mysql, walletId);
+    expect(w.status).toBe(WalletStatus.CREATING);   // CAS flipped it before the invoke
+    expect(w.ctStatus).toBe(WalletStatus.CREATING);
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('a lost CAS race skips the duplicate invoke', async () => {
+    await cleanDatabase(mysql);
+    const walletId = getWalletId(XPUBKEY);
+    const { combined } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    const body = buildShieldedLoadBody(now);
+    await addToWalletTable(mysql, [{
+      id: walletId, xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY, status: 'error', maxGap: 5, createdAt: 10000, readyAt: 10001,
+    }]);
+    await Db.registerWalletShieldedKeys(mysql, walletId, body.scanXpriv, body.spendXpub, 20);
+    jest.spyOn(Db, 'casWalletErrorToCreating').mockResolvedValueOnce(false); // another request won
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(200);
+    expect(combined).not.toHaveBeenCalled();
+  }, SHIELDED_TEST_TIMEOUT_MS);
 });

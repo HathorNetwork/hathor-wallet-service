@@ -22,6 +22,7 @@ import {
   updateWalletStatus,
   updateWalletAuthXpub,
   registerWalletShieldedKeys,
+  casWalletErrorToCreating,
 } from '@src/db';
 import {
   beginTransaction,
@@ -566,10 +567,18 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
       && computeUnifiedStatus(wallet.status, wallet.ctStatus ?? 'none') !== WalletStatus.ERROR;
 
     if (!settledWithSameKeys) {
-      try {
-        await invokeLoadWalletAsync(xpubkeyStr, maxGap);
-      } catch (e) {
-        await onAsyncInvokeError(e);
+      // A retry of an errored load must atomically transition back to creating
+      // first — a lost race means another request already spawned the load, so
+      // this one must not double-invoke.
+      const entryUnified = computeUnifiedStatus(wallet.status, wallet.ctStatus ?? 'none');
+      const shouldInvoke = entryUnified !== WalletStatus.ERROR
+        || await casWalletErrorToCreating(mysql, walletId);
+      if (shouldInvoke) {
+        try {
+          await invokeLoadWalletAsync(xpubkeyStr, maxGap);
+        } catch (e) {
+          await onAsyncInvokeError(e);
+        }
       }
     }
     wallet = await getWallet(mysql, walletId);
