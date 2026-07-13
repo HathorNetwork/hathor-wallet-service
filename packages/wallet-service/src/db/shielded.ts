@@ -338,3 +338,77 @@ export const rebuildWalletTxHistory = async (
     [walletId, addresses],
   );
 };
+
+export interface ShieldedOwnershipRow {
+  index: number;
+  spendAddress: string;
+  ctAddress: string;
+  scanPrivkey: Buffer;
+}
+
+/**
+ * Claim shielded ownership of the given derived addresses for a wallet: upsert
+ * `address` rows with the CTSpend account, per-index scan privkey, display
+ * ct_address and a pending catch-up state. Safe over daemon observation rows —
+ * the daemon only ever writes (address, transactions), so ownership columns are
+ * disjoint; `transactions` appears ONLY in the insert list (never zeroed on
+ * duplicate) and a `done` catch-up state is preserved via COALESCE.
+ */
+export const upsertShieldedAddressOwnership = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+  rows: ShieldedOwnershipRow[],
+): Promise<void> => {
+  if (rows.length === 0) return;
+  const values = rows.map((r) => [
+    r.spendAddress, r.index, walletId, 0, Bip32Account.CTSpend, r.scanPrivkey, 'pending', r.ctAddress,
+  ]);
+  await mysql.query(
+    `INSERT INTO \`address\`
+       (\`address\`, \`index\`, \`wallet_id\`, \`transactions\`, \`bip32_account\`, \`scan_privkey\`, \`catchup_state\`, \`ct_address\`)
+     VALUES ?
+     ON DUPLICATE KEY UPDATE
+       \`bip32_account\` = VALUES(\`bip32_account\`),
+       \`wallet_id\` = VALUES(\`wallet_id\`),
+       \`index\` = VALUES(\`index\`),
+       \`ct_address\` = VALUES(\`ct_address\`),
+       \`scan_privkey\` = VALUES(\`scan_privkey\`),
+       \`catchup_state\` = COALESCE(\`catchup_state\`, VALUES(\`catchup_state\`))`,
+    [values],
+  );
+};
+
+/**
+ * All CTSpend addresses claimed by a wallet, in index order — the shielded half
+ * of the address set a reconstruction pass must cover. Reading this back from
+ * the database (rather than trusting one run's derived list) keeps re-loads
+ * covering previously-claimed rows even if the usage window shrank.
+ */
+export const getWalletCtSpendAddresses = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+): Promise<string[]> => {
+  const results: DbSelectResult = await mysql.query(
+    'SELECT `address` FROM `address` WHERE `wallet_id` = ? AND `bip32_account` = ? ORDER BY `index`',
+    [walletId, Bip32Account.CTSpend],
+  );
+  return results.map((r) => r.address as string);
+};
+
+/**
+ * Mark the catch-up pass complete for a wallet's CTSpend rows up to (and
+ * including) maxIndex — scoped so rows this pass did not derive are untouched.
+ * NOTE: `catchup_state` records "the registration pass ran over this address";
+ * re-driving unrecovered outputs is keyed on `tx_output.recovery_state`, never
+ * on this column.
+ */
+export const markShieldedCatchupDone = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+  maxIndex: number,
+): Promise<void> => {
+  await mysql.query(
+    'UPDATE `address` SET `catchup_state` = ? WHERE `wallet_id` = ? AND `bip32_account` = ? AND `index` <= ?',
+    ['done', walletId, Bip32Account.CTSpend, maxIndex],
+  );
+};

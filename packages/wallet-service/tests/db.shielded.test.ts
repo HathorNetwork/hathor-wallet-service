@@ -7,6 +7,7 @@
 
 import { ServerlessMysql } from 'serverless-mysql';
 import { Bip32Account } from '@wallet-service/common';
+import { DbSelectResult } from '@src/types';
 import { getDbConnection, closeDbConnection } from '@src/utils';
 import { cleanDatabase, addToWalletTable, addToAddressTable } from '@tests/utils';
 import {
@@ -15,6 +16,9 @@ import {
   markShieldedTxOutputRecovered,
   markShieldedTxOutputRecoveryFailed,
   getShieldedOutputsToRecover,
+  upsertShieldedAddressOwnership,
+  getWalletCtSpendAddresses,
+  markShieldedCatchupDone,
 } from '@src/db/shielded';
 
 const mysql: ServerlessMysql = getDbConnection();
@@ -235,5 +239,77 @@ describe('shielded db: outputs to recover', () => {
     expect(first.map((o) => [o.txId, o.index])).toEqual([['multi', 0], ['multi', 1]]);
     const next = await getShieldedOutputsToRecover(mysql, 'w1', 2, { txId: 'multi', index: 1 });
     expect(next.map((o) => [o.txId, o.index])).toEqual([['multi', 2]]);
+  });
+});
+
+describe('upsertShieldedAddressOwnership', () => {
+  const rows = [
+    { index: 0, spendAddress: 'WSpend0', ctAddress: 'ct0', scanPrivkey: Buffer.alloc(32, 1) },
+    { index: 1, spendAddress: 'WSpend1', ctAddress: 'ct1', scanPrivkey: Buffer.alloc(32, 2) },
+  ];
+
+  it('claims fresh rows with pending catch-up state', async () => {
+    await upsertShieldedAddressOwnership(mysql, 'w1', rows);
+    const res = await mysql.query(
+      'SELECT `address`, `index`, `wallet_id`, `transactions`, `bip32_account`, `catchup_state`, `ct_address`, `scan_privkey` FROM `address` ORDER BY `index`',
+    );
+    expect(res).toHaveLength(2);
+    expect(res[0].wallet_id).toBe('w1');
+    expect(Number(res[0].bip32_account)).toBe(2);
+    expect(res[0].catchup_state).toBe('pending');
+    expect(res[0].ct_address).toBe('ct0');
+    expect(Buffer.from(res[0].scan_privkey).equals(Buffer.alloc(32, 1))).toBe(true);
+    expect(Number(res[0].transactions)).toBe(0);
+  });
+
+  it('claims a daemon observation row without touching its transactions counter', async () => {
+    // daemon observation shape: bare row, involvement already counted
+    await mysql.query('INSERT INTO `address` (`address`, `transactions`) VALUES (?, 3)', ['WSpend0']);
+    await upsertShieldedAddressOwnership(mysql, 'w1', rows);
+    const r = (await mysql.query('SELECT * FROM `address` WHERE `address` = ?', ['WSpend0']))[0];
+    expect(r.wallet_id).toBe('w1');
+    expect(Number(r.transactions)).toBe(3); // preserved — never in the ON DUPLICATE clause
+    expect(r.catchup_state).toBe('pending');
+  });
+
+  it('does not reset a done catch-up state on re-claim', async () => {
+    await upsertShieldedAddressOwnership(mysql, 'w1', rows);
+    await mysql.query('UPDATE `address` SET `catchup_state` = ? WHERE `address` = ?', ['done', 'WSpend0']);
+    await upsertShieldedAddressOwnership(mysql, 'w1', rows);
+    const r = (await mysql.query('SELECT `catchup_state` FROM `address` WHERE `address` = ?', ['WSpend0']))[0];
+    expect(r.catchup_state).toBe('done'); // COALESCE keeps it
+  });
+
+  it('is a no-op for an empty row list', async () => {
+    await upsertShieldedAddressOwnership(mysql, 'w1', []);
+    expect(Number((await mysql.query('SELECT COUNT(*) AS c FROM `address`'))[0].c)).toBe(0);
+  });
+});
+
+describe('getWalletCtSpendAddresses', () => {
+  it('returns only the wallet CTSpend addresses, ordered by index', async () => {
+    await upsertShieldedAddressOwnership(mysql, 'w1', [
+      { index: 1, spendAddress: 'WSpend1', ctAddress: 'ct1', scanPrivkey: Buffer.alloc(32, 2) },
+      { index: 0, spendAddress: 'WSpend0', ctAddress: 'ct0', scanPrivkey: Buffer.alloc(32, 1) },
+    ]);
+    await upsertShieldedAddressOwnership(mysql, 'w2', [
+      { index: 0, spendAddress: 'WOther0', ctAddress: 'ctX', scanPrivkey: Buffer.alloc(32, 9) },
+    ]);
+    // transparent-claimed row of w1 must be excluded
+    await mysql.query('INSERT INTO `address` (`address`, `index`, `wallet_id`, `transactions`) VALUES (?, 0, ?, 0)', ['WTransp0', 'w1']);
+    expect(await getWalletCtSpendAddresses(mysql, 'w1')).toStrictEqual(['WSpend0', 'WSpend1']);
+  });
+});
+
+describe('markShieldedCatchupDone', () => {
+  it('marks only the wallet CTSpend rows up to maxIndex', async () => {
+    await upsertShieldedAddressOwnership(mysql, 'w1', [
+      { index: 0, spendAddress: 'WSpend0', ctAddress: 'ct0', scanPrivkey: Buffer.alloc(32, 1) },
+      { index: 1, spendAddress: 'WSpend1', ctAddress: 'ct1', scanPrivkey: Buffer.alloc(32, 2) },
+      { index: 2, spendAddress: 'WSpend2', ctAddress: 'ct2', scanPrivkey: Buffer.alloc(32, 3) },
+    ]);
+    await markShieldedCatchupDone(mysql, 'w1', 1);
+    const res: DbSelectResult = await mysql.query('SELECT `index`, `catchup_state` FROM `address` ORDER BY `index`');
+    expect(res.map((r) => r.catchup_state)).toStrictEqual(['done', 'done', 'pending']);
   });
 });
