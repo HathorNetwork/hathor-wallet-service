@@ -668,9 +668,13 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
               continue;
             }
 
-            const { maxAmongAddresses, maxWalletIndex } = indices;
+            // Transparent gap extension reads the transparent pair only — a
+            // claimed shielded (CTSpend) index must never drive or suppress
+            // transparent derivation. The CT pair feeds the shielded gap
+            // extension (follow-up work).
+            const { maxTransparentAmongAddresses, maxTransparentWalletIndex } = indices;
 
-            if (maxAmongAddresses == null || maxWalletIndex == null) {
+            if (maxTransparentAmongAddresses == null || maxTransparentWalletIndex == null) {
               // Do nothing, wallet is most likely not loaded yet.
               if (walletDetails.status === WalletStatus.READY) {
                 logger.error('[ERROR] A wallet marked as READY does not have a max wallet index or address index was not found in the database');
@@ -678,12 +682,12 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
               continue;
             }
 
-            const diff = maxWalletIndex - maxAmongAddresses;
+            const diff = maxTransparentWalletIndex - maxTransparentAmongAddresses;
 
             if (diff < walletDetails.maxGap) {
               // We need to generate addresses
-              const addresses = await generateAddresses(NETWORK as string, walletDetails.xpubkey, maxWalletIndex + 1, walletDetails.maxGap - diff);
-              await addNewAddresses(mysql, walletId, addresses, maxAmongAddresses);
+              const addresses = await generateAddresses(NETWORK as string, walletDetails.xpubkey, maxTransparentWalletIndex + 1, walletDetails.maxGap - diff);
+              await addNewAddresses(mysql, walletId, addresses, maxTransparentAmongAddresses);
             }
           }
 

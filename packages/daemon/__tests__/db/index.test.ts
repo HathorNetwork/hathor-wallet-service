@@ -1559,14 +1559,14 @@ describe('address generation and index methods', () => {
     // Check wallet1 indices
     const wallet1Indices = indices.get(wallet1);
     expect(wallet1Indices).toBeDefined();
-    expect(wallet1Indices?.maxAmongAddresses).toBe(15);
-    expect(wallet1Indices?.maxWalletIndex).toBe(15);
+    expect(wallet1Indices?.maxTransparentAmongAddresses).toBe(15);
+    expect(wallet1Indices?.maxTransparentWalletIndex).toBe(15);
 
     // Check wallet2 indices
     const wallet2Indices = indices.get(wallet2);
     expect(wallet2Indices).toBeDefined();
-    expect(wallet2Indices?.maxAmongAddresses).toBe(12);
-    expect(wallet2Indices?.maxWalletIndex).toBe(12);
+    expect(wallet2Indices?.maxTransparentAmongAddresses).toBe(12);
+    expect(wallet2Indices?.maxTransparentWalletIndex).toBe(12);
 
     // Test with empty wallet data
     const emptyIndices = await getMaxIndicesForWallets(mysql, []);
@@ -1584,8 +1584,51 @@ describe('address generation and index methods', () => {
     ]);
     const subsetWallet1 = subsetIndices.get(wallet1);
     expect(subsetWallet1).toBeDefined();
-    expect(subsetWallet1?.maxAmongAddresses).toBe(10);
-    expect(subsetWallet1?.maxWalletIndex).toBe(15);
+    expect(subsetWallet1?.maxTransparentAmongAddresses).toBe(10);
+    expect(subsetWallet1?.maxTransparentWalletIndex).toBe(15);
+  });
+
+  test('getMaxIndicesForWallets partitions both index pairs by bip32 account', async () => {
+    expect.hasAssertions();
+
+    // transparent rows for w1: indices 0..3 (bip32_account 0 and NULL both count as transparent)
+    await mysql.query(
+      'INSERT INTO `address` (`address`, `index`, `wallet_id`, `transactions`, `bip32_account`) VALUES ' +
+      "('taddr0', 0, 'w1', 0, 0), ('taddr1', 1, 'w1', 2, NULL), ('taddr2', 2, 'w1', 0, 0), ('taddr3', 3, 'w1', 0, 0)",
+    );
+    // claimed CTSpend rows: frontier at 21, usage in this tx at 12
+    await mysql.query(
+      'INSERT INTO `address` (`address`, `index`, `wallet_id`, `transactions`, `bip32_account`) VALUES ' +
+      "('saddr12', 12, 'w1', 1, 2), ('saddr21', 21, 'w1', 0, 2)",
+    );
+
+    // the tx involves one transparent address (index 1) and one CTSpend address (index 12)
+    const result = await getMaxIndicesForWallets(mysql, [
+      { walletId: 'w1', addresses: ['taddr1', 'saddr12'] },
+    ]);
+    expect(result.get('w1')).toStrictEqual({
+      // transparent pair: CTSpend indices must not leak into either side
+      maxTransparentAmongAddresses: 1, // NOT 12 — the CTSpend involvement stays out
+      maxTransparentWalletIndex: 3,    // NOT 21 — the CTSpend frontier stays out
+      // CT pair: available for the shielded gap-extension follow-up
+      maxCtAmongAddresses: 12,
+      maxCtWalletIndex: 21,
+    });
+  });
+
+  test('getMaxIndicesForWallets yields null CT maxes for a wallet with no shielded rows', async () => {
+    expect.hasAssertions();
+
+    await mysql.query(
+      "INSERT INTO `address` (`address`, `index`, `wallet_id`, `transactions`, `bip32_account`) VALUES ('taddr0', 0, 'w1', 1, 0)",
+    );
+    const result = await getMaxIndicesForWallets(mysql, [{ walletId: 'w1', addresses: ['taddr0'] }]);
+    expect(result.get('w1')).toStrictEqual({
+      maxTransparentAmongAddresses: 0,
+      maxTransparentWalletIndex: 0,
+      maxCtAmongAddresses: null,
+      maxCtWalletIndex: null,
+    });
   });
 });
 
