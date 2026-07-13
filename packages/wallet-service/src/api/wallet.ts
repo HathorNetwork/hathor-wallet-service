@@ -642,9 +642,24 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
 
       const walletId = getWalletId(loadEvent.xpubkey);
 
-      // update wallet status to 'error' and set the number of retries to MAX so
-      // it doesn't get retried
-      await updateWalletStatus(mysql, walletId, WalletStatus.ERROR, MAX_LOAD_WALLET_RETRIES);
+      // Pin the wallet at the retry cap so it is not retried. A wallet with
+      // shielded keys pins its shielded lifecycle too, and an upgrade — whose
+      // transparent side was already ready before the crashed load — keeps its
+      // working transparent state untouched.
+      const failedWallet = await getWallet(mysql, walletId);
+      if (failedWallet && failedWallet.scanXpriv != null) {
+        if (failedWallet.status === WalletStatus.READY) {
+          await mysql.query(
+            'UPDATE `wallet` SET `ct_status` = ?, `retry_count` = ? WHERE `id` = ?',
+            [WalletStatus.ERROR, MAX_LOAD_WALLET_RETRIES, walletId],
+          );
+        } else {
+          await updateWalletStatus(mysql, walletId, WalletStatus.ERROR, MAX_LOAD_WALLET_RETRIES);
+          await mysql.query('UPDATE `wallet` SET `ct_status` = ? WHERE `id` = ?', [WalletStatus.ERROR, walletId]);
+        }
+      } else {
+        await updateWalletStatus(mysql, walletId, WalletStatus.ERROR, MAX_LOAD_WALLET_RETRIES);
+      }
 
       logger.error(`${walletId} failed to load.`);
       logger.error({

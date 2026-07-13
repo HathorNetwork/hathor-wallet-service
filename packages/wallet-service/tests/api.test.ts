@@ -1448,6 +1448,36 @@ test('loadWalletFailed should create alert if xpubkey is missing', async () => {
   );
 });
 
+test('loadWalletFailed pins only the shielded side when the transparent side was ready (upgrade crash)', async () => {
+  expect.hasAssertions();
+  await cleanDatabase(mysql);
+  const walletId = getWalletId(XPUBKEY);
+  await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5);
+  await Db.updateWalletStatus(mysql, walletId, WalletStatus.READY);
+  await Db.registerWalletShieldedKeys(mysql, walletId, 'scanx', 'spendx', 20);
+
+  await loadWalletFailed(makeLoadWalletFailedSNSEvent(1, XPUBKEY), null, null);
+
+  const w = await Db.getWallet(mysql, walletId);
+  expect(w.status).toBe(WalletStatus.READY);   // working transparent state untouched
+  expect(w.ctStatus).toBe(WalletStatus.ERROR); // shielded side pinned
+  expect(w.retryCount).toBe(5);                // pinned at the cap (config.maxLoadWalletRetries in the test env)
+});
+
+test('loadWalletFailed pins both sides for a fresh shielded wallet crash', async () => {
+  expect.hasAssertions();
+  await cleanDatabase(mysql);
+  const walletId = getWalletId(XPUBKEY);
+  await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5, { scanXpriv: 'scanx', spendXpub: 'spendx', shieldedMaxGap: 20 });
+
+  await loadWalletFailed(makeLoadWalletFailedSNSEvent(1, XPUBKEY), null, null);
+
+  const w = await Db.getWallet(mysql, walletId);
+  expect(w.status).toBe(WalletStatus.ERROR);
+  expect(w.ctStatus).toBe(WalletStatus.ERROR);
+  expect(w.retryCount).toBe(5);
+});
+
 test('GET /wallet/tokens', async () => {
   expect.hasAssertions();
 
