@@ -2527,15 +2527,14 @@ describe('shielded wallet registration', () => {
     expect(JSON.parse(result.body as string).error).toBe(ApiError.INVALID_PAYLOAD);
   });
 
-  test('load accepts a complete shielded field set at the schema layer', async () => {
+  test('load lets a complete shielded field set past the schema into proof validation', async () => {
     await cleanDatabase(mysql);
-    jest.spyOn(Wallet, 'invokeLoadWalletAsync').mockResolvedValueOnce(undefined);
 
     const now = Math.floor(Date.now() / 1000);
     const { xpubkey, xpubkeySignature, authXpubkey, authXpubkeySignature, firstAddress, timestamp } = getAuthData(now);
 
-    // All five shielded fields present (dummy values — schema only validates their
-    // types here; the proof is validated in a later step).
+    // All five shielded fields present (dummy values — the schema only validates
+    // their types, so it accepts them; the cryptographic proof is checked later).
     const event = makeGatewayEvent({}, JSON.stringify({
       xpubkey, xpubkeySignature, authXpubkey, authXpubkeySignature, firstAddress, timestamp,
       scanXpriv: 'scan', spendXpub: 'spend', firstCtAddress: 'ct',
@@ -2543,8 +2542,12 @@ describe('shielded wallet registration', () => {
     }));
 
     const result = await walletLoad(event, null, null) as APIGatewayProxyResult;
-    // Before the schema accepted these fields, the unknown keys yielded 400 INVALID_PAYLOAD.
-    expect(JSON.parse(result.body as string).error).not.toBe(ApiError.INVALID_PAYLOAD);
+    const returnBody = JSON.parse(result.body as string);
+    // The fields are not rejected as unknown keys (INVALID_PAYLOAD) — they reach
+    // proof validation, which then rejects the dummy keys with 400.
+    expect(returnBody.error).not.toBe(ApiError.INVALID_PAYLOAD);
+    expect(result.statusCode).toBe(400);
+    expect(returnBody.details[0].message).toBe('Invalid scanXpriv or spendXpub');
   });
 
   const seedReadyWallet = () => addToWalletTable(mysql, [{
@@ -2589,6 +2592,29 @@ describe('shielded wallet registration', () => {
     expect(wallet.spendXpub).toBe(body.spendXpub);
 
     // Shielded requests go through the canonical combined load, never the deprecated one.
+    expect(combined).toHaveBeenCalledTimes(1);
+    expect(deprecated).not.toHaveBeenCalled();
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('marks the wallet error and bumps retryCount when the combined load invoke fails', async () => {
+    await cleanDatabase(mysql);
+    const { combined, deprecated } = spyInvokes();
+    combined.mockRejectedValueOnce(new Error('invoke failed'));
+    const now = Math.floor(Date.now() / 1000);
+    const body = buildShieldedLoadBody(now);
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    // The endpoint still returns 200; the wallet is flagged error for a later retry.
+    expect(result.statusCode).toBe(200);
+
+    const returnBody = JSON.parse(result.body as string);
+    expect(returnBody.status.status).toBe(WalletStatus.ERROR);
+    expect(returnBody.status.retryCount).toBe(1);
+
+    const wallet = await Db.getWallet(mysql, getWalletId(XPUBKEY));
+    expect(wallet.status).toBe(WalletStatus.ERROR);
+    expect(wallet.retryCount).toBe(1);
+    // The failing invoke is the combined load, never the deprecated transparent-only one.
     expect(combined).toHaveBeenCalledTimes(1);
     expect(deprecated).not.toHaveBeenCalled();
   }, SHIELDED_TEST_TIMEOUT_MS);
@@ -2698,9 +2724,17 @@ describe('shielded wallet registration', () => {
     const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
     expect(result.statusCode).toBe(400);
     expect(JSON.parse(result.body as string).error).toBe(ApiError.WALLET_MAX_RETRIES);
-    // No retry is kicked off, and reaching the cap raises an ops alert.
+    // No retry is kicked off, and reaching the cap raises an ops alert carrying
+    // the wallet id + retry count at MINOR severity.
     expect(combined).not.toHaveBeenCalled();
     expect(deprecated).not.toHaveBeenCalled();
     expect(mockedAddAlert).toHaveBeenCalledTimes(1);
+    expect(mockedAddAlert).toHaveBeenCalledWith(
+      'Wallet load exceeded max retries',
+      expect.stringContaining(walletId),
+      Severity.MINOR,
+      expect.objectContaining({ wallet_id: walletId, retry_count: 5, source: 'wallet-service' }),
+      expect.anything(),
+    );
   }, SHIELDED_TEST_TIMEOUT_MS);
 });
