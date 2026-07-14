@@ -336,7 +336,7 @@ describe('generateShieldedAddresses', () => {
   );
 
   it('derives exactly maxGap addresses when nothing was ever used', async () => {
-    const res = await generateShieldedAddresses(mysql, gapScanXpriv, gapSpendXpub, 5, gapNetwork);
+    const res = await generateShieldedAddresses(mysql, 'gap-w', gapScanXpriv, gapSpendXpub, 5, gapNetwork);
     expect(res.rows).toHaveLength(5);
     expect(res.lastUsedShieldedIndex).toBeNull();
     expect(res.rows[0]).toStrictEqual({
@@ -354,7 +354,7 @@ describe('generateShieldedAddresses', () => {
     // violate the gap rule itself and is correctly out of reach.
     await seedOutputAt(derivedAt(3).spendAddress, 'gap-tx0');
     await seedOutputAt(derivedAt(7).spendAddress, 'gap-tx1');
-    const res = await generateShieldedAddresses(mysql, gapScanXpriv, gapSpendXpub, 5, gapNetwork);
+    const res = await generateShieldedAddresses(mysql, 'gap-w', gapScanXpriv, gapSpendXpub, 5, gapNetwork);
     expect(res.lastUsedShieldedIndex).toBe(7);
     expect(res.rows).toHaveLength(13); // 0..12 = lastUsed + maxGap
     expect(res.rows[12].index).toBe(12);
@@ -362,15 +362,52 @@ describe('generateShieldedAddresses', () => {
 
   it('counts a transparent (mode 0) output to a shielded spend address as usage', async () => {
     await seedOutputAt(derivedAt(2).spendAddress, 'gap-tx2', 0);
-    const res = await generateShieldedAddresses(mysql, gapScanXpriv, gapSpendXpub, 5, gapNetwork);
+    const res = await generateShieldedAddresses(mysql, 'gap-w', gapScanXpriv, gapSpendXpub, 5, gapNetwork);
     expect(res.lastUsedShieldedIndex).toBe(2);
     expect(res.rows).toHaveLength(8); // 0..7
   });
 
   it('ignores voided outputs', async () => {
     await seedOutputAt(derivedAt(3).spendAddress, 'gap-tx3', 1, true);
-    const res = await generateShieldedAddresses(mysql, gapScanXpriv, gapSpendXpub, 5, gapNetwork);
+    const res = await generateShieldedAddresses(mysql, 'gap-w', gapScanXpriv, gapSpendXpub, 5, gapNetwork);
     expect(res.lastUsedShieldedIndex).toBeNull();
     expect(res.rows).toHaveLength(5);
+  });
+
+  it('reuses already-claimed rows instead of re-deriving them', async () => {
+    // Sentinel values distinct from any real derivation: if these come back,
+    // the loop trusted storage (keys are immutable per wallet, so stored
+    // derivations are authoritative) and skipped the expensive derivation.
+    const sentinels = [0, 1, 2, 3, 4].map((i) => ({
+      index: i, spendAddress: `stored-${i}`, ctAddress: `stored-ct-${i}`, scanPrivkey: Buffer.alloc(32, 0xf0 + i),
+    }));
+    await upsertShieldedAddressOwnership(mysql, 'gap-w', sentinels);
+
+    const res = await generateShieldedAddresses(mysql, 'gap-w', gapScanXpriv, gapSpendXpub, 5, gapNetwork);
+    expect(res.rows).toHaveLength(5);
+    expect(res.rows.map((r) => r.spendAddress)).toStrictEqual(sentinels.map((s) => s.spendAddress));
+    expect(res.rows[0].scanPrivkey.equals(Buffer.alloc(32, 0xf0))).toBe(true);
+    expect(res.newRows).toHaveLength(0); // nothing to claim on a retry
+  });
+
+  it('derives only the indices beyond the stored window', async () => {
+    const sentinels = [0, 1, 2].map((i) => ({
+      index: i, spendAddress: `stored-${i}`, ctAddress: `stored-ct-${i}`, scanPrivkey: Buffer.alloc(32, 0xf0 + i),
+    }));
+    await upsertShieldedAddressOwnership(mysql, 'gap-w', sentinels);
+    // usage at the stored index 1 pulls the window to 0..6
+    await seedOutputAt('stored-1', 'gap-tx4');
+
+    const res = await generateShieldedAddresses(mysql, 'gap-w', gapScanXpriv, gapSpendXpub, 5, gapNetwork);
+    expect(res.lastUsedShieldedIndex).toBe(1);
+    expect(res.rows).toHaveLength(7); // 0..6
+    expect(res.rows[1].spendAddress).toBe('stored-1');       // reused
+    expect(res.rows[3]).toStrictEqual({                       // freshly derived
+      index: 3,
+      spendAddress: derivedAt(3).spendAddress,
+      ctAddress: derivedAt(3).ctAddress,
+      scanPrivkey: derivedAt(3).scanPrivkey,
+    });
+    expect(res.newRows.map((r) => r.index)).toStrictEqual([3, 4, 5, 6]);
   });
 });

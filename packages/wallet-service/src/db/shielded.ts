@@ -419,6 +419,8 @@ export interface GenerateShieldedAddresses {
   rows: ShieldedOwnershipRow[];
   addresses: string[];
   lastUsedShieldedIndex: number | null;
+  /** The subset of `rows` not yet claimed in the database — what a caller must upsert. */
+  newRows: ShieldedOwnershipRow[];
 }
 
 /**
@@ -427,16 +429,40 @@ export interface GenerateShieldedAddresses {
  * addresses show no on-chain usage. Usage is decided from observed non-voided
  * `tx_output` rows at the derived spend address — any mode, since these P2PKH
  * addresses can also receive transparent outputs — with no rewinding involved.
- * Read-only: claiming the rows is the caller's job.
+ *
+ * Indices the wallet already claimed are reused from storage instead of
+ * re-derived: keys are immutable per wallet (a conflicting re-registration is
+ * rejected upstream), so stored derivations are authoritative, and per-index
+ * private derivation is the dominant CPU cost — a retry re-derives nothing.
+ * Read-only: claiming the returned `newRows` is the caller's job.
  */
 export const generateShieldedAddresses = async (
   mysql: ServerlessMysql,
+  walletId: string,
   scanXpriv: string,
   spendXpub: string,
   maxGap: number,
   network: Network,
 ): Promise<GenerateShieldedAddresses> => {
+  const stored: DbSelectResult = await mysql.query(
+    `SELECT \`address\`, \`index\`, \`scan_privkey\`, \`ct_address\`
+       FROM \`address\`
+      WHERE \`wallet_id\` = ? AND \`bip32_account\` = ?
+        AND \`index\` IS NOT NULL AND \`scan_privkey\` IS NOT NULL AND \`ct_address\` IS NOT NULL`,
+    [walletId, Bip32Account.CTSpend],
+  );
+  const storedByIndex = new Map<number, ShieldedOwnershipRow>(stored.map((r): [number, ShieldedOwnershipRow] => [
+    Number(r.index),
+    {
+      index: Number(r.index),
+      spendAddress: r.address as string,
+      ctAddress: r.ct_address as string,
+      scanPrivkey: r.scan_privkey as Buffer,
+    },
+  ]));
+
   const allRows: ShieldedOwnershipRow[] = [];
+  const derivedRows: ShieldedOwnershipRow[] = [];
   let highestCheckedIndex = -1;
   let lastUsedIndex = -1;
 
@@ -444,13 +470,20 @@ export const generateShieldedAddresses = async (
     const blockStart = highestCheckedIndex + 1;
     const block: ShieldedOwnershipRow[] = [];
     for (let index = blockStart; index < blockStart + maxGap; index++) {
-      const derived = deriveCtAddress(scanXpriv, spendXpub, index, network);
-      block.push({
-        index,
-        spendAddress: derived.spendAddress,
-        ctAddress: derived.ctAddress,
-        scanPrivkey: derived.scanPrivkey,
-      });
+      const storedRow = storedByIndex.get(index);
+      if (storedRow) {
+        block.push(storedRow);
+      } else {
+        const derived = deriveCtAddress(scanXpriv, spendXpub, index, network);
+        const row = {
+          index,
+          spendAddress: derived.spendAddress,
+          ctAddress: derived.ctAddress,
+          scanPrivkey: derived.scanPrivkey,
+        };
+        block.push(row);
+        derivedRows.push(row);
+      }
     }
     allRows.push(...block);
 
@@ -467,10 +500,12 @@ export const generateShieldedAddresses = async (
     highestCheckedIndex += maxGap;
   } while (lastUsedIndex + maxGap > highestCheckedIndex);
 
-  const rows = allRows.filter((r) => r.index <= lastUsedIndex + maxGap);
+  const windowEnd = lastUsedIndex + maxGap;
+  const rows = allRows.filter((r) => r.index <= windowEnd);
   return {
     rows,
     addresses: rows.map((r) => r.spendAddress),
     lastUsedShieldedIndex: lastUsedIndex === -1 ? null : lastUsedIndex,
+    newRows: derivedRows.filter((r) => r.index <= windowEnd),
   };
 };

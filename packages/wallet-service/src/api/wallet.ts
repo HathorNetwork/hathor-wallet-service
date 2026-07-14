@@ -23,7 +23,23 @@ import {
   updateWalletAuthXpub,
   registerWalletShieldedKeys,
   casWalletErrorToCreating,
+  upsertNewAddresses,
+  advanceLastUsedShieldedIndex,
+  markWalletCombinedReady,
+  markWalletCombinedError,
 } from '@src/db';
+import {
+  GenerateShieldedAddresses,
+  generateShieldedAddresses,
+  upsertShieldedAddressOwnership,
+  getWalletCtSpendAddresses,
+  markShieldedCatchupDone,
+  rebuildShieldedAddressBalances,
+  rebuildShieldedAddressTxHistory,
+  rebuildWalletBalance,
+  rebuildWalletTxHistory,
+} from '@src/db/shielded';
+import { findAndRewindShielded } from '@src/shieldedRecovery';
 import {
   beginTransaction,
   commitTransaction,
@@ -779,21 +795,108 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
 
 /*
  * Canonical async wallet load: derives both the transparent and shielded address
- * paths and reconstructs both balances (via reconstructWallet) in one pass. It
- * expects a wallet entry (with shielded keys) already on the database.
+ * paths, claims the ownership rows, and reconstructs both balances in one pass.
+ * It expects a wallet entry (with shielded keys, when applicable) already on the
+ * database — the load API persists keys before invoking this.
  *
- * Invoked async by the load-wallet API whenever the request carries shielded keys.
- *
- * NOTE: the body is implemented in a follow-up PR; for now this is a registered
- * stub so the API has a stable invoke target. It leaves the wallet in 'creating'.
+ * Idempotent end to end: derivations are recomputed, claims are upserts, rewinds
+ * are guarded by tx_output.recovery_state, and the rebuilds recompute absolutes —
+ * so AWS async retries and user-driven re-invocations converge. reconstructWallet
+ * runs OUTSIDE any DB transaction (paged crypto must not hold row locks).
  */
 export const loadWalletCombined: Handler<LoadEvent, LoadResult> = async (event) => {
   const logger = createDefaultLogger();
   if (event.source === 'serverless-plugin-warmup') {
     return { success: true, walletId: '', xpubkey: '' };
   }
-  logger.info('loadWalletCombined invoked (stub — combined transparent+shielded load lands in a follow-up)', {
-    xpubkey: event.xpubkey,
-  });
-  return { success: true, walletId: getWalletId(event.xpubkey), xpubkey: event.xpubkey };
+
+  const { xpubkey, maxGap } = event;
+  const walletId = getWalletId(xpubkey);
+  // A missing wallet row is an invariant violation (the API creates it before
+  // invoking) — throw so the crash channel surfaces the bug.
+  const wallet = await getWallet(mysql, walletId);
+  if (!wallet) {
+    throw new Error(`loadWalletCombined: wallet ${walletId} not found`);
+  }
+  const transparentWasReady = wallet.status === WalletStatus.READY;
+  // consts (not the wallet fields) so the null checks narrow them below
+  const scanXpriv = wallet.scanXpriv ?? null;
+  const spendXpub = wallet.spendXpub ?? null;
+  const hasShieldedKeys = scanXpriv !== null && spendXpub !== null;
+
+  try {
+    // 1. Read-only derivation of both windows. Already-claimed shielded rows
+    //    are reused from storage, so a retry re-derives nothing.
+    const transparent = await generateAddresses(mysql, xpubkey, maxGap);
+    const shielded: GenerateShieldedAddresses = scanXpriv !== null && spendXpub !== null
+      ? await generateShieldedAddresses(
+        mysql,
+        walletId,
+        scanXpriv,
+        spendXpub,
+        wallet.shieldedMaxGap ?? config.shieldedMaxAddressGap,
+        shieldedNetwork,
+      )
+      : { rows: [], addresses: [], lastUsedShieldedIndex: null, newRows: [] };
+
+    // 2. One short claim transaction: address ownership + frontier indices.
+    await beginTransaction(mysql);
+    try {
+      await upsertNewAddresses(mysql, walletId, transparent.newAddresses, transparent.lastUsedAddressIndex);
+      await updateExistingAddresses(mysql, walletId, transparent.existingAddresses);
+      await upsertShieldedAddressOwnership(mysql, walletId, shielded.newRows);
+      if (shielded.lastUsedShieldedIndex != null) {
+        await advanceLastUsedShieldedIndex(mysql, walletId, shielded.lastUsedShieldedIndex);
+      }
+      await commitTransaction(mysql);
+    } catch (txError) {
+      await rollbackTransaction(mysql);
+      throw txError;
+    }
+
+    // 3. Reconstruction — outside any transaction. The CTSpend set is read back
+    //    from the database so previously-claimed rows stay covered on re-loads.
+    //    The rewind drains run BEFORE the rebuilds (which recompute absolutes
+    //    from tx_output), so everything revealed lands in a single rebuild.
+    const ctSpendAddresses = hasShieldedKeys ? await getWalletCtSpendAddresses(mysql, walletId) : [];
+    if (hasShieldedKeys) {
+      await findAndRewindShielded(mysql, walletId, logger);
+      // Settle drain: a daemon ingest whose ownership check snapshotted the
+      // world before our claim committed lands its output unowned moments
+      // later — one more (cheap when empty) sweep closes that window.
+      await findAndRewindShielded(mysql, walletId, logger);
+      await rebuildShieldedAddressBalances(mysql, ctSpendAddresses);
+      await rebuildShieldedAddressTxHistory(mysql, ctSpendAddresses);
+    }
+    await rebuildWalletBalance(mysql, walletId, [...transparent.addresses, ...ctSpendAddresses]);
+    await rebuildWalletTxHistory(mysql, walletId, [...transparent.addresses, ...ctSpendAddresses]);
+
+    if (hasShieldedKeys) {
+      const highestDerivedIndex = shielded.rows[shielded.rows.length - 1].index;
+      await markShieldedCatchupDone(mysql, walletId, highestDerivedIndex);
+      await markWalletCombinedReady(mysql, walletId, !transparentWasReady);
+    } else {
+      // Defensive transparent-only path: no shielded lifecycle is fabricated.
+      await updateWalletStatus(mysql, walletId, WalletStatus.READY);
+    }
+
+    await closeDbConnection(mysql);
+    return { success: true, walletId, xpubkey };
+  } catch (e) {
+    logger.error('Erroed on loadWalletCombined: ', e);
+    await addAlert(
+      'Combined wallet load failed',
+      `The combined transparent+shielded load for wallet ${walletId} failed and was marked for retry.`,
+      Severity.MINOR,
+      { wallet_id: walletId, error: String(e), source: 'wallet-service' },
+      logger,
+    );
+    if (hasShieldedKeys) {
+      await markWalletCombinedError(mysql, walletId, !transparentWasReady);
+    } else {
+      await updateWalletStatus(mysql, walletId, WalletStatus.ERROR, (wallet.retryCount ?? 0) + 1);
+    }
+    await closeDbConnection(mysql);
+    return { success: false, walletId, xpubkey };
+  }
 };
