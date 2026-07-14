@@ -867,7 +867,7 @@ test('POST /wallet', async () => {
 
   await cleanDatabase(mysql);
 
-  const spy = jest.spyOn(Wallet, 'invokeDeprecatedLoadWalletAsync');
+  const spy = jest.spyOn(Wallet, 'invokeDeprecatedLoad');
 
   const mockImplementationSuccess = jest.fn(() => Promise.resolve());
   const mockImplementationFailure = jest.fn(() => Promise.reject(new Error('error!')));
@@ -1003,7 +1003,7 @@ test('POST /wallet should fail with ApiError.WALLET_MAX_RETRIES when max retries
   const authMessage = new bitcore.Message(String(now).concat(walletId).concat(authAddress));
   const authXpubkeySignature = authMessage.sign(authDerivedPrivKey.privateKey);
 
-  const spy = jest.spyOn(Wallet, 'invokeDeprecatedLoadWalletAsync');
+  const spy = jest.spyOn(Wallet, 'invokeDeprecatedLoad');
   const mockImplementationFailure = jest.fn(() => Promise.reject(new Error('error!')));
   spy.mockImplementation(mockImplementationFailure);
 
@@ -1311,7 +1311,7 @@ test('loadWallet API should fail if a wrong signature is sent', async () => {
   const authMessage = new bitcore.Message(String(now).concat(walletId).concat(authAddress));
   const authXpubkeySignature = authMessage.sign(authDerivedPrivKey.privateKey);
 
-  const loadWalletAsyncSpy = jest.spyOn(Wallet, 'invokeDeprecatedLoadWalletAsync');
+  const loadWalletAsyncSpy = jest.spyOn(Wallet, 'invokeDeprecatedLoad');
   const mockImplementationSuccess = jest.fn(() => Promise.resolve());
   loadWalletAsyncSpy.mockImplementation(mockImplementationSuccess);
 
@@ -1379,7 +1379,7 @@ test('loadWallet should update wallet status to ERROR if an error occurs', async
     firstAddress,
   } = getAuthData(now);
 
-  const loadWalletAsyncSpy = jest.spyOn(Wallet, 'invokeDeprecatedLoadWalletAsync');
+  const loadWalletAsyncSpy = jest.spyOn(Wallet, 'invokeDeprecatedLoad');
   const mockImplementationSuccess = jest.fn(() => Promise.resolve());
   loadWalletAsyncSpy.mockImplementation(mockImplementationSuccess);
 
@@ -2562,7 +2562,7 @@ describe('shielded wallet registration', () => {
   // transparent-only load, which a shielded request must never trigger.
   const spyInvokes = () => {
     const combined = jest.spyOn(Wallet, 'invokeLoadWalletAsync').mockResolvedValue(undefined);
-    const deprecated = jest.spyOn(Wallet, 'invokeDeprecatedLoadWalletAsync').mockResolvedValue(undefined);
+    const deprecated = jest.spyOn(Wallet, 'invokeDeprecatedLoad').mockResolvedValue(undefined);
     combined.mockClear();
     deprecated.mockClear();
     return { combined, deprecated };

@@ -62,6 +62,7 @@ export const EnvironmentConfigSchema = Joi.object<EnvironmentConfig>({
   network: Joi.string().required(),
   serviceName: Joi.string().required(),
   maxAddressGap: Joi.number().required(),
+  shieldedMaxAddressGap: Joi.number().required(),
   voidedTxOffset: Joi.number().required(),
   confirmFirstAddress: Joi.boolean().required(),
   wsDomain: Joi.string().required(),

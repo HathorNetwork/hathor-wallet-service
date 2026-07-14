@@ -181,6 +181,7 @@ provider:
     DB_USER: ${env:DB_USER}
     DB_PASS: ${env:DB_PASS}
     MAX_ADDRESS_GAP: ${env:MAX_ADDRESS_GAP}
+    SHIELDED_MAX_ADDRESS_GAP: ${env:SHIELDED_MAX_ADDRESS_GAP, '20'}
     NETWORK: ${env:NETWORK}
     NEW_TX_SQS: { Ref: WalletServiceNewTxQueue }
     REDIS_URL: ${env:REDIS_URL}
@@ -256,7 +257,7 @@ functions:
           - SNS:Publish
         Resource:
           arn:aws:sns:${self:provider.region}:${self:provider.environment.ACCOUNT_ID}:WalletServiceLoadAsyncFailed_${self:custom.stage}
-  deprecatedLoadWalletAsync:
+  deprecatedLoad:
     # Deprecated transparent-only async load, kept until the combined load above
     # subsumes it entirely.
     handler: src/api/wallet.loadWallet

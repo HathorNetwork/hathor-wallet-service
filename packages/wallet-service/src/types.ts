@@ -49,6 +49,7 @@ export interface EnvironmentConfig {
   network: string;
   serviceName: string;
   maxAddressGap: number;
+  shieldedMaxAddressGap: number;
   voidedTxOffset: number;
   confirmFirstAddress: boolean;
   wsDomain: string;

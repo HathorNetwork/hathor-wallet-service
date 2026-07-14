@@ -63,10 +63,6 @@ const MAX_LOAD_WALLET_RETRIES: number = config.maxLoadWalletRetries;
 // shielded/p2pkh version bytes that address derivation reads.
 const shieldedNetwork = new Network(config.network);
 
-// Default shielded gap limit (matches the transparent default and the
-// wallet.shielded_max_gap column default).
-const DEFAULT_SHIELDED_MAX_GAP = 20;
-
 /**
  * Shape a wallet row into the API status payload: the `status` field is the
  * unified transparent+shielded lifecycle value, and the two shielded fields are
@@ -175,7 +171,7 @@ export const invokeLoadWalletAsync = (xpubkey: string, maxGap: number): Promise<
  * requests that carry no shielded keys, until the combined load subsumes it.
  */
 /* istanbul ignore next */
-export const invokeDeprecatedLoadWalletAsync = (xpubkey: string, maxGap: number): Promise<void> => invokeAsyncLoad('deprecatedLoadWalletAsync', xpubkey, maxGap);
+export const invokeDeprecatedLoad = (xpubkey: string, maxGap: number): Promise<void> => invokeAsyncLoad('deprecatedLoad', xpubkey, maxGap);
 
 /**
  * Calls verifySignature for both the wallet's xpub signature and
@@ -517,7 +513,7 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
       ? await createWallet(mysql, walletId, xpubkeyStr, authXpubkeyStr, maxGap, {
         scanXpriv: value.scanXpriv,
         spendXpub: value.spendXpub,
-        shieldedMaxGap: DEFAULT_SHIELDED_MAX_GAP,
+        shieldedMaxGap: config.shieldedMaxAddressGap,
       })
       : await createWallet(mysql, walletId, xpubkeyStr, authXpubkeyStr, maxGap);
   }
@@ -537,7 +533,7 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
     // to a transparent wallet being upgraded. A fresh wallet already has its keys.
     if (walletExisted) {
       if (wallet.scanXpriv == null) {
-        await registerWalletShieldedKeys(mysql, walletId, value.scanXpriv, value.spendXpub, DEFAULT_SHIELDED_MAX_GAP);
+        await registerWalletShieldedKeys(mysql, walletId, value.scanXpriv, value.spendXpub, config.shieldedMaxAddressGap);
       } else if (wallet.scanXpriv !== value.scanXpriv || wallet.spendXpub !== value.spendXpub) {
         await closeDbConnection(mysql);
         return {
@@ -576,7 +572,7 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
     // Transparent-only load: the deprecated path, kept until the combined load
     // subsumes it entirely.
     try {
-      await invokeDeprecatedLoadWalletAsync(xpubkeyStr, maxGap);
+      await invokeDeprecatedLoad(xpubkeyStr, maxGap);
     } catch (e) {
       await onAsyncInvokeError(e);
     }
