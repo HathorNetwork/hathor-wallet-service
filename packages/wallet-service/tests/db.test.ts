@@ -4104,13 +4104,29 @@ describe('registerWalletShieldedKeys', () => {
     const walletId = 'wsk-wallet';
     await createWallet(mysql, walletId, 'xpub', 'authxpub', 20);
 
-    await Db.registerWalletShieldedKeys(mysql, walletId, 'scanxprivstr', 'spendxpubstr', 15);
+    const attached = await Db.registerWalletShieldedKeys(mysql, walletId, 'scanxprivstr', 'spendxpubstr', 15);
 
+    expect(attached).toBe(true);
     const wallet = await getWallet(mysql, walletId);
     expect(wallet.scanXpriv).toBe('scanxprivstr');
     expect(wallet.spendXpub).toBe('spendxpubstr');
     expect(wallet.shieldedMaxGap).toBe(15);
     expect(wallet.ctStatus).toBe('creating');
+  });
+
+  it('does not overwrite keys that are already attached', async () => {
+    const walletId = 'wsk-wallet-cas';
+    await createWallet(mysql, walletId, 'xpub', 'authxpub', 20);
+    await Db.registerWalletShieldedKeys(mysql, walletId, 'firstscan', 'firstspend', 15);
+
+    const attached = await Db.registerWalletShieldedKeys(mysql, walletId, 'secondscan', 'secondspend', 20);
+
+    // The loser of the race reports false and leaves the winner's keys intact.
+    expect(attached).toBe(false);
+    const wallet = await getWallet(mysql, walletId);
+    expect(wallet.scanXpriv).toBe('firstscan');
+    expect(wallet.spendXpub).toBe('firstspend');
+    expect(wallet.shieldedMaxGap).toBe(15);
   });
 });
 

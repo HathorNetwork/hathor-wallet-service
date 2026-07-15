@@ -23,6 +23,8 @@ import {
   updateWalletAuthXpub,
   registerWalletShieldedKeys,
   casWalletErrorToCreating,
+  pinTransparentLoadFailed,
+  pinShieldedLoadFailed,
   upsertNewAddresses,
   advanceLastUsedShieldedIndex,
   markWalletCombinedReady,
@@ -550,18 +552,40 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
     wallet = await getWallet(mysql, walletId);
   };
 
+  /** 409 for a submitted key set that disagrees with the one already stored. */
+  const rejectKeysConflict = async () => {
+    await closeDbConnection(mysql);
+    return {
+      statusCode: 409,
+      body: JSON.stringify({ success: false, error: ApiError.SHIELDED_KEYS_CONFLICT }),
+    };
+  };
+
   if (hasShielded) {
+    // Whether this request is the one attaching keys to a transparent wallet, and
+    // whether it won that race — only the winner may drive the load.
+    let upgrading = false;
+    let attachedKeys = false;
+
     // Reconcile keys for an existing wallet: reject a conflicting set; attach keys
     // to a transparent wallet being upgraded. A fresh wallet already has its keys.
     if (walletExisted) {
       if (wallet.scanXpriv == null) {
-        await registerWalletShieldedKeys(mysql, walletId, value.scanXpriv, value.spendXpub, config.shieldedMaxAddressGap);
+        upgrading = true;
+        attachedKeys = await registerWalletShieldedKeys(
+          mysql, walletId, value.scanXpriv, value.spendXpub, config.shieldedMaxAddressGap,
+        );
+        if (!attachedKeys) {
+          // A concurrent request attached keys between our read and this write.
+          // Re-read and hold a differing set to the same conflict rule a
+          // sequential submit would have hit.
+          wallet = await getWallet(mysql, walletId);
+          if (wallet.scanXpriv !== value.scanXpriv || wallet.spendXpub !== value.spendXpub) {
+            return rejectKeysConflict();
+          }
+        }
       } else if (wallet.scanXpriv !== value.scanXpriv || wallet.spendXpub !== value.spendXpub) {
-        await closeDbConnection(mysql);
-        return {
-          statusCode: 409,
-          body: JSON.stringify({ success: false, error: ApiError.SHIELDED_KEYS_CONFLICT }),
-        };
+        return rejectKeysConflict();
       }
     }
 
@@ -582,19 +606,27 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
       && wallet.spendXpub === value.spendXpub
       && computeUnifiedStatus(wallet.status, wallet.ctStatus ?? 'none') !== WalletStatus.ERROR;
 
-    if (!settledWithSameKeys) {
+    let shouldInvoke: boolean;
+    if (upgrading) {
+      // Only the request that actually attached the keys drives the upgrade load;
+      // the loser of that race would otherwise spawn a duplicate.
+      shouldInvoke = attachedKeys;
+    } else if (settledWithSameKeys) {
+      shouldInvoke = false;
+    } else {
       // A retry of an errored load must atomically transition back to creating
       // first — a lost race means another request already spawned the load, so
       // this one must not double-invoke.
       const entryUnified = computeUnifiedStatus(wallet.status, wallet.ctStatus ?? 'none');
-      const shouldInvoke = entryUnified !== WalletStatus.ERROR
+      shouldInvoke = entryUnified !== WalletStatus.ERROR
         || await casWalletErrorToCreating(mysql, walletId);
-      if (shouldInvoke) {
-        try {
-          await invokeLoadWalletAsync(xpubkeyStr, maxGap);
-        } catch (e) {
-          await onAsyncInvokeError(e);
-        }
+    }
+
+    if (shouldInvoke) {
+      try {
+        await invokeLoadWalletAsync(xpubkeyStr, maxGap);
+      } catch (e) {
+        await onAsyncInvokeError(e);
       }
     }
     wallet = await getWallet(mysql, walletId);
@@ -673,17 +705,12 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
       // working transparent state untouched.
       const failedWallet = await getWallet(mysql, walletId);
       if (failedWallet && failedWallet.scanXpriv != null) {
-        if (failedWallet.status === WalletStatus.READY) {
-          await mysql.query(
-            'UPDATE `wallet` SET `ct_status` = ?, `retry_count` = ? WHERE `id` = ?',
-            [WalletStatus.ERROR, MAX_LOAD_WALLET_RETRIES, walletId],
-          );
-        } else {
-          await updateWalletStatus(mysql, walletId, WalletStatus.ERROR, MAX_LOAD_WALLET_RETRIES);
-          await mysql.query('UPDATE `wallet` SET `ct_status` = ? WHERE `id` = ?', [WalletStatus.ERROR, walletId]);
+        if (failedWallet.status !== WalletStatus.READY) {
+          await pinTransparentLoadFailed(mysql, walletId, MAX_LOAD_WALLET_RETRIES);
         }
+        await pinShieldedLoadFailed(mysql, walletId, MAX_LOAD_WALLET_RETRIES);
       } else {
-        await updateWalletStatus(mysql, walletId, WalletStatus.ERROR, MAX_LOAD_WALLET_RETRIES);
+        await pinTransparentLoadFailed(mysql, walletId, MAX_LOAD_WALLET_RETRIES);
       }
 
       logger.error(`${walletId} failed to load.`);

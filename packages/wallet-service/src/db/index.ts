@@ -382,22 +382,31 @@ export const updateWalletAuthXpub = async (
  * @param spendXpub - The change-level spend xpub (base58)
  * @param shieldedMaxGap - The shielded gap limit
  */
+/**
+ * Attach shielded keys to a wallet that has none, flipping `ct_status` to
+ * 'creating'. Returns whether this call actually attached them.
+ *
+ * The `scan_xpriv IS NULL` guard makes this a compare-and-set: concurrent
+ * upgrades of the same wallet race here, and only the winner gets `true`, so
+ * only the winner drives a load.
+ */
 export const registerWalletShieldedKeys = async (
   mysql: ServerlessMysql,
   walletId: string,
   scanXpriv: string,
   spendXpub: string,
   shieldedMaxGap: number,
-): Promise<void> => {
-  await mysql.query(
+): Promise<boolean> => {
+  const result: OkPacket = await mysql.query(
     `UPDATE \`wallet\`
         SET \`scan_xpriv\` = ?,
             \`spend_xpub\` = ?,
             \`shielded_max_gap\` = ?,
             \`ct_status\` = 'creating'
-      WHERE \`id\` = ?`,
+      WHERE \`id\` = ? AND \`scan_xpriv\` IS NULL`,
     [Buffer.from(scanXpriv, 'utf8'), spendXpub, shieldedMaxGap, walletId],
   );
+  return result.affectedRows > 0;
 };
 
 /**
@@ -494,6 +503,43 @@ export const markWalletCombinedError = async (
  * the async load. Returns false when there was nothing to flip — the caller
  * lost the race to another request and must not spawn a duplicate load.
  */
+/**
+ * Pin a crashed wallet's transparent side at the retry cap so it is not retried.
+ *
+ * Guarded on the wallet still being mid-load: a crash DLQ event can be delivered
+ * after a later attempt already recovered the wallet, and demoting a recovered
+ * wallet would strand it behind the max-retries rejection with no client-side fix.
+ */
+export const pinTransparentLoadFailed = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+  retryCount: number,
+): Promise<void> => {
+  await mysql.query(
+    `UPDATE \`wallet\`
+        SET \`status\` = ?,
+            \`ready_at\` = ?,
+            \`retry_count\` = ?
+      WHERE \`id\` = ? AND \`status\` IN (?, ?)`,
+    [WalletStatus.ERROR, getUnixTimestamp(), retryCount, walletId, WalletStatus.CREATING, WalletStatus.ERROR],
+  );
+};
+
+/** Shielded counterpart of `pinTransparentLoadFailed`, under the same recovery guard. */
+export const pinShieldedLoadFailed = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+  retryCount: number,
+): Promise<void> => {
+  await mysql.query(
+    `UPDATE \`wallet\`
+        SET \`ct_status\` = ?,
+            \`retry_count\` = ?
+      WHERE \`id\` = ? AND \`ct_status\` IN (?, ?)`,
+    [WalletStatus.ERROR, retryCount, walletId, WalletStatus.CREATING, WalletStatus.ERROR],
+  );
+};
+
 export const casWalletErrorToCreating = async (
   mysql: ServerlessMysql,
   walletId: string,

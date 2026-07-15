@@ -1478,6 +1478,38 @@ test('loadWalletFailed pins both sides for a fresh shielded wallet crash', async
   expect(w.retryCount).toBe(5);
 });
 
+test('loadWalletFailed does not demote a shielded wallet that already recovered', async () => {
+  expect.hasAssertions();
+  await cleanDatabase(mysql);
+  const walletId = getWalletId(XPUBKEY);
+  await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5);
+  await Db.registerWalletShieldedKeys(mysql, walletId, 'scanx', 'spendx', 20);
+  // A later attempt already recovered both sides; the DLQ event for the earlier
+  // crashed attempt is only now being delivered.
+  await Db.markWalletCombinedReady(mysql, walletId, true);
+
+  await loadWalletFailed(makeLoadWalletFailedSNSEvent(1, XPUBKEY), null, null);
+
+  const w = await Db.getWallet(mysql, walletId);
+  expect(w.status).toBe(WalletStatus.READY);
+  expect(w.ctStatus).toBe(WalletStatus.READY);
+  expect(w.retryCount).toBe(0); // not pinned at the cap -> not bricked
+});
+
+test('loadWalletFailed does not demote a transparent wallet that already recovered', async () => {
+  expect.hasAssertions();
+  await cleanDatabase(mysql);
+  const walletId = getWalletId(XPUBKEY);
+  await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5);
+  await Db.updateWalletStatus(mysql, walletId, WalletStatus.READY);
+
+  await loadWalletFailed(makeLoadWalletFailedSNSEvent(1, XPUBKEY), null, null);
+
+  const w = await Db.getWallet(mysql, walletId);
+  expect(w.status).toBe(WalletStatus.READY);
+  expect(w.retryCount).toBe(0);
+});
+
 test('GET /wallet/tokens', async () => {
   expect.hasAssertions();
 
@@ -2809,6 +2841,49 @@ describe('shielded wallet registration', () => {
     const w = await Db.getWallet(mysql, walletId);
     expect(w.status).toBe(WalletStatus.CREATING);   // CAS flipped it before the invoke
     expect(w.ctStatus).toBe(WalletStatus.CREATING);
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  /**
+   * Simulate losing the upgrade race: a concurrent request attaches `keys` to the
+   * wallet just before ours, so our guarded write matches no rows and reports false.
+   */
+  const loseUpgradeRaceTo = (walletId: string, keys: { scanXpriv: string; spendXpub: string }) => {
+    jest.spyOn(Db, 'registerWalletShieldedKeys').mockImplementationOnce(async () => {
+      await mysql.query(
+        'UPDATE `wallet` SET `scan_xpriv` = ?, `spend_xpub` = ?, `ct_status` = ? WHERE `id` = ?',
+        [Buffer.from(keys.scanXpriv, 'utf8'), keys.spendXpub, WalletStatus.CREATING, walletId],
+      );
+      return false;
+    });
+  };
+
+  test('a lost upgrade race skips the duplicate invoke', async () => {
+    await cleanDatabase(mysql);
+    await seedReadyWallet();
+    const { combined } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    const body = buildShieldedLoadBody(now);
+    loseUpgradeRaceTo(getWalletId(XPUBKEY), body); // winner attached the same keys
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(200);
+    // The winner is already driving the load; this request must not spawn a second.
+    expect(combined).not.toHaveBeenCalled();
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('a lost upgrade race against a different key set is a 409', async () => {
+    await cleanDatabase(mysql);
+    await seedReadyWallet();
+    const { combined } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    const body = buildShieldedLoadBody(now);
+    const stored = buildShieldedFields(getWalletId(XPUBKEY), now, { seedHex: '02'.repeat(32) });
+    loseUpgradeRaceTo(getWalletId(XPUBKEY), stored); // winner attached a different set
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(409);
+    expect(JSON.parse(result.body as string).error).toBe(ApiError.SHIELDED_KEYS_CONFLICT);
+    expect(combined).not.toHaveBeenCalled();
   }, SHIELDED_TEST_TIMEOUT_MS);
 
   test('a lost CAS race skips the duplicate invoke', async () => {
