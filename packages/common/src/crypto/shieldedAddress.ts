@@ -53,6 +53,17 @@ export function deriveSpendChild(spendXpub: string, index: number): Buffer {
   return bip32.fromBase58(spendXpub).derive(index).publicKey;
 }
 
+/**
+ * True if `key` is a serialized *public* (neutered) BIP32 node. Throws if unparseable.
+ *
+ * Callers must reject a spend key that fails this: a private node derives the same child
+ * pubkeys as its neutered twin, so every derivation and signature check downstream passes
+ * either way. This is the only check standing between the service and spending authority.
+ */
+export function isNeuteredXpub(key: string): boolean {
+  return bip32.fromBase58(key).isNeutered();
+}
+
 /** Encode the on-chain P2PKH spend address (the ownership match key) from a spend pubkey. */
 export function encodeSpendAddress(spendPubkey: Buffer, network: Network): string {
   const payload = Buffer.concat([

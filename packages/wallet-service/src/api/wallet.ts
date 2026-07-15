@@ -42,7 +42,7 @@ import {
   validateAuthTimestamp,
   AUTH_MAX_TIMESTAMP_SHIFT_IN_SECONDS,
 } from '@src/utils';
-import { deriveCtAddress } from '@wallet-service/common/src/crypto/shieldedAddress';
+import { deriveCtAddress, isNeuteredXpub } from '@wallet-service/common/src/crypto/shieldedAddress';
 import { Network } from '@hathor/wallet-lib';
 import { closeDbAndGetError, warmupMiddleware } from '@src/api/utils';
 import { walletIdProxyHandler } from '@src/commons';
@@ -235,6 +235,11 @@ export const validateShieldedRegistration = (reg: ShieldedRegistration): Shielde
   // 1. matched pair + integrity: re-derive the first ct_address from the keys.
   let derivedCtAddress: string;
   try {
+    // The spend key must be public. A private one derives identical child pubkeys, so
+    // every check below would pass while handing the service spending authority.
+    if (!isNeuteredXpub(reg.spendXpub)) {
+      return { ok: false, code: 400, message: 'spendXpub must be a public key, not a private key' };
+    }
     derivedCtAddress = deriveCtAddress(reg.scanXpriv, reg.spendXpub, 0, shieldedNetwork).ctAddress;
   } catch (e) {
     return { ok: false, code: 400, message: 'Invalid scanXpriv or spendXpub' };

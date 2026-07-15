@@ -2509,6 +2509,29 @@ describe('validateShieldedRegistration', () => {
     });
     expect(res).toEqual({ ok: false, code: 400, message: expect.any(String) });
   });
+
+  test('rejects a spendXpub that is a private key with 400', () => {
+    const f = buildShieldedFields(walletId, now);
+    // The client slip this guards: `toBase58()` where `neutered().toBase58()` was meant.
+    const spendNode = bip32lib.fromSeed(Buffer.from('01'.repeat(32), 'hex')).derivePath("m/44'/280'/2'/0");
+    const spendXpriv = spendNode.toBase58();
+    expect(spendXpriv).not.toEqual(f.spendXpub);
+
+    // Re-sign so the spend proof holds over the swapped payload. Every other check then
+    // passes on its own terms — the private node derives the same child pubkeys, so the
+    // submitted firstCtAddress still re-derives. Only the neutered check catches this.
+    const res = validateShieldedRegistration({
+      timestamp: now,
+      walletId,
+      ...f,
+      spendXpub: spendXpriv,
+      spendXpubSignature: bitcoinMessage
+        .sign(buildAuthMessage(now, walletId, spendXpriv), spendNode.privateKey as Buffer, true, HATHOR_MSG_PREFIX)
+        .toString('base64'),
+    });
+
+    expect(res).toEqual({ ok: false, code: 400, message: 'spendXpub must be a public key, not a private key' });
+  });
 });
 
 describe('shielded wallet registration', () => {
@@ -2525,7 +2548,7 @@ describe('shielded wallet registration', () => {
     const result = await walletLoad(event, null, null) as APIGatewayProxyResult;
     expect(result.statusCode).toBe(400);
     expect(JSON.parse(result.body as string).error).toBe(ApiError.INVALID_PAYLOAD);
-  });
+  }, SHIELDED_TEST_TIMEOUT_MS);
 
   test('load lets a complete shielded field set past the schema into proof validation', async () => {
     await cleanDatabase(mysql);
@@ -2548,7 +2571,7 @@ describe('shielded wallet registration', () => {
     expect(returnBody.error).not.toBe(ApiError.INVALID_PAYLOAD);
     expect(result.statusCode).toBe(400);
     expect(returnBody.details[0].message).toBe('Invalid scanXpriv or spendXpub');
-  });
+  }, SHIELDED_TEST_TIMEOUT_MS);
 
   const seedReadyWallet = () => addToWalletTable(mysql, [{
     id: getWalletId(XPUBKEY),
