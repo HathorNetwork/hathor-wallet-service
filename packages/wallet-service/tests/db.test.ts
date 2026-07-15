@@ -918,6 +918,56 @@ test('getWalletBalances', async () => {
   expect(returnedBalances).toHaveLength(0);
 });
 
+test('getWalletBalances should return shielded balance columns', async () => {
+  expect.hasAssertions();
+  await addToTokenTable(mysql, [
+    { id: 'token1', name: 'MyToken1', symbol: 'MT1', version: TokenVersion.DEPOSIT, transactions: 0 },
+  ]);
+  await addToWalletBalanceTable(mysql, [{
+    walletId: 'wallet1',
+    tokenId: 'token1',
+    unlockedBalance: 1000n,
+    lockedBalance: 4n,
+    unlockedAuthorities: 0,
+    lockedAuthorities: 0,
+    timelockExpires: null,
+    transactions: 5,
+    unlockedShieldedBalance: 2500n,
+    lockedShieldedBalance: 5n,
+    totalShieldedReceived: 2505n,
+  }]);
+
+  const balances = await getWalletBalances(mysql, 'wallet1');
+  expect(balances).toHaveLength(1);
+  expect(balances[0].balance.unlockedAmount).toBe(1000n);
+  expect(balances[0].balance.lockedAmount).toBe(4n);
+  expect(balances[0].balance.unlockedShieldedAmount).toBe(2500n);
+  expect(balances[0].balance.lockedShieldedAmount).toBe(5n);
+  expect(balances[0].balance.totalShieldedReceived).toBe(2505n);
+});
+
+test('getWalletBalances should default shielded fields to 0n on legacy rows', async () => {
+  expect.hasAssertions();
+  await addToTokenTable(mysql, [
+    { id: 'token1', name: 'MyToken1', symbol: 'MT1', version: TokenVersion.DEPOSIT, transactions: 0 },
+  ]);
+  await addToWalletBalanceTable(mysql, [{
+    walletId: 'wallet1',
+    tokenId: 'token1',
+    unlockedBalance: 10n,
+    lockedBalance: 0n,
+    unlockedAuthorities: 0,
+    lockedAuthorities: 0,
+    timelockExpires: null,
+    transactions: 1,
+  }]);
+
+  const balances = await getWalletBalances(mysql, 'wallet1');
+  expect(balances[0].balance.unlockedShieldedAmount).toBe(0n);
+  expect(balances[0].balance.lockedShieldedAmount).toBe(0n);
+  expect(balances[0].balance.totalShieldedReceived).toBe(0n);
+});
+
 test('getUtxosLockedAtHeight', async () => {
   expect.hasAssertions();
 

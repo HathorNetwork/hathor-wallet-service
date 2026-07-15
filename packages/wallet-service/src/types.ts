@@ -359,13 +359,22 @@ export class Balance {
 
   lockExpires: number | null;
 
-  constructor(totalAmountSent = 0n, unlockedAmount = 0n, lockedAmount = 0n, lockExpires = null, unlockedAuthorities = null, lockedAuthorities = null) {
+  unlockedShieldedAmount: bigint;
+
+  lockedShieldedAmount: bigint;
+
+  totalShieldedReceived: bigint;
+
+  constructor(totalAmountSent = 0n, unlockedAmount = 0n, lockedAmount = 0n, lockExpires = null, unlockedAuthorities = null, lockedAuthorities = null, unlockedShieldedAmount = 0n, lockedShieldedAmount = 0n, totalShieldedReceived = 0n) {
     this.totalAmountSent = totalAmountSent;
     this.unlockedAmount = unlockedAmount;
     this.lockedAmount = lockedAmount;
     this.lockExpires = lockExpires;
     this.unlockedAuthorities = unlockedAuthorities || new Authorities();
     this.lockedAuthorities = lockedAuthorities || new Authorities();
+    this.unlockedShieldedAmount = unlockedShieldedAmount;
+    this.lockedShieldedAmount = lockedShieldedAmount;
+    this.totalShieldedReceived = totalShieldedReceived;
   }
 
   /**
@@ -399,6 +408,9 @@ export class Balance {
       this.lockExpires,
       this.unlockedAuthorities.clone(),
       this.lockedAuthorities.clone(),
+      this.unlockedShieldedAmount,
+      this.lockedShieldedAmount,
+      this.totalShieldedReceived,
     );
   }
 
@@ -428,6 +440,9 @@ export class Balance {
       lockExpires,
       Authorities.merge(b1.unlockedAuthorities, b2.unlockedAuthorities),
       Authorities.merge(b1.lockedAuthorities, b2.lockedAuthorities),
+      b1.unlockedShieldedAmount + b2.unlockedShieldedAmount,
+      b1.lockedShieldedAmount + b2.lockedShieldedAmount,
+      b1.totalShieldedReceived + b2.totalShieldedReceived,
     );
   }
 }
@@ -465,8 +480,32 @@ export class WalletTokenBalance {
       token: this.token,
       transactions: this.transactions,
       balance: {
-        unlocked: this.balance.unlockedAmount,
-        locked: this.balance.lockedAmount,
+        unlocked: this.balance.unlockedAmount + this.balance.unlockedShieldedAmount,
+        locked: this.balance.lockedAmount + this.balance.lockedShieldedAmount,
+      },
+      tokenAuthorities: {
+        unlocked: this.balance.unlockedAuthorities,
+        locked: this.balance.lockedAuthorities,
+      },
+      lockExpires: this.balance.lockExpires,
+    };
+  }
+
+  toSplitJSON(): Record<string, unknown> {
+    return {
+      token: this.token,
+      transactions: this.transactions,
+      balance: {
+        unlocked: {
+          transparent: this.balance.unlockedAmount,
+          shielded: this.balance.unlockedShieldedAmount,
+          total: this.balance.unlockedAmount + this.balance.unlockedShieldedAmount,
+        },
+        locked: {
+          transparent: this.balance.lockedAmount,
+          shielded: this.balance.lockedShieldedAmount,
+          total: this.balance.lockedAmount + this.balance.lockedShieldedAmount,
+        },
       },
       tokenAuthorities: {
         unlocked: this.balance.unlockedAuthorities,

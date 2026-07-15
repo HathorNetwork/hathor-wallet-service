@@ -1489,6 +1489,9 @@ export const getWalletBalances = async (mysql: ServerlessMysql, walletId: string
     SELECT w.total_received AS total_received,
            w.unlocked_balance AS unlocked_balance,
            w.locked_balance AS locked_balance,
+           w.unlocked_shielded_balance AS unlocked_shielded_balance,
+           w.locked_shielded_balance AS locked_shielded_balance,
+           w.total_shielded_received AS total_shielded_received,
            w.unlocked_authorities AS unlocked_authorities,
            w.locked_authorities AS locked_authorities,
            w.timelock_expires AS timelock_expires,
@@ -1506,6 +1509,9 @@ INNER JOIN token ON w.token_id = token.id
     const totalAmount = BigInt(result.total_received as string);
     const unlockedBalance = BigInt(result.unlocked_balance as string);
     const lockedBalance = BigInt(result.locked_balance as string);
+    const unlockedShieldedBalance = dbIntToBigInt(result.unlocked_shielded_balance);
+    const lockedShieldedBalance = dbIntToBigInt(result.locked_shielded_balance);
+    const totalShieldedReceived = dbIntToBigInt(result.total_shielded_received);
     const unlockedAuthorities = new Authorities(result.unlocked_authorities as number);
     const lockedAuthorities = new Authorities(result.locked_authorities as number);
     const timelockExpires = result.timelock_expires as number;
@@ -1517,7 +1523,7 @@ INNER JOIN token ON w.token_id = token.id
         result.symbol as string,
         toTokenVersion(result.token_version as number),
       ),
-      new Balance(totalAmount, unlockedBalance, lockedBalance, timelockExpires, unlockedAuthorities, lockedAuthorities),
+      new Balance(totalAmount, unlockedBalance, lockedBalance, timelockExpires, unlockedAuthorities, lockedAuthorities, unlockedShieldedBalance, lockedShieldedBalance, totalShieldedReceived),
       result.transactions as number,
     );
     balances.push(balance);

@@ -659,13 +659,18 @@ export const addToWalletBalanceTable = async (
     entry.lockedAuthorities,
     entry.timelockExpires,
     entry.transactions,
+    entry.unlockedShieldedBalance ?? 0n,
+    entry.lockedShieldedBalance ?? 0n,
+    entry.totalShieldedReceived ?? 0n,
   ]));
 
   await mysql.query(`
     INSERT INTO \`wallet_balance\`(\`wallet_id\`, \`token_id\`,
                                    \`unlocked_balance\`, \`locked_balance\`,
                                    \`unlocked_authorities\`, \`locked_authorities\`,
-                                   \`timelock_expires\`, \`transactions\`)
+                                   \`timelock_expires\`, \`transactions\`,
+                                   \`unlocked_shielded_balance\`, \`locked_shielded_balance\`,
+                                   \`total_shielded_received\`)
     VALUES ?`,
   [payload]);
 };
