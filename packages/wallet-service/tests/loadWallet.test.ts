@@ -15,9 +15,13 @@ import { mockedAddAlert } from '@tests/utils/alerting.utils.mock';
 import { Bip32Account } from '@wallet-service/common';
 import { deriveCtAddress } from '@wallet-service/common/src/crypto/shieldedAddress';
 import { getDbConnection, getWalletId, closeDbConnection } from '@src/utils';
-import { cleanDatabase, XPUBKEY, AUTH_XPUBKEY } from '@tests/utils';
+import {
+  cleanDatabase, XPUBKEY, AUTH_XPUBKEY, ADDRESSES,
+  addToAddressTxHistoryTable, addToAddressBalanceTable, checkWalletBalanceTable,
+} from '@tests/utils';
 import { resetCtCryptoMock, primeAmountRewind } from '@tests/utils/ct-crypto-mock';
-import { loadWalletCombined } from '@src/api/wallet';
+import { loadWallet } from '@src/api/wallet';
+import * as Db from '@src/db';
 import { createWallet, getWallet, updateWalletStatus } from '@src/db';
 import { DbSelectResult, WalletStatus } from '@src/types';
 
@@ -62,7 +66,7 @@ const seedShieldedOutputAt = async (index: number, txId: string, marker: number,
 };
 
 const runWorker = (event: Record<string, unknown>) => (
-  loadWalletCombined(event as never, null as never, null as never)
+  loadWallet(event as never, null as never, null as never)
 );
 
 beforeEach(async () => {
@@ -75,7 +79,7 @@ afterAll(async () => {
   await closeDbConnection(mysql);
 });
 
-describe('loadWalletCombined', () => {
+describe('loadWallet', () => {
   it('loads a fresh shielded wallet end-to-end: claims, recovers, credits, flips ready', async () => {
     await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, MAX_GAP, { scanXpriv, spendXpub, shieldedMaxGap: SHIELDED_GAP });
     await seedShieldedOutputAt(2, 'ctx1', 0xa1, 1500n);
@@ -175,6 +179,72 @@ describe('loadWalletCombined', () => {
       'SELECT COUNT(*) AS c FROM `address` WHERE `wallet_id` = ? AND `bip32_account` = ?', [walletId, Bip32Account.CTSpend],
     ))[0];
     expect(Number(ctCount.c)).toBe(0);
+  }, COMBINED_TEST_TIMEOUT_MS);
+
+  it('reconstructs transparent balance and history for a wallet without shielded keys', async () => {
+    // Golden parity check for the transparent-only path, standing in for the
+    // deleted deprecated load: seed real derived addresses with multi-token,
+    // voided, and cross-address-shared-tx activity, then assert exact
+    // wallet_balance / wallet_tx_history output.
+    const T_HTR = '00';
+    const T_B = 'aa';
+    await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, MAX_GAP);
+
+    await addToAddressTxHistoryTable(mysql, [
+      // ptxA is shared across two of the wallet's addresses (same token) — the
+      // wallet-level row must SUM them and count the tx once.
+      { address: ADDRESSES[0], txId: 'ptxA', tokenId: T_HTR, balance: 100n, timestamp: 10 },
+      { address: ADDRESSES[1], txId: 'ptxA', tokenId: T_HTR, balance: 50n, timestamp: 10 },
+      { address: ADDRESSES[0], txId: 'ptxB', tokenId: T_HTR, balance: -30n, timestamp: 20 },
+      // ptxC is voided — must be excluded from balance, tx count, and history.
+      { address: ADDRESSES[0], txId: 'ptxC', tokenId: T_HTR, balance: 999n, timestamp: 25, voided: true },
+      { address: ADDRESSES[1], txId: 'ptxD', tokenId: T_B, balance: 7n, timestamp: 40 },
+    ]);
+    await addToAddressBalanceTable(mysql, [
+      // address, token, unlocked, locked, timelock, transactions, uAuth, lAuth, total_received
+      [ADDRESSES[0], T_HTR, 70, 0, null, 2, 0, 0, 100],
+      [ADDRESSES[1], T_HTR, 50, 0, null, 1, 0, 0, 50],
+      [ADDRESSES[1], T_B, 7, 0, null, 1, 0, 0, 7],
+    ]);
+
+    const result = await runWorker({ xpubkey: XPUBKEY, maxGap: MAX_GAP });
+    expect(result).toMatchObject({ success: true, walletId });
+
+    const w = await getWallet(mysql, walletId);
+    expect(w.status).toBe(WalletStatus.READY);
+    expect(w.ctStatus).toBe('none');
+
+    // wallet_balance: summed per token across the wallet's addresses; tx count is
+    // DISTINCT non-voided tx_id from history (ptxC excluded).
+    expect(await checkWalletBalanceTable(mysql, 2, walletId, T_HTR, 120n, 0n, null, 2)).toBe(true);
+    expect(await checkWalletBalanceTable(mysql, 2, walletId, T_B, 7n, 0n, null, 1)).toBe(true);
+    const balances: DbSelectResult = await mysql.query(
+      'SELECT `token_id`, `total_received` FROM `wallet_balance` WHERE `wallet_id` = ? ORDER BY `token_id`', [walletId],
+    );
+    expect(balances.map((r) => [r.token_id, String(r.total_received)])).toEqual([[T_HTR, '150'], [T_B, '7']]);
+
+    // wallet_tx_history: one row per (tx_id, token); voided tx absent.
+    const history: DbSelectResult = await mysql.query(
+      'SELECT `tx_id`, `token_id`, `balance`, `timestamp` FROM `wallet_tx_history` WHERE `wallet_id` = ? ORDER BY `timestamp`, `token_id`',
+      [walletId],
+    );
+    expect(history.map((r) => [r.tx_id, r.token_id, String(r.balance), Number(r.timestamp)])).toEqual([
+      ['ptxA', T_HTR, '150', 10],
+      ['ptxB', T_HTR, '-30', 20],
+      ['ptxD', T_B, '7', 40],
+    ]);
+  }, COMBINED_TEST_TIMEOUT_MS);
+
+  it('marks a transparent-only wallet error and bumps retryCount on load failure', async () => {
+    await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, MAX_GAP);
+    const spy = jest.spyOn(Db, 'generateAddresses').mockRejectedValueOnce(new Error('derivation boom'));
+
+    const result = await runWorker({ xpubkey: XPUBKEY, maxGap: MAX_GAP });
+    expect(result).toMatchObject({ success: false });
+    const w = await getWallet(mysql, walletId);
+    expect(w.status).toBe(WalletStatus.ERROR);
+    expect(w.retryCount).toBe(1);
+    spy.mockRestore();
   }, COMBINED_TEST_TIMEOUT_MS);
 
   it('short-circuits warmup events', async () => {

@@ -3,13 +3,14 @@ import {
 } from '@src/api/txById';
 import { TokenVersion } from '@hathor/wallet-lib';
 import { closeDbConnection, getDbConnection } from '@src/utils';
-import { addOrUpdateTx, createWallet, initWalletTxHistory } from '@src/db';
+import { addOrUpdateTx, createWallet } from '@src/db';
 import {
   makeGatewayEventWithAuthorizer,
   cleanDatabase,
   XPUBKEY,
   AUTH_XPUBKEY,
   addToAddressTxHistoryTable,
+  addToWalletTxHistoryTable,
   addToTokenTable,
 } from '@tests/utils';
 import { APIGatewayProxyResult } from 'aws-lambda';
@@ -49,7 +50,10 @@ test('get a transaction given its ID', async () => {
     { address: addr1, txId: txId1, tokenId: token2.id, balance: 7n, timestamp: timestamp1 },
   ];
   await addToAddressTxHistoryTable(mysql, entries);
-  await initWalletTxHistory(mysql, walletId1, [addr1]);
+  await addToWalletTxHistoryTable(mysql, [
+    [walletId1, txId1, token1.id, 10n, timestamp1, false],
+    [walletId1, txId1, token2.id, 7n, timestamp1, false],
+  ]);
 
   const event = makeGatewayEventWithAuthorizer(walletId1, {
     txId: txId1,

@@ -243,27 +243,8 @@ functions:
           arn:aws:lambda:${self:provider.region}:${self:provider.environment.ACCOUNT_ID}:function:hathor-explorer-service-${self:custom.explorerServiceStage}-create_or_update_dag_metadata
   loadWalletAsync:
     # Canonical async load: derives transparent + shielded address paths and
-    # reconstructs both balances in one pass (combined load).
-    handler: src/api/wallet.loadWalletCombined
-    memorySize: 1024
-    timeout: 600 # 10 minutes should be enough for most wallets
-    onError: arn:aws:sns:${self:provider.region}:${self:provider.environment.ACCOUNT_ID}:WalletServiceLoadAsyncFailed_${self:custom.stage}
-    warmup:
-      walletWarmer:
-        enabled: false
-    iamRoleStatements:
-      - Effect: Allow
-        Action:
-          - SNS:Publish
-        Resource:
-          arn:aws:sns:${self:provider.region}:${self:provider.environment.ACCOUNT_ID}:WalletServiceLoadAsyncFailed_${self:custom.stage}
-  deprecatedLoad:
-    # Deprecated transparent-only async load, kept until the combined load above
-    # subsumes it entirely.
+    # reconstructs both balances in one pass.
     handler: src/api/wallet.loadWallet
-    # This lambda is currently running out of memory when wallets with a big
-    # number of transactions (> 300k) is being loaded. I chose 1024 because the
-    # average memory usage of the largest test wallet we have is 800mb.
     memorySize: 1024
     timeout: 600 # 10 minutes should be enough for most wallets
     onError: arn:aws:sns:${self:provider.region}:${self:provider.environment.ACCOUNT_ID}:WalletServiceLoadAsyncFailed_${self:custom.stage}

@@ -2,14 +2,13 @@ import { logger } from '@tests/winston.mock';
 import { mockedAddAlert } from '@tests/utils/alerting.utils.mock';
 import { v4 as uuidv4 } from 'uuid';
 import {
-  addNewAddresses,
   addUtxos,
   advanceLastUsedShieldedIndex,
   casWalletErrorToCreating,
   createTxProposal,
   createWallet,
-  markWalletCombinedError,
-  markWalletCombinedReady,
+  markWalletLoadError,
+  markWalletLoadReady,
   upsertNewAddresses,
   generateAddresses,
   getAddressWalletInfo,
@@ -35,8 +34,6 @@ import {
   getTransactionsById,
   getTxsAfterHeight,
   getAddressAtIndex,
-  initWalletBalance,
-  initWalletTxHistory,
   markUtxosWithProposalId,
   updateTxOutputSpentBy,
   storeTokenInformation,
@@ -357,21 +354,6 @@ test('getWallet, createWallet and updateWalletStatus', async () => {
   expect(ret.readyAt).toBeGreaterThanOrEqual(timestamp);
 });
 
-test('addNewAddresses', async () => {
-  expect.hasAssertions();
-  const walletId = 'walletId';
-
-  // test adding empty dict
-  await addNewAddresses(mysql, walletId, {}, -1);
-  await expect(checkAddressTable(mysql, 0)).resolves.toBe(true);
-
-  // add some addresses
-  await addNewAddresses(mysql, walletId, addrMap, -1);
-  for (const [index, address] of ADDRESSES.entries()) {
-    await expect(checkAddressTable(mysql, ADDRESSES.length, address, index, walletId, 0)).resolves.toBe(true);
-  }
-});
-
 test('updateExistingAddresses', async () => {
   expect.hasAssertions();
   const walletId = 'walletId';
@@ -381,11 +363,10 @@ test('updateExistingAddresses', async () => {
   await expect(checkAddressTable(mysql, 0)).resolves.toBe(true);
 
   // first add some addresses to database, without walletId and index
-  const newAddrMap = {};
-  for (const address of ADDRESSES) {
-    newAddrMap[address] = null;
-  }
-  await addNewAddresses(mysql, null, newAddrMap, -1);
+  await mysql.query(
+    'INSERT INTO `address`(`address`, `transactions`) VALUES ?',
+    [ADDRESSES.map((address) => [address, 0])],
+  );
   for (const address of ADDRESSES) {
     await expect(checkAddressTable(mysql, ADDRESSES.length, address, null, null, 0)).resolves.toBe(true);
   }
@@ -395,120 +376,6 @@ test('updateExistingAddresses', async () => {
   for (const [index, address] of ADDRESSES.entries()) {
     await expect(checkAddressTable(mysql, ADDRESSES.length, address, index, walletId, 0)).resolves.toBe(true);
   }
-});
-
-test('initWalletTxHistory', async () => {
-  expect.hasAssertions();
-  const walletId = 'walletId';
-  const addr1 = 'addr1';
-  const addr2 = 'addr2';
-  const addr3 = 'addr3';
-  const token1 = 'token1';
-  const token2 = 'token2';
-  const token3 = 'token3';
-  const txId1 = 'txId1';
-  const txId2 = 'txId2';
-  const timestamp1 = 10;
-  const timestamp2 = 20;
-
-  /*
-   * addr1 and addr2 belong to our wallet, while addr3 does not. We are adding this last
-   * address to make sure the wallet history will only get the balance from its own addresses
-   *
-   * These transactions are not valid under network rules, but here we only want to test the
-   * database updates and final values
-   *
-   * tx1:
-   *  . addr1: receive 10 token1 and 7 token2 (+10 token1, +7 token2);
-   *  . addr2: receive 5 token2 (+5 token2);
-   *  . addr3: receive 3 token1 (+3 token1);
-   * tx2:
-   *  . addr1: send 1 token1 and receive 3 token3 (-1 token1, +3 token3);
-   *  . addr2: send 5 token2 (-5 token2);
-   *  . addr3: receive 3 token1 (+3 token1);
-   *
-   *  Final entries for wallet_tx_history will be:
-   *    . txId1 token1 +10
-   *    . txId1 token2 +12
-   *    . txId2 token1 -1
-   *    . txId2 token2 -5
-   *    . txId2 token3 +3
-   */
-
-  // with empty addresses it shouldn't add anything
-  await initWalletTxHistory(mysql, walletId, []);
-  await expect(checkWalletTxHistoryTable(mysql, 0)).resolves.toBe(true);
-
-  const entries = [
-    { address: addr1, txId: txId1, tokenId: token1, balance: 10n, timestamp: timestamp1 },
-    { address: addr1, txId: txId1, tokenId: token2, balance: 7n, timestamp: timestamp1 },
-    { address: addr2, txId: txId1, tokenId: token2, balance: 5n, timestamp: timestamp1 },
-    { address: addr3, txId: txId1, tokenId: token1, balance: 3n, timestamp: timestamp1 },
-    { address: addr1, txId: txId2, tokenId: token1, balance: -1n, timestamp: timestamp2 },
-    { address: addr1, txId: txId2, tokenId: token3, balance: 3n, timestamp: timestamp2 },
-    { address: addr2, txId: txId2, tokenId: token2, balance: -5n, timestamp: timestamp2 },
-    { address: addr3, txId: txId2, tokenId: token1, balance: 3n, timestamp: timestamp2 },
-  ];
-  await addToAddressTxHistoryTable(mysql, entries);
-
-  await initWalletTxHistory(mysql, walletId, [addr1, addr2]);
-
-  // check wallet_tx_history entries
-  await expect(checkWalletTxHistoryTable(mysql, 5, walletId, token1, txId1, 10, timestamp1)).resolves.toBe(true);
-  await expect(checkWalletTxHistoryTable(mysql, 5, walletId, token2, txId1, 12, timestamp1)).resolves.toBe(true);
-  await expect(checkWalletTxHistoryTable(mysql, 5, walletId, token1, txId2, -1, timestamp2)).resolves.toBe(true);
-  await expect(checkWalletTxHistoryTable(mysql, 5, walletId, token2, txId2, -5, timestamp2)).resolves.toBe(true);
-  await expect(checkWalletTxHistoryTable(mysql, 5, walletId, token3, txId2, 3, timestamp2)).resolves.toBe(true);
-});
-
-test('initWalletBalance', async () => {
-  expect.hasAssertions();
-  const walletId = 'walletId';
-  const addr1 = 'addr1';
-  const addr2 = 'addr2';
-  const addr3 = 'addr3';
-  const token1 = 'token1';
-  const token2 = 'token2';
-  const tx1 = 'tx1';
-  const tx2 = 'tx2';
-  const tx3 = 'tx3';
-  const ts1 = 0;
-  const ts2 = 10;
-  const ts3 = 20;
-  const timelock = 500;
-
-  /*
-   * addr1 and addr2 belong to our wallet, while addr3 does not. We are adding this last
-   * address to make sure the wallet will only get the balance from its own addresses
-   */
-  const historyEntries = [
-    { address: addr1, txId: tx1, tokenId: token1, balance: 10n, timestamp: ts1 },
-    { address: addr1, txId: tx2, tokenId: token1, balance: -8n, timestamp: ts2 },
-    { address: addr1, txId: tx1, tokenId: token2, balance: 5n, timestamp: ts1 },
-    { address: addr2, txId: tx1, tokenId: token1, balance: 3n, timestamp: ts1 },
-    { address: addr2, txId: tx3, tokenId: token1, balance: 4n, timestamp: ts3 },
-    { address: addr2, txId: tx2, tokenId: token2, balance: 2n, timestamp: ts2 },
-    { address: addr3, txId: tx1, tokenId: token1, balance: 1n, timestamp: ts1 },
-    { address: addr3, txId: tx3, tokenId: token2, balance: 11n, timestamp: ts3 },
-  ];
-  const addressEntries = [
-    // address, tokenId, unlocked, locked, lockExpires, transactions, unlocked_authorities, locked_authorities, total_received
-    [addr1, token1, 2, 0, null, 2, 1, 0, 4],
-    [addr1, token2, 1, 4, timelock, 1, 2, 0, 5],
-    [addr2, token1, 5, 2, null, 2, 2, 0, 20],
-    [addr2, token2, 0, 2, null, 1, 0, 0, 2],
-    [addr3, token1, 0, 1, null, 1, 0, 0, 1],
-    [addr3, token2, 10, 1, null, 1, 0, 0, 11],
-  ];
-
-  await addToAddressTxHistoryTable(mysql, historyEntries);
-  await addToAddressBalanceTable(mysql, addressEntries);
-
-  await initWalletBalance(mysql, walletId, [addr1, addr2]);
-
-  // check balance entries
-  await expect(checkWalletBalanceTable(mysql, 2, walletId, token1, 7n, 2n, null, 3, 3)).resolves.toBe(true);
-  await expect(checkWalletBalanceTable(mysql, 2, walletId, token2, 1n, 6n, timelock, 2, 2)).resolves.toBe(true);
 });
 
 test('updateWalletTablesWithTx', async () => {
@@ -3311,7 +3178,10 @@ describe('getTransactionById', () => {
       { address: addr1, txId: txId1, tokenId: token2.id, balance: 7n, timestamp: timestamp1 },
     ];
     await addToAddressTxHistoryTable(mysql, entries);
-    await initWalletTxHistory(mysql, walletId1, [addr1]);
+    await addToWalletTxHistoryTable(mysql, [
+      [walletId1, txId1, token1.id, 10n, timestamp1, false],
+      [walletId1, txId1, token2.id, 7n, timestamp1, false],
+    ]);
 
     const txTokens = await getTransactionById(mysql, txId1, walletId1);
 
@@ -4172,9 +4042,9 @@ describe('combined-load wallet helpers', () => {
     expect((await getWallet(mysql, wid)).lastUsedShieldedIndex).toBe(5);
   });
 
-  it('markWalletCombinedReady flips statuses and resets retry_count', async () => {
+  it('markWalletLoadReady flips statuses and resets retry_count', async () => {
     await mysql.query('UPDATE `wallet` SET `retry_count` = 3, `ct_status` = ? WHERE `id` = ?', ['creating', wid]);
-    await markWalletCombinedReady(mysql, wid, true);
+    await markWalletLoadReady(mysql, wid, true);
     let w = await getWallet(mysql, wid);
     expect(w.status).toBe(WalletStatus.READY);
     expect(w.ctStatus).toBe(WalletStatus.READY);
@@ -4182,20 +4052,20 @@ describe('combined-load wallet helpers', () => {
 
     // upgrade variant: transparent already ready and left alone
     await mysql.query('UPDATE `wallet` SET `retry_count` = 2, `ct_status` = ?, `ready_at` = 123 WHERE `id` = ?', ['creating', wid]);
-    await markWalletCombinedReady(mysql, wid, false);
+    await markWalletLoadReady(mysql, wid, false);
     w = await getWallet(mysql, wid);
     expect(w.ctStatus).toBe(WalletStatus.READY);
     expect(w.retryCount).toBe(0);
     expect(w.readyAt).toBe(123); // untouched
   });
 
-  it('markWalletCombinedError sets error states with an atomic retry bump', async () => {
-    await markWalletCombinedError(mysql, wid, true);
+  it('markWalletLoadError sets error states with an atomic retry bump', async () => {
+    await markWalletLoadError(mysql, wid, true);
     let w = await getWallet(mysql, wid);
     expect(w.status).toBe(WalletStatus.ERROR);
     expect(w.ctStatus).toBe(WalletStatus.ERROR);
     expect(w.retryCount).toBe(1);
-    await markWalletCombinedError(mysql, wid, false); // upgrade variant: transparent untouched
+    await markWalletLoadError(mysql, wid, false); // upgrade variant: transparent untouched
     w = await getWallet(mysql, wid);
     expect(w.retryCount).toBe(2);
   });

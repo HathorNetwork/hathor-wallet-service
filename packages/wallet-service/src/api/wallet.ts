@@ -12,12 +12,9 @@ import 'source-map-support/register';
 import { createLambdaClient } from '@src/utils/aws.utils';
 import { ApiError } from '@src/api/errors';
 import {
-  addNewAddresses,
   createWallet,
   generateAddresses,
   getWallet,
-  initWalletBalance,
-  initWalletTxHistory,
   updateExistingAddresses,
   updateWalletStatus,
   updateWalletAuthXpub,
@@ -27,8 +24,8 @@ import {
   pinShieldedLoadFailed,
   upsertNewAddresses,
   advanceLastUsedShieldedIndex,
-  markWalletCombinedReady,
-  markWalletCombinedError,
+  markWalletLoadReady,
+  markWalletLoadError,
 } from '@src/db';
 import {
   GenerateShieldedAddresses,
@@ -149,13 +146,14 @@ const loadBodySchema = Joi.object({
 }).and('scanXpriv', 'spendXpub', 'firstCtAddress', 'spendXpubSignature', 'ctAddressSignature');
 
 /**
- * Invoke the loadWalletAsync function
+ * Invoke the async wallet-load lambda — derives both the transparent and
+ * shielded address paths and reconstructs both balances in a single pass.
  *
  * @param xpubkey - The xpubkey to load
  * @param maxGap - The max gap
  */
 /* istanbul ignore next */
-const invokeAsyncLoad = async (functionName: string, xpubkey: string, maxGap: number): Promise<void> => {
+export const invokeLoadWalletAsync = async (xpubkey: string, maxGap: number): Promise<void> => {
   const client = createLambdaClient({
     endpoint: config.stage === 'dev'
       ? 'http://localhost:3002'
@@ -164,7 +162,7 @@ const invokeAsyncLoad = async (functionName: string, xpubkey: string, maxGap: nu
   });
   const command = new InvokeCommand({
     // FunctionName is composed of: service name - stage - function name
-    FunctionName: `${config.serviceName}-${config.stage}-${functionName}`,
+    FunctionName: `${config.serviceName}-${config.stage}-loadWalletAsync`,
     InvocationType: 'Event',
     Payload: JSON.stringify({ xpubkey, maxGap }),
   });
@@ -176,21 +174,6 @@ const invokeAsyncLoad = async (functionName: string, xpubkey: string, maxGap: nu
     throw new Error('Lambda invoke failed');
   }
 };
-
-/**
- * Invoke the canonical async wallet load — derives both the transparent and
- * shielded address paths and reconstructs both balances in a single pass. Used
- * whenever a load request carries shielded keys.
- */
-/* istanbul ignore next */
-export const invokeLoadWalletAsync = (xpubkey: string, maxGap: number): Promise<void> => invokeAsyncLoad('loadWalletAsync', xpubkey, maxGap);
-
-/**
- * Invoke the deprecated transparent-only async wallet load. Still used for load
- * requests that carry no shielded keys, until the combined load subsumes it.
- */
-/* istanbul ignore next */
-export const invokeDeprecatedLoad = (xpubkey: string, maxGap: number): Promise<void> => invokeAsyncLoad('deprecatedLoad', xpubkey, maxGap);
 
 /**
  * Calls verifySignature for both the wallet's xpub signature and
@@ -471,7 +454,9 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
     return closeDbAndGetError(mysql, ApiError.WALLET_MAX_RETRIES, { status: toWalletStatusResponse(wallet) });
   };
 
+  // Client did not send CT keys and the wallet already exists
   // check if wallet is already loaded so we can fail early
+  // possibly an old client loading a wallet
   if (wallet && !hasShielded) {
     if (wallet.status === WalletStatus.READY
       || wallet.status === WalletStatus.CREATING) {
@@ -596,7 +581,7 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
       return rejectMaxRetries();
     }
 
-    // (Re)invoke the canonical combined load — which derives both the transparent
+    // (Re)invoke the canonical async load — which derives both the transparent
     // and shielded address paths and reconstructs both balances in one pass —
     // unless this is an identical resubmit on a wallet that is already loaded or in
     // progress. Fresh registrations and upgrades always load; a same-keys resubmit
@@ -631,10 +616,10 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
     }
     wallet = await getWallet(mysql, walletId);
   } else {
-    // Transparent-only load: the deprecated path, kept until the combined load
-    // subsumes it entirely.
+    // Transparent-only load: the load worker derives the transparent path and
+    // reconstructs its balance (shielded steps are no-ops without keys).
     try {
-      await invokeDeprecatedLoad(xpubkeyStr, maxGap);
+      await invokeLoadWalletAsync(xpubkeyStr, maxGap);
     } catch (e) {
       await onAsyncInvokeError(e);
     }
@@ -746,81 +731,6 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
 };
 
 /*
- * Deprecated transparent-only async wallet load: derives the transparent address
- * path and seeds the transparent balance. Kept for load requests that carry no
- * shielded keys, until the combined load subsumes it. It expects a wallet entry
- * already on the database.
- *
- * This lambda is called async by another lambda, the one reponsible for the load wallet API
- */
-export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
-  const logger = createDefaultLogger();
-  // Can't use a middleware on this event, so we should just check the source (added by the warmup plugin) as
-  // our default middleware does
-  if (event.source === 'serverless-plugin-warmup') {
-    return {
-      success: true,
-      walletId: '',
-      xpubkey: '',
-    };
-  }
-
-  const xpubkey = event.xpubkey;
-  const maxGap = event.maxGap;
-  const walletId = getWalletId(xpubkey);
-
-  try {
-    const { addresses, existingAddresses, newAddresses, lastUsedAddressIndex } = await generateAddresses(mysql, xpubkey, maxGap);
-
-    // Wrap all wallet initialization operations in a transaction to prevent partial wallet state
-    try {
-      await beginTransaction(mysql);
-
-      // update address table with new addresses
-      await addNewAddresses(mysql, walletId, newAddresses, lastUsedAddressIndex);
-
-      // update existing addresses' walletId and index
-      await updateExistingAddresses(mysql, walletId, existingAddresses);
-
-      // from address_tx_history, update wallet_tx_history
-      await initWalletTxHistory(mysql, walletId, addresses);
-
-      // from address_balance table, update balance table
-      await initWalletBalance(mysql, walletId, addresses);
-
-      // update wallet status to 'ready'
-      await updateWalletStatus(mysql, walletId, WalletStatus.READY);
-
-      await commitTransaction(mysql);
-    } catch (txError) {
-      await rollbackTransaction(mysql);
-      throw txError;
-    }
-
-    await closeDbConnection(mysql);
-
-    return {
-      success: true,
-      walletId,
-      xpubkey,
-    };
-  } catch (e) {
-    logger.error('Erroed on loadWalletAsync: ', e);
-
-    const wallet = await getWallet(mysql, walletId);
-    const newRetryCount = wallet.retryCount ? wallet.retryCount + 1 : 1;
-
-    await updateWalletStatus(mysql, walletId, WalletStatus.ERROR, newRetryCount);
-
-    return {
-      success: false,
-      walletId,
-      xpubkey,
-    };
-  }
-};
-
-/*
  * Canonical async wallet load: derives both the transparent and shielded address
  * paths, claims the ownership rows, and reconstructs both balances in one pass.
  * It expects a wallet entry (with shielded keys, when applicable) already on the
@@ -831,7 +741,7 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
  * so AWS async retries and user-driven re-invocations converge. reconstructWallet
  * runs OUTSIDE any DB transaction (paged crypto must not hold row locks).
  */
-export const loadWalletCombined: Handler<LoadEvent, LoadResult> = async (event) => {
+export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
   const logger = createDefaultLogger();
   if (event.source === 'serverless-plugin-warmup') {
     return { success: true, walletId: '', xpubkey: '' };
@@ -843,7 +753,7 @@ export const loadWalletCombined: Handler<LoadEvent, LoadResult> = async (event) 
   // invoking) — throw so the crash channel surfaces the bug.
   const wallet = await getWallet(mysql, walletId);
   if (!wallet) {
-    throw new Error(`loadWalletCombined: wallet ${walletId} not found`);
+    throw new Error(`loadWallet: wallet ${walletId} not found`);
   }
   const transparentWasReady = wallet.status === WalletStatus.READY;
   // consts (not the wallet fields) so the null checks narrow them below
@@ -901,7 +811,7 @@ export const loadWalletCombined: Handler<LoadEvent, LoadResult> = async (event) 
     if (hasShieldedKeys) {
       const highestDerivedIndex = shielded.rows[shielded.rows.length - 1].index;
       await markShieldedCatchupDone(mysql, walletId, highestDerivedIndex);
-      await markWalletCombinedReady(mysql, walletId, !transparentWasReady);
+      await markWalletLoadReady(mysql, walletId, !transparentWasReady);
     } else {
       // Defensive transparent-only path: no shielded lifecycle is fabricated.
       await updateWalletStatus(mysql, walletId, WalletStatus.READY);
@@ -910,16 +820,16 @@ export const loadWalletCombined: Handler<LoadEvent, LoadResult> = async (event) 
     await closeDbConnection(mysql);
     return { success: true, walletId, xpubkey };
   } catch (e) {
-    logger.error('Erroed on loadWalletCombined: ', e);
+    logger.error('Erroed on loadWallet: ', e);
     await addAlert(
-      'Combined wallet load failed',
-      `The combined transparent+shielded load for wallet ${walletId} failed and was marked for retry.`,
+      'Wallet load failed',
+      `The transparent+shielded load for wallet ${walletId} failed and was marked for retry.`,
       Severity.MINOR,
       { wallet_id: walletId, error: String(e), source: 'wallet-service' },
       logger,
     );
     if (hasShieldedKeys) {
-      await markWalletCombinedError(mysql, walletId, !transparentWasReady);
+      await markWalletLoadError(mysql, walletId, !transparentWasReady);
     } else {
       await updateWalletStatus(mysql, walletId, WalletStatus.ERROR, (wallet.retryCount ?? 0) + 1);
     }

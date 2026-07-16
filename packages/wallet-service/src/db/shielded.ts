@@ -259,9 +259,9 @@ export const rebuildShieldedAddressTxHistory = async (
  * Rebuild a wallet's `wallet_balance` rows by aggregating its addresses'
  * `address_balance` (both transparent and shielded column families), with the
  * per-token `transactions` count taken from `address_tx_history` (distinct txs,
- * so shared txs aren't double-counted). Upsert → idempotent. This subsumes the
- * transparent-only `initWalletBalance`, so it credits caught-up shielded receives
- * in the same pass old clients get their transparent balance.
+ * so shared txs aren't double-counted). Upsert → idempotent. Credits the
+ * transparent balance and any caught-up shielded receives in the same pass, so
+ * it serves both transparent-only and shielded wallets.
  */
 export const rebuildWalletBalance = async (
   mysql: ServerlessMysql,
@@ -318,7 +318,7 @@ export const rebuildWalletBalance = async (
  * Rebuild a wallet's `wallet_tx_history` by aggregating its addresses'
  * `address_tx_history` per (tx, token): transparent `balance` and
  * `shielded_balance_delta` are summed across the wallet's addresses. Upsert →
- * idempotent. Subsumes the transparent-only `initWalletTxHistory`.
+ * idempotent. Serves both transparent-only and shielded wallets.
  */
 export const rebuildWalletTxHistory = async (
   mysql: ServerlessMysql,

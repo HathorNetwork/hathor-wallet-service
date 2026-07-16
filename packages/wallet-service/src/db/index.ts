@@ -410,9 +410,10 @@ export const registerWalletShieldedKeys = async (
 };
 
 /**
- * Upsert-variant of addNewAddresses for the combined load: an upgrade runs on a
- * live wallet whose gap the daemon may extend concurrently, so pre-existing rows
- * must not dup-key crash, and the frontier index only ever moves forward.
+ * Insert a wallet's freshly derived addresses for the async load: an upgrade
+ * runs on a live wallet whose gap the daemon may extend concurrently, so
+ * pre-existing rows must not dup-key crash (upsert), and the frontier index only
+ * ever moves forward.
  */
 export const upsertNewAddresses = async (
   mysql: ServerlessMysql,
@@ -452,11 +453,11 @@ export const advanceLastUsedShieldedIndex = async (
 };
 
 /**
- * Finalize a successful combined load in one statement: shielded side ready,
+ * Finalize a successful wallet load in one statement: shielded side ready,
  * retry counter cleared, and — unless the transparent side was already ready
  * before the load (upgrade) — transparent status/ready_at too.
  */
-export const markWalletCombinedReady = async (
+export const markWalletLoadReady = async (
   mysql: ServerlessMysql,
   walletId: string,
   alsoTransparent: boolean,
@@ -475,12 +476,12 @@ export const markWalletCombinedReady = async (
 };
 
 /**
- * Record a combined-load failure in one statement with an atomic retry bump
+ * Record a load failure in one statement with an atomic retry bump
  * (concurrent executions must not lose increments). The transparent status is
  * only marked when it was not already ready before the load — an upgrade
  * failure must leave a working transparent wallet untouched.
  */
-export const markWalletCombinedError = async (
+export const markWalletLoadError = async (
   mysql: ServerlessMysql,
   walletId: string,
   alsoTransparent: boolean,
@@ -555,43 +556,6 @@ export const casWalletErrorToCreating = async (
 };
 
 /**
- * Add addresses to address table.
- *
- * @remarks
- * The addresses are added with the given walletId and 0 transactions.
- *
- * @param mysql - Database connection
- * @param walletId - The wallet id
- * @param addresses - A map of addresses and corresponding indexes
- */
-export const addNewAddresses = async (
-  mysql: ServerlessMysql,
-  walletId: string,
-  addresses: AddressIndexMap,
-  lastUsedAddressIndex: number,
-): Promise<void> => {
-  if (Object.keys(addresses).length === 0) return;
-  const entries = [];
-  for (const [address, index] of Object.entries(addresses)) {
-    entries.push([address, index, walletId, 0]);
-  }
-  await mysql.query(
-    `INSERT INTO \`address\`(\`address\`, \`index\`,
-                             \`wallet_id\`, \`transactions\`)
-     VALUES ?`,
-    [entries],
-  );
-
-  // Store on the wallet table the highest used index
-  await mysql.query(
-    `UPDATE \`wallet\`
-        SET \`last_used_address_index\` = ?
-      WHERE \`id\` = ?`,
-    [lastUsedAddressIndex, walletId],
-  );
-};
-
-/**
  * Update addresses on the address table.
  *
  * @remarks
@@ -661,125 +625,6 @@ export const incrementAddressSeqnum = async (mysql: ServerlessMysql, walletId: s
      WHERE \`wallet_id\` = ?
          AND \`address\` = ?`,
     [walletId, address]);
-};
-
-/**
- * Initialize a wallet's transaction history.
- *
- * @remarks
- * This function adds entries to wallet_tx_history table, using data from address_tx_history.
- *
- * @param mysql - Database connection
- * @param walletId - The wallet id
- * @param addresses - The addresses that belong to this wallet
- */
-export const initWalletTxHistory = async (mysql: ServerlessMysql, walletId: string, addresses: string[]): Promise<void> => {
-  // XXX we could also get the addresses from the address table, but the caller probably has this info already
-
-  if (addresses.length === 0) return;
-
-  const results: DbSelectResult = await mysql.query(
-    `SELECT \`tx_id\`,
-            \`token_id\`,
-            SUM(\`balance\`) AS balance,
-            \`timestamp\`
-       FROM \`address_tx_history\`
-      WHERE \`address\` IN (?)
-        AND \`voided\` = FALSE
-   GROUP BY \`tx_id\`,
-            \`token_id\`,
-            \`timestamp\``,
-    [addresses],
-  );
-  if (results.length === 0) return;
-
-  const walletTxHistory = [];
-  for (const row of results) {
-    walletTxHistory.push([walletId, row.token_id, row.tx_id, row.balance, row.timestamp]);
-  }
-  await mysql.query(
-    `INSERT INTO \`wallet_tx_history\`(\`wallet_id\`, \`token_id\`,
-                                       \`tx_id\`, \`balance\`,
-                                       \`timestamp\`)
-          VALUES ?`,
-    [walletTxHistory],
-  );
-};
-
-/**
- * Initialize a wallet's balance.
- *
- * @remarks
- * This function adds entries to wallet_balance table, using data from address_balance and address_tx_history.
- *
- * @param mysql - Database connection
- * @param walletId - The wallet id
- * @param addresses - The addresses that belong to this wallet
- */
-export const initWalletBalance = async (mysql: ServerlessMysql, walletId: string, addresses: string[]): Promise<void> => {
-  // XXX we could also do a join between address and address_balance tables so we don't
-  // need to receive the addresses, but the caller probably has this info already
-  const results1: DbSelectResult = await mysql.query(
-    `SELECT \`token_id\`,
-            SUM(\`total_received\`) AS \`total_received\`,
-            SUM(\`unlocked_balance\`) AS \`unlocked_balance\`,
-            SUM(\`locked_balance\`) AS \`locked_balance\`,
-            MIN(\`timelock_expires\`) AS \`timelock_expires\`,
-            BIT_OR(\`unlocked_authorities\`) AS \`unlocked_authorities\`,
-            BIT_OR(\`locked_authorities\`) AS \`locked_authorities\`
-       FROM \`address_balance\`
-      WHERE \`address\`
-         IN (?)
-   GROUP BY \`token_id\`
-   ORDER BY \`token_id\``,
-    [addresses],
-  );
-  // we need to use table address_tx_history for the transaction count. We can't simply
-  // sum the transaction count for each address_balance, as they may share transactions
-  const results2: DbSelectResult = await mysql.query(
-    `SELECT \`token_id\`,
-            SUM(\`balance\`) AS \`balance\`,
-            COUNT(DISTINCT \`tx_id\`) AS \`transactions\`
-       FROM \`address_tx_history\`
-      WHERE \`address\` IN (?)
-        AND \`voided\` = FALSE
-   GROUP BY \`token_id\`
-   ORDER BY \`token_id\``,
-    [addresses],
-  );
-
-  assert.strictEqual(results1.length, results2.length);
-
-  const balanceEntries = [];
-  for (let i = 0; i < results1.length; i++) {
-    // as both queries had ORDER BY, we should get the results in the same order
-    const row1 = results1[i];
-    const row2 = results2[i];
-    assert.strictEqual(row1.token_id, row2.token_id);
-    assert.strictEqual(BigInt(row1.unlocked_balance as string) + BigInt(row1.locked_balance as string), BigInt(row2.balance as string));
-    balanceEntries.push([
-      walletId,
-      row1.token_id,
-      row1.total_received,
-      row1.unlocked_balance,
-      row1.locked_balance,
-      row1.timelock_expires,
-      row1.locked_authorities,
-      row1.unlocked_authorities,
-      row2.transactions,
-    ]);
-  }
-  if (balanceEntries.length > 0) {
-    await mysql.query(
-      `INSERT INTO \`wallet_balance\`(\`wallet_id\`, \`token_id\`,
-                                      \`total_received\`,
-                                      \`unlocked_balance\`, \`locked_balance\`,
-                                      \`timelock_expires\`, \`locked_authorities\`,
-                                      \`unlocked_authorities\`, \`transactions\`)
-            VALUES ?`,
-      [balanceEntries],
-    );
-  }
 };
 
 /**
