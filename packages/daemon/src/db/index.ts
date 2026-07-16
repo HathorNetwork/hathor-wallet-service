@@ -2414,7 +2414,7 @@ export const getTokenSymbols = async (
 
 /**
  * Get maximum indices for multiple wallets in a single query, partitioned by
- * BIP32 account so transparent and shielded (CTSpend) index spaces never mix.
+ * BIP32 account so legacy and shielded (CTSpend) index spaces never mix.
  *
  * This function retrieves two key metrics per account for each wallet:
  *
@@ -2424,15 +2424,15 @@ export const getTokenSymbols = async (
  * How it works:
  * - The SQL query operates on the `address` table, grouped by `wallet_id`.
  * - Each `MAX` is scoped by a `bip32_account` CASE: transparent rows are those
- *   with account 0 **or NULL** (transparent claims leave the column NULL), and
+ *   with account 0 **or NULL** (legacy claims leave the column NULL), and
  *   CTSpend rows carry account 2 — a claimed shielded index must never leak
- *   into the transparent gap math, in either direction.
+ *   into the legacy gap math, in either direction.
  * - If no addresses for a wallet match the provided input, the `amongAddresses`
  *   value for that account will be `NULL`.
  * - A wallet with no rows for an account yields `NULL` for that account's pair
  *   (e.g. no shielded window claimed -> both CT maxes are `NULL`).
  *
- * The transparent pair feeds the transparent gap extension; the CT pair is the
+ * The legacy pair feeds the legacy gap extension; the CT pair is the
  * input for the shielded gap extension (follow-up work).
  *
  * @param mysql - Database connection
@@ -2443,8 +2443,8 @@ export const getMaxIndicesForWallets = async (
   mysql: MysqlConnection,
   walletData: Array<{ walletId: string, addresses: string[] }>
 ): Promise<Map<string, {
-  maxTransparentAmongAddresses: number | null,
-  maxTransparentWalletIndex: number | null,
+  maxLegacyAmongAddresses: number | null,
+  maxLegacyWalletIndex: number | null,
   maxCtAmongAddresses: number | null,
   maxCtWalletIndex: number | null,
 }>> => {
@@ -2458,8 +2458,8 @@ export const getMaxIndicesForWallets = async (
   const [results] = await mysql.query<MaxAddressIndexRow[]>(
     `SELECT
        wallet_id,
-       MAX(CASE WHEN (bip32_account IS NULL OR bip32_account = ?) AND address IN (?) THEN \`index\` END) as max_transparent_among_addresses,
-       MAX(CASE WHEN (bip32_account IS NULL OR bip32_account = ?) THEN \`index\` END) as max_transparent_wallet_index,
+       MAX(CASE WHEN (bip32_account IS NULL OR bip32_account = ?) AND address IN (?) THEN \`index\` END) as max_legacy_among_addresses,
+       MAX(CASE WHEN (bip32_account IS NULL OR bip32_account = ?) THEN \`index\` END) as max_legacy_wallet_index,
        MAX(CASE WHEN bip32_account = ? AND address IN (?) THEN \`index\` END) as max_ct_among_addresses,
        MAX(CASE WHEN bip32_account = ? THEN \`index\` END) as max_ct_wallet_index
      FROM address
@@ -2479,8 +2479,8 @@ export const getMaxIndicesForWallets = async (
     {
       // MAX() is null when no rows match, and arrives as a string under
       // bigNumberStrings — parse to a (bounded) number | null.
-      maxTransparentAmongAddresses: parseNullableNumber(r.max_transparent_among_addresses),
-      maxTransparentWalletIndex: parseNullableNumber(r.max_transparent_wallet_index),
+      maxLegacyAmongAddresses: parseNullableNumber(r.max_legacy_among_addresses),
+      maxLegacyWalletIndex: parseNullableNumber(r.max_legacy_wallet_index),
       maxCtAmongAddresses: parseNullableNumber(r.max_ct_among_addresses),
       maxCtWalletIndex: parseNullableNumber(r.max_ct_wallet_index)
     }

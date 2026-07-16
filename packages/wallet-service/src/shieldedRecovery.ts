@@ -150,18 +150,18 @@ export const findAndRewindShielded = async (
 
 /**
  * One-time seed of a wallet's balances + history from current DB state, unified
- * across the two derivation paths. Transparent addresses are already daemon-
+ * across the two derivation paths. Legacy addresses are already daemon-
  * maintained, so they only feed the wallet-level aggregation; CT-spend addresses
  * are first found + rewound and their `address_*` rebuilt from `tx_output`.
  * Everything is recompute-from-source, so a repeat (or an error-restart) is safe.
  *
  * Passing an empty `ctSpendAddresses` (an old client with no CT keys) yields a
- * clean transparent-only reconstruction.
+ * clean legacy-only reconstruction.
  */
 export const reconstructWallet = async (
   mysql: ServerlessMysql,
   walletId: string,
-  transparentAddresses: string[],
+  legacyAddresses: string[],
   ctSpendAddresses: string[],
   logger: Logger,
 ): Promise<{ recovered: number; failed: number }> => {
@@ -172,7 +172,7 @@ export const reconstructWallet = async (
     await rebuildShieldedAddressTxHistory(mysql, ctSpendAddresses);
   }
 
-  const allAddresses = [...transparentAddresses, ...ctSpendAddresses];
+  const allAddresses = [...legacyAddresses, ...ctSpendAddresses];
   await rebuildWalletBalance(mysql, walletId, allAddresses);
   await rebuildWalletTxHistory(mysql, walletId, allAddresses);
   return rewind;

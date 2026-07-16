@@ -20,7 +20,7 @@ import {
   updateWalletAuthXpub,
   registerWalletShieldedKeys,
   casWalletErrorToCreating,
-  pinTransparentLoadFailed,
+  pinLegacyLoadFailed,
   pinShieldedLoadFailed,
   upsertNewAddresses,
   advanceLastUsedShieldedIndex,
@@ -81,7 +81,7 @@ const shieldedNetwork = new Network(config.network);
 
 /**
  * Shape a wallet row into the API status payload: the `status` field is the
- * unified transparent+shielded lifecycle value, and the two shielded fields are
+ * unified legacy+shielded lifecycle value, and the two shielded fields are
  * surfaced for clients that use them. Scan/spend keys are deliberately omitted —
  * `scan_xpriv` is a secret and must never leave the service.
  */
@@ -146,7 +146,7 @@ const loadBodySchema = Joi.object({
 }).and('scanXpriv', 'spendXpub', 'firstCtAddress', 'spendXpubSignature', 'ctAddressSignature');
 
 /**
- * Invoke the async wallet-load lambda — derives both the transparent and
+ * Invoke the async wallet-load lambda — derives both the legacy and
  * shielded address paths and reconstructs both balances in a single pass.
  *
  * @param xpubkey - The xpubkey to load
@@ -438,11 +438,11 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
 
   // A request carrying shielded fields (all-or-none, guaranteed by the schema)
   // may be a shielded upgrade of an already-loaded wallet, so the "already
-  // loaded" early-return below applies only to transparent-only requests.
+  // loaded" early-return below applies only to legacy-only requests.
   const hasShielded = value.scanXpriv != null;
 
   // Alert ops + reject when a wallet has failed to load too many times. The cap is
-  // shared by the transparent, shielded and upgrade paths.
+  // shared by the legacy, shielded and upgrade paths.
   const rejectMaxRetries = async () => {
     await addAlert(
       'Wallet load exceeded max retries',
@@ -494,7 +494,7 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
   }
 
   // Validate the shielded proof before mutating anything, so an invalid shielded
-  // upgrade cannot leave the transparent side half-processed.
+  // upgrade cannot leave the legacy side half-processed.
   if (hasShielded) {
     const reg = validateShieldedRegistration({
       timestamp,
@@ -547,13 +547,13 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
   };
 
   if (hasShielded) {
-    // Whether this request is the one attaching keys to a transparent wallet, and
+    // Whether this request is the one attaching keys to a legacy wallet, and
     // whether it won that race — only the winner may drive the load.
     let upgrading = false;
     let attachedKeys = false;
 
     // Reconcile keys for an existing wallet: reject a conflicting set; attach keys
-    // to a transparent wallet being upgraded. A fresh wallet already has its keys.
+    // to a legacy wallet being upgraded. A fresh wallet already has its keys.
     if (walletExisted) {
       if (wallet.scanXpriv == null) {
         upgrading = true;
@@ -581,7 +581,7 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
       return rejectMaxRetries();
     }
 
-    // (Re)invoke the canonical async load — which derives both the transparent
+    // (Re)invoke the canonical async load — which derives both the legacy
     // and shielded address paths and reconstructs both balances in one pass —
     // unless this is an identical resubmit on a wallet that is already loaded or in
     // progress. Fresh registrations and upgrades always load; a same-keys resubmit
@@ -616,7 +616,7 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
     }
     wallet = await getWallet(mysql, walletId);
   } else {
-    // Transparent-only load: the load worker derives the transparent path and
+    // Legacy-only load: the load worker derives the legacy path and
     // reconstructs its balance (shielded steps are no-ops without keys).
     try {
       await invokeLoadWalletAsync(xpubkeyStr, maxGap);
@@ -686,16 +686,16 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
 
       // Pin the wallet at the retry cap so it is not retried. A wallet with
       // shielded keys pins its shielded lifecycle too, and an upgrade — whose
-      // transparent side was already ready before the crashed load — keeps its
-      // working transparent state untouched.
+      // legacy side was already ready before the crashed load — keeps its
+      // working legacy state untouched.
       const failedWallet = await getWallet(mysql, walletId);
       if (failedWallet && failedWallet.scanXpriv != null) {
         if (failedWallet.status !== WalletStatus.READY) {
-          await pinTransparentLoadFailed(mysql, walletId, MAX_LOAD_WALLET_RETRIES);
+          await pinLegacyLoadFailed(mysql, walletId, MAX_LOAD_WALLET_RETRIES);
         }
         await pinShieldedLoadFailed(mysql, walletId, MAX_LOAD_WALLET_RETRIES);
       } else {
-        await pinTransparentLoadFailed(mysql, walletId, MAX_LOAD_WALLET_RETRIES);
+        await pinLegacyLoadFailed(mysql, walletId, MAX_LOAD_WALLET_RETRIES);
       }
 
       logger.error(`${walletId} failed to load.`);
@@ -731,7 +731,7 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
 };
 
 /*
- * Canonical async wallet load: derives both the transparent and shielded address
+ * Canonical async wallet load: derives both the legacy and shielded address
  * paths, claims the ownership rows, and reconstructs both balances in one pass.
  * It expects a wallet entry (with shielded keys, when applicable) already on the
  * database — the load API persists keys before invoking this.
@@ -755,7 +755,7 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
   if (!wallet) {
     throw new Error(`loadWallet: wallet ${walletId} not found`);
   }
-  const transparentWasReady = wallet.status === WalletStatus.READY;
+  const legacyWasReady = wallet.status === WalletStatus.READY;
   // consts (not the wallet fields) so the null checks narrow them below
   const scanXpriv = wallet.scanXpriv ?? null;
   const spendXpub = wallet.spendXpub ?? null;
@@ -764,7 +764,7 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
   try {
     // 1. Read-only derivation of both windows. Already-claimed shielded rows
     //    are reused from storage, so a retry re-derives nothing.
-    const transparent = await generateAddresses(mysql, xpubkey, maxGap);
+    const legacy = await generateAddresses(mysql, xpubkey, maxGap);
     const shielded: GenerateShieldedAddresses = scanXpriv !== null && spendXpub !== null
       ? await generateShieldedAddresses(
         mysql,
@@ -779,8 +779,8 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
     // 2. One short claim transaction: address ownership + frontier indices.
     await beginTransaction(mysql);
     try {
-      await upsertNewAddresses(mysql, walletId, transparent.newAddresses, transparent.lastUsedAddressIndex);
-      await updateExistingAddresses(mysql, walletId, transparent.existingAddresses);
+      await upsertNewAddresses(mysql, walletId, legacy.newAddresses, legacy.lastUsedAddressIndex);
+      await updateExistingAddresses(mysql, walletId, legacy.existingAddresses);
       await upsertShieldedAddressOwnership(mysql, walletId, shielded.newRows);
       if (shielded.lastUsedShieldedIndex != null) {
         await advanceLastUsedShieldedIndex(mysql, walletId, shielded.lastUsedShieldedIndex);
@@ -805,15 +805,15 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
       await rebuildShieldedAddressBalances(mysql, ctSpendAddresses);
       await rebuildShieldedAddressTxHistory(mysql, ctSpendAddresses);
     }
-    await rebuildWalletBalance(mysql, walletId, [...transparent.addresses, ...ctSpendAddresses]);
-    await rebuildWalletTxHistory(mysql, walletId, [...transparent.addresses, ...ctSpendAddresses]);
+    await rebuildWalletBalance(mysql, walletId, [...legacy.addresses, ...ctSpendAddresses]);
+    await rebuildWalletTxHistory(mysql, walletId, [...legacy.addresses, ...ctSpendAddresses]);
 
     if (hasShieldedKeys) {
       const highestDerivedIndex = shielded.rows[shielded.rows.length - 1].index;
       await markShieldedCatchupDone(mysql, walletId, highestDerivedIndex);
-      await markWalletLoadReady(mysql, walletId, !transparentWasReady);
+      await markWalletLoadReady(mysql, walletId, !legacyWasReady);
     } else {
-      // Defensive transparent-only path: no shielded lifecycle is fabricated.
+      // Defensive legacy-only path: no shielded lifecycle is fabricated.
       await updateWalletStatus(mysql, walletId, WalletStatus.READY);
     }
 
@@ -823,13 +823,13 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
     logger.error('Erroed on loadWallet: ', e);
     await addAlert(
       'Wallet load failed',
-      `The transparent+shielded load for wallet ${walletId} failed and was marked for retry.`,
+      `The legacy+shielded load for wallet ${walletId} failed and was marked for retry.`,
       Severity.MINOR,
       { wallet_id: walletId, error: String(e), source: 'wallet-service' },
       logger,
     );
     if (hasShieldedKeys) {
-      await markWalletLoadError(mysql, walletId, !transparentWasReady);
+      await markWalletLoadError(mysql, walletId, !legacyWasReady);
     } else {
       await updateWalletStatus(mysql, walletId, WalletStatus.ERROR, (wallet.retryCount ?? 0) + 1);
     }

@@ -1559,14 +1559,14 @@ describe('address generation and index methods', () => {
     // Check wallet1 indices
     const wallet1Indices = indices.get(wallet1);
     expect(wallet1Indices).toBeDefined();
-    expect(wallet1Indices?.maxTransparentAmongAddresses).toBe(15);
-    expect(wallet1Indices?.maxTransparentWalletIndex).toBe(15);
+    expect(wallet1Indices?.maxLegacyAmongAddresses).toBe(15);
+    expect(wallet1Indices?.maxLegacyWalletIndex).toBe(15);
 
     // Check wallet2 indices
     const wallet2Indices = indices.get(wallet2);
     expect(wallet2Indices).toBeDefined();
-    expect(wallet2Indices?.maxTransparentAmongAddresses).toBe(12);
-    expect(wallet2Indices?.maxTransparentWalletIndex).toBe(12);
+    expect(wallet2Indices?.maxLegacyAmongAddresses).toBe(12);
+    expect(wallet2Indices?.maxLegacyWalletIndex).toBe(12);
 
     // Test with empty wallet data
     const emptyIndices = await getMaxIndicesForWallets(mysql, []);
@@ -1584,8 +1584,8 @@ describe('address generation and index methods', () => {
     ]);
     const subsetWallet1 = subsetIndices.get(wallet1);
     expect(subsetWallet1).toBeDefined();
-    expect(subsetWallet1?.maxTransparentAmongAddresses).toBe(10);
-    expect(subsetWallet1?.maxTransparentWalletIndex).toBe(15);
+    expect(subsetWallet1?.maxLegacyAmongAddresses).toBe(10);
+    expect(subsetWallet1?.maxLegacyWalletIndex).toBe(15);
   });
 
   test('getMaxIndicesForWallets partitions both index pairs by bip32 account', async () => {
@@ -1608,8 +1608,8 @@ describe('address generation and index methods', () => {
     ]);
     expect(result.get('w1')).toStrictEqual({
       // transparent pair: CTSpend indices must not leak into either side
-      maxTransparentAmongAddresses: 1, // NOT 12 — the CTSpend involvement stays out
-      maxTransparentWalletIndex: 3,    // NOT 21 — the CTSpend frontier stays out
+      maxLegacyAmongAddresses: 1, // NOT 12 — the CTSpend involvement stays out
+      maxLegacyWalletIndex: 3,    // NOT 21 — the CTSpend frontier stays out
       // CT pair: available for the shielded gap-extension follow-up
       maxCtAmongAddresses: 12,
       maxCtWalletIndex: 21,
@@ -1624,8 +1624,8 @@ describe('address generation and index methods', () => {
     );
     const result = await getMaxIndicesForWallets(mysql, [{ walletId: 'w1', addresses: ['taddr0'] }]);
     expect(result.get('w1')).toStrictEqual({
-      maxTransparentAmongAddresses: 0,
-      maxTransparentWalletIndex: 0,
+      maxLegacyAmongAddresses: 0,
+      maxLegacyWalletIndex: 0,
       maxCtAmongAddresses: null,
       maxCtWalletIndex: null,
     });

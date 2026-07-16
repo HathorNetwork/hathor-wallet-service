@@ -94,9 +94,9 @@ export const getWalletFromDbEntry = (entry: Record<string, unknown>): Wallet => 
 });
 
 /**
- * Collapse a wallet's transparent `status` and shielded `ct_status` into the
+ * Collapse a wallet's legacy `status` and shielded `ct_status` into the
  * single lifecycle value exposed by the API:
- *  - no shielded keys registered (`none`) → the transparent status
+ *  - no shielded keys registered (`none`) → the legacy status
  *  - either side errored → error
  *  - either side still creating → creating
  *  - both ready → ready

@@ -454,15 +454,15 @@ export const advanceLastUsedShieldedIndex = async (
 
 /**
  * Finalize a successful wallet load in one statement: shielded side ready,
- * retry counter cleared, and — unless the transparent side was already ready
- * before the load (upgrade) — transparent status/ready_at too.
+ * retry counter cleared, and — unless the legacy side was already ready
+ * before the load (upgrade) — legacy status/ready_at too.
  */
 export const markWalletLoadReady = async (
   mysql: ServerlessMysql,
   walletId: string,
-  alsoTransparent: boolean,
+  alsoLegacy: boolean,
 ): Promise<void> => {
-  if (alsoTransparent) {
+  if (alsoLegacy) {
     await mysql.query(
       'UPDATE `wallet` SET `status` = ?, `ready_at` = ?, `retry_count` = 0, `ct_status` = ? WHERE `id` = ?',
       [WalletStatus.READY, getUnixTimestamp(), WalletStatus.READY, walletId],
@@ -477,16 +477,16 @@ export const markWalletLoadReady = async (
 
 /**
  * Record a load failure in one statement with an atomic retry bump
- * (concurrent executions must not lose increments). The transparent status is
+ * (concurrent executions must not lose increments). The legacy status is
  * only marked when it was not already ready before the load — an upgrade
- * failure must leave a working transparent wallet untouched.
+ * failure must leave a working legacy wallet untouched.
  */
 export const markWalletLoadError = async (
   mysql: ServerlessMysql,
   walletId: string,
-  alsoTransparent: boolean,
+  alsoLegacy: boolean,
 ): Promise<void> => {
-  if (alsoTransparent) {
+  if (alsoLegacy) {
     await mysql.query(
       'UPDATE `wallet` SET `status` = ?, `ct_status` = ?, `retry_count` = `retry_count` + 1 WHERE `id` = ?',
       [WalletStatus.ERROR, WalletStatus.ERROR, walletId],
@@ -505,13 +505,13 @@ export const markWalletLoadError = async (
  * lost the race to another request and must not spawn a duplicate load.
  */
 /**
- * Pin a crashed wallet's transparent side at the retry cap so it is not retried.
+ * Pin a crashed wallet's legacy side at the retry cap so it is not retried.
  *
  * Guarded on the wallet still being mid-load: a crash DLQ event can be delivered
  * after a later attempt already recovered the wallet, and demoting a recovered
  * wallet would strand it behind the max-retries rejection with no client-side fix.
  */
-export const pinTransparentLoadFailed = async (
+export const pinLegacyLoadFailed = async (
   mysql: ServerlessMysql,
   walletId: string,
   retryCount: number,
@@ -526,7 +526,7 @@ export const pinTransparentLoadFailed = async (
   );
 };
 
-/** Shielded counterpart of `pinTransparentLoadFailed`, under the same recovery guard. */
+/** Shielded counterpart of `pinLegacyLoadFailed`, under the same recovery guard. */
 export const pinShieldedLoadFailed = async (
   mysql: ServerlessMysql,
   walletId: string,
