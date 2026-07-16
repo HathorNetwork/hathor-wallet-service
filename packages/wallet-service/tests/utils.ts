@@ -601,6 +601,8 @@ export const addToUtxoTable = async (
     entry.txProposalId || null,
     entry.txProposalIndex,
     entry.voided || false,
+    entry.mode ?? 0,
+    entry.recoveryState ?? null,
   ]));
   await mysql.query(
     `INSERT INTO \`tx_output\`(
@@ -616,10 +618,48 @@ export const addToUtxoTable = async (
                  , \`spent_by\`
                  , \`tx_proposal\`
                  , \`tx_proposal_index\`
-                 , \`voided\`)
+                 , \`voided\`
+                 , \`mode\`
+                 , \`recovery_state\`)
      VALUES ?`,
     [payload],
   );
+};
+
+export interface ShieldedTxOutputDataEntry {
+  txId: string;
+  index: number;
+  commitment: Buffer;
+  rangeProof: Buffer;
+  script: Buffer;
+  ephemeralPubkey: Buffer;
+  tokenData?: number | null;
+  assetCommitment?: Buffer | null;
+  surjectionProof?: Buffer | null;
+}
+
+export const addToShieldedTxOutputDataTable = async (
+  mysql: ServerlessMysql,
+  entries: ShieldedTxOutputDataEntry[],
+): Promise<void> => {
+  const payload = entries.map((entry) => ([
+    entry.txId,
+    entry.index,
+    entry.commitment,
+    entry.rangeProof,
+    entry.script,
+    entry.ephemeralPubkey,
+    entry.tokenData ?? null,
+    entry.assetCommitment ?? null,
+    entry.surjectionProof ?? null,
+  ]));
+  await mysql.query(`
+    INSERT INTO \`shielded_tx_output_data\`(\`tx_id\`, \`index\`,
+                                            \`commitment\`, \`range_proof\`, \`script\`,
+                                            \`ephemeral_pubkey\`, \`token_data\`,
+                                            \`asset_commitment\`, \`surjection_proof\`)
+    VALUES ?`,
+  [payload]);
 };
 
 export const addToWalletTable = async (

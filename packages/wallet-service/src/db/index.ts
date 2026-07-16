@@ -57,6 +57,7 @@ import {
 } from '@src/db/utils';
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 import { TxInput, Severity } from '@wallet-service/common/src/types';
+import { ShieldedOutputMode, RecoveryState } from '@wallet-service/common';
 import { Logger } from 'winston';
 import createDefaultLogger from '@src/logger';
 import { FullnodeVersionSchema } from '@src/schemas';
@@ -2607,7 +2608,15 @@ export const filterTxOutputs = async (
   const queryParams: any[] = [
     finalFilters.addresses,
     finalFilters.tokenId,
+    ShieldedOutputMode.Transparent,
+    RecoveryState.Recovered,
   ];
+
+  if (finalFilters.kind === 'transparent') {
+    queryParams.push(ShieldedOutputMode.Transparent);
+  } else if (finalFilters.kind === 'shielded') {
+    queryParams.push([ShieldedOutputMode.AmountShielded, ShieldedOutputMode.FullyShielded]);
+  }
 
   if (finalFilters.authority === 0) {
     queryParams.push(finalFilters.smallerThan);
@@ -2624,6 +2633,9 @@ export const filterTxOutputs = async (
       WHERE \`address\`
          IN (?)
         AND \`token_id\` = ?
+        AND (\`mode\` = ? OR \`recovery_state\` = ?)
+        ${finalFilters.kind === 'transparent' ? 'AND `mode` = ?' : ''}
+        ${finalFilters.kind === 'shielded' ? 'AND `mode` IN (?)' : ''}
         ${finalFilters.authority !== 0 ? 'AND `authorities` & ? > 0' : 'AND `authorities` = 0'}
         ${finalFilters.ignoreLocked ? 'AND `locked` = FALSE' : ''}
         ${finalFilters.authority === 0 ? 'AND value < ?' : ''}
@@ -2653,7 +2665,7 @@ export const mapDbResultToDbTxOutput = (result: any): DbTxOutput => ({
   index: result.index as number,
   tokenId: result.token_id as string,
   address: result.address as string,
-  value: BigInt(result.value),
+  value: BigInt(result.value ?? 0),
   authorities: result.authorities as number,
   timelock: result.timelock as number,
   heightlock: result.heightlock as number,
@@ -2661,6 +2673,8 @@ export const mapDbResultToDbTxOutput = (result: any): DbTxOutput => ({
   txProposalId: result.tx_proposal as string,
   txProposalIndex: result.tx_proposal_index as number,
   spentBy: result.spent_by as string,
+  mode: (result.mode ?? 0) as number,
+  recoveryState: (result.recovery_state ?? null) as RecoveryState | null,
 });
 
 /**

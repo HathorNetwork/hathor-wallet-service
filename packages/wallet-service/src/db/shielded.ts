@@ -341,6 +341,89 @@ export const rebuildWalletTxHistory = async (
   );
 };
 
+export interface ShieldedTxOutputData {
+  txId: string;
+  index: number;
+  commitment: Buffer;
+  ephemeralPubkey: Buffer;
+  rangeProof: Buffer;
+  script: Buffer;
+  tokenData: number | null;
+  assetCommitment: Buffer | null;
+  surjectionProof: Buffer | null;
+}
+
+export interface ShieldedAddressApiInfo {
+  address: string;
+  ctAddress: string;
+  shieldedIndex: number;
+}
+
+/**
+ * Fetch the on-chain crypto bytes for a batch of shielded outputs. One query
+ * regardless of list size; the returned Map is keyed `txId:index`.
+ *
+ * Deliberately separate from the ownership helpers: this returns no key
+ * material, so it is safe to feed straight into API responses.
+ */
+export const getShieldedTxOutputDataByIds = async (
+  mysql: ServerlessMysql,
+  ids: Array<{ txId: string; index: number }>,
+): Promise<Map<string, ShieldedTxOutputData>> => {
+  const dataMap = new Map<string, ShieldedTxOutputData>();
+  if (ids.length === 0) return dataMap;
+  const results: DbSelectResult = await mysql.query(
+    `SELECT \`tx_id\`, \`index\`, \`commitment\`, \`ephemeral_pubkey\`, \`range_proof\`,
+            \`script\`, \`token_data\`, \`asset_commitment\`, \`surjection_proof\`
+       FROM \`shielded_tx_output_data\`
+      WHERE (\`tx_id\`, \`index\`) IN (?)`,
+    [ids.map((id) => [id.txId, id.index])],
+  );
+  for (const row of results) {
+    dataMap.set(`${row.tx_id}:${row.index}`, {
+      txId: row.tx_id as string,
+      index: row.index as number,
+      commitment: row.commitment as Buffer,
+      ephemeralPubkey: row.ephemeral_pubkey as Buffer,
+      rangeProof: row.range_proof as Buffer,
+      script: row.script as Buffer,
+      tokenData: row.token_data == null ? null : Number(row.token_data),
+      assetCommitment: (row.asset_commitment ?? null) as Buffer | null,
+      surjectionProof: (row.surjection_proof ?? null) as Buffer | null,
+    });
+  }
+  return dataMap;
+};
+
+/**
+ * CTSpend display metadata for the caller wallet's shielded addresses.
+ * Returns no key material (unlike the ownership helpers used by recovery).
+ */
+export const getShieldedAddressInfoByAddresses = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+  addresses: string[],
+): Promise<Map<string, ShieldedAddressApiInfo>> => {
+  const infoMap = new Map<string, ShieldedAddressApiInfo>();
+  if (addresses.length === 0) return infoMap;
+  const results: DbSelectResult = await mysql.query(
+    `SELECT \`address\`, \`ct_address\`, \`index\`
+       FROM \`address\`
+      WHERE \`wallet_id\` = ?
+        AND \`bip32_account\` = ?
+        AND \`address\` IN (?)`,
+    [walletId, Bip32Account.CTSpend, addresses],
+  );
+  for (const row of results) {
+    infoMap.set(row.address as string, {
+      address: row.address as string,
+      ctAddress: row.ct_address as string,
+      shieldedIndex: row.index as number,
+    });
+  }
+  return infoMap;
+};
+
 export interface ShieldedOwnershipRow {
   index: number;
   spendAddress: string;

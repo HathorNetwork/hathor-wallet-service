@@ -513,6 +513,8 @@ test('addUtxos, getUtxos, unlockUtxos, updateTxOutputSpentBy, unspendUtxos, getT
     spentBy: null,
     txProposalId: null,
     txProposalIndex: null,
+    mode: 0,
+    recoveryState: null,
   });
 
   // empty list should be fine
@@ -537,6 +539,8 @@ test('addUtxos, getUtxos, unlockUtxos, updateTxOutputSpentBy, unspendUtxos, getT
     spentBy: txId,
     txProposalId: null,
     txProposalIndex: null,
+    mode: 0,
+    recoveryState: null,
   });
 
   // if the tx output is not found, it should return null
@@ -1422,6 +1426,8 @@ test('markUtxosWithProposalId and getTxProposalInputs', async () => {
     txProposalId: null,
     txProposalIndex: null,
     spentBy: null,
+    mode: 0,
+    recoveryState: null,
   }, {
     txId,
     index: 1,
@@ -1435,6 +1441,8 @@ test('markUtxosWithProposalId and getTxProposalInputs', async () => {
     txProposalId: null,
     txProposalIndex: null,
     spentBy: null,
+    mode: 0,
+    recoveryState: null,
   }, {
     txId,
     index: 2,
@@ -1448,6 +1456,8 @@ test('markUtxosWithProposalId and getTxProposalInputs', async () => {
     txProposalId: null,
     txProposalIndex: null,
     spentBy: null,
+    mode: 0,
+    recoveryState: null,
   }];
 
   // add to utxo table
@@ -1885,6 +1895,8 @@ test('cleanupVoidedTx', async () => {
     txProposalId: null,
     txProposalIndex: null,
     spentBy: null,
+    mode: 0,
+    recoveryState: null,
   };
 
   await addToUtxoTable(mysql, [utxo2]);
@@ -2348,6 +2360,8 @@ test('filterTxOutputs', async () => {
     txProposalId: null,
     txProposalIndex: null,
     spentBy: null,
+    mode: 0,
+    recoveryState: null,
   });
   expect(utxos[1]).toStrictEqual({
     txId: txId2,
@@ -2362,6 +2376,8 @@ test('filterTxOutputs', async () => {
     txProposalId: null,
     txProposalIndex: null,
     spentBy: null,
+    mode: 0,
+    recoveryState: null,
   });
 
   // limit to 2 utxos, should return the largest 2 ordered by value
@@ -2380,6 +2396,8 @@ test('filterTxOutputs', async () => {
     txProposalId: null,
     txProposalIndex: null,
     spentBy: null,
+    mode: 0,
+    recoveryState: null,
   });
   expect(utxos[1]).toStrictEqual({
     txId: txId2,
@@ -2394,6 +2412,8 @@ test('filterTxOutputs', async () => {
     txProposalId: null,
     txProposalIndex: null,
     spentBy: null,
+    mode: 0,
+    recoveryState: null,
   });
 
   // authorities != 0 and maxOutputs == 1 should return only one authority utxo
@@ -2406,6 +2426,70 @@ test('filterTxOutputs should throw if addresses are empty', async () => {
   expect.hasAssertions();
 
   await expect(filterTxOutputs(mysql, { addresses: [] })).rejects.toThrow('Addresses can\'t be empty.');
+});
+
+test('filterTxOutputs shielded: default merges kinds and excludes unrecovered', async () => {
+  expect.hasAssertions();
+
+  await addToAddressTable(mysql, [{
+    address: ADDRESSES[0], index: 0, walletId: 'walletId', transactions: 1, bip32_account: 0,
+  }, {
+    address: ADDRESSES[1], index: 1, walletId: 'walletId', transactions: 1, bip32_account: 0,
+  }]);
+
+  await addToUtxoTable(mysql, [{
+    txId: 'txT', index: 0, tokenId: '00', address: ADDRESSES[0], value: 500n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+  }, {
+    txId: 'txS', index: 5, tokenId: '00', address: ADDRESSES[1], value: 150n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+    mode: 1, recoveryState: 'recovered',
+  }, {
+    txId: 'txU', index: 6, tokenId: null, address: ADDRESSES[1], value: null,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+    mode: 2, recoveryState: 'unowned',
+  } as any]);
+
+  // default: both kinds, recovered only
+  let results = await filterTxOutputs(mysql, { addresses: [ADDRESSES[0], ADDRESSES[1]] });
+  expect(results).toHaveLength(2);
+  const shieldedRow = results.find((r) => r.txId === 'txS');
+  expect(shieldedRow.mode).toBe(1);
+  expect(shieldedRow.recoveryState === 'recovered').toBe(true);
+  expect(results.find((r) => r.txId === 'txU')).toBeUndefined();
+
+  // kind=transparent
+  results = await filterTxOutputs(mysql, { addresses: [ADDRESSES[0], ADDRESSES[1]], kind: 'transparent' });
+  expect(results).toHaveLength(1);
+  expect(results[0].txId).toBe('txT');
+  expect(results[0].mode).toBe(0);
+  expect(results[0].recoveryState).toBeNull();
+
+  // kind=shielded
+  results = await filterTxOutputs(mysql, { addresses: [ADDRESSES[0], ADDRESSES[1]], kind: 'shielded' });
+  expect(results).toHaveLength(1);
+  expect(results[0].txId).toBe('txS');
+});
+
+test('filterTxOutputs authority filter excludes shielded rows', async () => {
+  expect.hasAssertions();
+
+  await addToAddressTable(mysql, [{
+    address: ADDRESSES[0], index: 0, walletId: 'walletId', transactions: 1, bip32_account: 0,
+  }]);
+
+  await addToUtxoTable(mysql, [{
+    txId: 'txA', index: 0, tokenId: 'token1', address: ADDRESSES[0], value: 1n,
+    authorities: 1, timelock: null, heightlock: null, locked: false, spentBy: null,
+  }, {
+    txId: 'txS', index: 1, tokenId: 'token1', address: ADDRESSES[0], value: 150n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+    mode: 1, recoveryState: 'recovered',
+  }]);
+
+  const results = await filterTxOutputs(mysql, { addresses: [ADDRESSES[0]], tokenId: 'token1', authority: 1 });
+  expect(results).toHaveLength(1);
+  expect(results[0].txId).toBe('txA');
 });
 
 test('beginTransaction, commitTransaction, rollbackTransaction', async () => {
@@ -2729,6 +2813,8 @@ test('getUtxo, getAuthorityUtxo', async () => {
     txProposalId: null,
     txProposalIndex: null,
     spentBy: null,
+    mode: 0,
+    recoveryState: null,
   });
 
   const mintUtxo = await getAuthorityUtxo(mysql, tokenId, Number(constants.TOKEN_MINT_MASK));
@@ -2747,6 +2833,8 @@ test('getUtxo, getAuthorityUtxo', async () => {
     txProposalId: null,
     txProposalIndex: null,
     spentBy: null,
+    mode: 0,
+    recoveryState: null,
   });
   expect(meltUtxo).toStrictEqual({
     txId: 'txId',
@@ -2761,6 +2849,8 @@ test('getUtxo, getAuthorityUtxo', async () => {
     txProposalId: null,
     txProposalIndex: null,
     spentBy: null,
+    mode: 0,
+    recoveryState: null,
   });
 });
 

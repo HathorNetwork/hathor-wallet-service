@@ -387,6 +387,8 @@ test('get utxos with wallet id', async () => {
     txProposalId: null,
     txProposalIndex: null,
     spentBy: null,
+    mode: 0,
+    recoveryState: null,
   });
 
   expect(result.statusCode).toBe(200);
@@ -495,6 +497,8 @@ test('get tx outputs with wallet id', async () => {
     txProposalId: null,
     txProposalIndex: null,
     spentBy: null,
+    mode: 0,
+    recoveryState: null,
   });
 
   expect(result.statusCode).toBe(200);
@@ -605,6 +609,8 @@ test('get authority utxos', async () => {
     txProposalId: null,
     txProposalIndex: null,
     spentBy: null,
+    mode: 0,
+    recoveryState: null,
   });
 
   let event = makeGatewayEventWithAuthorizer('my-wallet', {
@@ -733,6 +739,8 @@ test('get a specific utxo', async () => {
     txProposalIndex: null,
     addressPath: `m/44'/280'/0'/0/${path}`,
     spentBy: null,
+    mode: 0,
+    recoveryState: null,
   });
 
   expect(result.statusCode).toBe(200);
@@ -868,6 +876,8 @@ test('get spent tx_output', async () => {
     heightlock: null,
     locked: false,
     spentBy: null,
+    mode: 0,
+    recoveryState: null,
   }, {
     txId: TX_IDS[1],
     index: 0,
@@ -879,6 +889,8 @@ test('get spent tx_output', async () => {
     heightlock: null,
     locked: false,
     spentBy: '004d75c1edd4294379e7e5b7ab6c118c53c8b07a506728feb5688c8d26a97e50',
+    mode: 0,
+    recoveryState: null,
   }];
 
   await addToUtxoTable(mysql, txOutputs);

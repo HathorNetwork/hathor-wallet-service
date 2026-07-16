@@ -11,6 +11,7 @@ import { TxInput, TxOutput } from '@wallet-service/common/src/types';
 
 import hathorLib, { TokenVersion } from '@hathor/wallet-lib';
 import { isAuthority } from '@wallet-service/common/src/utils/wallet.utils';
+import { RecoveryState } from '@wallet-service/common';
 
 import {
   APIGatewayProxyEvent,
@@ -740,6 +741,8 @@ export interface DbTxOutput {
   txProposalId?: string;
   txProposalIndex?: number;
   voided?: boolean | null;
+  mode?: number;
+  recoveryState?: RecoveryState | null;
 }
 
 export interface Block {
@@ -769,6 +772,7 @@ export interface IFilterTxOutput {
   index?: number;
   totalAmount?: bigint;
   maxAmount?: bigint;
+  kind?: 'transparent' | 'shielded';
 }
 
 export enum InputSelectionAlgo {
