@@ -68,4 +68,5 @@ export interface WalletTableEntry {
   highestUsedIndex?: number;
   createdAt: number;
   readyAt: number;
+  ctStatus?: string;
 }

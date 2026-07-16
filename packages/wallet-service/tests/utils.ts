@@ -635,13 +635,15 @@ export const addToWalletTable = async (
     entry.maxGap,
     entry.createdAt,
     entry.readyAt,
+    entry.ctStatus ?? 'none',
   ]);
   await mysql.query(`
     INSERT INTO \`wallet\`(\`id\`, \`xpubkey\`,
                            \`last_used_address_index\`,
                            \`auth_xpubkey\`,
                            \`status\`, \`max_gap\`,
-                           \`created_at\`, \`ready_at\`)
+                           \`created_at\`, \`ready_at\`,
+                           \`ct_status\`)
     VALUES ?`,
   [payload]);
 };

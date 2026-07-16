@@ -673,6 +673,111 @@ test('GET /balances', async () => {
   expect(returnBody.balances).toHaveLength(0);
 });
 
+test('GET /balances shielded: merged default, split breakdown and unified status', async () => {
+  expect.hasAssertions();
+  await addToWalletTable(mysql, [{
+    id: 'shielded-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+    ctStatus: 'ready',
+  }]);
+  const token1 = { id: 'token1', name: 'MyToken1', symbol: 'MT1', version: TokenVersion.DEPOSIT };
+  await addToTokenTable(mysql, [{ ...token1, transactions: 0 }]);
+  await addToWalletBalanceTable(mysql, [{
+    walletId: 'shielded-wallet',
+    tokenId: 'token1',
+    unlockedBalance: 1000n,
+    lockedBalance: 0n,
+    unlockedAuthorities: 0,
+    lockedAuthorities: 0,
+    timelockExpires: null,
+    transactions: 50,
+    unlockedShieldedBalance: 2500n,
+    lockedShieldedBalance: 0n,
+    totalShieldedReceived: 2500n,
+  }]);
+
+  // default: merged totals, same field shapes as today
+  let event = makeGatewayEventWithAuthorizer('shielded-wallet', null);
+  let result = await balancesGet(event, null, null) as APIGatewayProxyResult;
+  let returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+  expect(returnBody.status).toBe('ready');
+  expect(returnBody.balances).toContainEqual({
+    token: token1,
+    transactions: 50,
+    balance: { unlocked: 3500, locked: 0 },
+    lockExpires: null,
+    tokenAuthorities: { unlocked: { mint: false, melt: false }, locked: { mint: false, melt: false } },
+  });
+
+  // split=true: breakdown objects
+  event = makeGatewayEventWithAuthorizer('shielded-wallet', { split: 'true' });
+  result = await balancesGet(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.balances).toContainEqual({
+    token: token1,
+    transactions: 50,
+    balance: {
+      unlocked: { transparent: 1000, shielded: 2500, total: 3500 },
+      locked: { transparent: 0, shielded: 0, total: 0 },
+    },
+    lockExpires: null,
+    tokenAuthorities: { unlocked: { mint: false, melt: false }, locked: { mint: false, melt: false } },
+  });
+});
+
+test('GET /balances surfaces creating unified status during shielded catch-up', async () => {
+  expect.hasAssertions();
+  await addToWalletTable(mysql, [{
+    id: 'catching-up-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+    ctStatus: 'creating',
+  }]);
+
+  const event = makeGatewayEventWithAuthorizer('catching-up-wallet', null);
+  const result = await balancesGet(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+  expect(returnBody.status).toBe('creating');
+});
+
+test('GET /balances split=true renders zero backfill for unheld token', async () => {
+  expect.hasAssertions();
+  await addToWalletTable(mysql, [{
+    id: 'empty-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+  await addToTokenTable(mysql, [{ id: 'token9', name: 'T9', symbol: 'T9', version: TokenVersion.DEPOSIT, transactions: 0 }]);
+
+  const event = makeGatewayEventWithAuthorizer('empty-wallet', { token_id: 'token9', split: 'true' });
+  const result = await balancesGet(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.balances).toHaveLength(1);
+  expect(returnBody.balances[0].balance).toStrictEqual({
+    unlocked: { transparent: 0, shielded: 0, total: 0 },
+    locked: { transparent: 0, shielded: 0, total: 0 },
+  });
+});
+
 test('GET /txhistory', async () => {
   expect.hasAssertions();
 
