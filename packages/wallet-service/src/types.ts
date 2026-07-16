@@ -178,6 +178,8 @@ export interface AddressInfo {
   index: number;
   transactions: number;
   seqnum: number;
+  ctAddress?: string | null;
+  bip32Account?: number | null;
 }
 
 export interface ShortAddressInfo {
@@ -820,6 +822,7 @@ export interface PushDelete {
 
 export interface AddressAtIndexRequest {
   index?: number,
+  legacy?: boolean,
 }
 
 export interface TxByIdRequest {

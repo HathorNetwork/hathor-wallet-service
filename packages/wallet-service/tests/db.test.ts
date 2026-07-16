@@ -113,6 +113,7 @@ import {
 } from '@src/types';
 import { Severity } from '@wallet-service/common/src/types';
 import { isAuthority } from '@wallet-service/common/src/utils/wallet.utils';
+import { Bip32Account } from '@wallet-service/common';
 import {
   closeDbConnection,
   getDbConnection,
@@ -783,6 +784,42 @@ test('getWalletAddresses', async () => {
   expect(filteredReturnedAddresses[0].address).toBe(ADDRESSES[0]);
   expect(filteredReturnedAddresses[1].address).toBe(ADDRESSES[2]);
   expect(filteredReturnedAddresses[2].address).toBe(ADDRESSES[3]);
+});
+
+test('getWalletAddresses filters by bip32 account', async () => {
+  expect.hasAssertions();
+  await addToAddressTable(mysql, [
+    { address: 'legacyExplicit', index: 0, walletId: 'w1', transactions: 1, bip32_account: 0 },
+    { address: 'legacyNull', index: 1, walletId: 'w1', transactions: 2, bip32_account: null as any },
+    { address: 'ctSpend', index: 7, walletId: 'w1', transactions: 3, bip32_account: 2, ct_address: 'HshLongCtAddress1' },
+  ]);
+
+  const all = await getWalletAddresses(mysql, 'w1');
+  expect(all).toHaveLength(3);
+
+  const legacy = await getWalletAddresses(mysql, 'w1', null, Bip32Account.Legacy);
+  expect(legacy.map((a) => a.address)).toStrictEqual(['legacyExplicit', 'legacyNull']);
+
+  const ctSpend = await getWalletAddresses(mysql, 'w1', null, Bip32Account.CTSpend);
+  expect(ctSpend).toHaveLength(1);
+  expect(ctSpend[0].address).toBe('ctSpend');
+  expect(ctSpend[0].ctAddress).toBe('HshLongCtAddress1');
+  expect(ctSpend[0].bip32Account).toBe(2);
+});
+
+test('getAddressAtIndex disambiguates accounts sharing an index', async () => {
+  expect.hasAssertions();
+  await addToAddressTable(mysql, [
+    { address: 'legacyIdx1', index: 1, walletId: 'w1', transactions: 0, bip32_account: 0 },
+    { address: 'ctIdx1', index: 1, walletId: 'w1', transactions: 0, bip32_account: 2, ct_address: 'HshLongCtAddress1' },
+  ]);
+
+  const legacy = await getAddressAtIndex(mysql, 'w1', 1);
+  expect(legacy.address).toBe('legacyIdx1');
+
+  const ctSpend = await getAddressAtIndex(mysql, 'w1', 1, Bip32Account.CTSpend);
+  expect(ctSpend.address).toBe('ctIdx1');
+  expect(ctSpend.ctAddress).toBe('HshLongCtAddress1');
 });
 
 test('getWalletAddressDetail', async () => {
@@ -3890,6 +3927,7 @@ describe('getAddressByIndex', () => {
         index,
         transactions,
         seqnum,
+        ctAddress: null,
       });
   });
 

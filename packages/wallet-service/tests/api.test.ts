@@ -322,6 +322,102 @@ test('GET /addresses/check_mine', async () => {
   expect(returnBody.details[1].message).toStrictEqual('"addresses[0]" length must be at least 34 characters long');
 });
 
+test('GET /addresses legacy param selects the derivation account', async () => {
+  expect.hasAssertions();
+
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+
+  await addToAddressTable(mysql, [
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 12, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 1, bip32_account: null as any },
+    { address: ADDRESSES[2], index: 7, walletId: 'my-wallet', transactions: 3, bip32_account: 2, ct_address: 'HshLongCtAddress1' },
+  ]);
+
+  // default: legacy only, exact historical shape (no ct_address / account keys)
+  let event = makeGatewayEventWithAuthorizer('my-wallet', null);
+  let result = await addressesGet(event, null, null) as APIGatewayProxyResult;
+  let returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.addresses).toStrictEqual([
+    { address: ADDRESSES[0], index: 0, transactions: 12, seqnum: 0 },
+    { address: ADDRESSES[1], index: 1, transactions: 1, seqnum: 0 },
+  ]);
+
+  // legacy=false: CTSpend rows with ct_address
+  event = makeGatewayEventWithAuthorizer('my-wallet', { legacy: 'false' });
+  result = await addressesGet(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.addresses).toStrictEqual([
+    { address: ADDRESSES[2], index: 7, transactions: 3, seqnum: 0, ct_address: 'HshLongCtAddress1' },
+  ]);
+
+  // index lookup honours the account selector
+  event = makeGatewayEventWithAuthorizer('my-wallet', { index: '7', legacy: 'false' });
+  result = await addressesGet(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.addresses).toStrictEqual([
+    { address: ADDRESSES[2], index: 7, transactions: 3, seqnum: 0, ct_address: 'HshLongCtAddress1' },
+  ]);
+  // ...and defaults to legacy: index 7 does not exist in the legacy account
+  event = makeGatewayEventWithAuthorizer('my-wallet', { index: '7' });
+  result = await addressesGet(event, null, null) as APIGatewayProxyResult;
+  expect(result.statusCode).toBe(404);
+});
+
+test('POST /addresses/check_mine resolves membership within the selected account', async () => {
+  expect.hasAssertions();
+
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+
+  await addToAddressTable(mysql, [
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 1, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 0, walletId: 'my-wallet', transactions: 1, bip32_account: 2, ct_address: 'HshLongCtAddress1' },
+  ]);
+
+  // default: legacy account only
+  let event = makeGatewayEventWithAuthorizer('my-wallet', null, JSON.stringify({
+    addresses: [ADDRESSES[0], ADDRESSES[1]],
+  }));
+  let result = await checkMine(event, null, null) as APIGatewayProxyResult;
+  let returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.addresses).toStrictEqual({
+    [ADDRESSES[0]]: true,
+    [ADDRESSES[1]]: false,
+  });
+
+  // legacy=false: CTSpend account only
+  event = makeGatewayEventWithAuthorizer('my-wallet', null, JSON.stringify({
+    addresses: [ADDRESSES[0], ADDRESSES[1]],
+    legacy: false,
+  }));
+  result = await checkMine(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.addresses).toStrictEqual({
+    [ADDRESSES[0]]: false,
+    [ADDRESSES[1]]: true,
+  });
+});
+
 test('GET /addresses/new', async () => {
   expect.hasAssertions();
 

@@ -57,7 +57,7 @@ import {
 } from '@src/db/utils';
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 import { TxInput, Severity } from '@wallet-service/common/src/types';
-import { ShieldedOutputMode, RecoveryState } from '@wallet-service/common';
+import { ShieldedOutputMode, RecoveryState, Bip32Account } from '@wallet-service/common';
 import { Logger } from 'winston';
 import createDefaultLogger from '@src/logger';
 import { FullnodeVersionSchema } from '@src/schemas';
@@ -1407,21 +1407,41 @@ export const updateWalletLockedBalance = async (
  * @param mysql - Database connection
  * @param walletId - Wallet id
  * @param filterAddresses - Optional parameter to filter addresses from the list
+ * @param account - Optional BIP32 account selector. `undefined` returns addresses from all
+ * accounts (existing behavior); `Legacy` and `CTSpend` restrict to that derivation account.
  * @returns A list of addresses and their info (index and transactions)
  */
-export const getWalletAddresses = async (mysql: ServerlessMysql, walletId: string, filterAddresses?: string[]): Promise<AddressInfo[]> => {
+export const getWalletAddresses = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+  filterAddresses?: string[],
+  account?: Bip32Account,
+): Promise<AddressInfo[]> => {
   const addresses: AddressInfo[] = [];
   const subQuery = filterAddresses ? `
     AND \`address\` IN (?)
   ` : '';
+  // Legacy rows created before the shielded columns existed have a NULL
+  // bip32_account, so the legacy selector must be NULL-tolerant.
+  let accountFilter = '';
+  if (account === Bip32Account.Legacy) {
+    accountFilter = 'AND (`bip32_account` IS NULL OR `bip32_account` = 0)';
+  } else if (account !== undefined) {
+    accountFilter = 'AND `bip32_account` = ?';
+  }
+
+  const params: unknown[] = [walletId];
+  if (filterAddresses) params.push(filterAddresses);
+  if (account !== undefined && account !== Bip32Account.Legacy) params.push(account);
 
   const results: DbSelectResult = await mysql.query(`
     SELECT *
       FROM \`address\`
      WHERE \`wallet_id\` = ?
       ${subQuery}
+      ${accountFilter}
   ORDER BY \`index\`
-       ASC`, [walletId, filterAddresses]);
+       ASC`, params);
 
   for (const result of results) {
     const address = {
@@ -1429,6 +1449,8 @@ export const getWalletAddresses = async (mysql: ServerlessMysql, walletId: strin
       index: result.index as number,
       transactions: result.transactions as number,
       seqnum: result.seqnum as number,
+      ctAddress: (result.ct_address ?? null) as string | null,
+      bip32Account: result.bip32_account == null ? null : Number(result.bip32_account),
     };
     addresses.push(address);
   }
@@ -3362,15 +3384,25 @@ export const getAddressAtIndex = async (
   mysql: ServerlessMysql,
   walletId: string,
   index: number,
+  account: Bip32Account = Bip32Account.Legacy,
 ): Promise<AddressInfo | null> => {
+  // Legacy rows created before the shielded columns existed have a NULL
+  // bip32_account, so the legacy selector must be NULL-tolerant.
+  const accountFilter = account === Bip32Account.Legacy
+    ? 'AND (`bip32_account` IS NULL OR `bip32_account` = 0)'
+    : 'AND `bip32_account` = ?';
+  const params: unknown[] = account === Bip32Account.Legacy
+    ? [index, walletId]
+    : [index, walletId, account];
   const addresses = await mysql.query<AddressInfo[]>(
     `
-    SELECT \`address\`, \`index\`, \`transactions\`, \`seqnum\`
+    SELECT \`address\`, \`index\`, \`transactions\`, \`seqnum\`, \`ct_address\`
       FROM \`address\` pd
      WHERE \`index\` = ?
        AND \`wallet_id\` = ?
+       ${accountFilter}
      LIMIT 1`,
-    [index, walletId],
+    params,
   );
 
   if (addresses.length <= 0) {
@@ -3382,7 +3414,9 @@ export const getAddressAtIndex = async (
     index: addresses[0].index,
     transactions: addresses[0].transactions,
     seqnum: addresses[0].seqnum,
-  }
+    // eslint-disable-next-line dot-notation
+    ctAddress: (addresses[0]['ct_address'] ?? null) as string | null,
+  };
 };
 
 /**
