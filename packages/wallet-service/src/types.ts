@@ -516,12 +516,19 @@ export class WalletTokenBalance {
   }
 }
 
+export type OutputKind = 'transparent' | 'shielded' | 'mixed';
+
 export interface TxTokenBalance {
   txId: string;
   timestamp: number;
   voided: boolean;
   balance: bigint;
   version: number;
+  output_kind: OutputKind;
+  balanceBreakdown: {
+    transparent: bigint;
+    shielded: bigint;
+  };
 }
 
 export class TokenBalanceMap {

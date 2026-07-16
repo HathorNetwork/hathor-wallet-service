@@ -11,6 +11,7 @@ import { getWalletId } from '@src/utils';
 import {
   WalletStatus,
   CtStatus,
+  OutputKind,
   Wallet,
   Tx,
   DbSelectResult,
@@ -106,6 +107,16 @@ export const computeUnifiedStatus = (status: WalletStatus, ctStatus: CtStatus): 
   if (status === WalletStatus.ERROR || ctStatus === WalletStatus.ERROR) return WalletStatus.ERROR;
   if (status === WalletStatus.CREATING || ctStatus === WalletStatus.CREATING) return WalletStatus.CREATING;
   return WalletStatus.READY;
+};
+
+/**
+ * Classify a history row by which balance deltas are non-zero. A row with
+ * both deltas zero keeps the transparent reading it always had.
+ */
+export const deriveOutputKind = (transparentDelta: bigint, shieldedDelta: bigint): OutputKind => {
+  if (shieldedDelta === 0n) return 'transparent';
+  if (transparentDelta === 0n) return 'shielded';
+  return 'mixed';
 };
 
 /**

@@ -681,12 +681,14 @@ export const addToWalletTxHistoryTable = async (
   mysql: ServerlessMysql,
   entries: unknown[][],
 ): Promise<void> => {
+  const payload = entries.map((entry) => (entry.length >= 7 ? entry : [...entry, 0]));
   await mysql.query(`
     INSERT INTO \`wallet_tx_history\`(\`wallet_id\`, \`tx_id\`,
                                       \`token_id\`, \`balance\`,
-                                      \`timestamp\`, \`voided\`)
+                                      \`timestamp\`, \`voided\`,
+                                      \`shielded_balance_delta\`)
     VALUES ?`,
-  [entries]);
+  [payload]);
 };
 
 export const addToAddressTable = async (

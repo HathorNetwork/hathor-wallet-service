@@ -53,6 +53,7 @@ import {
 import {
   getWalletFromDbEntry,
   getTxsFromDBResult,
+  deriveOutputKind,
 } from '@src/db/utils';
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 import { TxInput, Severity } from '@wallet-service/common/src/types';
@@ -1583,6 +1584,7 @@ export const getWalletTxHistory = async (
   const history: TxTokenBalance[] = [];
   const results: DbSelectResult = await mysql.query(`
     SELECT wallet_tx_history.balance AS balance,
+           wallet_tx_history.shielded_balance_delta AS shielded_balance_delta,
            wallet_tx_history.timestamp AS timestamp,
            wallet_tx_history.token_id AS token_id,
            wallet_tx_history.tx_id AS tx_id,
@@ -1599,12 +1601,19 @@ LEFT OUTER JOIN transaction ON transaction.tx_id = wallet_tx_history.tx_id
     [walletId, tokenId, skip, count]);
 
   for (const result of results) {
+    const transparentDelta = BigInt(result.balance as string);
+    const shieldedDelta = BigInt((result.shielded_balance_delta ?? 0) as string | number);
     const tx: TxTokenBalance = {
       txId: <string>result.tx_id,
       timestamp: <number>result.timestamp,
       voided: <boolean>result.voided,
-      balance: BigInt(result.balance as string),
+      balance: transparentDelta + shieldedDelta,
       version: <number>result.version,
+      output_kind: deriveOutputKind(transparentDelta, shieldedDelta),
+      balanceBreakdown: {
+        transparent: transparentDelta,
+        shielded: shieldedDelta,
+      },
     };
     history.push(tx);
   }

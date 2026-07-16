@@ -823,8 +823,8 @@ test('GET /txhistory', async () => {
   expect(result.statusCode).toBe(200);
   expect(returnBody.success).toBe(true);
   expect(returnBody.history).toHaveLength(2);
-  expect(returnBody.history).toContainEqual({ txId: 'tx1', timestamp: 1000, balance: 5, voided: 0, version: 2 });
-  expect(returnBody.history).toContainEqual({ txId: 'tx2', timestamp: 1001, balance: 7, voided: 0, version: 3 });
+  expect(returnBody.history).toContainEqual({ txId: 'tx1', timestamp: 1000, balance: 5, voided: 0, version: 2, output_kind: 'transparent', balanceBreakdown: { transparent: 5, shielded: 0 } });
+  expect(returnBody.history).toContainEqual({ txId: 'tx2', timestamp: 1001, balance: 7, voided: 0, version: 3, output_kind: 'transparent', balanceBreakdown: { transparent: 7, shielded: 0 } });
 
   // with count just 1, return only the most recent tx
   event = makeGatewayEventWithAuthorizer('my-wallet', { count: '1' });
@@ -834,7 +834,7 @@ test('GET /txhistory', async () => {
   expect(returnBody.success).toBe(true);
   expect(returnBody.count).toBe(1);
   expect(returnBody.history).toHaveLength(1);
-  expect(returnBody.history).toContainEqual({ txId: 'tx2', timestamp: 1001, balance: 7, voided: 0, version: 3 });
+  expect(returnBody.history).toContainEqual({ txId: 'tx2', timestamp: 1001, balance: 7, voided: 0, version: 3, output_kind: 'transparent', balanceBreakdown: { transparent: 7, shielded: 0 } });
 
   // skip first item
   event = makeGatewayEventWithAuthorizer('my-wallet', { skip: '1' });
@@ -844,7 +844,7 @@ test('GET /txhistory', async () => {
   expect(returnBody.success).toBe(true);
   expect(returnBody.skip).toBe(1);
   expect(returnBody.history).toHaveLength(1);
-  expect(returnBody.history).toContainEqual({ txId: 'tx1', timestamp: 1000, balance: 5, voided: 0, version: 2 });
+  expect(returnBody.history).toContainEqual({ txId: 'tx1', timestamp: 1000, balance: 5, voided: 0, version: 2, output_kind: 'transparent', balanceBreakdown: { transparent: 5, shielded: 0 } });
 
   // use other token id
   event = makeGatewayEventWithAuthorizer('my-wallet', { token_id: 'token2' });
@@ -853,7 +853,7 @@ test('GET /txhistory', async () => {
   expect(result.statusCode).toBe(200);
   expect(returnBody.success).toBe(true);
   expect(returnBody.history).toHaveLength(1);
-  expect(returnBody.history).toContainEqual({ txId: 'tx1', timestamp: 1000, balance: 7, voided: 0, version: 2 });
+  expect(returnBody.history).toContainEqual({ txId: 'tx1', timestamp: 1000, balance: 7, voided: 0, version: 2, output_kind: 'transparent', balanceBreakdown: { transparent: 7, shielded: 0 } });
 
   // it should also return voided transactions
   event = makeGatewayEventWithAuthorizer('my-wallet', { token_id: 'token3' });
@@ -862,7 +862,43 @@ test('GET /txhistory', async () => {
   expect(result.statusCode).toBe(200);
   expect(returnBody.success).toBe(true);
   expect(returnBody.history).toHaveLength(1);
-  expect(returnBody.history).toContainEqual({ txId: 'tx2', timestamp: 1001, balance: 7, voided: 1, version: 3 });
+  expect(returnBody.history).toContainEqual({ txId: 'tx2', timestamp: 1001, balance: 7, voided: 1, version: 3, output_kind: 'transparent', balanceBreakdown: { transparent: 7, shielded: 0 } });
+});
+
+test('GET /txhistory carries output_kind and balanceBreakdown', async () => {
+  expect.hasAssertions();
+
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+  await addToWalletTxHistoryTable(mysql, [
+    ['my-wallet', 'stx1', '00', 150n, 2000, false],            // transparent-only
+    ['my-wallet', 'stx2', '00', 0n, 2001, false, 150n],        // shielded-only
+    ['my-wallet', 'stx3', '00', -50n, 2002, false, 100n],      // mixed
+  ]);
+
+  const event = makeGatewayEventWithAuthorizer('my-wallet', null);
+  const result = await txHistoryGet(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+
+  const byTx = Object.fromEntries(returnBody.history.map((h) => [h.txId, h]));
+  expect(byTx.stx1.output_kind === 'transparent').toBe(true);
+  expect(byTx.stx1.balance).toBe(150);
+  expect(byTx.stx1.balanceBreakdown).toStrictEqual({ transparent: 150, shielded: 0 });
+  expect(byTx.stx2.output_kind === 'shielded').toBe(true);
+  expect(byTx.stx2.balance).toBe(150);
+  expect(byTx.stx2.balanceBreakdown).toStrictEqual({ transparent: 0, shielded: 150 });
+  expect(byTx.stx3.output_kind === 'mixed').toBe(true);
+  expect(byTx.stx3.balance).toBe(50);
+  expect(byTx.stx3.balanceBreakdown).toStrictEqual({ transparent: -50, shielded: 100 });
 });
 
 test('GET /wallet', async () => {

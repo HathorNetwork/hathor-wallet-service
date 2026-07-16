@@ -96,6 +96,7 @@ import {
   rollbackTransaction,
   commitTransaction,
   computeUnifiedStatus,
+  deriveOutputKind,
 } from '@src/db/utils';
 import {
   Authorities,
@@ -4017,6 +4018,17 @@ describe('computeUnifiedStatus', () => {
 
   it('is ready only when both sides are ready', () => {
     expect(computeUnifiedStatus(WalletStatus.READY, WalletStatus.READY)).toBe(WalletStatus.READY);
+  });
+});
+
+describe('deriveOutputKind', () => {
+  it('classifies by which deltas are non-zero', () => {
+    expect(deriveOutputKind(150n, 0n)).toBe('transparent');
+    expect(deriveOutputKind(0n, 150n)).toBe('shielded');
+    expect(deriveOutputKind(-50n, 100n)).toBe('mixed');
+    expect(deriveOutputKind(0n, -25n)).toBe('shielded');
+    // a net-zero row keeps its historical transparent reading
+    expect(deriveOutputKind(0n, 0n)).toBe('transparent');
   });
 });
 
