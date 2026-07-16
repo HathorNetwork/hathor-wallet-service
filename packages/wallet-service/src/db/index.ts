@@ -1473,6 +1473,7 @@ export const getNewAddresses = async (mysql: ServerlessMysql, wallet: Wallet): P
      WHERE \`wallet_id\` = ?
        AND \`transactions\` = 0
        AND \`index\` > ?
+       AND (\`bip32_account\` IS NULL OR \`bip32_account\` <> 2)
   ORDER BY \`index\`
        ASC
   LIMIT ?`, [wallet.walletId, wallet.lastUsedAddressIndex, wallet.maxGap]);
@@ -1720,6 +1721,7 @@ export const getWalletUnlockedUtxos = async (
         AND (\`timelock\` <= ?
              OR \`timelock\` is NULL)
         AND \`locked\` = 1
+        AND \`mode\` = 0
         AND \`spent_by\` IS NULL
         AND \`voided\` = FALSE
         AND \`address\` IN (
@@ -2811,12 +2813,15 @@ export const getExpiredTimelocksUtxos = async (
   mysql: ServerlessMysql,
   now: number,
 ): Promise<DbTxOutput[]> => {
+  // Shielded timelock-unlock accounting is daemon-side follow-up work; this
+  // feeds the transparent-only balance rebuild, so shielded rows are excluded.
   const results: DbSelectResult = await mysql.query(`
     SELECT *
       FROM tx_output
      WHERE locked = TRUE
        AND timelock IS NOT NULL
        AND timelock < ?
+       AND mode = 0
   `, [now]);
 
   const lockedUtxos: DbTxOutput[] = results.map(mapDbResultToDbTxOutput);
@@ -3437,6 +3442,7 @@ export const hasTransactionsOnNonFirstAddress = async (
       WHERE \`wallet_id\` = ?
         AND \`index\` > 0
         AND \`transactions\` > 0
+        AND (\`bip32_account\` IS NULL OR \`bip32_account\` <> 2)
       LIMIT 1`,
     [walletId],
   );

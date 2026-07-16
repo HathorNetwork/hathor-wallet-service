@@ -65,6 +65,8 @@ import {
   addMiner,
   getMinersList,
   getExpiredTimelocksUtxos,
+  getNewAddresses,
+  getWalletUnlockedUtxos,
   getTotalTransactions,
   getAvailableAuthorities,
   getAffectedAddressTxCountFromTxList,
@@ -1442,6 +1444,22 @@ test('getUnusedAddresses', async () => {
   expect(addresses).toHaveLength(0);
 });
 
+test('getNewAddresses skips CTSpend rows', async () => {
+  expect.hasAssertions();
+  await addToWalletTable(mysql, [{
+    id: 'w1', xpubkey: 'xpub', authXpubkey: 'auth', status: 'ready',
+    maxGap: 10, createdAt: 1, readyAt: 2, highestUsedIndex: -1,
+  }]);
+  await addToAddressTable(mysql, [
+    { address: 'legacyEmpty', index: 0, walletId: 'w1', transactions: 0, bip32_account: 0 },
+    { address: 'ctEmpty', index: 1, walletId: 'w1', transactions: 0, bip32_account: 2, ct_address: 'HshLongCtAddress1' },
+  ]);
+
+  const wallet = await getWallet(mysql, 'w1');
+  const newAddresses = await getNewAddresses(mysql, wallet);
+  expect(newAddresses.map((a) => a.address)).toStrictEqual(['legacyEmpty']);
+});
+
 test('markUtxosWithProposalId and getTxProposalInputs', async () => {
   expect.hasAssertions();
 
@@ -2706,6 +2724,42 @@ test('getExpiredTimelocksUtxos', async () => {
   expect(unlockedUtxos3).toHaveLength(3);
   // last one is an authority utxo
   expect(unlockedUtxos3[2].authorities).toStrictEqual(Number(outputs[4].value));
+});
+
+test('getExpiredTimelocksUtxos ignores shielded outputs', async () => {
+  expect.hasAssertions();
+  const now = getUnixTimestamp();
+  await addToUtxoTable(mysql, [{
+    txId: 'txT', index: 0, tokenId: '00', address: ADDRESSES[0], value: 10n,
+    authorities: 0, timelock: now - 100, heightlock: null, locked: true, spentBy: null,
+  }, {
+    txId: 'txS', index: 1, tokenId: '00', address: ADDRESSES[1], value: 20n,
+    authorities: 0, timelock: now - 100, heightlock: null, locked: true, spentBy: null,
+    mode: 1, recoveryState: 'recovered',
+  }]);
+
+  const utxos = await getExpiredTimelocksUtxos(mysql, now);
+  expect(utxos.map((u) => u.txId)).toStrictEqual(['txT']);
+});
+
+test('getWalletUnlockedUtxos ignores shielded outputs', async () => {
+  expect.hasAssertions();
+  const now = getUnixTimestamp();
+  await addToAddressTable(mysql, [
+    { address: ADDRESSES[0], index: 0, walletId: 'w1', transactions: 1, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 1, walletId: 'w1', transactions: 1, bip32_account: 2, ct_address: 'HshLongCtAddress1' },
+  ]);
+  await addToUtxoTable(mysql, [{
+    txId: 'txT', index: 0, tokenId: '00', address: ADDRESSES[0], value: 10n,
+    authorities: 0, timelock: now - 100, heightlock: null, locked: true, spentBy: null,
+  }, {
+    txId: 'txS', index: 1, tokenId: '00', address: ADDRESSES[1], value: 20n,
+    authorities: 0, timelock: now - 100, heightlock: null, locked: true, spentBy: null,
+    mode: 1, recoveryState: 'recovered',
+  }]);
+
+  const utxos = await getWalletUnlockedUtxos(mysql, 'w1', now, 100000);
+  expect(utxos.map((u) => u.txId)).toStrictEqual(['txT']);
 });
 
 test('getTotalTransactions', async () => {
@@ -4125,6 +4179,19 @@ describe('hasTransactionsOnNonFirstAddress', () => {
 
     expect(result1).toBe(false);
     expect(result2).toBe(true);
+  });
+
+  it('ignores CTSpend usage', async () => {
+    expect.hasAssertions();
+
+    const walletId = 'test-wallet';
+    await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5);
+    await addToAddressTable(mysql, [
+      { address: ADDRESSES[0], index: 0, walletId, transactions: 3, bip32_account: 0 },
+      { address: ADDRESSES[1], index: 5, walletId, transactions: 2, bip32_account: 2, ct_address: 'HshLongCtAddress1' },
+    ]);
+
+    expect(await Db.hasTransactionsOnNonFirstAddress(mysql, walletId)).toBe(false);
   });
 });
 
