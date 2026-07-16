@@ -1,7 +1,12 @@
-import { arrayShuffle, sha256d, isTxVoided } from '@src/utils';
-import hathorLib from '@hathor/wallet-lib';
+import { arrayShuffle, sha256d, isTxVoided, buildAuthMessage, verifyMessageSignature } from '@src/utils';
+import hathorLib, { walletUtils, network } from '@hathor/wallet-lib';
+import bitcore from 'bitcore-lib';
 import * as Fullnode from '@src/fullnode';
-import { TEST_SEED, XPUBKEY, AUTH_XPUBKEY, ADDRESSES } from '@tests/utils';
+import { TEST_SEED, XPUBKEY, AUTH_XPUBKEY, ADDRESSES, getXPrivKeyFromSeed } from '@tests/utils';
+
+// bitcore signs with Bitcoin's magic by default; the wallet-service verifies with
+// the Hathor prefix, so tests must align bitcore's magic before signing.
+bitcore.Message.MAGIC_BYTES = Buffer.from('Hathor Signed Message:\n');
 
 test('sha256d', () => {
   expect.hasAssertions();
@@ -11,6 +16,26 @@ test('sha256d', () => {
   expect(result).toBe('4f1ba9a4204e97a293b16ead6caced38f6d91d95618b96e261c6332ed24f7894');
   result = sha256d('something-else', 'hex');
   expect(result).toBe('5c690b78d489f158d8575e7ed271521d056c445e8bd3978c8295775c1743bec0');
+});
+
+test('buildAuthMessage concatenates timestamp||walletId||payload', () => {
+  expect.hasAssertions();
+  expect(buildAuthMessage(1700000000, 'wid', 'PAYLOAD')).toBe('1700000000widPAYLOAD');
+});
+
+test('verifyMessageSignature verifies a Hathor-signed arbitrary message against its address', () => {
+  expect.hasAssertions();
+
+  const xpriv = getXPrivKeyFromSeed(TEST_SEED, { passphrase: '', networkName: process.env.NETWORK });
+  const key = walletUtils.deriveXpriv(xpriv, '0\'');
+  const address = key.publicKey.toAddress(network.getNetwork()).toString();
+
+  const message = buildAuthMessage(1700000000, 'wid', 'PAYLOAD');
+  const signature = new bitcore.Message(message).sign(key.privateKey);
+
+  expect(verifyMessageSignature(signature, message, address)).toBe(true);
+  // tampering the message breaks verification
+  expect(verifyMessageSignature(signature, `${message}x`, address)).toBe(false);
 });
 
 test('arrayShuffle', () => {

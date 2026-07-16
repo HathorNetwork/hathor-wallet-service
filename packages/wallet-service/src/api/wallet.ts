@@ -21,23 +21,29 @@ import {
   updateExistingAddresses,
   updateWalletStatus,
   updateWalletAuthXpub,
+  registerWalletShieldedKeys,
 } from '@src/db';
 import {
   beginTransaction,
   commitTransaction,
   rollbackTransaction,
+  computeUnifiedStatus,
 } from '@src/db/utils';
-import { WalletStatus } from '@src/types';
+import { WalletStatus, Wallet } from '@src/types';
 import {
   closeDbConnection,
   getDbConnection,
   getWalletId,
   verifySignature,
+  verifyMessageSignature,
+  buildAuthMessage,
   getAddressFromXpub,
   confirmFirstAddress,
   validateAuthTimestamp,
   AUTH_MAX_TIMESTAMP_SHIFT_IN_SECONDS,
 } from '@src/utils';
+import { deriveCtAddress, isNeuteredXpub } from '@wallet-service/common/src/crypto/shieldedAddress';
+import { Network } from '@hathor/wallet-lib';
 import { closeDbAndGetError, warmupMiddleware } from '@src/api/utils';
 import { walletIdProxyHandler } from '@src/commons';
 import middy from '@middy/core';
@@ -52,6 +58,30 @@ import errorHandler from '@src/api/middlewares/errorHandler';
 const mysql = getDbConnection();
 
 const MAX_LOAD_WALLET_RETRIES: number = config.maxLoadWalletRetries;
+
+// Network instance used to encode shielded (ct) addresses — carries the
+// shielded/p2pkh version bytes that address derivation reads.
+const shieldedNetwork = new Network(config.network);
+
+/**
+ * Shape a wallet row into the API status payload: the `status` field is the
+ * unified transparent+shielded lifecycle value, and the two shielded fields are
+ * surfaced for clients that use them. Scan/spend keys are deliberately omitted —
+ * `scan_xpriv` is a secret and must never leave the service.
+ */
+export const toWalletStatusResponse = (wallet: Wallet): Record<string, unknown> => ({
+  walletId: wallet.walletId,
+  xpubkey: wallet.xpubkey,
+  authXpubkey: wallet.authXpubkey,
+  status: computeUnifiedStatus(wallet.status, wallet.ctStatus ?? 'none'),
+  retryCount: wallet.retryCount,
+  maxGap: wallet.maxGap,
+  createdAt: wallet.createdAt,
+  readyAt: wallet.readyAt,
+  lastUsedAddressIndex: wallet.lastUsedAddressIndex,
+  shieldedMaxGap: wallet.shieldedMaxGap ?? null,
+  lastUsedShieldedIndex: wallet.lastUsedShieldedIndex ?? null,
+});
 
 /*
  * Get the status of a wallet
@@ -68,7 +98,7 @@ export const get: APIGatewayProxyHandler = middy(walletIdProxyHandler(async (wal
 
   return {
     statusCode: 200,
-    body: JSON.stringify({ success: true, status }),
+    body: JSON.stringify({ success: true, status: toWalletStatusResponse(status) }),
   };
 })).use(cors())
   .use(warmupMiddleware())
@@ -90,7 +120,14 @@ const loadBodySchema = Joi.object({
     .required(),
   timestamp: Joi.number().positive().required(),
   firstAddress: firstAddressJoi,
-});
+  // Optional shielded registration — all-or-none: providing any of these five
+  // fields requires all of them.
+  scanXpriv: Joi.string(),
+  spendXpub: Joi.string(),
+  firstCtAddress: Joi.string(),
+  spendXpubSignature: Joi.string(),
+  ctAddressSignature: Joi.string(),
+}).and('scanXpriv', 'spendXpub', 'firstCtAddress', 'spendXpubSignature', 'ctAddressSignature');
 
 /**
  * Invoke the loadWalletAsync function
@@ -99,7 +136,7 @@ const loadBodySchema = Joi.object({
  * @param maxGap - The max gap
  */
 /* istanbul ignore next */
-export const invokeLoadWalletAsync = async (xpubkey: string, maxGap: number): Promise<void> => {
+const invokeAsyncLoad = async (functionName: string, xpubkey: string, maxGap: number): Promise<void> => {
   const client = createLambdaClient({
     endpoint: config.stage === 'dev'
       ? 'http://localhost:3002'
@@ -108,7 +145,7 @@ export const invokeLoadWalletAsync = async (xpubkey: string, maxGap: number): Pr
   });
   const command = new InvokeCommand({
     // FunctionName is composed of: service name - stage - function name
-    FunctionName: `${config.serviceName}-${config.stage}-loadWalletAsync`,
+    FunctionName: `${config.serviceName}-${config.stage}-${functionName}`,
     InvocationType: 'Event',
     Payload: JSON.stringify({ xpubkey, maxGap }),
   });
@@ -120,6 +157,21 @@ export const invokeLoadWalletAsync = async (xpubkey: string, maxGap: number): Pr
     throw new Error('Lambda invoke failed');
   }
 };
+
+/**
+ * Invoke the canonical async wallet load — derives both the transparent and
+ * shielded address paths and reconstructs both balances in a single pass. Used
+ * whenever a load request carries shielded keys.
+ */
+/* istanbul ignore next */
+export const invokeLoadWalletAsync = (xpubkey: string, maxGap: number): Promise<void> => invokeAsyncLoad('loadWalletAsync', xpubkey, maxGap);
+
+/**
+ * Invoke the deprecated transparent-only async wallet load. Still used for load
+ * requests that carry no shielded keys, until the combined load subsumes it.
+ */
+/* istanbul ignore next */
+export const invokeDeprecatedLoad = (xpubkey: string, maxGap: number): Promise<void> => invokeAsyncLoad('deprecatedLoad', xpubkey, maxGap);
 
 /**
  * Calls verifySignature for both the wallet's xpub signature and
@@ -149,6 +201,74 @@ export const validateSignatures = (
   const authXpubValid = verifySignature(authXpubkeySignature, timestamp, authXpubAddress, walletId.toString());
 
   return xpubValid && authXpubValid;
+};
+
+export interface ShieldedRegistration {
+  timestamp: number;
+  walletId: string;
+  authXpubkey: string;
+  scanXpriv: string;
+  spendXpub: string;
+  firstCtAddress: string;
+  spendXpubSignature: string;
+  ctAddressSignature: string;
+}
+
+type ShieldedValidation = { ok: true } | { ok: false; code: 400 | 403; message: string };
+
+/**
+ * Validate the proof accompanying a shielded-key registration:
+ *
+ *  1. The submitted scanXpriv + spendXpub must re-derive to the submitted
+ *     firstCtAddress — this proves they are a matched pair for the same account
+ *     and that neither was tampered with in transit.
+ *  2. `spendXpubSignature` must be a signature of the spendXpub by the spend key
+ *     itself — proving control of the spend key.
+ *  3. `ctAddressSignature` must be a signature of the firstCtAddress by the
+ *     wallet's auth key — proving the wallet authority consented to these exact
+ *     keys. The signed message embeds the timestamp, so it is not replayable.
+ *
+ * Both signed messages use the canonical `timestamp || walletId || payload`
+ * form. Returns `{ ok: true }` or a `{ code, message }` describing the failure.
+ */
+export const validateShieldedRegistration = (reg: ShieldedRegistration): ShieldedValidation => {
+  // 1. matched pair + integrity: re-derive the first ct_address from the keys.
+  let derivedCtAddress: string;
+  try {
+    // The spend key must be public. A private one derives identical child pubkeys, so
+    // every check below would pass while handing the service spending authority.
+    if (!isNeuteredXpub(reg.spendXpub)) {
+      return { ok: false, code: 400, message: 'spendXpub must be a public key, not a private key' };
+    }
+    derivedCtAddress = deriveCtAddress(reg.scanXpriv, reg.spendXpub, 0, shieldedNetwork).ctAddress;
+  } catch (e) {
+    return { ok: false, code: 400, message: 'Invalid scanXpriv or spendXpub' };
+  }
+  if (derivedCtAddress !== reg.firstCtAddress) {
+    return { ok: false, code: 400, message: 'firstCtAddress does not match the submitted keys' };
+  }
+
+  // 2. spend-key control: the spend key signed its own xpub.
+  const spendValid = verifyMessageSignature(
+    reg.spendXpubSignature,
+    buildAuthMessage(reg.timestamp, reg.walletId, reg.spendXpub),
+    getAddressFromXpub(reg.spendXpub),
+  );
+  if (!spendValid) {
+    return { ok: false, code: 403, message: 'spendXpub signature is not valid' };
+  }
+
+  // 3. auth consent + anti-replay: the auth key signed the first ct_address.
+  const authValid = verifyMessageSignature(
+    reg.ctAddressSignature,
+    buildAuthMessage(reg.timestamp, reg.walletId, reg.firstCtAddress),
+    getAddressFromXpub(reg.authXpubkey),
+  );
+  if (!authValid) {
+    return { ok: false, code: 403, message: 'ctAddress signature is not valid' };
+  }
+
+  return { ok: true };
 };
 
 /*
@@ -248,7 +368,7 @@ export const changeAuthXpub: APIGatewayProxyHandler = middy(async (event) => {
     statusCode: 200,
     body: JSON.stringify({
       success: true,
-      status: updatedWallet,
+      status: toWalletStatusResponse(updatedWallet),
     }),
   };
 }).use(cors())
@@ -312,17 +432,36 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
   // is wallet already loaded/loading?
   const walletId = getWalletId(xpubkeyStr);
   let wallet = await getWallet(mysql, walletId);
+  const walletExisted = !!wallet;
+
+  // A request carrying shielded fields (all-or-none, guaranteed by the schema)
+  // may be a shielded upgrade of an already-loaded wallet, so the "already
+  // loaded" early-return below applies only to transparent-only requests.
+  const hasShielded = value.scanXpriv != null;
+
+  // Alert ops + reject when a wallet has failed to load too many times. The cap is
+  // shared by the transparent, shielded and upgrade paths.
+  const rejectMaxRetries = async () => {
+    await addAlert(
+      'Wallet load exceeded max retries',
+      `Wallet ${walletId} reached the load-retry limit (${MAX_LOAD_WALLET_RETRIES}) and will not be retried.`,
+      Severity.MINOR,
+      { wallet_id: walletId, retry_count: wallet.retryCount, source: 'wallet-service' },
+      logger,
+    );
+    return closeDbAndGetError(mysql, ApiError.WALLET_MAX_RETRIES, { status: toWalletStatusResponse(wallet) });
+  };
 
   // check if wallet is already loaded so we can fail early
-  if (wallet) {
+  if (wallet && !hasShielded) {
     if (wallet.status === WalletStatus.READY
       || wallet.status === WalletStatus.CREATING) {
-      return closeDbAndGetError(mysql, ApiError.WALLET_ALREADY_LOADED, { status: wallet });
+      return closeDbAndGetError(mysql, ApiError.WALLET_ALREADY_LOADED, { status: toWalletStatusResponse(wallet) });
     }
 
     if (wallet.status === WalletStatus.ERROR
         && wallet.retryCount >= MAX_LOAD_WALLET_RETRIES) {
-      return closeDbAndGetError(mysql, ApiError.WALLET_MAX_RETRIES, { status: wallet });
+      return rejectMaxRetries();
     }
   }
 
@@ -350,31 +489,105 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
     };
   }
 
-  // if wallet does not exist at this point, we should add it to the wallet table with 'creating' status
-  if (!wallet) {
-    wallet = await createWallet(mysql, walletId, xpubkeyStr, authXpubkeyStr, maxGap);
+  // Validate the shielded proof before mutating anything, so an invalid shielded
+  // upgrade cannot leave the transparent side half-processed.
+  if (hasShielded) {
+    const reg = validateShieldedRegistration({
+      timestamp,
+      walletId,
+      authXpubkey: authXpubkeyStr,
+      scanXpriv: value.scanXpriv,
+      spendXpub: value.spendXpub,
+      firstCtAddress: value.firstCtAddress,
+      spendXpubSignature: value.spendXpubSignature,
+      ctAddressSignature: value.ctAddressSignature,
+    });
+    if (reg.ok === false) {
+      await closeDbConnection(mysql);
+      return {
+        statusCode: reg.code,
+        body: JSON.stringify({ success: false, details: [{ message: reg.message }] }),
+      };
+    }
   }
 
-  try {
-    /* This calls the lambda function as a "Event", so we don't care here for the response,
-     * we only care if the invokation failed or not
-     */
-    await invokeLoadWalletAsync(xpubkeyStr, maxGap);
-  } catch (e) {
+  // Create the wallet if new — registering the shielded keys in the same insert
+  // when this is a fresh shielded registration (rather than create-then-update).
+  if (!wallet) {
+    wallet = hasShielded
+      ? await createWallet(mysql, walletId, xpubkeyStr, authXpubkeyStr, maxGap, {
+        scanXpriv: value.scanXpriv,
+        spendXpub: value.spendXpub,
+        shieldedMaxGap: config.shieldedMaxAddressGap,
+      })
+      : await createWallet(mysql, walletId, xpubkeyStr, authXpubkeyStr, maxGap);
+  }
+
+  /* The async loads below are invoked as "Event", so we don't care about the
+   * response here, only whether the invocation itself failed. On failure the
+   * wallet is marked 'error' and the latest status is re-read for the response. */
+  const onAsyncInvokeError = async (e: unknown): Promise<void> => {
     logger.error(e);
     const newRetryCount = wallet.retryCount ? wallet.retryCount + 1 : 1;
-    // update wallet status to 'error'
     await updateWalletStatus(mysql, walletId, WalletStatus.ERROR, newRetryCount);
-
-    // refresh the variable with latest status, so we can return it properly
     wallet = await getWallet(mysql, walletId);
+  };
+
+  if (hasShielded) {
+    // Reconcile keys for an existing wallet: reject a conflicting set; attach keys
+    // to a transparent wallet being upgraded. A fresh wallet already has its keys.
+    if (walletExisted) {
+      if (wallet.scanXpriv == null) {
+        await registerWalletShieldedKeys(mysql, walletId, value.scanXpriv, value.spendXpub, config.shieldedMaxAddressGap);
+      } else if (wallet.scanXpriv !== value.scanXpriv || wallet.spendXpub !== value.spendXpub) {
+        await closeDbConnection(mysql);
+        return {
+          statusCode: 409,
+          body: JSON.stringify({ success: false, error: ApiError.SHIELDED_KEYS_CONFLICT }),
+        };
+      }
+    }
+
+    // A wallet that already failed too many times is alerted + rejected, not retried.
+    if (walletExisted
+      && computeUnifiedStatus(wallet.status, wallet.ctStatus ?? 'none') === WalletStatus.ERROR
+      && wallet.retryCount >= MAX_LOAD_WALLET_RETRIES) {
+      return rejectMaxRetries();
+    }
+
+    // (Re)invoke the canonical combined load — which derives both the transparent
+    // and shielded address paths and reconstructs both balances in one pass —
+    // unless this is an identical resubmit on a wallet that is already loaded or in
+    // progress. Fresh registrations and upgrades always load; a same-keys resubmit
+    // re-loads only to retry a previous failure.
+    const settledWithSameKeys = walletExisted
+      && wallet.scanXpriv === value.scanXpriv
+      && wallet.spendXpub === value.spendXpub
+      && computeUnifiedStatus(wallet.status, wallet.ctStatus ?? 'none') !== WalletStatus.ERROR;
+
+    if (!settledWithSameKeys) {
+      try {
+        await invokeLoadWalletAsync(xpubkeyStr, maxGap);
+      } catch (e) {
+        await onAsyncInvokeError(e);
+      }
+    }
+    wallet = await getWallet(mysql, walletId);
+  } else {
+    // Transparent-only load: the deprecated path, kept until the combined load
+    // subsumes it entirely.
+    try {
+      await invokeDeprecatedLoad(xpubkeyStr, maxGap);
+    } catch (e) {
+      await onAsyncInvokeError(e);
+    }
   }
 
   await closeDbConnection(mysql);
 
   return {
     statusCode: 200,
-    body: JSON.stringify({ success: true, status: wallet }),
+    body: JSON.stringify({ success: true, status: toWalletStatusResponse(wallet) }),
   };
 }).use(cors())
   .use(warmupMiddleware())
@@ -466,8 +679,10 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
 };
 
 /*
- * This does the "heavy" work when loading a new wallet, updating the database tables accordingly. It
- * expects a wallet entry already on the database
+ * Deprecated transparent-only async wallet load: derives the transparent address
+ * path and seeds the transparent balance. Kept for load requests that carry no
+ * shielded keys, until the combined load subsumes it. It expects a wallet entry
+ * already on the database.
  *
  * This lambda is called async by another lambda, the one reponsible for the load wallet API
  */
@@ -536,4 +751,25 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
       xpubkey,
     };
   }
+};
+
+/*
+ * Canonical async wallet load: derives both the transparent and shielded address
+ * paths and reconstructs both balances (via reconstructWallet) in one pass. It
+ * expects a wallet entry (with shielded keys) already on the database.
+ *
+ * Invoked async by the load-wallet API whenever the request carries shielded keys.
+ *
+ * NOTE: the body is implemented in a follow-up PR; for now this is a registered
+ * stub so the API has a stable invoke target. It leaves the wallet in 'creating'.
+ */
+export const loadWalletCombined: Handler<LoadEvent, LoadResult> = async (event) => {
+  const logger = createDefaultLogger();
+  if (event.source === 'serverless-plugin-warmup') {
+    return { success: true, walletId: '', xpubkey: '' };
+  }
+  logger.info('loadWalletCombined invoked (stub — combined transparent+shielded load lands in a follow-up)', {
+    xpubkey: event.xpubkey,
+  });
+  return { success: true, walletId: getWalletId(event.xpubkey), xpubkey: event.xpubkey };
 };

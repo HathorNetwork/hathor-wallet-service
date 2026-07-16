@@ -282,6 +282,7 @@ export const createWallet = async (
   xpubkey: string,
   authXpubkey: string,
   maxGap: number,
+  shielded?: { scanXpriv: string; spendXpub: string; shieldedMaxGap: number },
 ): Promise<Wallet> => {
   const ts = getUnixTimestamp();
   const entry = {
@@ -292,6 +293,14 @@ export const createWallet = async (
     created_at: ts,
     max_gap: maxGap,
     last_used_address_index: -1,
+    // Register shielded keys in the same insert when provided (rather than a
+    // create-then-update). scan_xpriv is a BLOB — store the base58 xpriv's bytes.
+    ...(shielded ? {
+      scan_xpriv: Buffer.from(shielded.scanXpriv, 'utf8'),
+      spend_xpub: shielded.spendXpub,
+      shielded_max_gap: shielded.shieldedMaxGap,
+      ct_status: WalletStatus.CREATING,
+    } : {}),
   };
   await mysql.query(
     `INSERT INTO \`wallet\`
@@ -308,6 +317,13 @@ export const createWallet = async (
     createdAt: ts,
     readyAt: null,
     lastUsedAddressIndex: -1,
+    // Mirror the persisted shielded columns so the in-memory result matches a
+    // subsequent getWallet read (defaults when no shielded keys are provided).
+    ctStatus: shielded ? WalletStatus.CREATING : 'none',
+    scanXpriv: shielded ? shielded.scanXpriv : null,
+    spendXpub: shielded ? shielded.spendXpub : null,
+    shieldedMaxGap: shielded ? shielded.shieldedMaxGap : 20,
+    lastUsedShieldedIndex: null,
   };
 };
 
@@ -352,6 +368,35 @@ export const updateWalletAuthXpub = async (
         SET \`auth_xpubkey\` = ?
       WHERE \`id\` = ?`,
     [authXpubkey, walletId],
+  );
+};
+
+/**
+ * Persist a wallet's shielded registration keys and move its shielded lifecycle
+ * into `creating`. `scan_xpriv` is a BLOB: the base58 xpriv is stored as its
+ * UTF-8 bytes so it round-trips back to the string address derivation consumes.
+ *
+ * @param mysql - Database connection
+ * @param walletId - The wallet id
+ * @param scanXpriv - The change-level scan xpriv (base58)
+ * @param spendXpub - The change-level spend xpub (base58)
+ * @param shieldedMaxGap - The shielded gap limit
+ */
+export const registerWalletShieldedKeys = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+  scanXpriv: string,
+  spendXpub: string,
+  shieldedMaxGap: number,
+): Promise<void> => {
+  await mysql.query(
+    `UPDATE \`wallet\`
+        SET \`scan_xpriv\` = ?,
+            \`spend_xpub\` = ?,
+            \`shielded_max_gap\` = ?,
+            \`ct_status\` = 'creating'
+      WHERE \`id\` = ?`,
+    [Buffer.from(scanXpriv, 'utf8'), spendXpub, shieldedMaxGap, walletId],
   );
 };
 

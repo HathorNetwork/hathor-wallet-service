@@ -49,6 +49,7 @@ export interface EnvironmentConfig {
   network: string;
   serviceName: string;
   maxAddressGap: number;
+  shieldedMaxAddressGap: number;
   voidedTxOffset: number;
   confirmFirstAddress: boolean;
   wsDomain: string;
@@ -150,6 +151,9 @@ export enum WalletStatus {
   ERROR = 'error',
 }
 
+/** Lifecycle of the shielded (ct) side of a wallet; `none` = no shielded keys registered. */
+export type CtStatus = 'none' | WalletStatus;
+
 export interface Wallet {
   walletId: string;
   xpubkey: string;
@@ -160,6 +164,12 @@ export interface Wallet {
   createdAt?: number;
   readyAt?: number;
   lastUsedAddressIndex?: number;
+  // Shielded-registration columns (NULL/`none` until a wallet registers shielded keys).
+  ctStatus?: CtStatus;
+  scanXpriv?: string | null;
+  spendXpub?: string | null;
+  shieldedMaxGap?: number | null;
+  lastUsedShieldedIndex?: number | null;
 }
 
 export interface AddressInfo {

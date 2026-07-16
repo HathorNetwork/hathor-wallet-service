@@ -24,7 +24,11 @@ import {
   loadWallet,
   loadWalletFailed,
   changeAuthXpub,
+  validateShieldedRegistration,
 } from '@src/api/wallet';
+import BIP32Factory from 'bip32';
+import * as ecc from 'tiny-secp256k1';
+import * as bitcoinMessage from 'bitcoinjs-message';
 import {
   updateVersionData,
   createWallet,
@@ -32,10 +36,10 @@ import {
 import * as Wallet from '@src/api/wallet';
 import * as Db from '@src/db';
 import { ApiError } from '@src/api/errors';
-import { closeDbConnection, getDbConnection, getUnixTimestamp, getWalletId } from '@src/utils';
+import { closeDbConnection, getDbConnection, getUnixTimestamp, getWalletId, buildAuthMessage } from '@src/utils';
 import { STATUS_CODE_TABLE } from '@src/api/utils';
 import { WalletStatus, FullNodeApiVersionResponse } from '@src/types';
-import { walletUtils, addressUtils, constants, network, HathorWalletServiceWallet } from '@hathor/wallet-lib';
+import { walletUtils, addressUtils, constants, network, HathorWalletServiceWallet, Network } from '@hathor/wallet-lib';
 import bitcore from 'bitcore-lib';
 import {
   ADDRESSES,
@@ -63,6 +67,7 @@ import {
 import fullnode from '@src/fullnode';
 import { getHealthcheck } from '@src/api/healthcheck';
 import { Severity } from '@wallet-service/common';
+import { deriveCtAddress } from '@wallet-service/common/src/crypto/shieldedAddress';
 import { convertApiVersionData } from '@src/nodeConfig';
 
 // Monkey patch bitcore-lib
@@ -791,6 +796,9 @@ test('GET /wallet', async () => {
     createdAt: 10000,
     readyAt: 10001,
     lastUsedAddressIndex: -1,
+    // Shielded info fields — defaults for a wallet with no shielded keys.
+    shieldedMaxGap: 20,
+    lastUsedShieldedIndex: null,
   });
 });
 
@@ -859,7 +867,7 @@ test('POST /wallet', async () => {
 
   await cleanDatabase(mysql);
 
-  const spy = jest.spyOn(Wallet, 'invokeLoadWalletAsync');
+  const spy = jest.spyOn(Wallet, 'invokeDeprecatedLoad');
 
   const mockImplementationSuccess = jest.fn(() => Promise.resolve());
   const mockImplementationFailure = jest.fn(() => Promise.reject(new Error('error!')));
@@ -995,7 +1003,7 @@ test('POST /wallet should fail with ApiError.WALLET_MAX_RETRIES when max retries
   const authMessage = new bitcore.Message(String(now).concat(walletId).concat(authAddress));
   const authXpubkeySignature = authMessage.sign(authDerivedPrivKey.privateKey);
 
-  const spy = jest.spyOn(Wallet, 'invokeLoadWalletAsync');
+  const spy = jest.spyOn(Wallet, 'invokeDeprecatedLoad');
   const mockImplementationFailure = jest.fn(() => Promise.reject(new Error('error!')));
   spy.mockImplementation(mockImplementationFailure);
 
@@ -1045,6 +1053,7 @@ test('POST /wallet should fail with ApiError.WALLET_MAX_RETRIES when max retries
   expect(returnBody.status.status).toStrictEqual(WalletStatus.ERROR);
   expect(returnBody.status.retryCount).toStrictEqual(5);
 
+  mockedAddAlert.mockClear();
   event = makeGatewayEvent({}, JSON.stringify(params));
   result = await walletLoad(event, null, null) as APIGatewayProxyResult;
   returnBody = JSON.parse(result.body as string);
@@ -1052,6 +1061,8 @@ test('POST /wallet should fail with ApiError.WALLET_MAX_RETRIES when max retries
   expect(returnBody.status.status).toStrictEqual(WalletStatus.ERROR);
   expect(returnBody.error).toStrictEqual(ApiError.WALLET_MAX_RETRIES);
   expect(returnBody.status.retryCount).toStrictEqual(5);
+  // Reaching the retry cap raises an ops alert.
+  expect(mockedAddAlert).toHaveBeenCalledTimes(1);
 }, 30000); // This is huge for a test, but bitcore-lib takes too long
 
 test('POST /wallet/init should validate attributes properly', async () => {
@@ -1300,7 +1311,7 @@ test('loadWallet API should fail if a wrong signature is sent', async () => {
   const authMessage = new bitcore.Message(String(now).concat(walletId).concat(authAddress));
   const authXpubkeySignature = authMessage.sign(authDerivedPrivKey.privateKey);
 
-  const loadWalletAsyncSpy = jest.spyOn(Wallet, 'invokeLoadWalletAsync');
+  const loadWalletAsyncSpy = jest.spyOn(Wallet, 'invokeDeprecatedLoad');
   const mockImplementationSuccess = jest.fn(() => Promise.resolve());
   loadWalletAsyncSpy.mockImplementation(mockImplementationSuccess);
 
@@ -1368,7 +1379,7 @@ test('loadWallet should update wallet status to ERROR if an error occurs', async
     firstAddress,
   } = getAuthData(now);
 
-  const loadWalletAsyncSpy = jest.spyOn(Wallet, 'invokeLoadWalletAsync');
+  const loadWalletAsyncSpy = jest.spyOn(Wallet, 'invokeDeprecatedLoad');
   const mockImplementationSuccess = jest.fn(() => Promise.resolve());
   loadWalletAsyncSpy.mockImplementation(mockImplementationSuccess);
 
@@ -2372,4 +2383,381 @@ test('GET /address/info', async () => {
   expect(returnBody.success).toBe(false);
   expect(returnBody.error).toBe(ApiError.INVALID_PAYLOAD);
   expect(returnBody.details[0].message).toBeDefined();
+});
+
+const bip32lib = BIP32Factory(ecc);
+// Shielded load tests do heavy key derivation (PBKDF2) + CT address crypto, so
+// they need a longer per-test timeout than jest's 5s default.
+const SHIELDED_TEST_TIMEOUT_MS = 20000;
+const HATHOR_MSG_PREFIX = 'Hathor Signed Message:\n';
+
+interface ShieldedFieldOpts {
+  // Seed for the scan/spend keypair (vary it to build a distinct key set).
+  seedHex?: string;
+  // Auth xpub the ct_address signature will be verified against. Defaults to a
+  // self-generated key (for validator unit tests); handler tests pass the real
+  // wallet auth xpub.
+  authXpubkey?: string;
+  // Signer for the ct_address message. Defaults to signing with the
+  // self-generated auth key; handler tests sign with the real auth private key.
+  authSign?: (message: string) => string;
+}
+
+/**
+ * Build a valid shielded-registration field set for a wallet: a matched
+ * scan/spend pair (change-level), the first ct_address, and both signatures.
+ * `authXpubkey` is returned so callers pass it back in for verification.
+ */
+const buildShieldedFields = (walletId: string, timestamp: number, opts: ShieldedFieldOpts = {}) => {
+  const root = bip32lib.fromSeed(Buffer.from(opts.seedHex ?? '01'.repeat(32), 'hex'));
+  const scanXpriv = root.derivePath("m/44'/280'/1'/0").toBase58();
+  const spendNode = root.derivePath("m/44'/280'/2'/0");
+  const spendXpub = spendNode.neutered().toBase58();
+  const authNode = root.derivePath("m/44'/280'/280'");
+  const authXpubkey = opts.authXpubkey ?? authNode.neutered().toBase58();
+
+  const firstCtAddress = deriveCtAddress(scanXpriv, spendXpub, 0, new Network(process.env.NETWORK as string)).ctAddress;
+
+  const sign = (payload: string, priv: Buffer): string => bitcoinMessage
+    .sign(buildAuthMessage(timestamp, walletId, payload), priv, true, HATHOR_MSG_PREFIX)
+    .toString('base64');
+
+  const ctAddressSignature = opts.authSign
+    ? opts.authSign(buildAuthMessage(timestamp, walletId, firstCtAddress))
+    : sign(firstCtAddress, authNode.privateKey as Buffer);
+
+  return {
+    scanXpriv,
+    spendXpub,
+    firstCtAddress,
+    spendXpubSignature: sign(spendXpub, spendNode.privateKey as Buffer),
+    ctAddressSignature,
+    authXpubkey,
+  };
+};
+
+// Sign a message with the wallet's real auth private key (matching AUTH_XPUBKEY),
+// via bitcore whose MAGIC_BYTES were set to the Hathor prefix above. The auth key
+// is memoized because seed derivation (PBKDF2) is expensive.
+let cachedAuthPriv: ReturnType<typeof HathorWalletServiceWallet.deriveAuthPrivateKey> | undefined;
+const realAuthSign = (message: string): string => {
+  if (!cachedAuthPriv) {
+    const xpriv = getXPrivKeyFromSeed(TEST_SEED, { passphrase: '', networkName: process.env.NETWORK });
+    cachedAuthPriv = HathorWalletServiceWallet.deriveAuthPrivateKey(xpriv);
+  }
+  return new bitcore.Message(message).sign(cachedAuthPriv.privateKey);
+};
+
+// Build a full wallet-load body (valid transparent + shielded halves) for the
+// real test wallet (XPUBKEY / AUTH_XPUBKEY). `opts` tweaks the shielded keys.
+const buildShieldedLoadBody = (now: number, opts: ShieldedFieldOpts = {}) => {
+  const walletId = getWalletId(XPUBKEY);
+  const auth = getAuthData(now);
+  const shielded = buildShieldedFields(walletId, now, { authXpubkey: AUTH_XPUBKEY, authSign: realAuthSign, ...opts });
+  return {
+    xpubkey: auth.xpubkey,
+    xpubkeySignature: auth.xpubkeySignature,
+    authXpubkey: auth.authXpubkey,
+    authXpubkeySignature: auth.authXpubkeySignature,
+    firstAddress: auth.firstAddress,
+    timestamp: now,
+    scanXpriv: shielded.scanXpriv,
+    spendXpub: shielded.spendXpub,
+    firstCtAddress: shielded.firstCtAddress,
+    spendXpubSignature: shielded.spendXpubSignature,
+    ctAddressSignature: shielded.ctAddressSignature,
+  };
+};
+
+describe('validateShieldedRegistration', () => {
+  const now = 1700000000;
+  const walletId = 'wallet-id';
+
+  test('accepts a valid matched set', () => {
+    const f = buildShieldedFields(walletId, now);
+    expect(validateShieldedRegistration({ timestamp: now, walletId, ...f })).toEqual({ ok: true });
+  });
+
+  test('rejects a tampered auth (ct_address) signature with 403', () => {
+    const f = buildShieldedFields(walletId, now);
+    const res = validateShieldedRegistration({
+      timestamp: now, walletId, ...f, ctAddressSignature: f.spendXpubSignature,
+    });
+    expect(res).toEqual({ ok: false, code: 403, message: expect.any(String) });
+  });
+
+  test('rejects a tampered spend self-signature with 403', () => {
+    const f = buildShieldedFields(walletId, now);
+    const res = validateShieldedRegistration({
+      timestamp: now, walletId, ...f, spendXpubSignature: f.ctAddressSignature,
+    });
+    expect(res).toEqual({ ok: false, code: 403, message: expect.any(String) });
+  });
+
+  test('rejects a firstCtAddress that does not match the submitted keys with 400', () => {
+    const f = buildShieldedFields(walletId, now);
+    const res = validateShieldedRegistration({
+      timestamp: now, walletId, ...f, firstCtAddress: f.spendXpub, // any non-matching value
+    });
+    expect(res).toEqual({ ok: false, code: 400, message: expect.any(String) });
+  });
+
+  test('rejects an unparseable spendXpub with 400', () => {
+    const f = buildShieldedFields(walletId, now);
+    const res = validateShieldedRegistration({
+      timestamp: now, walletId, ...f, spendXpub: 'not-an-xpub',
+    });
+    expect(res).toEqual({ ok: false, code: 400, message: expect.any(String) });
+  });
+
+  test('rejects a spendXpub that is a private key with 400', () => {
+    const f = buildShieldedFields(walletId, now);
+    // The client slip this guards: `toBase58()` where `neutered().toBase58()` was meant.
+    const spendNode = bip32lib.fromSeed(Buffer.from('01'.repeat(32), 'hex')).derivePath("m/44'/280'/2'/0");
+    const spendXpriv = spendNode.toBase58();
+    expect(spendXpriv).not.toEqual(f.spendXpub);
+
+    // Re-sign so the spend proof holds over the swapped payload. Every other check then
+    // passes on its own terms — the private node derives the same child pubkeys, so the
+    // submitted firstCtAddress still re-derives. Only the neutered check catches this.
+    const res = validateShieldedRegistration({
+      timestamp: now,
+      walletId,
+      ...f,
+      spendXpub: spendXpriv,
+      spendXpubSignature: bitcoinMessage
+        .sign(buildAuthMessage(now, walletId, spendXpriv), spendNode.privateKey as Buffer, true, HATHOR_MSG_PREFIX)
+        .toString('base64'),
+    });
+
+    expect(res).toEqual({ ok: false, code: 400, message: 'spendXpub must be a public key, not a private key' });
+  });
+});
+
+describe('shielded wallet registration', () => {
+  test('load rejects partial shielded fields with 400', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const { xpubkey, xpubkeySignature, authXpubkey, authXpubkeySignature, firstAddress, timestamp } = getAuthData(now);
+
+    // Only one of the five all-or-none shielded fields is present.
+    const event = makeGatewayEvent({}, JSON.stringify({
+      xpubkey, xpubkeySignature, authXpubkey, authXpubkeySignature, firstAddress, timestamp,
+      scanXpriv: 'scan',
+    }));
+
+    const result = await walletLoad(event, null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(400);
+    expect(JSON.parse(result.body as string).error).toBe(ApiError.INVALID_PAYLOAD);
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('load lets a complete shielded field set past the schema into proof validation', async () => {
+    await cleanDatabase(mysql);
+
+    const now = Math.floor(Date.now() / 1000);
+    const { xpubkey, xpubkeySignature, authXpubkey, authXpubkeySignature, firstAddress, timestamp } = getAuthData(now);
+
+    // All five shielded fields present (dummy values — the schema only validates
+    // their types, so it accepts them; the cryptographic proof is checked later).
+    const event = makeGatewayEvent({}, JSON.stringify({
+      xpubkey, xpubkeySignature, authXpubkey, authXpubkeySignature, firstAddress, timestamp,
+      scanXpriv: 'scan', spendXpub: 'spend', firstCtAddress: 'ct',
+      spendXpubSignature: 'sps', ctAddressSignature: 'cts',
+    }));
+
+    const result = await walletLoad(event, null, null) as APIGatewayProxyResult;
+    const returnBody = JSON.parse(result.body as string);
+    // The fields are not rejected as unknown keys (INVALID_PAYLOAD) — they reach
+    // proof validation, which then rejects the dummy keys with 400.
+    expect(returnBody.error).not.toBe(ApiError.INVALID_PAYLOAD);
+    expect(result.statusCode).toBe(400);
+    expect(returnBody.details[0].message).toBe('Invalid scanXpriv or spendXpub');
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  const seedReadyWallet = () => addToWalletTable(mysql, [{
+    id: getWalletId(XPUBKEY),
+    xpubkey: XPUBKEY,
+    authXpubkey: AUTH_XPUBKEY,
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+
+  // Spy both async-load invokes, cleared (spyOn accumulates calls across tests).
+  // `combined` is the canonical transparent+shielded load; `deprecated` is the
+  // transparent-only load, which a shielded request must never trigger.
+  const spyInvokes = () => {
+    const combined = jest.spyOn(Wallet, 'invokeLoadWalletAsync').mockResolvedValue(undefined);
+    const deprecated = jest.spyOn(Wallet, 'invokeDeprecatedLoad').mockResolvedValue(undefined);
+    combined.mockClear();
+    deprecated.mockClear();
+    return { combined, deprecated };
+  };
+
+  test('registers shielded keys on a brand-new wallet via the combined load and never leaks scan_xpriv', async () => {
+    await cleanDatabase(mysql);
+    const { combined, deprecated } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    const body = buildShieldedLoadBody(now);
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(200);
+
+    const returnBody = JSON.parse(result.body as string);
+    expect(returnBody.status.status).toBe(WalletStatus.CREATING);
+    expect(returnBody.status.shieldedMaxGap).toBe(20);
+    expect(returnBody.status).not.toHaveProperty('scanXpriv');
+    expect(returnBody.status).not.toHaveProperty('spendXpub');
+
+    const wallet = await Db.getWallet(mysql, getWalletId(XPUBKEY));
+    expect(wallet.ctStatus).toBe('creating');
+    expect(wallet.scanXpriv).toBe(body.scanXpriv);
+    expect(wallet.spendXpub).toBe(body.spendXpub);
+
+    // Shielded requests go through the canonical combined load, never the deprecated one.
+    expect(combined).toHaveBeenCalledTimes(1);
+    expect(deprecated).not.toHaveBeenCalled();
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('marks the wallet error and bumps retryCount when the combined load invoke fails', async () => {
+    await cleanDatabase(mysql);
+    const { combined, deprecated } = spyInvokes();
+    combined.mockRejectedValueOnce(new Error('invoke failed'));
+    const now = Math.floor(Date.now() / 1000);
+    const body = buildShieldedLoadBody(now);
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    // The endpoint still returns 200; the wallet is flagged error for a later retry.
+    expect(result.statusCode).toBe(200);
+
+    const returnBody = JSON.parse(result.body as string);
+    expect(returnBody.status.status).toBe(WalletStatus.ERROR);
+    expect(returnBody.status.retryCount).toBe(1);
+
+    const wallet = await Db.getWallet(mysql, getWalletId(XPUBKEY));
+    expect(wallet.status).toBe(WalletStatus.ERROR);
+    expect(wallet.retryCount).toBe(1);
+    // The failing invoke is the combined load, never the deprecated transparent-only one.
+    expect(combined).toHaveBeenCalledTimes(1);
+    expect(deprecated).not.toHaveBeenCalled();
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('upgrades an already-loaded transparent wallet via the combined load', async () => {
+    await cleanDatabase(mysql);
+    await seedReadyWallet();
+    const { combined, deprecated } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    const body = buildShieldedLoadBody(now);
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    // A shielded upgrade must not be rejected as WALLET_ALREADY_LOADED.
+    expect(result.statusCode).toBe(200);
+
+    const wallet = await Db.getWallet(mysql, getWalletId(XPUBKEY));
+    expect(wallet.ctStatus).toBe('creating');
+    expect(wallet.scanXpriv).toBe(body.scanXpriv);
+    // The upgrade runs the combined load (which idempotently re-reconstructs
+    // transparent too), not the deprecated transparent-only load.
+    expect(combined).toHaveBeenCalledTimes(1);
+    expect(deprecated).not.toHaveBeenCalled();
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('is a no-op when the same shielded keys are re-submitted', async () => {
+    await cleanDatabase(mysql);
+    await seedReadyWallet();
+    const { combined, deprecated } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    const body = buildShieldedLoadBody(now);
+    await Db.registerWalletShieldedKeys(mysql, getWalletId(XPUBKEY), body.scanXpriv, body.spendXpub, 20);
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(200);
+
+    const wallet = await Db.getWallet(mysql, getWalletId(XPUBKEY));
+    expect(wallet.scanXpriv).toBe(body.scanXpriv);
+    // Identical keys already stored -> no load is (re-)triggered.
+    expect(combined).not.toHaveBeenCalled();
+    expect(deprecated).not.toHaveBeenCalled();
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('rejects a different shielded key set with 409', async () => {
+    await cleanDatabase(mysql);
+    await seedReadyWallet();
+    const { combined, deprecated } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    // Store one key set, then submit a different one.
+    const stored = buildShieldedFields(getWalletId(XPUBKEY), now, { seedHex: '02'.repeat(32) });
+    await Db.registerWalletShieldedKeys(mysql, getWalletId(XPUBKEY), stored.scanXpriv, stored.spendXpub, 20);
+
+    const body = buildShieldedLoadBody(now); // default seed -> different keys
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(409);
+    expect(JSON.parse(result.body as string).error).toBe(ApiError.SHIELDED_KEYS_CONFLICT);
+    expect(combined).not.toHaveBeenCalled();
+    expect(deprecated).not.toHaveBeenCalled();
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('rejects an invalid shielded signature with 403', async () => {
+    await cleanDatabase(mysql);
+    const { combined, deprecated } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    const body = { ...buildShieldedLoadBody(now), ctAddressSignature: Buffer.from('invalid').toString('base64') };
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(403);
+    // No wallet should have been created — shielded validation runs before any load.
+    expect(await Db.getWallet(mysql, getWalletId(XPUBKEY))).toBeNull();
+    expect(combined).not.toHaveBeenCalled();
+    expect(deprecated).not.toHaveBeenCalled();
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('re-runs the combined load when the same keys are re-submitted after a failed load', async () => {
+    await cleanDatabase(mysql);
+    const walletId = getWalletId(XPUBKEY);
+    const { combined, deprecated } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    const body = buildShieldedLoadBody(now);
+    // The wallet holds these keys but a previous load errored (retryCount below the cap).
+    await addToWalletTable(mysql, [{
+      id: walletId, xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY, status: 'error', maxGap: 5, createdAt: 10000, readyAt: 10001,
+    }]);
+    await Db.registerWalletShieldedKeys(mysql, walletId, body.scanXpriv, body.spendXpub, 20);
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(200);
+    // Same keys + error state -> retry via the combined load.
+    expect(combined).toHaveBeenCalledTimes(1);
+    expect(deprecated).not.toHaveBeenCalled();
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('rejects a shielded resubmit with WALLET_MAX_RETRIES + alert once the cap is reached', async () => {
+    await cleanDatabase(mysql);
+    const walletId = getWalletId(XPUBKEY);
+    const { combined, deprecated } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    const body = buildShieldedLoadBody(now);
+    await addToWalletTable(mysql, [{
+      id: walletId, xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY, status: 'error', maxGap: 5, createdAt: 10000, readyAt: 10001,
+    }]);
+    await Db.registerWalletShieldedKeys(mysql, walletId, body.scanXpriv, body.spendXpub, 20);
+    // Push retry_count to the cap (MAX_LOAD_WALLET_RETRIES is 5 in the test env).
+    await mysql.query('UPDATE `wallet` SET `retry_count` = 5 WHERE `id` = ?', [walletId]);
+    mockedAddAlert.mockClear();
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(400);
+    expect(JSON.parse(result.body as string).error).toBe(ApiError.WALLET_MAX_RETRIES);
+    // No retry is kicked off, and reaching the cap raises an ops alert carrying
+    // the wallet id + retry count at MINOR severity.
+    expect(combined).not.toHaveBeenCalled();
+    expect(deprecated).not.toHaveBeenCalled();
+    expect(mockedAddAlert).toHaveBeenCalledTimes(1);
+    expect(mockedAddAlert).toHaveBeenCalledWith(
+      'Wallet load exceeded max retries',
+      expect.stringContaining(walletId),
+      Severity.MINOR,
+      expect.objectContaining({ wallet_id: walletId, retry_count: 5, source: 'wallet-service' }),
+      expect.anything(),
+    );
+  }, SHIELDED_TEST_TIMEOUT_MS);
 });

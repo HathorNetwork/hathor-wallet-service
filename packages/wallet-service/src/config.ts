@@ -17,6 +17,7 @@ export function loadEnvConfig(): EnvironmentConfig {
     network: process.env.NETWORK,
     serviceName: process.env.SERVICE_NAME,
     maxAddressGap: Number.parseInt(process.env.MAX_ADDRESS_GAP, 10),
+    shieldedMaxAddressGap: Number.parseInt(process.env.SHIELDED_MAX_ADDRESS_GAP ?? '20', 10),
     voidedTxOffset: Number.parseInt(process.env.VOIDED_TX_OFFSET, 10),
     confirmFirstAddress: process.env.CONFIRM_FIRST_ADDRESS === 'true',
     wsDomain: process.env.WS_DOMAIN,

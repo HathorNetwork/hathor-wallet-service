@@ -92,6 +92,7 @@ import {
   beginTransaction,
   rollbackTransaction,
   commitTransaction,
+  computeUnifiedStatus,
 } from '@src/db/utils';
 import {
   Authorities,
@@ -4069,5 +4070,58 @@ describe('hasTransactionsOnNonFirstAddress', () => {
 
     expect(result1).toBe(false);
     expect(result2).toBe(true);
+  });
+});
+
+describe('computeUnifiedStatus', () => {
+  it('returns the transparent status when no shielded keys are registered', () => {
+    expect(computeUnifiedStatus(WalletStatus.READY, 'none')).toBe(WalletStatus.READY);
+    expect(computeUnifiedStatus(WalletStatus.CREATING, 'none')).toBe(WalletStatus.CREATING);
+  });
+
+  it('is error when either side errored', () => {
+    expect(computeUnifiedStatus(WalletStatus.READY, WalletStatus.ERROR)).toBe(WalletStatus.ERROR);
+    expect(computeUnifiedStatus(WalletStatus.ERROR, WalletStatus.READY)).toBe(WalletStatus.ERROR);
+  });
+
+  it('is creating when either side is still creating (and neither errored)', () => {
+    expect(computeUnifiedStatus(WalletStatus.READY, WalletStatus.CREATING)).toBe(WalletStatus.CREATING);
+    expect(computeUnifiedStatus(WalletStatus.CREATING, WalletStatus.READY)).toBe(WalletStatus.CREATING);
+  });
+
+  it('is ready only when both sides are ready', () => {
+    expect(computeUnifiedStatus(WalletStatus.READY, WalletStatus.READY)).toBe(WalletStatus.READY);
+  });
+});
+
+describe('registerWalletShieldedKeys', () => {
+  it('persists the shielded keys and flips ct_status to creating', async () => {
+    const walletId = 'wsk-wallet';
+    await createWallet(mysql, walletId, 'xpub', 'authxpub', 20);
+
+    await Db.registerWalletShieldedKeys(mysql, walletId, 'scanxprivstr', 'spendxpubstr', 15);
+
+    const wallet = await getWallet(mysql, walletId);
+    expect(wallet.scanXpriv).toBe('scanxprivstr');
+    expect(wallet.spendXpub).toBe('spendxpubstr');
+    expect(wallet.shieldedMaxGap).toBe(15);
+    expect(wallet.ctStatus).toBe('creating');
+  });
+});
+
+describe('createWallet with shielded keys', () => {
+  it('registers the shielded keys in a single insert, matching a getWallet read', async () => {
+    const walletId = 'wsk-combined';
+    const ret = await createWallet(mysql, walletId, 'xpub', 'authxpub', 20, {
+      scanXpriv: 'scanx', spendXpub: 'spendx', shieldedMaxGap: 15,
+    });
+
+    expect(ret.ctStatus).toBe(WalletStatus.CREATING);
+    expect(ret.scanXpriv).toBe('scanx');
+    expect(ret.spendXpub).toBe('spendx');
+    expect(ret.shieldedMaxGap).toBe(15);
+
+    // the in-memory result matches what a subsequent getWallet reads back.
+    expect(await getWallet(mysql, walletId)).toStrictEqual(ret);
   });
 });

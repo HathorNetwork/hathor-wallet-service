@@ -10,6 +10,7 @@ import { ServerlessMysql } from 'serverless-mysql';
 import { getWalletId } from '@src/utils';
 import {
   WalletStatus,
+  CtStatus,
   Wallet,
   Tx,
   DbSelectResult,
@@ -84,7 +85,28 @@ export const getWalletFromDbEntry = (entry: Record<string, unknown>): Wallet => 
   createdAt: entry.created_at as number,
   readyAt: entry.ready_at as number,
   lastUsedAddressIndex: entry.last_used_address_index as number,
+  ctStatus: (entry.ct_status ?? 'none') as CtStatus,
+  // `scan_xpriv` is a BLOB holding the UTF-8 bytes of the base58 xpriv string.
+  scanXpriv: entry.scan_xpriv ? (entry.scan_xpriv as Buffer).toString('utf8') : null,
+  spendXpub: (entry.spend_xpub ?? null) as string | null,
+  shieldedMaxGap: entry.shielded_max_gap == null ? null : Number(entry.shielded_max_gap),
+  lastUsedShieldedIndex: entry.last_used_shielded_index == null ? null : Number(entry.last_used_shielded_index),
 });
+
+/**
+ * Collapse a wallet's transparent `status` and shielded `ct_status` into the
+ * single lifecycle value exposed by the API:
+ *  - no shielded keys registered (`none`) → the transparent status
+ *  - either side errored → error
+ *  - either side still creating → creating
+ *  - both ready → ready
+ */
+export const computeUnifiedStatus = (status: WalletStatus, ctStatus: CtStatus): WalletStatus => {
+  if (ctStatus === 'none') return status;
+  if (status === WalletStatus.ERROR || ctStatus === WalletStatus.ERROR) return WalletStatus.ERROR;
+  if (status === WalletStatus.CREATING || ctStatus === WalletStatus.CREATING) return WalletStatus.CREATING;
+  return WalletStatus.READY;
+};
 
 /**
  * Receive a DbSelectResult with multiple records and transform it in an array of Tx
