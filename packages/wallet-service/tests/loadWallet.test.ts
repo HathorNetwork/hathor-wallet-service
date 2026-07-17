@@ -185,11 +185,18 @@ describe('loadWallet', () => {
     const result = await runWorker({ xpubkey: XPUBKEY, maxGap: MAX_GAP });
     expect(result).toMatchObject({ success: false });
 
-    // Nothing from the claim survived: no CTSpend rows were committed.
+    // Nothing from the claim survived. The CTSpend upsert threw, so proving
+    // rollback means checking the *legacy* upsert that ran before it in the same
+    // transaction left no claimed rows.
     const ctRows = await mysql.query(
       'SELECT COUNT(*) AS c FROM `address` WHERE `wallet_id` = ? AND `bip32_account` = ?', [walletId, Bip32Account.CTSpend],
     );
     expect(Number(ctRows[0].c)).toBe(0);
+    const legacyRows = await mysql.query(
+      'SELECT COUNT(*) AS c FROM `address` WHERE `wallet_id` = ? AND (`bip32_account` IS NULL OR `bip32_account` = ?)',
+      [walletId, Bip32Account.Legacy],
+    );
+    expect(Number(legacyRows[0].c)).toBe(0); // legacy claim rolled back too
     const w = await getWallet(mysql, walletId);
     expect(w.status).toBe(WalletStatus.ERROR);
     expect(w.ctStatus).toBe(WalletStatus.ERROR);
@@ -205,10 +212,12 @@ describe('loadWallet', () => {
     let calls = 0;
     const spy = jest.spyOn(ShieldedRecovery, 'findAndRewindShielded').mockImplementation(async (...args) => {
       calls += 1;
+      const result = await realRewind(...args); // run the real sweep first...
       if (calls === 1) {
-        await seedShieldedOutputAt(1, 'ctxLate', 0xd4, 900n); // lands after the claim, before sweep 2
+        // ...then land the raced output, so only the second sweep can see it.
+        await seedShieldedOutputAt(1, 'ctxLate', 0xd4, 900n);
       }
-      return realRewind(...args);
+      return result;
     });
 
     const result = await runWorker({ xpubkey: XPUBKEY, maxGap: MAX_GAP });
