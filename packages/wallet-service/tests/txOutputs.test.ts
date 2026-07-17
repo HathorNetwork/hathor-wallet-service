@@ -1,3 +1,5 @@
+import { mockedAddAlert } from '@tests/utils/alerting.utils.mock';
+import { Severity } from '@wallet-service/common';
 import {
   getFilteredTxOutputs,
   getFilteredUtxos,
@@ -1544,4 +1546,43 @@ test('GET /wallet/tx_outputs txId+index of an unrecovered shielded output return
   const returnBody = JSON.parse(result.body as string);
   expect(result.statusCode).toBe(200);
   expect(returnBody.txOutputs).toStrictEqual([]);
+});
+
+test('GET /wallet/tx_outputs degrades and alerts on a shielded row missing its satellite data', async () => {
+  expect.hasAssertions();
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet', xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY,
+    status: 'ready', maxGap: 5, createdAt: 10000, readyAt: 10001,
+  }]);
+  await addToAddressTable(mysql, [
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 1, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 7, walletId: 'my-wallet', transactions: 1, bip32_account: 2, ct_address: 'HshLongCtAddress1' },
+  ]);
+  await addToUtxoTable(mysql, [{
+    txId: 'txT', index: 2, tokenId: '00', address: ADDRESSES[0], value: 500n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+  }, {
+    // recovered shielded row, but its shielded_tx_output_data satellite row is never inserted
+    txId: 'txS', index: 5, tokenId: '00', address: ADDRESSES[1], value: 150n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+    mode: 1, recoveryState: 'recovered',
+  }]);
+
+  const event = makeGatewayEventWithAuthorizer('my-wallet', {});
+  const result = await getFilteredTxOutputs(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+  expect(returnBody.txOutputs).toHaveLength(1);
+  expect(returnBody.txOutputs[0].txId).toBe('txT');
+  expect(returnBody.txOutputs.find((o) => o.txId === 'txS')).toBeUndefined();
+
+  expect(mockedAddAlert).toHaveBeenCalledWith(
+    expect.any(String),
+    expect.any(String),
+    Severity.MAJOR,
+    expect.objectContaining({ txId: 'txS', index: 5 }),
+    expect.anything(),
+  );
 });

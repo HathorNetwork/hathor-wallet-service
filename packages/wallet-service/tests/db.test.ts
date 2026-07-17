@@ -115,7 +115,7 @@ import {
 } from '@src/types';
 import { Severity } from '@wallet-service/common/src/types';
 import { isAuthority } from '@wallet-service/common/src/utils/wallet.utils';
-import { Bip32Account } from '@wallet-service/common';
+import { Bip32Account, ShieldedOutputMode, RecoveryState } from '@wallet-service/common';
 import {
   closeDbConnection,
   getDbConnection,
@@ -602,6 +602,57 @@ test('addUtxos, getUtxos, unlockUtxos, updateTxOutputSpentBy, unspendUtxos, getT
 
   const countAfterDelete = await countTxOutputTable(mysql);
   expect(countAfterDelete).toStrictEqual(0);
+});
+
+test('getUtxos excludes unrecovered shielded outputs', async () => {
+  expect.hasAssertions();
+
+  await addToUtxoTable(mysql, [{
+    txId: 'txTransparent',
+    index: 0,
+    tokenId: 'token1',
+    address: 'address1',
+    value: 5n,
+    authorities: 0,
+    timelock: null,
+    heightlock: null,
+    locked: false,
+  }, {
+    txId: 'txRecoveredShielded',
+    index: 0,
+    tokenId: 'token1',
+    address: 'address2',
+    value: 10n,
+    authorities: 0,
+    timelock: null,
+    heightlock: null,
+    locked: false,
+    mode: ShieldedOutputMode.AmountShielded,
+    recoveryState: RecoveryState.Recovered,
+  }, {
+    txId: 'txUnrecoveredShielded',
+    index: 0,
+    tokenId: null,
+    address: 'address3',
+    value: null,
+    authorities: 0,
+    timelock: null,
+    heightlock: null,
+    locked: false,
+    mode: ShieldedOutputMode.FullyShielded,
+    recoveryState: RecoveryState.Unowned,
+  } as unknown as DbTxOutput]);
+
+  const results = await getUtxos(mysql, [
+    { txId: 'txTransparent', index: 0 },
+    { txId: 'txRecoveredShielded', index: 0 },
+    { txId: 'txUnrecoveredShielded', index: 0 },
+  ]);
+
+  const returnedKeys = results.map((utxo) => `${utxo.txId}:${utxo.index}`);
+  expect(returnedKeys).toHaveLength(2);
+  expect(returnedKeys).toStrictEqual(expect.arrayContaining(['txTransparent:0', 'txRecoveredShielded:0']));
+  expect(returnedKeys).not.toContain('txUnrecoveredShielded:0');
 });
 
 test('getLockedUtxoFromInputs', async () => {

@@ -26,9 +26,12 @@ import {
   ShieldedTxOutputData,
   ShieldedAddressApiInfo,
 } from '@src/db/shielded';
-import { Bip32Account, RecoveryState, ShieldedOutputMode, isShieldedMode } from '@wallet-service/common';
+import { Bip32Account, RecoveryState, Severity, ShieldedOutputMode, isShieldedMode } from '@wallet-service/common';
+import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
+import createDefaultLogger from '@src/logger';
 
 const mysql = getDbConnection();
+const logger = createDefaultLogger();
 
 const positiveBigInt = Joi.custom(value => {
   const newVal = BigInt(value);
@@ -184,7 +187,7 @@ const hydrateAndFormat = async (
     walletId,
     [...new Set(shielded.map((output) => output.address))],
   );
-  return formatTxOutputEntries(withPath, satellite, shieldedAddresses);
+  return await formatTxOutputEntries(withPath, satellite, shieldedAddresses);
 };
 
 const _getFilteredTxOutputs = async (walletId: string, filters: IFilterTxOutput) => {
@@ -310,39 +313,67 @@ export const mapTxOutputsWithPath = (walletAddresses: AddressInfo[], txOutputs: 
 
 /**
  * Attach the `kind` discriminator and, for shielded entries, the satellite
- * crypto bytes (hex) and CTSpend ownership metadata. The recovered-only
- * filtering upstream guarantees every shielded row here has a satellite row
- * and a claimed CTSpend address row — a miss is a data-integrity bug.
+ * crypto bytes (hex) and CTSpend ownership metadata.
+ *
+ * The recovered-only filtering upstream means every shielded row here is
+ * expected to have a satellite row and a claimed CTSpend address row, but a
+ * miss can still happen (e.g. a partially-written recovery). When that
+ * happens the offending entry is skipped and a MAJOR alert is raised instead
+ * of failing the whole request — one invisible UTXO is a far smaller blast
+ * radius than a 500 on the entire /utxos or /tx_outputs response, which
+ * would otherwise also hide the wallet's unrelated transparent funds.
  */
-export const formatTxOutputEntries = (
+export const formatTxOutputEntries = async (
   txOutputs: DbTxOutputWithPath[],
   satellite: Map<string, ShieldedTxOutputData>,
   shieldedAddresses: Map<string, ShieldedAddressApiInfo>,
-): Record<string, unknown>[] => txOutputs.map((txOutput) => {
-  if (!isShieldedMode(txOutput.mode ?? 0)) {
-    return { ...txOutput, kind: 'transparent' };
+): Promise<Record<string, unknown>[]> => {
+  const entries: Record<string, unknown>[] = [];
+
+  for (const txOutput of txOutputs) {
+    if (!isShieldedMode(txOutput.mode ?? 0)) {
+      entries.push({ ...txOutput, kind: 'transparent' });
+      continue;
+    }
+
+    const data = satellite.get(`${txOutput.txId}:${txOutput.index}`);
+    const addressInfo = shieldedAddresses.get(txOutput.address);
+
+    if (!data || !addressInfo) {
+      const missing = [
+        ...(!data ? ['satellite'] : []),
+        ...(!addressInfo ? ['ownership'] : []),
+      ];
+
+      await addAlert(
+        'Shielded tx output missing satellite/ownership data',
+        `tx_output ${txOutput.txId}:${txOutput.index} is missing its ${missing.join(' and ')} row and was skipped.`,
+        Severity.MAJOR,
+        { txId: txOutput.txId, index: txOutput.index, missing },
+        logger,
+      );
+      continue;
+    }
+
+    entries.push({
+      ...txOutput,
+      kind: 'shielded',
+      ctAddress: addressInfo.ctAddress,
+      shieldedIndex: addressInfo.shieldedIndex,
+      commitment: data.commitment.toString('hex'),
+      ephemeralPubkey: data.ephemeralPubkey.toString('hex'),
+      rangeProof: data.rangeProof.toString('hex'),
+      script: data.script.toString('hex'),
+      ...(txOutput.mode === ShieldedOutputMode.AmountShielded ? { tokenData: data.tokenData } : {}),
+      ...(txOutput.mode === ShieldedOutputMode.FullyShielded ? {
+        assetCommitment: data.assetCommitment.toString('hex'),
+        surjectionProof: data.surjectionProof.toString('hex'),
+      } : {}),
+    });
   }
-  const data = satellite.get(`${txOutput.txId}:${txOutput.index}`);
-  const addressInfo = shieldedAddresses.get(txOutput.address);
-  if (!data || !addressInfo) {
-    throw new Error(`Missing shielded data for tx output ${txOutput.txId}:${txOutput.index}`);
-  }
-  return {
-    ...txOutput,
-    kind: 'shielded',
-    ctAddress: addressInfo.ctAddress,
-    shieldedIndex: addressInfo.shieldedIndex,
-    commitment: data.commitment.toString('hex'),
-    ephemeralPubkey: data.ephemeralPubkey.toString('hex'),
-    rangeProof: data.rangeProof.toString('hex'),
-    script: data.script.toString('hex'),
-    ...(txOutput.mode === ShieldedOutputMode.AmountShielded ? { tokenData: data.tokenData } : {}),
-    ...(txOutput.mode === ShieldedOutputMode.FullyShielded ? {
-      assetCommitment: data.assetCommitment.toString('hex'),
-      surjectionProof: data.surjectionProof.toString('hex'),
-    } : {}),
-  };
-});
+
+  return entries;
+};
 
 /**
  * Confirm that the requested addresses belongs to the user's wallet
