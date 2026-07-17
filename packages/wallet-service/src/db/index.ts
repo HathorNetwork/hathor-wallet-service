@@ -396,11 +396,15 @@ export const registerWalletShieldedKeys = async (
   shieldedMaxGap: number,
 ): Promise<boolean> => {
   const result: OkPacket = await mysql.query(
+    // Attaching keys is a deliberate upgrade — a fresh combined load — so the
+    // legacy retry counter is reset. Guarded on `scan_xpriv IS NULL`, this only
+    // ever fires for the first-time attach, never on a resubmit.
     `UPDATE \`wallet\`
         SET \`scan_xpriv\` = ?,
             \`spend_xpub\` = ?,
             \`shielded_max_gap\` = ?,
-            \`ct_status\` = 'creating'
+            \`ct_status\` = 'creating',
+            \`retry_count\` = 0
       WHERE \`id\` = ? AND \`scan_xpriv\` IS NULL`,
     [Buffer.from(scanXpriv, 'utf8'), spendXpub, shieldedMaxGap, walletId],
   );

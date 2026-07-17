@@ -574,6 +574,12 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
         attachedKeys = await registerWalletShieldedKeys(
           mysql, walletId, value.scanXpriv, value.spendXpub, config.shieldedMaxAddressGap,
         );
+        if (attachedKeys) {
+          // The attach reset retry_count in the db; mirror it in the snapshot so
+          // the max-retries check below lets this upgrade load even if the legacy
+          // side had previously bricked at the cap.
+          wallet.retryCount = 0;
+        }
         if (!attachedKeys) {
           // A concurrent request attached keys between our read and this write.
           // Re-read and hold a differing set to the same conflict rule a
@@ -631,12 +637,19 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
     wallet = await getWallet(mysql, walletId);
   } else {
     // Legacy-only load: the load worker derives the legacy path and
-    // reconstructs its balance (shielded steps are no-ops without keys).
-    try {
-      await invokeLoadWalletAsync(xpubkeyStr, maxGap);
-    } catch (e) {
-      await onAsyncInvokeError(e);
+    // reconstructs its balance (shielded steps are no-ops without keys). A retry
+    // of an errored wallet must CAS error->creating first, so concurrent retries
+    // don't each spawn a duplicate load (same guard the shielded path uses).
+    const shouldInvoke = wallet.status !== WalletStatus.ERROR
+      || await casWalletErrorToCreating(mysql, walletId);
+    if (shouldInvoke) {
+      try {
+        await invokeLoadWalletAsync(xpubkeyStr, maxGap);
+      } catch (e) {
+        await onAsyncInvokeError(e);
+      }
     }
+    wallet = await getWallet(mysql, walletId);
   }
 
   await closeDbConnection(mysql);

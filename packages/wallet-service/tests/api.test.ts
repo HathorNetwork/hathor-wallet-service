@@ -2828,4 +2828,63 @@ describe('shielded wallet registration', () => {
     expect(result.statusCode).toBe(200);
     expect(combined).not.toHaveBeenCalled();
   }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('a legacy-only retry flips an errored wallet to creating before re-invoking', async () => {
+    await cleanDatabase(mysql);
+    const walletId = getWalletId(XPUBKEY);
+    const { combined } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    // transparent-only body — the schema rejects unknown keys, so build it from
+    // getAuthData's fields rather than passing the helper's object (it carries walletId).
+    const { xpubkey, xpubkeySignature, authXpubkey, authXpubkeySignature, firstAddress, timestamp } = getAuthData(now);
+    const body = { xpubkey, xpubkeySignature, authXpubkey, authXpubkeySignature, firstAddress, timestamp };
+    await addToWalletTable(mysql, [{
+      id: walletId, xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY, status: 'error', maxGap: 5, createdAt: 10000, readyAt: 10001,
+    }]);
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(200);
+    expect(combined).toHaveBeenCalledTimes(1);
+    const w = await Db.getWallet(mysql, walletId);
+    expect(w.status).toBe(WalletStatus.CREATING); // CAS flipped it before the invoke
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('a lost legacy CAS race skips the duplicate invoke', async () => {
+    await cleanDatabase(mysql);
+    const walletId = getWalletId(XPUBKEY);
+    const { combined } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    const { xpubkey, xpubkeySignature, authXpubkey, authXpubkeySignature, firstAddress, timestamp } = getAuthData(now);
+    const body = { xpubkey, xpubkeySignature, authXpubkey, authXpubkeySignature, firstAddress, timestamp };
+    await addToWalletTable(mysql, [{
+      id: walletId, xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY, status: 'error', maxGap: 5, createdAt: 10000, readyAt: 10001,
+    }]);
+    jest.spyOn(Db, 'casWalletErrorToCreating').mockResolvedValueOnce(false); // another request won
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(200);
+    expect(combined).not.toHaveBeenCalled();
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('an upgrade of a max-retries wallet resets retry_count and loads', async () => {
+    await cleanDatabase(mysql);
+    const walletId = getWalletId(XPUBKEY);
+    const { combined } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    const body = buildShieldedLoadBody(now);
+    // Legacy wallet bricked at the retry cap, no ct keys yet -> a first-time upgrade.
+    await addToWalletTable(mysql, [{
+      id: walletId, xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY, status: 'error', maxGap: 5, createdAt: 10000, readyAt: 10001,
+    }]);
+    await mysql.query('UPDATE `wallet` SET `retry_count` = 5 WHERE `id` = ?', [walletId]); // MAX in the test env
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    // Honored, not rejected as WALLET_MAX_RETRIES: the attach reset the counter.
+    expect(result.statusCode).toBe(200);
+    expect(combined).toHaveBeenCalledTimes(1);
+    const w = await Db.getWallet(mysql, walletId);
+    expect(w.retryCount).toBe(0);
+    expect(w.ctStatus).toBe(WalletStatus.CREATING);
+    expect(w.scanXpriv).toBe(body.scanXpriv);
+  }, SHIELDED_TEST_TIMEOUT_MS);
 });
