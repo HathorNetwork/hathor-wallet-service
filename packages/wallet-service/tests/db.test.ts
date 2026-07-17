@@ -9,6 +9,7 @@ import {
   createWallet,
   markWalletLoadError,
   markWalletLoadReady,
+  markLegacyLoadError,
   upsertNewAddresses,
   generateAddresses,
   getAddressWalletInfo,
@@ -4043,12 +4044,13 @@ describe('combined-load wallet helpers', () => {
   });
 
   it('markWalletLoadReady flips statuses and resets retry_count', async () => {
-    await mysql.query('UPDATE `wallet` SET `retry_count` = 3, `ct_status` = ? WHERE `id` = ?', ['creating', wid]);
+    await mysql.query('UPDATE `wallet` SET `retry_count` = 3, `ct_status` = ?, `ready_at` = NULL WHERE `id` = ?', ['creating', wid]);
     await markWalletLoadReady(mysql, wid, true);
     let w = await getWallet(mysql, wid);
     expect(w.status).toBe(WalletStatus.READY);
     expect(w.ctStatus).toBe(WalletStatus.READY);
     expect(w.retryCount).toBe(0);
+    expect(w.readyAt).toEqual(expect.any(Number)); // fresh load stamps ready_at
 
     // upgrade variant: transparent already ready and left alone
     await mysql.query('UPDATE `wallet` SET `retry_count` = 2, `ct_status` = ?, `ready_at` = 123 WHERE `id` = ?', ['creating', wid]);
@@ -4060,13 +4062,64 @@ describe('combined-load wallet helpers', () => {
   });
 
   it('markWalletLoadError sets error states with an atomic retry bump', async () => {
+    // A shielded load is mid-flight on both sides — the state this helper runs in.
+    await mysql.query('UPDATE `wallet` SET `ct_status` = ? WHERE `id` = ?', ['creating', wid]);
     await markWalletLoadError(mysql, wid, true);
     let w = await getWallet(mysql, wid);
     expect(w.status).toBe(WalletStatus.ERROR);
     expect(w.ctStatus).toBe(WalletStatus.ERROR);
     expect(w.retryCount).toBe(1);
-    await markWalletLoadError(mysql, wid, false); // upgrade variant: transparent untouched
+    await markWalletLoadError(mysql, wid, false); // upgrade variant: legacy untouched
     w = await getWallet(mysql, wid);
+    expect(w.retryCount).toBe(2);
+  });
+
+  it('markWalletLoadError leaves an already-recovered wallet alone', async () => {
+    // A stale worker reports failure after a later attempt already succeeded:
+    // neither side may be demoted and the retry counter must not move.
+    await mysql.query(
+      'UPDATE `wallet` SET `status` = ?, `ct_status` = ?, `retry_count` = 0 WHERE `id` = ?',
+      ['ready', 'ready', wid],
+    );
+
+    await markWalletLoadError(mysql, wid, true);
+
+    const w = await getWallet(mysql, wid);
+    expect(w.status).toBe(WalletStatus.READY);
+    expect(w.ctStatus).toBe(WalletStatus.READY);
+    expect(w.retryCount).toBe(0);
+  });
+
+  it('markWalletLoadError pins only the shielded side when legacy already errored', async () => {
+    // status='error' / ct_status='ready' — the two legs move independently.
+    await mysql.query(
+      'UPDATE `wallet` SET `status` = ?, `ct_status` = ?, `retry_count` = 0 WHERE `id` = ?',
+      ['error', 'ready', wid],
+    );
+
+    await markWalletLoadError(mysql, wid, false);
+
+    const w = await getWallet(mysql, wid);
+    expect(w.status).toBe(WalletStatus.ERROR); // untouched
+    expect(w.ctStatus).toBe(WalletStatus.READY); // already ready -> not demoted
+    expect(w.retryCount).toBe(0); // guarded write matched nothing
+  });
+
+  it('markLegacyLoadError bumps retry atomically and never demotes a ready wallet', async () => {
+    await markLegacyLoadError(mysql, wid); // status='creating'
+    let w = await getWallet(mysql, wid);
+    expect(w.status).toBe(WalletStatus.ERROR);
+    expect(w.retryCount).toBe(1);
+
+    await markLegacyLoadError(mysql, wid); // retry of an errored wallet still counts
+    w = await getWallet(mysql, wid);
+    expect(w.retryCount).toBe(2);
+
+    // a stale attempt after recovery must not demote or bump
+    await mysql.query('UPDATE `wallet` SET `status` = ? WHERE `id` = ?', ['ready', wid]);
+    await markLegacyLoadError(mysql, wid);
+    w = await getWallet(mysql, wid);
+    expect(w.status).toBe(WalletStatus.READY);
     expect(w.retryCount).toBe(2);
   });
 

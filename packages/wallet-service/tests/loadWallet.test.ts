@@ -21,6 +21,8 @@ import {
 } from '@tests/utils';
 import { resetCtCryptoMock, primeAmountRewind } from '@tests/utils/ct-crypto-mock';
 import { loadWallet } from '@src/api/wallet';
+import * as ShieldedRecovery from '@src/shieldedRecovery';
+import * as ShieldedDb from '@src/db/shielded';
 import * as Db from '@src/db';
 import { createWallet, getWallet, updateWalletStatus } from '@src/db';
 import { DbSelectResult, WalletStatus } from '@src/types';
@@ -122,15 +124,20 @@ describe('loadWallet', () => {
   it('is idempotent: a second run converges without double-crediting', async () => {
     await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, MAX_GAP, { scanXpriv, spendXpub, shieldedMaxGap: SHIELDED_GAP });
     await seedShieldedOutputAt(0, 'ctx2', 0xb2, 700n);
+    // A transparent receive on a legacy address, so the re-load also can't
+    // double-credit the transparent side.
+    await addToAddressTxHistoryTable(mysql, [{ address: ADDRESSES[0], txId: 'ptx2', tokenId: '00', balance: 250n, timestamp: 10 }]);
+    await addToAddressBalanceTable(mysql, [[ADDRESSES[0], '00', 250, 0, null, 1, 0, 0, 250]]);
 
     await runWorker({ xpubkey: XPUBKEY, maxGap: MAX_GAP });
     const result2 = await runWorker({ xpubkey: XPUBKEY, maxGap: MAX_GAP });
     expect(result2).toMatchObject({ success: true });
 
     const wb = (await mysql.query(
-      "SELECT `unlocked_shielded_balance` AS usb FROM `wallet_balance` WHERE `wallet_id` = ? AND `token_id` = '00'", [walletId],
+      "SELECT `unlocked_balance` AS ub, `unlocked_shielded_balance` AS usb FROM `wallet_balance` WHERE `wallet_id` = ? AND `token_id` = '00'", [walletId],
     ))[0];
-    expect(String(wb.usb)).toBe('700'); // not 1400
+    expect(String(wb.usb)).toBe('700'); // shielded not 1400
+    expect(String(wb.ub)).toBe('250'); // transparent not 500
 
     const w = await getWallet(mysql, walletId);
     expect(w.status).toBe(WalletStatus.READY);
@@ -165,6 +172,52 @@ describe('loadWallet', () => {
     expect(w.status).toBe(WalletStatus.ERROR);
     expect(w.ctStatus).toBe(WalletStatus.ERROR);
     expect(w.retryCount).toBe(1);
+  }, COMBINED_TEST_TIMEOUT_MS);
+
+  it('rolls the claim back and marks error when ownership upsert fails', async () => {
+    // The failure lands inside the claim transaction (after the transparent
+    // upsert), exercising the rollback branch — not the pre-transaction path the
+    // other failure test hits.
+    await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, MAX_GAP, { scanXpriv, spendXpub, shieldedMaxGap: SHIELDED_GAP });
+    await seedShieldedOutputAt(0, 'ctx3', 0xc3, 500n);
+    const spy = jest.spyOn(ShieldedDb, 'upsertShieldedAddressOwnership').mockRejectedValueOnce(new Error('claim boom'));
+
+    const result = await runWorker({ xpubkey: XPUBKEY, maxGap: MAX_GAP });
+    expect(result).toMatchObject({ success: false });
+
+    // Nothing from the claim survived: no CTSpend rows were committed.
+    const ctRows = await mysql.query(
+      'SELECT COUNT(*) AS c FROM `address` WHERE `wallet_id` = ? AND `bip32_account` = ?', [walletId, Bip32Account.CTSpend],
+    );
+    expect(Number(ctRows[0].c)).toBe(0);
+    const w = await getWallet(mysql, walletId);
+    expect(w.status).toBe(WalletStatus.ERROR);
+    expect(w.ctStatus).toBe(WalletStatus.ERROR);
+    spy.mockRestore();
+  }, COMBINED_TEST_TIMEOUT_MS);
+
+  it('the settle drain recovers an output that lands between the two sweeps', async () => {
+    // Pins the second findAndRewindShielded: simulate a daemon ingest that writes
+    // an unowned output for a claimed CTSpend address AFTER the first sweep. Only
+    // the second sweep can recover it — deleting that sweep would drop it.
+    await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, MAX_GAP, { scanXpriv, spendXpub, shieldedMaxGap: SHIELDED_GAP });
+    const realRewind = ShieldedRecovery.findAndRewindShielded;
+    let calls = 0;
+    const spy = jest.spyOn(ShieldedRecovery, 'findAndRewindShielded').mockImplementation(async (...args) => {
+      calls += 1;
+      if (calls === 1) {
+        await seedShieldedOutputAt(1, 'ctxLate', 0xd4, 900n); // lands after the claim, before sweep 2
+      }
+      return realRewind(...args);
+    });
+
+    const result = await runWorker({ xpubkey: XPUBKEY, maxGap: MAX_GAP });
+    expect(result).toMatchObject({ success: true });
+    expect(spy).toHaveBeenCalledTimes(2);
+    const out = (await mysql.query("SELECT `recovery_state`, `value` FROM `tx_output` WHERE `tx_id` = 'ctxLate'"))[0];
+    expect(out.recovery_state).toBe('recovered'); // only the second sweep could have done this
+    expect(String(out.value)).toBe('900');
+    spy.mockRestore();
   }, COMBINED_TEST_TIMEOUT_MS);
 
   it('behaves as a transparent-only load for a wallet without shielded keys', async () => {

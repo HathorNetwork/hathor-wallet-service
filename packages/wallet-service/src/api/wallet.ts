@@ -26,6 +26,7 @@ import {
   advanceLastUsedShieldedIndex,
   markWalletLoadReady,
   markWalletLoadError,
+  markLegacyLoadError,
 } from '@src/db';
 import {
   GenerateShieldedAddresses,
@@ -74,6 +75,14 @@ import errorHandler from '@src/api/middlewares/errorHandler';
 const mysql = getDbConnection();
 
 const MAX_LOAD_WALLET_RETRIES: number = config.maxLoadWalletRetries;
+
+/**
+ * Alert-safe error detail. `String(e)` drops the stack of a real Error, leaving
+ * the alert with only a message and no way to join it to the logged throw.
+ */
+const errorDetail = (e: unknown): string => (
+  e instanceof Error ? (e.stack ?? `${e.name}: ${e.message}`) : String(e)
+);
 
 // Network instance used to encode shielded (ct) addresses — carries the
 // shielded/p2pkh version bytes that address derivation reads.
@@ -528,12 +537,17 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
   }
 
   /* The async loads below are invoked as "Event", so we don't care about the
-   * response here, only whether the invocation itself failed. On failure the
-   * wallet is marked 'error' and the latest status is re-read for the response. */
+   * response here, only whether the invocation itself failed. On failure only the
+   * side this request was loading is marked 'error' — an upgrade whose invoke
+   * fails must leave the already-ready legacy wallet working — and the latest
+   * status is re-read for the response. */
   const onAsyncInvokeError = async (e: unknown): Promise<void> => {
     logger.error(e);
-    const newRetryCount = wallet.retryCount ? wallet.retryCount + 1 : 1;
-    await updateWalletStatus(mysql, walletId, WalletStatus.ERROR, newRetryCount);
+    if (hasShielded) {
+      await markWalletLoadError(mysql, walletId, wallet.status !== WalletStatus.READY);
+    } else {
+      await markLegacyLoadError(mysql, walletId);
+    }
     wallet = await getWallet(mysql, walletId);
   };
 
@@ -797,11 +811,19 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
     //    from tx_output), so everything revealed lands in a single rebuild.
     const ctSpendAddresses = hasShieldedKeys ? await getWalletCtSpendAddresses(mysql, walletId) : [];
     if (hasShieldedKeys) {
-      await findAndRewindShielded(mysql, walletId, logger);
+      const firstSweep = await findAndRewindShielded(mysql, walletId, logger);
       // Settle drain: a daemon ingest whose ownership check snapshotted the
       // world before our claim committed lands its output unowned moments
       // later — one more (cheap when empty) sweep closes that window.
-      await findAndRewindShielded(mysql, walletId, logger);
+      const settleSweep = await findAndRewindShielded(mysql, walletId, logger);
+      // A rewind that fails is recorded as `recovery_failed` and re-driven by a
+      // later catch-up, so the load still completes — but the balance is
+      // incomplete until then, so make the count greppable next to the
+      // per-output alerts rather than letting it pass silently.
+      const failedRewinds = firstSweep.failed + settleSweep.failed;
+      if (failedRewinds > 0) {
+        logger.error('Shielded outputs failed to recover during load', { walletId, failed: failedRewinds });
+      }
       await rebuildShieldedAddressBalances(mysql, ctSpendAddresses);
       await rebuildShieldedAddressTxHistory(mysql, ctSpendAddresses);
     }
@@ -817,23 +839,37 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
       await updateWalletStatus(mysql, walletId, WalletStatus.READY);
     }
 
-    await closeDbConnection(mysql);
     return { success: true, walletId, xpubkey };
   } catch (e) {
-    logger.error('Erroed on loadWallet: ', e);
-    await addAlert(
-      'Wallet load failed',
-      `The legacy+shielded load for wallet ${walletId} failed and was marked for retry.`,
-      Severity.MINOR,
-      { wallet_id: walletId, error: String(e), source: 'wallet-service' },
-      logger,
-    );
-    if (hasShieldedKeys) {
-      await markWalletLoadError(mysql, walletId, !legacyWasReady);
-    } else {
-      await updateWalletStatus(mysql, walletId, WalletStatus.ERROR, (wallet.retryCount ?? 0) + 1);
+    logger.error('Errored on loadWallet: ', e);
+    // The dominant failure here is a dead connection/pool, which would make the
+    // recovery writes below throw too. Contain that: a secondary failure must not
+    // escape and flip this Lambda from "don't retry" to the crash/DLQ channel,
+    // where the same degraded pool is waiting.
+    try {
+      await addAlert(
+        'Wallet load failed',
+        `The legacy+shielded load for wallet ${walletId} failed and was marked for retry.`,
+        Severity.MINOR,
+        { wallet_id: walletId, error: errorDetail(e), source: 'wallet-service' },
+        logger,
+      );
+      if (hasShieldedKeys) {
+        await markWalletLoadError(mysql, walletId, !legacyWasReady);
+      } else {
+        await markLegacyLoadError(mysql, walletId);
+      }
+    } catch (recoveryError) {
+      logger.error('Failed to record the load failure', { walletId, originalError: e, recoveryError });
     }
-    await closeDbConnection(mysql);
     return { success: false, walletId, xpubkey };
+  } finally {
+    // Covers both paths — a throw in the finalize writes must not leak the
+    // pooled connection in a long-lived Lambda.
+    try {
+      await closeDbConnection(mysql);
+    } catch (closeError) {
+      logger.error('Failed to close the db connection', { walletId, closeError });
+    }
   }
 };

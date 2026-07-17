@@ -1414,6 +1414,7 @@ test('loadWalletFailed pins both sides for a fresh shielded wallet crash', async
   expect(w.status).toBe(WalletStatus.ERROR);
   expect(w.ctStatus).toBe(WalletStatus.ERROR);
   expect(w.retryCount).toBe(5);
+  expect(w.readyAt).toEqual(expect.any(Number)); // the legacy pin stamps ready_at
 });
 
 test('loadWalletFailed does not demote a shielded wallet that already recovered', async () => {

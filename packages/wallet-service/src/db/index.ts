@@ -372,23 +372,21 @@ export const updateWalletAuthXpub = async (
 };
 
 /**
- * Persist a wallet's shielded registration keys and move its shielded lifecycle
- * into `creating`. `scan_xpriv` is a BLOB: the base58 xpriv is stored as its
- * UTF-8 bytes so it round-trips back to the string address derivation consumes.
+ * Attach shielded keys to a wallet that has none, moving its shielded lifecycle
+ * into `creating`. Returns whether this call actually attached them.
+ *
+ * The `scan_xpriv IS NULL` guard makes this a compare-and-set: concurrent
+ * upgrades of the same wallet race here, and only the winner gets `true`, so
+ * only the winner drives a load.
+ *
+ * `scan_xpriv` is a BLOB: the base58 xpriv is stored as its UTF-8 bytes so it
+ * round-trips back to the string address derivation consumes.
  *
  * @param mysql - Database connection
  * @param walletId - The wallet id
  * @param scanXpriv - The change-level scan xpriv (base58)
  * @param spendXpub - The change-level spend xpub (base58)
  * @param shieldedMaxGap - The shielded gap limit
- */
-/**
- * Attach shielded keys to a wallet that has none, flipping `ct_status` to
- * 'creating'. Returns whether this call actually attached them.
- *
- * The `scan_xpriv IS NULL` guard makes this a compare-and-set: concurrent
- * upgrades of the same wallet race here, and only the winner gets `true`, so
- * only the winner drives a load.
  */
 export const registerWalletShieldedKeys = async (
   mysql: ServerlessMysql,
@@ -488,22 +486,42 @@ export const markWalletLoadError = async (
 ): Promise<void> => {
   if (alsoLegacy) {
     await mysql.query(
-      'UPDATE `wallet` SET `status` = ?, `ct_status` = ?, `retry_count` = `retry_count` + 1 WHERE `id` = ?',
-      [WalletStatus.ERROR, WalletStatus.ERROR, walletId],
+      `UPDATE \`wallet\`
+          SET \`status\` = ?, \`ct_status\` = ?, \`retry_count\` = \`retry_count\` + 1
+        WHERE \`id\` = ? AND \`status\` IN (?, ?) AND \`ct_status\` IN (?, ?)`,
+      [
+        WalletStatus.ERROR, WalletStatus.ERROR, walletId,
+        WalletStatus.CREATING, WalletStatus.ERROR,
+        WalletStatus.CREATING, WalletStatus.ERROR,
+      ],
     );
   } else {
     await mysql.query(
-      'UPDATE `wallet` SET `ct_status` = ?, `retry_count` = `retry_count` + 1 WHERE `id` = ?',
-      [WalletStatus.ERROR, walletId],
+      `UPDATE \`wallet\`
+          SET \`ct_status\` = ?, \`retry_count\` = \`retry_count\` + 1
+        WHERE \`id\` = ? AND \`ct_status\` IN (?, ?)`,
+      [WalletStatus.ERROR, walletId, WalletStatus.CREATING, WalletStatus.ERROR],
     );
   }
 };
 
 /**
- * Atomically transition an errored wallet back to creating before re-invoking
- * the async load. Returns false when there was nothing to flip — the caller
- * lost the race to another request and must not spawn a duplicate load.
+ * Record a legacy-only load failure with an atomic retry bump, under the same
+ * still-mid-load guard: a stale attempt must not demote a wallet another attempt
+ * already recovered, and must not bump its retry counter.
  */
+export const markLegacyLoadError = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+): Promise<void> => {
+  await mysql.query(
+    `UPDATE \`wallet\`
+        SET \`status\` = ?, \`ready_at\` = ?, \`retry_count\` = \`retry_count\` + 1
+      WHERE \`id\` = ? AND \`status\` IN (?, ?)`,
+    [WalletStatus.ERROR, getUnixTimestamp(), walletId, WalletStatus.CREATING, WalletStatus.ERROR],
+  );
+};
+
 /**
  * Pin a crashed wallet's legacy side at the retry cap so it is not retried.
  *
@@ -541,6 +559,15 @@ export const pinShieldedLoadFailed = async (
   );
 };
 
+/**
+ * Compare-and-set (`cas`) an errored wallet back to `creating` before the caller
+ * re-invokes the async load: the read of the current state and the write are one
+ * atomic statement, so concurrent retries of the same wallet cannot both win.
+ *
+ * Returns true only for the request that actually flipped a side out of `error`.
+ * A false return means another request already claimed the retry, and this one
+ * must not spawn a duplicate load.
+ */
 export const casWalletErrorToCreating = async (
   mysql: ServerlessMysql,
   walletId: string,
