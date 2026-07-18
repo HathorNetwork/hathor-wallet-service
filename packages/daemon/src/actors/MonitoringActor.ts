@@ -22,8 +22,9 @@ import { getDbConnection } from '../db';
  * Responsibilities:
  *
  * 1. Idle-stream detection — no EVENT_RECEIVED for >IDLE_EVENT_TIMEOUT_MS while
- *    connected fires a MAJOR alert so operators know the fullnode stream may have
- *    stalled without triggering a WebSocket disconnect.
+ *    connected fires an alert (severity configurable via IDLE_EVENT_SEVERITY,
+ *    default MAJOR) so operators know the fullnode stream may have stalled without
+ *    triggering a WebSocket disconnect.
  *
  * 2. Stuck-processing detection — PROCESSING_STARTED begins a one-shot timer;
  *    PROCESSING_COMPLETED cancels it.  If the timer fires the actor fires a
@@ -45,6 +46,18 @@ export default (callback: any, receive: any, config = getConfig()) => {
   logger.info('Starting monitoring actor');
 
   const idleTimeoutMs = config.IDLE_EVENT_TIMEOUT_MS;
+  // Severity for the idle alert is configurable so low-activity networks can avoid
+  // paging at MAJOR (P2) on benign quiet periods. Validate against the enum and fall
+  // back to MAJOR if the configured value is not a recognised severity.
+  const validSeverities = new Set<string>(Object.values(Severity));
+  let idleSeverity = Severity.MAJOR;
+  if (validSeverities.has(config.IDLE_EVENT_SEVERITY)) {
+    idleSeverity = config.IDLE_EVENT_SEVERITY as Severity;
+  } else {
+    logger.warn(
+      `[monitoring] Unrecognised IDLE_EVENT_SEVERITY "${config.IDLE_EVENT_SEVERITY}" — falling back to ${Severity.MAJOR}`,
+    );
+  }
   const stuckTimeoutMs = config.STUCK_PROCESSING_TIMEOUT_MS;
   const stormThreshold = config.RECONNECTION_STORM_THRESHOLD;
   const stormWindowMs = config.RECONNECTION_STORM_WINDOW_MS;
@@ -75,7 +88,7 @@ export default (callback: any, receive: any, config = getConfig()) => {
           'Daemon Idle — No Events Received',
           `No fullnode events received for ${idleMinutes} minute(s) while the WebSocket is connected. ` +
             'Terminating the process so Kubernetes can restart it.',
-          Severity.MAJOR,
+          idleSeverity,
           { idleMs: String(idleMs) },
           logger,
         ).finally(() => {
