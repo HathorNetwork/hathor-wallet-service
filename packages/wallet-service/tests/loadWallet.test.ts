@@ -203,6 +203,26 @@ describe('loadWallet', () => {
     spy.mockRestore();
   }, COMBINED_TEST_TIMEOUT_MS);
 
+  it('rolls the settle back when the ready flip fails', async () => {
+    // The rebuild and the ready flip share one transaction so the daemon never
+    // sees totals without READY (or READY without totals). If the flip throws,
+    // the rebuild it was grouped with must roll back too.
+    await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, MAX_GAP, { scanXpriv, spendXpub, shieldedMaxGap: SHIELDED_GAP });
+    await seedShieldedOutputAt(0, 'ctxS', 0xaa, 500n);
+    const spy = jest.spyOn(Db, 'markWalletLoadReady').mockRejectedValueOnce(new Error('ready boom'));
+
+    const result = await runWorker({ xpubkey: XPUBKEY, maxGap: MAX_GAP });
+    expect(result).toMatchObject({ success: false });
+
+    // No wallet totals survived the rollback...
+    const wb = await mysql.query('SELECT COUNT(*) AS c FROM `wallet_balance` WHERE `wallet_id` = ?', [walletId]);
+    expect(Number((wb as { c: number }[])[0].c)).toBe(0);
+    // ...and the wallet is not left looking loaded.
+    const w = await getWallet(mysql, walletId);
+    expect(w.status).not.toBe(WalletStatus.READY);
+    spy.mockRestore();
+  }, COMBINED_TEST_TIMEOUT_MS);
+
   it('the settle drain recovers an output that lands between the two sweeps', async () => {
     // Pins the second findAndRewindShielded: simulate a daemon ingest that writes
     // an unowned output for a claimed CTSpend address AFTER the first sweep. Only

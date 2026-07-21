@@ -564,6 +564,29 @@ export const pinShieldedLoadFailed = async (
 };
 
 /**
+ * Take row locks on a wallet's `address_balance` rows for the rest of the
+ * caller's transaction.
+ *
+ * The load finishes by recomputing `wallet_balance` absolutely from these rows
+ * and then flipping the wallet ready. Without the locks the daemon can commit an
+ * `address_balance` write in between: that transaction is skipped for
+ * `wallet_balance` (the wallet is not attributable while loading) *and* missed
+ * by the rebuild's snapshot, so it is lost for good — the daemon only ever
+ * increments from the now-wrong total. Holding the locks makes such a write wait
+ * until the wallet is ready, after which it applies to both tables normally.
+ */
+export const lockAddressBalancesForUpdate = async (
+  mysql: ServerlessMysql,
+  addresses: string[],
+): Promise<void> => {
+  if (addresses.length === 0) return;
+  await mysql.query(
+    'SELECT 1 FROM `address_balance` WHERE `address` IN (?) FOR UPDATE',
+    [addresses],
+  );
+};
+
+/**
  * Compare-and-set (`cas`) an errored wallet back to `creating` before the caller
  * re-invokes the async load: the read of the current state and the write are one
  * atomic statement, so concurrent retries of the same wallet cannot both win.

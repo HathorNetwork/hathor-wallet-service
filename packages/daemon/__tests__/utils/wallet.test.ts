@@ -12,10 +12,14 @@ import {
   EventTxInput,
   EventTxOutput,
   ShieldedOutput,
+  StringMap,
+  Wallet,
+  WalletStatus,
 } from '../../src/types';
 import {
   getInvolvedAddresses,
   getUnifiedBalanceMap,
+  getWalletBalanceMap,
   prepareInputs,
   prepareOutputs,
   unlockUtxos,
@@ -399,5 +403,44 @@ describe('getUnifiedBalanceMap (pure portions)', () => {
     expect(Object.keys(map)).toEqual(['Hnano']);
     expect(map.Hnano).toBeInstanceOf(TokenBalanceMap);
     expect(map.Hnano.get(constants.NATIVE_TOKEN_UID)).toBeDefined();
+  });
+});
+
+describe('getWalletBalanceMap attributability filter', () => {
+  const balances = () => ({
+    addr1: TokenBalanceMap.fromStringMap({ [constants.NATIVE_TOKEN_UID]: { unlocked: 5n, locked: 0n } }),
+  });
+  const walletAt = (status: WalletStatus, ctStatus: WalletStatus | 'none'): StringMap<Wallet> => ({
+    addr1: {
+      walletId: 'w1', xpubkey: 'xpub', authXpubkey: 'auth', maxGap: 20, status, ctStatus,
+    },
+  });
+
+  it('attributes a fully-loaded wallet', () => {
+    const map = getWalletBalanceMap(walletAt(WalletStatus.READY, 'none'), balances());
+    expect(Object.keys(map)).toEqual(['w1']);
+  });
+
+  it('attributes a ready wallet whose shielded side is also ready', () => {
+    const map = getWalletBalanceMap(walletAt(WalletStatus.READY, WalletStatus.READY), balances());
+    expect(Object.keys(map)).toEqual(['w1']);
+  });
+
+  it('skips a wallet whose legacy load is still running', () => {
+    // The load rebuilds wallet_balance absolutely; an increment here would be clobbered.
+    const map = getWalletBalanceMap(walletAt(WalletStatus.CREATING, 'none'), balances());
+    expect(Object.keys(map)).toEqual([]);
+  });
+
+  it('skips a wallet mid shielded upgrade (status ready, ct_status creating)', () => {
+    // The upgrade case: the legacy side is already ready, so a status-only check
+    // would wrongly attribute here while the load is rebuilding both column families.
+    const map = getWalletBalanceMap(walletAt(WalletStatus.READY, WalletStatus.CREATING), balances());
+    expect(Object.keys(map)).toEqual([]);
+  });
+
+  it('skips a wallet whose load errored', () => {
+    const map = getWalletBalanceMap(walletAt(WalletStatus.ERROR, 'none'), balances());
+    expect(Object.keys(map)).toEqual([]);
   });
 });

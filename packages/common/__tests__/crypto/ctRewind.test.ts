@@ -8,6 +8,7 @@
 import {
   rewindAmount,
   rewindFully,
+  normalizeShieldedTokenId,
   RewindError,
   setShieldedCryptoProvider,
   clearShieldedCryptoProvider,
@@ -87,11 +88,11 @@ describe('ctRewind wrapper', () => {
     await expect(rewindFully(fullyArgs())).rejects.toBeInstanceOf(RewindError);
   });
 
-  it('rewindFully delegates and returns the provider result (hex tokenUid)', async () => {
+  it('rewindFully delegates and returns the provider result (custom token passes through)', async () => {
     const result = {
       value: 42n,
       blindingFactor: buf(32, 8),
-      tokenUid: '00'.repeat(32),
+      tokenUid: 'ab'.repeat(32), // custom token uid — already canonical
       assetBlindingFactor: buf(32, 7),
     };
     const received: unknown[][] = [];
@@ -113,5 +114,32 @@ describe('ctRewind wrapper', () => {
       args.rangeProof,
       args.assetCommitment,
     ]);
+  });
+
+  it('rewindFully canonicalizes the native token uid (all-zero -> "00")', async () => {
+    setShieldedCryptoProvider(
+      stubProvider({
+        rewindFullShieldedOutput: async () => ({
+          value: 42n,
+          blindingFactor: buf(32, 8),
+          tokenUid: '00'.repeat(32), // provider yields the raw on-chain native uid
+          assetBlindingFactor: buf(32, 7),
+        }),
+      }),
+    );
+
+    const r = await rewindFully(fullyArgs());
+    expect(r.tokenUid).toBe('00'); // folded to the canonical NATIVE_TOKEN_UID
+    expect(r.value).toBe(42n);
+  });
+});
+
+describe('normalizeShieldedTokenId', () => {
+  it('folds the all-zero native uid to the canonical NATIVE_TOKEN_UID', () => {
+    expect(normalizeShieldedTokenId('00'.repeat(32))).toBe('00');
+  });
+
+  it('leaves a custom token uid unchanged', () => {
+    expect(normalizeShieldedTokenId('ab'.repeat(32))).toBe('ab'.repeat(32));
   });
 });

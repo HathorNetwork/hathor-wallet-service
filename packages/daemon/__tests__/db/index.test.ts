@@ -766,8 +766,14 @@ describe('address and wallet related tests', () => {
 
   test('getAddressWalletInfo', async () => {
     expect.hasAssertions();
-    const wallet1 = { walletId: 'wallet1', xpubkey: 'xpubkey1', authXpubkey: 'authXpubkey', maxGap: 5 };
-    const wallet2 = { walletId: 'wallet2', xpubkey: 'xpubkey2', authXpubkey: 'authXpubkey2', maxGap: 5 };
+    // status/ctStatus come back too — callers need them to tell an attributable
+    // (fully loaded) wallet from one whose load is still rebuilding balances.
+    const wallet1 = {
+      walletId: 'wallet1', xpubkey: 'xpubkey1', authXpubkey: 'authXpubkey', maxGap: 5, status: WalletStatus.READY, ctStatus: 'none',
+    };
+    const wallet2 = {
+      walletId: 'wallet2', xpubkey: 'xpubkey2', authXpubkey: 'authXpubkey2', maxGap: 5, status: WalletStatus.READY, ctStatus: 'none',
+    };
     const finalMap = {
       addr1: wallet1,
       addr2: wallet1,

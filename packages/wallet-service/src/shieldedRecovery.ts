@@ -81,7 +81,7 @@ export const recoverShieldedOutput = async (
         assetCommitment: output.assetCommitment,
       });
       value = r.value;
-      tokenId = r.tokenUid;
+      tokenId = r.tokenUid; // canonicalized by rewindFully (native HTR folded to "00")
     }
 
     await markShieldedTxOutputRecovered(mysql, output.txId, output.index, { value, tokenId });

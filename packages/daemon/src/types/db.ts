@@ -161,6 +161,8 @@ export interface AddressesWalletsRow extends RowDataPacket {
   auth_xpubkey: string,
   xpubkey: string,
   maxGap: number,
+  status: string,
+  ct_status: string,
 }
 
 export interface AddressRow extends RowDataPacket {

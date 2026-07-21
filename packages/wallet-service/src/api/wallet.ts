@@ -20,6 +20,7 @@ import {
   updateWalletAuthXpub,
   registerWalletShieldedKeys,
   casWalletErrorToCreating,
+  lockAddressBalancesForUpdate,
   pinLegacyLoadFailed,
   pinShieldedLoadFailed,
   upsertNewAddresses,
@@ -840,16 +841,30 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
       await rebuildShieldedAddressBalances(mysql, ctSpendAddresses);
       await rebuildShieldedAddressTxHistory(mysql, ctSpendAddresses);
     }
-    await rebuildWalletBalance(mysql, walletId, [...legacy.addresses, ...ctSpendAddresses]);
-    await rebuildWalletTxHistory(mysql, walletId, [...legacy.addresses, ...ctSpendAddresses]);
+    // 4. Settle: recompute the wallet totals and flip it ready as one atomic
+    //    step, holding locks on the address rows the totals are summed from.
+    //    The daemon skips a mid-load wallet's `wallet_balance` but still writes
+    //    `address_balance`, so a write landing between the sum and the ready flip
+    //    would be missed by both — the locks make it wait until we're ready.
+    const ownedAddresses = [...legacy.addresses, ...ctSpendAddresses];
+    await beginTransaction(mysql);
+    try {
+      await lockAddressBalancesForUpdate(mysql, ownedAddresses);
+      await rebuildWalletBalance(mysql, walletId, ownedAddresses);
+      await rebuildWalletTxHistory(mysql, walletId, ownedAddresses);
 
-    if (hasShieldedKeys) {
-      const highestDerivedIndex = shielded.rows[shielded.rows.length - 1].index;
-      await markShieldedCatchupDone(mysql, walletId, highestDerivedIndex);
-      await markWalletLoadReady(mysql, walletId, !legacyWasReady);
-    } else {
-      // Defensive legacy-only path: no shielded lifecycle is fabricated.
-      await updateWalletStatus(mysql, walletId, WalletStatus.READY);
+      if (hasShieldedKeys) {
+        const highestDerivedIndex = shielded.rows[shielded.rows.length - 1].index;
+        await markShieldedCatchupDone(mysql, walletId, highestDerivedIndex);
+        await markWalletLoadReady(mysql, walletId, !legacyWasReady);
+      } else {
+        // Defensive legacy-only path: no shielded lifecycle is fabricated.
+        await updateWalletStatus(mysql, walletId, WalletStatus.READY);
+      }
+      await commitTransaction(mysql);
+    } catch (settleError) {
+      await rollbackTransaction(mysql);
+      throw settleError;
     }
 
     return { success: true, walletId, xpubkey };

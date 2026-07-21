@@ -9,6 +9,7 @@ import {
   DbTxOutput,
   StringMap,
   Wallet,
+  WalletStatus,
   EventTxInput,
   AddressIndexMap,
   LastSyncedEvent,
@@ -1442,11 +1443,15 @@ export const getAddressWalletInfo = async (mysql: MysqlConnection, addresses: st
 
   const addressWalletMap: StringMap<Wallet> = {};
   const [results, _] = await mysql.query<AddressesWalletsRow[]>(
+    // Both lifecycle columns come back so callers can tell an attributable
+    // (fully loaded) wallet from one whose load is still rebuilding balances.
     `SELECT DISTINCT a.\`address\`,
                      a.\`wallet_id\`,
                      w.\`auth_xpubkey\`,
                      w.\`xpubkey\`,
-                     w.\`max_gap\`
+                     w.\`max_gap\`,
+                     w.\`status\`,
+                     w.\`ct_status\`
        FROM \`address\` a
  INNER JOIN \`wallet\` w
          ON a.wallet_id = w.id
@@ -1461,6 +1466,8 @@ export const getAddressWalletInfo = async (mysql: MysqlConnection, addresses: st
       authXpubkey: entry.auth_xpubkey,
       xpubkey: entry.xpubkey,
       maxGap: entry.max_gap,
+      status: entry.status as WalletStatus,
+      ctStatus: entry.ct_status as WalletStatus | 'none',
     };
     addressWalletMap[entry.address] = walletInfo;
   }
