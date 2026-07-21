@@ -519,7 +519,7 @@ export class WalletTokenBalance {
   }
 }
 
-export type OutputKind = 'transparent' | 'shielded' | 'mixed';
+export type TxKind = 'transparent' | 'shielded' | 'mixed';
 
 export interface TxTokenBalance {
   txId: string;
@@ -527,7 +527,7 @@ export interface TxTokenBalance {
   voided: boolean;
   balance: bigint;
   version: number;
-  output_kind: OutputKind;
+  tx_kind: TxKind;
   balanceBreakdown: {
     transparent: bigint;
     shielded: bigint;

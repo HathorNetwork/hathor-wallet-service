@@ -53,7 +53,7 @@ import {
 import {
   getWalletFromDbEntry,
   getTxsFromDBResult,
-  deriveOutputKind,
+  deriveTxKind,
 } from '@src/db/utils';
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 import { TxInput, Severity } from '@wallet-service/common/src/types';
@@ -1537,9 +1537,9 @@ INNER JOIN token ON w.token_id = token.id
 
   const results: DbSelectResult = await mysql.query(query, params);
   for (const result of results) {
-    const totalAmount = BigInt(result.total_received as string);
-    const unlockedBalance = BigInt(result.unlocked_balance as string);
-    const lockedBalance = BigInt(result.locked_balance as string);
+    const totalAmount = dbIntToBigInt(result.total_received);
+    const unlockedBalance = dbIntToBigInt(result.unlocked_balance);
+    const lockedBalance = dbIntToBigInt(result.locked_balance);
     const unlockedShieldedBalance = dbIntToBigInt(result.unlocked_shielded_balance);
     const lockedShieldedBalance = dbIntToBigInt(result.locked_shielded_balance);
     const totalShieldedReceived = dbIntToBigInt(result.total_shielded_received);
@@ -1639,7 +1639,7 @@ LEFT OUTER JOIN transaction ON transaction.tx_id = wallet_tx_history.tx_id
       voided: <boolean>result.voided,
       balance: transparentDelta + shieldedDelta,
       version: <number>result.version,
-      output_kind: deriveOutputKind(transparentDelta, shieldedDelta),
+      tx_kind: deriveTxKind(transparentDelta, shieldedDelta),
       balanceBreakdown: {
         transparent: transparentDelta,
         shielded: shieldedDelta,
@@ -2638,14 +2638,20 @@ export const filterTxOutputs = async (
   const queryParams: any[] = [
     finalFilters.addresses,
     finalFilters.tokenId,
-    ShieldedOutputMode.Transparent,
-    RecoveryState.Recovered,
   ];
 
+  // Mode/recovery filtering is a single mutually-exclusive clause per kind:
+  //  - transparent: only mode 0
+  //  - shielded: only recovered shielded outputs (their value is known)
+  //  - default (no kind): transparent plus recovered shielded
   if (finalFilters.kind === 'transparent') {
     queryParams.push(ShieldedOutputMode.Transparent);
   } else if (finalFilters.kind === 'shielded') {
     queryParams.push([ShieldedOutputMode.AmountShielded, ShieldedOutputMode.FullyShielded]);
+    queryParams.push(RecoveryState.Recovered);
+  } else {
+    queryParams.push(ShieldedOutputMode.Transparent);
+    queryParams.push(RecoveryState.Recovered);
   }
 
   if (finalFilters.authority === 0) {
@@ -2663,9 +2669,9 @@ export const filterTxOutputs = async (
       WHERE \`address\`
          IN (?)
         AND \`token_id\` = ?
-        AND (\`mode\` = ? OR \`recovery_state\` = ?)
         ${finalFilters.kind === 'transparent' ? 'AND `mode` = ?' : ''}
-        ${finalFilters.kind === 'shielded' ? 'AND `mode` IN (?)' : ''}
+        ${finalFilters.kind === 'shielded' ? 'AND `mode` IN (?) AND `recovery_state` = ?' : ''}
+        ${!finalFilters.kind ? 'AND (`mode` = ? OR `recovery_state` = ?)' : ''}
         ${finalFilters.authority !== 0 ? 'AND `authorities` & ? > 0' : 'AND `authorities` = 0'}
         ${finalFilters.ignoreLocked ? 'AND `locked` = FALSE' : ''}
         ${finalFilters.authority === 0 ? 'AND value < ?' : ''}
@@ -3448,7 +3454,6 @@ export const hasTransactionsOnNonFirstAddress = async (
       WHERE \`wallet_id\` = ?
         AND \`index\` > 0
         AND \`transactions\` > 0
-        AND (\`bip32_account\` IS NULL OR \`bip32_account\` <> 2)
       LIMIT 1`,
     [walletId],
   );

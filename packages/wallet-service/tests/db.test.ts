@@ -98,7 +98,7 @@ import {
   rollbackTransaction,
   commitTransaction,
   computeUnifiedStatus,
-  deriveOutputKind,
+  deriveTxKind,
 } from '@src/db/utils';
 import {
   Authorities,
@@ -4232,17 +4232,20 @@ describe('hasTransactionsOnNonFirstAddress', () => {
     expect(result2).toBe(true);
   });
 
-  it('ignores CTSpend usage', async () => {
+  it('counts CTSpend usage beyond the first address', async () => {
     expect.hasAssertions();
 
     const walletId = 'test-wallet';
     await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5);
+    // Only the first Legacy address is used; a CTSpend address at index 5 has
+    // activity. Membership is account-agnostic: any index > 0 with transactions
+    // flips the flag, so a shielded-active wallet is not treated as fresh.
     await addToAddressTable(mysql, [
       { address: ADDRESSES[0], index: 0, walletId, transactions: 3, bip32_account: 0 },
       { address: ADDRESSES[1], index: 5, walletId, transactions: 2, bip32_account: 2, ct_address: 'HshLongCtAddress1' },
     ]);
 
-    expect(await Db.hasTransactionsOnNonFirstAddress(mysql, walletId)).toBe(false);
+    expect(await Db.hasTransactionsOnNonFirstAddress(mysql, walletId)).toBe(true);
   });
 });
 
@@ -4267,14 +4270,14 @@ describe('computeUnifiedStatus', () => {
   });
 });
 
-describe('deriveOutputKind', () => {
+describe('deriveTxKind', () => {
   it('classifies by which deltas are non-zero', () => {
-    expect(deriveOutputKind(150n, 0n)).toBe('transparent');
-    expect(deriveOutputKind(0n, 150n)).toBe('shielded');
-    expect(deriveOutputKind(-50n, 100n)).toBe('mixed');
-    expect(deriveOutputKind(0n, -25n)).toBe('shielded');
+    expect(deriveTxKind(150n, 0n)).toBe('transparent');
+    expect(deriveTxKind(0n, 150n)).toBe('shielded');
+    expect(deriveTxKind(-50n, 100n)).toBe('mixed');
+    expect(deriveTxKind(0n, -25n)).toBe('shielded');
     // a net-zero row keeps its historical transparent reading
-    expect(deriveOutputKind(0n, 0n)).toBe('transparent');
+    expect(deriveTxKind(0n, 0n)).toBe('transparent');
   });
 });
 
