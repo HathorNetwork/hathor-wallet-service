@@ -374,7 +374,7 @@ test('GET /addresses legacy param selects the derivation account', async () => {
   expect(result.statusCode).toBe(404);
 });
 
-test('POST /addresses/check_mine resolves membership within the selected account', async () => {
+test('POST /addresses/check_mine resolves membership across all accounts', async () => {
   expect.hasAssertions();
 
   await addToWalletTable(mysql, [{
@@ -392,29 +392,18 @@ test('POST /addresses/check_mine resolves membership within the selected account
     { address: ADDRESSES[1], index: 0, walletId: 'my-wallet', transactions: 1, bip32_account: 2, ct_address: 'HshLongCtAddress1' },
   ]);
 
-  // default: legacy account only
-  let event = makeGatewayEventWithAuthorizer('my-wallet', null, JSON.stringify({
-    addresses: [ADDRESSES[0], ADDRESSES[1]],
+  // A wallet owns both its Legacy and its CTSpend addresses; a foreign address is not mine.
+  // check_mine returns only a boolean membership map, so it never filters by account.
+  const event = makeGatewayEventWithAuthorizer('my-wallet', null, JSON.stringify({
+    addresses: [ADDRESSES[0], ADDRESSES[1], ADDRESSES[2]],
   }));
-  let result = await checkMine(event, null, null) as APIGatewayProxyResult;
-  let returnBody = JSON.parse(result.body as string);
+  const result = await checkMine(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
   expect(result.statusCode).toBe(200);
   expect(returnBody.addresses).toStrictEqual({
     [ADDRESSES[0]]: true,
-    [ADDRESSES[1]]: false,
-  });
-
-  // legacy=false: CTSpend account only
-  event = makeGatewayEventWithAuthorizer('my-wallet', null, JSON.stringify({
-    addresses: [ADDRESSES[0], ADDRESSES[1]],
-    legacy: false,
-  }));
-  result = await checkMine(event, null, null) as APIGatewayProxyResult;
-  returnBody = JSON.parse(result.body as string);
-  expect(result.statusCode).toBe(200);
-  expect(returnBody.addresses).toStrictEqual({
-    [ADDRESSES[0]]: false,
     [ADDRESSES[1]]: true,
+    [ADDRESSES[2]]: false,
   });
 });
 

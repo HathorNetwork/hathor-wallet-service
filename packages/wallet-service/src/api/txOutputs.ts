@@ -210,7 +210,10 @@ const _getFilteredTxOutputs = async (walletId: string, filters: IFilterTxOutput)
       const isUnrecoveredShielded = isShieldedMode(txOutput.mode ?? 0)
         && txOutput.recoveryState !== RecoveryState.Recovered;
 
-      if (!isUnrecoveredShielded) {
+      const kindMismatch = (filters.kind === 'transparent' && isShieldedMode(txOutput.mode ?? 0))
+        || (filters.kind === 'shielded' && !isShieldedMode(txOutput.mode ?? 0));
+
+      if (!isUnrecoveredShielded && !kindMismatch) {
         txOutputList = await hydrateAndFormat(walletId, walletAddresses, [txOutput]);
       }
     }

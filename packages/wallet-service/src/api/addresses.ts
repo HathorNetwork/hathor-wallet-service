@@ -33,7 +33,6 @@ const checkMineBodySchema = Joi.object({
     .min(1)
     .max(512) // max number of addresses in a tx (256 outputs and 256 inputs)
     .required(),
-  legacy: Joi.boolean().default(true),
 });
 
 class AddressAtIndexValidator {
@@ -90,8 +89,10 @@ export const checkMine: APIGatewayProxyHandler = middy(walletIdProxyHandler(asyn
   }
 
   const sentAddresses = value.addresses;
-  const account = value.legacy ? Bip32Account.Legacy : Bip32Account.CTSpend;
-  const dbWalletAddresses: AddressInfo[] = await getWalletAddresses(mysql, walletId, sentAddresses, account);
+  // Membership is account-agnostic: an address is "mine" if the wallet owns it,
+  // whether it is a Legacy or a CTSpend address. The response is a boolean map
+  // with no account-specific fields, so there is nothing to scope by account.
+  const dbWalletAddresses: AddressInfo[] = await getWalletAddresses(mysql, walletId, sentAddresses);
   const walletAddresses: Set<string> = dbWalletAddresses.reduce((acc, { address }) => acc.add(address), new Set([]));
 
   await closeDbConnection(mysql);

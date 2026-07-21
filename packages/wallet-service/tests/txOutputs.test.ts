@@ -1548,6 +1548,36 @@ test('GET /wallet/tx_outputs txId+index of an unrecovered shielded output return
   expect(returnBody.txOutputs).toStrictEqual([]);
 });
 
+test('GET /wallet/tx_outputs txId+index honors the kind filter', async () => {
+  expect.hasAssertions();
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet', xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY,
+    status: 'ready', maxGap: 5, createdAt: 10000, readyAt: 10001,
+  }]);
+  await addToAddressTable(mysql, [
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 1, bip32_account: 0 },
+  ]);
+  await addToUtxoTable(mysql, [{
+    txId: 'txT', index: 2, tokenId: '00', address: ADDRESSES[0], value: 500n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+  }]);
+
+  // kind=transparent matches the transparent output
+  let event = makeGatewayEventWithAuthorizer('my-wallet', { txId: 'txT', index: '2', kind: 'transparent' });
+  let result = await getFilteredTxOutputs(event, null, null) as APIGatewayProxyResult;
+  let returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.txOutputs).toHaveLength(1);
+  expect(returnBody.txOutputs[0].kind === 'transparent').toBe(true);
+
+  // kind=shielded excludes the same transparent output
+  event = makeGatewayEventWithAuthorizer('my-wallet', { txId: 'txT', index: '2', kind: 'shielded' });
+  result = await getFilteredTxOutputs(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.txOutputs).toStrictEqual([]);
+});
+
 test('GET /wallet/tx_outputs degrades and alerts on a shielded row missing its satellite data', async () => {
   expect.hasAssertions();
   await addToWalletTable(mysql, [{
