@@ -61,6 +61,7 @@ import {
   markUtxosAsVoided,
   unspendUtxos,
   filterTxOutputs,
+  mapDbResultToDbTxOutput,
   getTxProposalInputs,
   addMiner,
   getMinersList,
@@ -1519,7 +1520,7 @@ test('markUtxosWithProposalId and getTxProposalInputs', async () => {
   const address = 'address';
   const txProposalId = 'txProposalId';
 
-  const utxos = [{
+  const utxos: DbTxOutput[] = [{
     txId,
     index: 0,
     tokenId,
@@ -1988,7 +1989,7 @@ test('cleanupVoidedTx', async () => {
     [txId2, 0, 1, false, 0, 0],
   ]);
 
-  const utxo2 = {
+  const utxo2: DbTxOutput = {
     txId: txId2,
     index: 0,
     tokenId,
@@ -2775,6 +2776,15 @@ test('getExpiredTimelocksUtxos', async () => {
   expect(unlockedUtxos3).toHaveLength(3);
   // last one is an authority utxo
   expect(unlockedUtxos3[2].authorities).toStrictEqual(Number(outputs[4].value));
+});
+
+test('mapDbResultToDbTxOutput throws loudly on a NULL value', () => {
+  expect.hasAssertions();
+  // An unrecovered shielded row (value NULL) must be filtered out before mapping;
+  // a NULL reaching the mapper is an integrity violation and must not be coerced
+  // into a spendable-looking zero.
+  expect(() => mapDbResultToDbTxOutput({ tx_id: 'txU', index: 4, value: null, mode: 2 }))
+    .toThrow('tx_output txU:4 has a NULL value');
 });
 
 test('getExpiredTimelocksUtxos ignores shielded outputs', async () => {

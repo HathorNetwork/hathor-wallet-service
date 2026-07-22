@@ -11,7 +11,7 @@ import { TxInput, TxOutput } from '@wallet-service/common/src/types';
 
 import hathorLib, { TokenVersion } from '@hathor/wallet-lib';
 import { isAuthority } from '@wallet-service/common/src/utils/wallet.utils';
-import { RecoveryState } from '@wallet-service/common';
+import { RecoveryState, ShieldedOutputMode } from '@wallet-service/common';
 
 import {
   APIGatewayProxyEvent,
@@ -743,7 +743,7 @@ export interface DbTxOutput {
   txProposalId?: string;
   txProposalIndex?: number;
   voided?: boolean | null;
-  mode?: number;
+  mode?: ShieldedOutputMode;
   recoveryState?: RecoveryState | null;
 }
 
@@ -790,6 +790,29 @@ export interface IWalletInsufficientFunds {
 export interface DbTxOutputWithPath extends DbTxOutput {
   addressPath: string;
 }
+
+// The `/utxos` + `/tx_outputs` response entry: a discriminated union on `kind`.
+// Transparent entries are the tx_output-with-path shape; shielded entries add the
+// hydrated CT metadata and hex-encoded satellite bytes (mode-specific fields are
+// optional here — `tokenData` for AmountShielded, asset fields for FullyShielded).
+export interface TransparentTxOutputEntry extends DbTxOutputWithPath {
+  kind: 'transparent';
+}
+
+export interface ShieldedTxOutputEntry extends DbTxOutputWithPath {
+  kind: 'shielded';
+  ctAddress: string;
+  shieldedIndex: number;
+  commitment: string;
+  ephemeralPubkey: string;
+  rangeProof: string;
+  script: string;
+  tokenData?: number | null;
+  assetCommitment?: string;
+  surjectionProof?: string;
+}
+
+export type TxOutputEntry = TransparentTxOutputEntry | ShieldedTxOutputEntry;
 
 export interface Miner {
   address: string;

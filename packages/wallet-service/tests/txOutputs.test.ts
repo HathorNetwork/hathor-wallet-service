@@ -18,6 +18,7 @@ import {
   AUTH_XPUBKEY,
 } from '@tests/utils';
 import { ApiError } from '@src/api/errors';
+import { DbTxOutput } from '@src/types';
 import { APIGatewayProxyResult } from 'aws-lambda';
 
 const mysql = getDbConnection();
@@ -874,7 +875,7 @@ test('get spent tx_output', async () => {
 
   const token1 = '004d75c1edd4294379e7e5b7ab6c118c53c8b07a506728feb5688c8d26a97e50';
 
-  const txOutputs = [{
+  const txOutputs: DbTxOutput[] = [{
     txId: TX_IDS[0],
     index: 0,
     tokenId: token1,
@@ -1486,6 +1487,44 @@ test('GET /wallet/tx_outputs kind filter selects one side', async () => {
   event = makeGatewayEventWithAuthorizer('my-wallet', { kind: 'purple' });
   result = await getFilteredTxOutputs(event, null, null) as APIGatewayProxyResult;
   expect(result.statusCode).toBe(400);
+});
+
+test('GET /wallet/tx_outputs totalAmount without kind selects only transparent UTXOs', async () => {
+  expect.hasAssertions();
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet', xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY,
+    status: 'ready', maxGap: 5, createdAt: 10000, readyAt: 10001,
+  }]);
+  await addToAddressTable(mysql, [
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 1, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 7, walletId: 'my-wallet', transactions: 1, bip32_account: 2, ct_address: 'HshLongCtAddress1' },
+  ]);
+  await addToUtxoTable(mysql, [{
+    txId: 'txT', index: 2, tokenId: '00', address: ADDRESSES[0], value: 100n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+  }, {
+    txId: 'txS', index: 5, tokenId: '00', address: ADDRESSES[1], value: 100n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+    mode: 1, recoveryState: 'recovered',
+  }]);
+  await addToShieldedTxOutputDataTable(mysql, [{
+    txId: 'txS', index: 5,
+    commitment: Buffer.from('aa'.repeat(33), 'hex'),
+    rangeProof: Buffer.from('bb'.repeat(64), 'hex'),
+    script: Buffer.from('cc'.repeat(4), 'hex'),
+    ephemeralPubkey: Buffer.from('dd'.repeat(33), 'hex'),
+    tokenData: 1,
+  }]);
+
+  // A funding selection with no explicit kind must not hand a shielded output to a
+  // transparent spend: only the transparent UTXO can satisfy totalAmount here.
+  const event = makeGatewayEventWithAuthorizer('my-wallet', { tokenId: '00', totalAmount: '50' });
+  const result = await getFilteredTxOutputs(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.txOutputs).toHaveLength(1);
+  expect(returnBody.txOutputs[0].txId).toBe('txT');
+  expect(returnBody.txOutputs[0].kind === 'transparent').toBe(true);
 });
 
 test('GET /wallet/tx_outputs mode-2 entry carries asset fields and no tokenData', async () => {

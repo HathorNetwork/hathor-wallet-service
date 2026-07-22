@@ -121,7 +121,7 @@ export interface ShieldedOutputToRecover {
   index: number;
   address: string;
   /** 1 = AmountShielded (token known), 2 = FullyShielded (token recovered by rewind). */
-  mode: number;
+  mode: ShieldedOutputMode;
   /** Set for AmountShielded at observe time; NULL for FullyShielded until recovered. */
   tokenId: string | null;
   scanPrivkey: Buffer;
@@ -180,7 +180,7 @@ export const getShieldedOutputsToRecover = async (
     txId: row.tx_id as string,
     index: row.index as number,
     address: row.address as string,
-    mode: row.mode as number,
+    mode: row.mode as ShieldedOutputMode,
     tokenId: (row.token_id ?? null) as string | null,
     scanPrivkey: row.scan_privkey as Buffer,
     ephemeralPubkey: row.ephemeral_pubkey as Buffer,

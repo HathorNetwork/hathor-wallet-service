@@ -13,6 +13,7 @@ import {
   DbTxOutputWithPath,
   IFilterTxOutput,
   AddressInfo,
+  TxOutputEntry,
 } from '@src/types';
 import { closeDbAndGetError } from '@src/api/utils';
 import { getDbConnection } from '@src/utils';
@@ -172,7 +173,7 @@ const hydrateAndFormat = async (
   walletId: string,
   walletAddresses: AddressInfo[],
   txOutputs: DbTxOutput[],
-): Promise<Record<string, unknown>[]> => {
+): Promise<TxOutputEntry[]> => {
   const withPath = mapTxOutputsWithPath(walletAddresses, txOutputs);
   const shielded = withPath.filter((output) => isShieldedMode(output.mode ?? 0));
   if (shielded.length === 0) {
@@ -195,7 +196,7 @@ const _getFilteredTxOutputs = async (walletId: string, filters: IFilterTxOutput)
 
   // txId will only be on the body when the user is searching for specific tx outputs
   if (filters.txId !== undefined) {
-    let txOutputList: Record<string, unknown>[] = [];
+    let txOutputList: TxOutputEntry[] = [];
     const txOutput: DbTxOutput = await getTxOutput(mysql, filters.txId, filters.index, filters.skipSpent);
 
     if (txOutput) {
@@ -230,6 +231,15 @@ const _getFilteredTxOutputs = async (walletId: string, filters: IFilterTxOutput)
   const newFilters = {
     ...filters,
   };
+
+  // The amount-selection path exists to be spent: selectUtxos treats every row as
+  // fungible-by-value, but a shielded output carries a shielded script a
+  // transparent input can't consume. When the caller asks for an amount without an
+  // explicit kind, restrict selection to transparent; an explicit kind=shielded is
+  // still honored.
+  if ((newFilters.totalAmount || newFilters.maxAmount) && !newFilters.kind) {
+    newFilters.kind = 'transparent';
+  }
 
   if (newFilters.addresses) {
     const denied = validateAddresses(walletAddresses, newFilters.addresses);
@@ -330,8 +340,8 @@ export const formatTxOutputEntries = async (
   txOutputs: DbTxOutputWithPath[],
   satellite: Map<string, ShieldedTxOutputData>,
   shieldedAddresses: Map<string, ShieldedAddressApiInfo>,
-): Promise<Record<string, unknown>[]> => {
-  const entries: Record<string, unknown>[] = [];
+): Promise<TxOutputEntry[]> => {
+  const entries: TxOutputEntry[] = [];
 
   for (const txOutput of txOutputs) {
     if (!isShieldedMode(txOutput.mode ?? 0)) {

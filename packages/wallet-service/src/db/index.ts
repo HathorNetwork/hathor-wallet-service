@@ -954,8 +954,9 @@ export const getTxOutput = async (
       WHERE \`tx_id\` = ?
         AND \`index\` = ?
         ${skipSpent ? 'AND `spent_by` IS NULL' : ''}
-        AND \`voided\` = FALSE`,
-    [txId, index],
+        AND \`voided\` = FALSE
+        AND (\`mode\` = ? OR \`recovery_state\` = ?)`,
+    [txId, index, ShieldedOutputMode.Transparent, RecoveryState.Recovered],
   );
 
   if (!results.length || results.length === 0) {
@@ -2721,22 +2722,31 @@ export const filterTxOutputs = async (
  * @param results - The tx_output results from the database
  * @returns A list of tx_outputs mapped to the DbTxOutput type
  */
-export const mapDbResultToDbTxOutput = (result: any): DbTxOutput => ({
-  txId: result.tx_id as string,
-  index: result.index as number,
-  tokenId: result.token_id as string,
-  address: result.address as string,
-  value: BigInt(result.value ?? 0),
-  authorities: result.authorities as number,
-  timelock: result.timelock as number,
-  heightlock: result.heightlock as number,
-  locked: result.locked > 0,
-  txProposalId: result.tx_proposal as string,
-  txProposalIndex: result.tx_proposal_index as number,
-  spentBy: result.spent_by as string,
-  mode: (result.mode ?? 0) as number,
-  recoveryState: (result.recovery_state ?? null) as RecoveryState | null,
-});
+export const mapDbResultToDbTxOutput = (result: any): DbTxOutput => {
+  // `value` is a NOT-NULL money column for transparent and recovered shielded
+  // rows; it is only NULL on an unrecovered shielded row, which every caller must
+  // exclude in SQL. A NULL reaching here is a real integrity violation — fail
+  // loudly rather than silently coerce it into a spendable-looking zero.
+  if (result.value == null) {
+    throw new Error(`tx_output ${result.tx_id}:${result.index} has a NULL value; unrecovered shielded rows must be filtered out before mapping`);
+  }
+  return {
+    txId: result.tx_id as string,
+    index: result.index as number,
+    tokenId: result.token_id as string,
+    address: result.address as string,
+    value: BigInt(result.value),
+    authorities: result.authorities as number,
+    timelock: result.timelock as number,
+    heightlock: result.heightlock as number,
+    locked: result.locked > 0,
+    txProposalId: result.tx_proposal as string,
+    txProposalIndex: result.tx_proposal_index as number,
+    spentBy: result.spent_by as string,
+    mode: (result.mode ?? 0) as ShieldedOutputMode,
+    recoveryState: (result.recovery_state ?? null) as RecoveryState | null,
+  };
+};
 
 /**
  * Get tx proposal inputs.
