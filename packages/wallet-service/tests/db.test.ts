@@ -4338,9 +4338,12 @@ describe('combined-load wallet helpers', () => {
     await mysql.query('INSERT INTO `address` (`address`, `index`, `wallet_id`, `transactions`) VALUES (?, 1, ?, 2)', ['addr1', wid]);
     await mysql.query('UPDATE `wallet` SET `last_used_address_index` = 7 WHERE `id` = ?', [wid]);
     await upsertNewAddresses(mysql, wid, { addr0: 0, addr1: 1 }, 3); // stale frontier 3
-    const rows = await mysql.query('SELECT `address`, `transactions` FROM `address` ORDER BY `index`');
+    const rows = await mysql.query('SELECT `address`, `transactions`, `bip32_account` FROM `address` ORDER BY `index`') as unknown as Array<{ transactions: number; bip32_account: number }>;
     expect(rows).toHaveLength(2); // no dup-key crash
     expect(Number(rows[1].transactions)).toBe(2); // untouched on duplicate
+    // claimed legacy addresses carry an explicit account, including the row that
+    // pre-existed with a NULL account and was claimed here
+    expect(rows.map((row) => Number(row.bip32_account))).toStrictEqual([0, 0]);
     const w = await getWallet(mysql, wid);
     expect(w.lastUsedAddressIndex).toBe(7); // GREATEST kept the newer frontier
   });

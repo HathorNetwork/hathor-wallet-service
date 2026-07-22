@@ -74,7 +74,7 @@ import {
   createOutput,
   XPUBKEY,
 } from '../utils';
-import { isAuthority } from '@wallet-service/common';
+import { isAuthority, Bip32Account } from '@wallet-service/common';
 import { DbTxOutput, StringMap, TokenInfo, WalletStatus } from '../../src/types';
 import { Authorities, TokenBalanceMap } from '@wallet-service/common';
 import { constants, TokenVersion } from '@hathor/wallet-lib';
@@ -976,6 +976,10 @@ describe('address and wallet related tests', () => {
     for (const [index, address] of ADDRESSES.entries()) {
       await expect(checkAddressTable(mysql, ADDRESSES.length, address, index, walletId, 0)).resolves.toBe(true);
     }
+
+    // claimed legacy addresses carry an explicit account (never NULL)
+    const [accountRows] = await mysql.query('SELECT DISTINCT `bip32_account` FROM `address`');
+    expect((accountRows as Array<{ bip32_account: number }>).map((row) => Number(row.bip32_account))).toStrictEqual([Bip32Account.Legacy]);
   });
 
   test('updateWalletTablesWithTx', async () => {

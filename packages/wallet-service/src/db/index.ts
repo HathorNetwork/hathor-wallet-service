@@ -426,11 +426,14 @@ export const upsertNewAddresses = async (
   lastUsedAddressIndex: number,
 ): Promise<void> => {
   if (Object.keys(addresses).length > 0) {
-    const entries = Object.entries(addresses).map(([address, index]) => [address, index, walletId, 0]);
+    // Claimed legacy addresses carry an explicit account: an owned address never
+    // has a NULL bip32_account. Set it on insert and when an unowned observation
+    // row is claimed (ON DUPLICATE).
+    const entries = Object.entries(addresses).map(([address, index]) => [address, index, walletId, 0, Bip32Account.Legacy]);
     await mysql.query(
-      `INSERT INTO \`address\`(\`address\`, \`index\`, \`wallet_id\`, \`transactions\`)
+      `INSERT INTO \`address\`(\`address\`, \`index\`, \`wallet_id\`, \`transactions\`, \`bip32_account\`)
        VALUES ?
-       ON DUPLICATE KEY UPDATE \`wallet_id\` = VALUES(\`wallet_id\`), \`index\` = VALUES(\`index\`)`,
+       ON DUPLICATE KEY UPDATE \`wallet_id\` = VALUES(\`wallet_id\`), \`index\` = VALUES(\`index\`), \`bip32_account\` = VALUES(\`bip32_account\`)`,
       [entries],
     );
   }
@@ -1470,8 +1473,29 @@ export const getWalletAddresses = async (
  * @param walletId - Wallet id
  * @returns A list of addresses and their indexes
  */
-export const getNewAddresses = async (mysql: ServerlessMysql, wallet: Wallet): Promise<ShortAddressInfo[]> => {
+export const getNewAddresses = async (
+  mysql: ServerlessMysql,
+  wallet: Wallet,
+  account: Bip32Account = Bip32Account.Legacy,
+): Promise<ShortAddressInfo[]> => {
   const addresses: ShortAddressInfo[] = [];
+
+  // Each account has its own frontier (last used index) and gap limit. A wallet
+  // with no shielded keys has no shielded gap and no CTSpend rows, so there is
+  // nothing to return for that account.
+  const isCtSpend = account === Bip32Account.CTSpend;
+  const frontier = isCtSpend ? (wallet.lastUsedShieldedIndex ?? -1) : wallet.lastUsedAddressIndex;
+  const gap = isCtSpend ? wallet.shieldedMaxGap : wallet.maxGap;
+  if (gap == null) {
+    return addresses;
+  }
+  // An owned address always has its account set; a NULL `bip32_account` marks an
+  // unowned observation row whose account is not yet known, so it is never a
+  // candidate here.
+  const accountFilter = isCtSpend
+    ? `AND \`bip32_account\` = ${Bip32Account.CTSpend}`
+    : `AND \`bip32_account\` = ${Bip32Account.Legacy}`;
+
   // Select all addresses that are empty and the index is bigger than the last used address index
   const results: DbSelectResult = await mysql.query(`
     SELECT *
@@ -1479,17 +1503,17 @@ export const getNewAddresses = async (mysql: ServerlessMysql, wallet: Wallet): P
      WHERE \`wallet_id\` = ?
        AND \`transactions\` = 0
        AND \`index\` > ?
-       AND (\`bip32_account\` IS NULL OR \`bip32_account\` <> 2)
+       ${accountFilter}
   ORDER BY \`index\`
        ASC
-  LIMIT ?`, [wallet.walletId, wallet.lastUsedAddressIndex, wallet.maxGap]);
+  LIMIT ?`, [wallet.walletId, frontier, gap]);
 
   for (const result of results) {
     const index = result.index as number;
     const address = {
       address: result.address as string,
       index,
-      addressPath: getAddressPath(index),
+      addressPath: getAddressPath(index, account),
     };
     addresses.push(address);
   }

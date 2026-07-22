@@ -7,7 +7,9 @@
 
 import 'source-map-support/register';
 
+import Joi from 'joi';
 import { APIGatewayProxyHandler } from 'aws-lambda';
+import { Bip32Account } from '@wallet-service/common';
 import { ApiError } from '@src/api/errors';
 import { closeDbAndGetError, warmupMiddleware } from '@src/api/utils';
 import {
@@ -23,13 +25,37 @@ import errorHandler from '@src/api/middlewares/errorHandler';
 
 const mysql = getDbConnection();
 
+const paramsSchema = Joi.object({
+  legacy: Joi.boolean().default(true),
+});
+
 /*
  * Get the addresses of a wallet to be used in new transactions
  * It returns the empty addresses after the last used one
  *
+ * By default it returns the Legacy (account 0) unused addresses. With
+ * `?legacy=false` it returns the CTSpend (account 2) unused addresses under
+ * `addresses` and keeps the Legacy ones under `legacyAddresses`.
+ *
  * This lambda is called by API Gateway on GET /addresses/new
  */
-export const get: APIGatewayProxyHandler = middy(walletIdProxyHandler(async (walletId) => {
+export const get: APIGatewayProxyHandler = middy(walletIdProxyHandler(async (walletId, event) => {
+  const params = event.queryStringParameters || {};
+
+  const { value, error } = paramsSchema.validate(params, {
+    abortEarly: false,
+    convert: true, // query-string params always arrive as strings
+  });
+
+  if (error) {
+    const details = error.details.map((err) => ({
+      message: err.message,
+      path: err.path,
+    }));
+
+    return closeDbAndGetError(mysql, ApiError.INVALID_PAYLOAD, { details });
+  }
+
   const wallet = await getWallet(mysql, walletId);
 
   if (!wallet) {
@@ -39,13 +65,23 @@ export const get: APIGatewayProxyHandler = middy(walletIdProxyHandler(async (wal
     return closeDbAndGetError(mysql, ApiError.WALLET_NOT_READY);
   }
 
-  const addresses = await getNewAddresses(mysql, wallet);
+  if (value.legacy) {
+    const addresses = await getNewAddresses(mysql, wallet, Bip32Account.Legacy);
+    await closeDbConnection(mysql);
+    return {
+      statusCode: 200,
+      body: JSON.stringify({ success: true, addresses }),
+    };
+  }
+
+  const addresses = await getNewAddresses(mysql, wallet, Bip32Account.CTSpend);
+  const legacyAddresses = await getNewAddresses(mysql, wallet, Bip32Account.Legacy);
 
   await closeDbConnection(mysql);
 
   return {
     statusCode: 200,
-    body: JSON.stringify({ success: true, addresses }),
+    body: JSON.stringify({ success: true, addresses, legacyAddresses }),
   };
 })).use(cors())
   .use(warmupMiddleware())

@@ -69,4 +69,6 @@ export interface WalletTableEntry {
   createdAt: number;
   readyAt: number;
   ctStatus?: string;
+  shieldedMaxGap?: number | null;
+  lastUsedShieldedIndex?: number | null;
 }

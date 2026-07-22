@@ -676,6 +676,10 @@ export const addToWalletTable = async (
     entry.createdAt,
     entry.readyAt,
     entry.ctStatus ?? 'none',
+    // Mirror the column default (SMALLINT DEFAULT 20) so seeding a wallet without
+    // an explicit shielded gap matches what production writes.
+    entry.shieldedMaxGap ?? 20,
+    entry.lastUsedShieldedIndex ?? null,
   ]);
   await mysql.query(`
     INSERT INTO \`wallet\`(\`id\`, \`xpubkey\`,
@@ -683,7 +687,8 @@ export const addToWalletTable = async (
                            \`auth_xpubkey\`,
                            \`status\`, \`max_gap\`,
                            \`created_at\`, \`ready_at\`,
-                           \`ct_status\`)
+                           \`ct_status\`,
+                           \`shielded_max_gap\`, \`last_used_shielded_index\`)
     VALUES ?`,
   [payload]);
 };

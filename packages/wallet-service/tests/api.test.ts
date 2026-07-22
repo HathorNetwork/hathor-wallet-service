@@ -453,6 +453,55 @@ test('GET /addresses/new', async () => {
   expect(returnBody.addresses).toContainEqual({ address: ADDRESSES[6], index: 6, addressPath: "m/44'/280'/0'/0/6" });
   expect(returnBody.addresses).toContainEqual({ address: ADDRESSES[7], index: 7, addressPath: "m/44'/280'/0'/0/7" });
   expect(returnBody.addresses).toContainEqual({ address: ADDRESSES[8], index: 8, addressPath: "m/44'/280'/0'/0/8" });
+
+  // legacy is not present in the default response
+  expect(returnBody.legacyAddresses).toBeUndefined();
+});
+
+test('GET /addresses/new legacy=false returns shielded and legacy unused addresses', async () => {
+  expect.hasAssertions();
+
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    highestUsedIndex: 4,
+    createdAt: 10000,
+    readyAt: 10001,
+    ctStatus: 'ready',
+    shieldedMaxGap: 3,
+    lastUsedShieldedIndex: 1,
+  }]);
+  await addToAddressTable(mysql, [
+    // Legacy account (0): unused addresses after the transparent frontier (index > 4)
+    { address: ADDRESSES[0], index: 5, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 6, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    // CTSpend account (2): used up to the shielded frontier (index <= 1), unused after it
+    { address: ADDRESSES[2], index: 1, walletId: 'my-wallet', transactions: 2, bip32_account: 2, ct_address: 'Hsh1' },
+    { address: ADDRESSES[3], index: 2, walletId: 'my-wallet', transactions: 0, bip32_account: 2, ct_address: 'Hsh2' },
+    { address: ADDRESSES[4], index: 3, walletId: 'my-wallet', transactions: 0, bip32_account: 2, ct_address: 'Hsh3' },
+    { address: ADDRESSES[5], index: 4, walletId: 'my-wallet', transactions: 0, bip32_account: 2, ct_address: 'Hsh4' },
+  ]);
+
+  const event = makeGatewayEventWithAuthorizer('my-wallet', { legacy: 'false' });
+  const result = await newAddressesGet(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+
+  // `addresses` are the CTSpend unused addresses within the shielded gap (3), on the account-2 path
+  expect(returnBody.addresses).toStrictEqual([
+    { address: ADDRESSES[3], index: 2, addressPath: "m/44'/280'/2'/0/2" },
+    { address: ADDRESSES[4], index: 3, addressPath: "m/44'/280'/2'/0/3" },
+    { address: ADDRESSES[5], index: 4, addressPath: "m/44'/280'/2'/0/4" },
+  ]);
+  // `legacyAddresses` carry today's legacy shape
+  expect(returnBody.legacyAddresses).toStrictEqual([
+    { address: ADDRESSES[0], index: 5, addressPath: "m/44'/280'/0'/0/5" },
+    { address: ADDRESSES[1], index: 6, addressPath: "m/44'/280'/0'/0/6" },
+  ]);
 });
 
 test('GET /addresses/new with no transactions', async () => {
