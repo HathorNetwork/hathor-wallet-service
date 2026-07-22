@@ -113,9 +113,9 @@ export const checkMine: APIGatewayProxyHandler = middy(walletIdProxyHandler(asyn
 })).use(cors())
   .use(errorHandler());
 
-// The default (legacy) response shape must stay byte-identical to what the
-// API returned before the shielded columns existed, so we build entries
-// explicitly instead of returning the internal AddressInfo shape as-is.
+// The default (legacy) response must keep the same field set the API returned
+// before the shielded columns existed, so we build entries explicitly instead of
+// returning the internal AddressInfo shape as-is.
 // `ct_address` is only surfaced on CTSpend (legacy=false) entries.
 const toAddressResponse = (address: AddressInfo, legacy: boolean): Record<string, unknown> => ({
   address: address.address,

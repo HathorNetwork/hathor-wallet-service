@@ -1612,7 +1612,130 @@ test('GET /wallet/tx_outputs degrades and alerts on a shielded row missing its s
     expect.any(String),
     expect.any(String),
     Severity.MAJOR,
-    expect.objectContaining({ txId: 'txS', index: 5 }),
+    { txId: 'txS', index: 5, missing: ['satellite'] },
+    expect.anything(),
+  );
+});
+
+test('GET /wallet/tx_outputs degrades and alerts on a shielded row missing its ownership row', async () => {
+  expect.hasAssertions();
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet', xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY,
+    status: 'ready', maxGap: 5, createdAt: 10000, readyAt: 10001,
+  }]);
+  // The shielded row sits on a Legacy address of the wallet: it passes the
+  // wallet-membership filter but has no CTSpend ownership row to resolve.
+  await addToAddressTable(mysql, [
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 1, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 1, bip32_account: 0 },
+  ]);
+  await addToUtxoTable(mysql, [{
+    txId: 'txT', index: 2, tokenId: '00', address: ADDRESSES[0], value: 500n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+  }, {
+    txId: 'txS', index: 5, tokenId: '00', address: ADDRESSES[1], value: 150n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+    mode: 1, recoveryState: 'recovered',
+  }]);
+  await addToShieldedTxOutputDataTable(mysql, [{
+    txId: 'txS', index: 5,
+    commitment: Buffer.from('aa'.repeat(33), 'hex'),
+    rangeProof: Buffer.from('bb'.repeat(64), 'hex'),
+    script: Buffer.from('cc'.repeat(4), 'hex'),
+    ephemeralPubkey: Buffer.from('dd'.repeat(33), 'hex'),
+    tokenData: 1,
+  }]);
+
+  const event = makeGatewayEventWithAuthorizer('my-wallet', {});
+  const result = await getFilteredTxOutputs(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.txOutputs).toHaveLength(1);
+  expect(returnBody.txOutputs[0].txId).toBe('txT');
+  expect(mockedAddAlert).toHaveBeenCalledWith(
+    expect.any(String),
+    expect.any(String),
+    Severity.MAJOR,
+    { txId: 'txS', index: 5, missing: ['ownership'] },
+    expect.anything(),
+  );
+});
+
+test('GET /wallet/tx_outputs degrades and pins both missing sides', async () => {
+  expect.hasAssertions();
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet', xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY,
+    status: 'ready', maxGap: 5, createdAt: 10000, readyAt: 10001,
+  }]);
+  await addToAddressTable(mysql, [
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 1, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 1, bip32_account: 0 },
+  ]);
+  // recovered shielded row with neither a satellite row nor a CTSpend ownership row
+  await addToUtxoTable(mysql, [{
+    txId: 'txS', index: 5, tokenId: '00', address: ADDRESSES[1], value: 150n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+    mode: 1, recoveryState: 'recovered',
+  }]);
+
+  const event = makeGatewayEventWithAuthorizer('my-wallet', {});
+  const result = await getFilteredTxOutputs(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.txOutputs).toStrictEqual([]);
+  expect(mockedAddAlert).toHaveBeenCalledWith(
+    expect.any(String),
+    expect.any(String),
+    Severity.MAJOR,
+    { txId: 'txS', index: 5, missing: ['satellite', 'ownership'] },
+    expect.anything(),
+  );
+});
+
+test('GET /wallet/tx_outputs degrades a FullyShielded row with a NULL asset field', async () => {
+  expect.hasAssertions();
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet', xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY,
+    status: 'ready', maxGap: 5, createdAt: 10000, readyAt: 10001,
+  }]);
+  await addToAddressTable(mysql, [
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 1, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 7, walletId: 'my-wallet', transactions: 1, bip32_account: 2, ct_address: 'HshLongCtAddress1' },
+  ]);
+  await addToUtxoTable(mysql, [{
+    txId: 'txT', index: 2, tokenId: '00', address: ADDRESSES[0], value: 500n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+  }, {
+    txId: 'txF', index: 3, tokenId: 'token1', address: ADDRESSES[1], value: 200n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+    mode: 2, recoveryState: 'recovered',
+  }]);
+  // FullyShielded satellite row present but surjection_proof is NULL — would crash
+  // serialization; must degrade instead.
+  await addToShieldedTxOutputDataTable(mysql, [{
+    txId: 'txF', index: 3,
+    commitment: Buffer.from('aa'.repeat(33), 'hex'),
+    rangeProof: Buffer.from('bb'.repeat(64), 'hex'),
+    script: Buffer.from('cc'.repeat(4), 'hex'),
+    ephemeralPubkey: Buffer.from('dd'.repeat(33), 'hex'),
+    tokenData: null,
+    assetCommitment: Buffer.from('ee'.repeat(33), 'hex'),
+    surjectionProof: null,
+  }]);
+
+  const event = makeGatewayEventWithAuthorizer('my-wallet', { tokenId: 'token1' });
+  const result = await getFilteredTxOutputs(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.txOutputs).toStrictEqual([]);
+  expect(mockedAddAlert).toHaveBeenCalledWith(
+    expect.any(String),
+    expect.any(String),
+    Severity.MAJOR,
+    { txId: 'txF', index: 3, missing: ['surjection_proof'] },
     expect.anything(),
   );
 });

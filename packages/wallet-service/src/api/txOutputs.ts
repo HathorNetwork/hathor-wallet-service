@@ -342,15 +342,22 @@ export const formatTxOutputEntries = async (
     const data = satellite.get(`${txOutput.txId}:${txOutput.index}`);
     const addressInfo = shieldedAddresses.get(txOutput.address);
 
-    if (!data || !addressInfo) {
-      const missing = [
-        ...(!data ? ['satellite'] : []),
-        ...(!addressInfo ? ['ownership'] : []),
-      ];
+    const missing: string[] = [
+      ...(!data ? ['satellite'] : []),
+      ...(!addressInfo ? ['ownership'] : []),
+    ];
+    // A FullyShielded output requires both asset byte-fields; a present row with a
+    // NULL required field would crash serialization, so it is a data-integrity
+    // miss too and must degrade (skip + alert) rather than 500 the response.
+    if (data && txOutput.mode === ShieldedOutputMode.FullyShielded) {
+      if (data.assetCommitment === null) missing.push('asset_commitment');
+      if (data.surjectionProof === null) missing.push('surjection_proof');
+    }
 
+    if (missing.length > 0) {
       await addAlert(
         'Shielded tx output missing satellite/ownership data',
-        `tx_output ${txOutput.txId}:${txOutput.index} is missing its ${missing.join(' and ')} row and was skipped.`,
+        `tx_output ${txOutput.txId}:${txOutput.index} is missing its ${missing.join(', ')} data and was skipped.`,
         Severity.MAJOR,
         { txId: txOutput.txId, index: txOutput.index, missing },
         logger,

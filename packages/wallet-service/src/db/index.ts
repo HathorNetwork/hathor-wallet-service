@@ -1008,9 +1008,10 @@ export const getAuthorityUtxo = async (
  * Get the requested UTXOs.
  *
  * @remarks
- * Unrecovered shielded rows are excluded: their `value`/`token_id` are NULL until
- * recovery, and the mapper's `?? 0` fallback would otherwise mask that into a
- * spendable-looking zero-value UTXO. Recovered shielded rows stay selectable.
+ * Unrecovered shielded rows are excluded: their `value` and `token_id` are NULL
+ * until recovery, and the mapper's `?? 0` fallback on `value` would otherwise mask
+ * such a row into a spendable-looking zero-value UTXO. Recovered shielded rows stay
+ * selectable.
  *
  * @param mysql - Database connection
  * @param utxosKeys - Information about the queried UTXOs, including tx_id and index

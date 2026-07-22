@@ -100,7 +100,7 @@ export const getWalletFromDbEntry = (entry: Record<string, unknown>): Wallet => 
  *  - no shielded keys registered (`none`) → the legacy status
  *  - either side errored → error
  *  - either side still creating → creating
- *  - both ready → ready
+ *  - otherwise (neither errored nor creating) → ready
  */
 export const computeUnifiedStatus = (status: WalletStatus, ctStatus: CtStatus): WalletStatus => {
   if (ctStatus === 'none') return status;
