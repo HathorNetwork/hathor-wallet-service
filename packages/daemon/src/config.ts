@@ -90,6 +90,11 @@ export const ACK_TIMEOUT_MS = parseInt(process.env.ACK_TIMEOUT_MS ?? '20000', 10
 // Monitoring configuration
 // Timeout (ms) before alerting when no fullnode events received while WebSocket connected
 export const IDLE_EVENT_TIMEOUT_MS = parseInt(process.env.IDLE_EVENT_TIMEOUT_MS ?? String(5 * 60 * 1000), 10);  // 5 minutes
+// Severity of the idle-event alert. Defaults to 'major' (P2). Low-activity networks
+// (e.g. testnet-playground) where quiet periods are normal can lower this to avoid
+// paging on a benign, self-healing restart. Validated against the Severity enum in
+// the MonitoringActor; an unrecognised value falls back to 'major'.
+export const IDLE_EVENT_SEVERITY = process.env.IDLE_EVENT_SEVERITY ?? 'major';
 // Timeout (ms) before alerting when stuck in a single processing state
 export const STUCK_PROCESSING_TIMEOUT_MS = parseInt(process.env.STUCK_PROCESSING_TIMEOUT_MS ?? String(60 * 60 * 1000), 10);  // 1 hour
 // Number of reconnections within RECONNECTION_STORM_WINDOW_MS to trigger a storm alert
@@ -152,6 +157,7 @@ export default () => ({
   HEALTHCHECK_PING_INTERVAL,
   ACK_TIMEOUT_MS,
   IDLE_EVENT_TIMEOUT_MS,
+  IDLE_EVENT_SEVERITY,
   STUCK_PROCESSING_TIMEOUT_MS,
   RECONNECTION_STORM_THRESHOLD,
   RECONNECTION_STORM_WINDOW_MS,
