@@ -357,7 +357,7 @@ test('GET /addresses legacy param selects the derivation account', async () => {
   returnBody = JSON.parse(result.body as string);
   expect(result.statusCode).toBe(200);
   expect(returnBody.addresses).toStrictEqual([
-    { address: ADDRESSES[2], index: 7, transactions: 3, seqnum: 0, ct_address: 'HshLongCtAddress1' },
+    { address: 'HshLongCtAddress1', spendAddress: ADDRESSES[2], index: 7, transactions: 3, seqnum: 0 },
   ]);
 
   // index lookup honours the account selector
@@ -366,7 +366,7 @@ test('GET /addresses legacy param selects the derivation account', async () => {
   returnBody = JSON.parse(result.body as string);
   expect(result.statusCode).toBe(200);
   expect(returnBody.addresses).toStrictEqual([
-    { address: ADDRESSES[2], index: 7, transactions: 3, seqnum: 0, ct_address: 'HshLongCtAddress1' },
+    { address: 'HshLongCtAddress1', spendAddress: ADDRESSES[2], index: 7, transactions: 3, seqnum: 0 },
   ]);
   // ...and defaults to legacy: index 7 does not exist in the legacy account
   event = makeGatewayEventWithAuthorizer('my-wallet', { index: '7' });
@@ -491,8 +491,14 @@ test('GET /addresses/new legacy=false returns shielded and legacy unused address
   expect(result.statusCode).toBe(200);
   expect(returnBody.success).toBe(true);
 
-  // `addresses` are the CTSpend unused addresses within the shielded gap (3), on the account-2 path
+  // `addresses` carry the user-facing CT address within the shielded gap (3), on the account-2 path
   expect(returnBody.addresses).toStrictEqual([
+    { address: 'Hsh2', index: 2, addressPath: "m/44'/280'/2'/0/2" },
+    { address: 'Hsh3', index: 3, addressPath: "m/44'/280'/2'/0/3" },
+    { address: 'Hsh4', index: 4, addressPath: "m/44'/280'/2'/0/4" },
+  ]);
+  // `spendAddresses` carry the parallel on-chain spend addresses
+  expect(returnBody.spendAddresses).toStrictEqual([
     { address: ADDRESSES[3], index: 2, addressPath: "m/44'/280'/2'/0/2" },
     { address: ADDRESSES[4], index: 3, addressPath: "m/44'/280'/2'/0/3" },
     { address: ADDRESSES[5], index: 4, addressPath: "m/44'/280'/2'/0/4" },

@@ -117,13 +117,26 @@ export const checkMine: APIGatewayProxyHandler = middy(walletIdProxyHandler(asyn
 // before the shielded columns existed, so we build entries explicitly instead of
 // returning the internal AddressInfo shape as-is.
 // `ct_address` is only surfaced on CTSpend (legacy=false) entries.
-const toAddressResponse = (address: AddressInfo, legacy: boolean): Record<string, unknown> => ({
-  address: address.address,
-  index: address.index,
-  transactions: address.transactions,
-  seqnum: address.seqnum,
-  ...(legacy ? {} : { ct_address: address.ctAddress }),
-});
+const toAddressResponse = (address: AddressInfo, legacy: boolean): Record<string, unknown> => {
+  // Legacy: the on-chain address is the address. CTSpend (legacy=false): the
+  // user-facing CT address is the address, and the on-chain spend address is
+  // surfaced under `spendAddress`.
+  if (legacy) {
+    return {
+      address: address.address,
+      index: address.index,
+      transactions: address.transactions,
+      seqnum: address.seqnum,
+    };
+  }
+  return {
+    address: address.ctAddress,
+    spendAddress: address.address,
+    index: address.index,
+    transactions: address.transactions,
+    seqnum: address.seqnum,
+  };
+};
 
 /**
  * Get the addresses of a wallet, allowing an index filter

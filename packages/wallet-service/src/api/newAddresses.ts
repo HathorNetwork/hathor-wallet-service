@@ -17,6 +17,7 @@ import {
   getNewAddresses,
 } from '@src/db';
 import { closeDbConnection, getDbConnection } from '@src/utils';
+import { ShortAddressInfo } from '@src/types';
 
 import { walletIdProxyHandler } from '@src/commons';
 import middy from '@middy/core';
@@ -65,23 +66,42 @@ export const get: APIGatewayProxyHandler = middy(walletIdProxyHandler(async (wal
     return closeDbAndGetError(mysql, ApiError.WALLET_NOT_READY);
   }
 
+  // The short-info shape the endpoint returns; the internal `ctAddress` field is
+  // never surfaced directly (it is remapped into its own list below).
+  const toShortInfo = (entry: ShortAddressInfo) => ({
+    address: entry.address,
+    index: entry.index,
+    addressPath: entry.addressPath,
+  });
+
   if (value.legacy) {
-    const addresses = await getNewAddresses(mysql, wallet, Bip32Account.Legacy);
+    const legacyRows = await getNewAddresses(mysql, wallet, Bip32Account.Legacy);
     await closeDbConnection(mysql);
     return {
       statusCode: 200,
-      body: JSON.stringify({ success: true, addresses }),
+      body: JSON.stringify({ success: true, addresses: legacyRows.map(toShortInfo) }),
     };
   }
 
-  const addresses = await getNewAddresses(mysql, wallet, Bip32Account.CTSpend);
-  const legacyAddresses = await getNewAddresses(mysql, wallet, Bip32Account.Legacy);
+  const ctSpendRows = await getNewAddresses(mysql, wallet, Bip32Account.CTSpend);
+  const legacyRows = await getNewAddresses(mysql, wallet, Bip32Account.Legacy);
 
   await closeDbConnection(mysql);
 
+  // For the CTSpend account we surface two parallel lists: `addresses` carries the
+  // user-facing CT address, `spendAddresses` carries the on-chain spend address;
+  // both share the same index and derivation path.
+  const addresses = ctSpendRows.map((entry) => ({
+    address: entry.ctAddress,
+    index: entry.index,
+    addressPath: entry.addressPath,
+  }));
+  const spendAddresses = ctSpendRows.map(toShortInfo);
+  const legacyAddresses = legacyRows.map(toShortInfo);
+
   return {
     statusCode: 200,
-    body: JSON.stringify({ success: true, addresses, legacyAddresses }),
+    body: JSON.stringify({ success: true, addresses, spendAddresses, legacyAddresses }),
   };
 })).use(cors())
   .use(warmupMiddleware())

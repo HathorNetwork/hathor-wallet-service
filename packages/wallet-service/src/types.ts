@@ -186,6 +186,8 @@ export interface ShortAddressInfo {
   address: string;
   index: number;
   addressPath: string;
+  // The long-form CT address, populated only for CTSpend (account-2) rows.
+  ctAddress?: string | null;
 }
 
 export interface TokenBalance {

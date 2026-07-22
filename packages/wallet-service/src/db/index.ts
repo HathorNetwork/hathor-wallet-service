@@ -1516,6 +1516,7 @@ export const getNewAddresses = async (
       address: result.address as string,
       index,
       addressPath: getAddressPath(index, account),
+      ctAddress: (result.ct_address ?? null) as string | null,
     };
     addresses.push(address);
   }
