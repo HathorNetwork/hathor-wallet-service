@@ -9,6 +9,7 @@ import {
   DbTxOutput,
   StringMap,
   Wallet,
+  WalletStatus,
   EventTxInput,
   AddressIndexMap,
   LastSyncedEvent,
@@ -1442,11 +1443,15 @@ export const getAddressWalletInfo = async (mysql: MysqlConnection, addresses: st
 
   const addressWalletMap: StringMap<Wallet> = {};
   const [results, _] = await mysql.query<AddressesWalletsRow[]>(
+    // Both lifecycle columns come back so callers can tell an attributable
+    // (fully loaded) wallet from one whose load is still rebuilding balances.
     `SELECT DISTINCT a.\`address\`,
                      a.\`wallet_id\`,
                      w.\`auth_xpubkey\`,
                      w.\`xpubkey\`,
-                     w.\`max_gap\`
+                     w.\`max_gap\`,
+                     w.\`status\`,
+                     w.\`ct_status\`
        FROM \`address\` a
  INNER JOIN \`wallet\` w
          ON a.wallet_id = w.id
@@ -1461,6 +1466,8 @@ export const getAddressWalletInfo = async (mysql: MysqlConnection, addresses: st
       authXpubkey: entry.auth_xpubkey,
       xpubkey: entry.xpubkey,
       maxGap: entry.max_gap,
+      status: entry.status as WalletStatus,
+      ctStatus: entry.ct_status as WalletStatus | 'none',
     };
     addressWalletMap[entry.address] = walletInfo;
   }
@@ -2413,33 +2420,41 @@ export const getTokenSymbols = async (
 };
 
 /**
- * Get maximum indices for multiple wallets in a single query.
+ * Get maximum indices for multiple wallets in a single query, partitioned by
+ * BIP32 account so legacy and shielded (CTSpend) index spaces never mix.
  *
- * This function retrieves two key metrics for each wallet:
+ * This function retrieves two key metrics per account for each wallet:
  *
- * 1. `max_among_addresses`: The highest `index` value for the wallet, but only considering the specified addresses provided in `walletData`.
- * 2. `max_wallet_index`: The highest `index` value for the wallet across all its addresses in the database.
+ * 1. `max*AmongAddresses`: The highest `index` value for the wallet, but only considering the specified addresses provided in `walletData`.
+ * 2. `max*WalletIndex`: The highest `index` value for the wallet across all its addresses in the database.
  *
  * How it works:
- * - The SQL query operates on the `address` table.
- * - It groups the rows by `wallet_id` using `GROUP BY wallet_id`.
- * - For each wallet group:
- *   - The `MAX` function calculates the highest `index` value in two contexts:
- *     a. For addresses explicitly listed in the input (`CASE WHEN address IN (?) THEN index END`).
- *     b. For all addresses associated with the wallet (`MAX(index)`).
- * - If no addresses for a wallet match the provided input, `max_among_addresses` will be `NULL`.
- * - If a wallet has no addresses in the database, both `max_among_addresses` and `max_wallet_index` will be `NULL`.
+ * - The SQL query operates on the `address` table, grouped by `wallet_id`.
+ * - Each `MAX` is scoped by a `bip32_account` CASE: transparent rows are those
+ *   with account 0 **or NULL** (legacy claims leave the column NULL), and
+ *   CTSpend rows carry account 2 — a claimed shielded index must never leak
+ *   into the legacy gap math, in either direction.
+ * - If no addresses for a wallet match the provided input, the `amongAddresses`
+ *   value for that account will be `NULL`.
+ * - A wallet with no rows for an account yields `NULL` for that account's pair
+ *   (e.g. no shielded window claimed -> both CT maxes are `NULL`).
  *
- * This allows the function to return a consolidated view of the maximum indices for each wallet
+ * The legacy pair feeds the legacy gap extension; the CT pair is the
+ * input for the shielded gap extension (follow-up work).
  *
  * @param mysql - Database connection
  * @param walletData - Array of objects containing wallet IDs and their associated addresses
- * @returns Map of wallet IDs to their maximum indices (both among specific addresses and overall)
+ * @returns Map of wallet IDs to their per-account maximum indices
  */
 export const getMaxIndicesForWallets = async (
   mysql: MysqlConnection,
   walletData: Array<{ walletId: string, addresses: string[] }>
-): Promise<Map<string, { maxAmongAddresses: number | null, maxWalletIndex: number | null }>> => {
+): Promise<Map<string, {
+  maxLegacyAmongAddresses: number | null,
+  maxLegacyWalletIndex: number | null,
+  maxCtAmongAddresses: number | null,
+  maxCtWalletIndex: number | null,
+}>> => {
   if (walletData.length === 0) {
     return new Map();
   }
@@ -2450,12 +2465,20 @@ export const getMaxIndicesForWallets = async (
   const [results] = await mysql.query<MaxAddressIndexRow[]>(
     `SELECT
        wallet_id,
-       MAX(CASE WHEN address IN (?) THEN \`index\` END) as max_among_addresses,
-       MAX(\`index\`) as max_wallet_index
+       MAX(CASE WHEN (bip32_account IS NULL OR bip32_account = ?) AND address IN (?) THEN \`index\` END) as max_legacy_among_addresses,
+       MAX(CASE WHEN (bip32_account IS NULL OR bip32_account = ?) THEN \`index\` END) as max_legacy_wallet_index,
+       MAX(CASE WHEN bip32_account = ? AND address IN (?) THEN \`index\` END) as max_ct_among_addresses,
+       MAX(CASE WHEN bip32_account = ? THEN \`index\` END) as max_ct_wallet_index
      FROM address
      WHERE wallet_id IN (?)
      GROUP BY wallet_id`,
-    [allAddresses, walletIds]
+    [
+      Bip32Account.Legacy, allAddresses,
+      Bip32Account.Legacy,
+      Bip32Account.CTSpend, allAddresses,
+      Bip32Account.CTSpend,
+      walletIds,
+    ]
   );
 
   return new Map(results.map(r => [
@@ -2463,8 +2486,10 @@ export const getMaxIndicesForWallets = async (
     {
       // MAX() is null when no rows match, and arrives as a string under
       // bigNumberStrings — parse to a (bounded) number | null.
-      maxAmongAddresses: parseNullableNumber(r.max_among_addresses),
-      maxWalletIndex: parseNullableNumber(r.max_wallet_index)
+      maxLegacyAmongAddresses: parseNullableNumber(r.max_legacy_among_addresses),
+      maxLegacyWalletIndex: parseNullableNumber(r.max_legacy_wallet_index),
+      maxCtAmongAddresses: parseNullableNumber(r.max_ct_among_addresses),
+      maxCtWalletIndex: parseNullableNumber(r.max_ct_wallet_index)
     }
   ]));
 };

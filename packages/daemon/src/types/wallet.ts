@@ -19,10 +19,28 @@ export interface Wallet {
   authXpubkey: string,
   maxGap: number;
   status?: WalletStatus;
+  /** Shielded lifecycle: 'none' when the wallet has no shielded keys registered. */
+  ctStatus?: WalletStatus | 'none';
   retryCount?: number;
   createdAt?: number;
   readyAt?: number;
 }
+
+/**
+ * A wallet is only attributable for balance once BOTH lifecycles have settled.
+ *
+ * While either side is still loading, the load worker is rebuilding
+ * `wallet_balance` absolutely from `address_balance`; attributing incremental
+ * deltas at the same time races that rebuild and the increment is silently lost.
+ * Note this must consider `ct_status` too — a shielded upgrade runs with
+ * `status = 'ready'` while `ct_status = 'creating'`.
+ */
+export const isWalletAttributable = (wallet: Wallet): boolean => (
+  wallet.status === WalletStatus.READY
+  && (wallet.ctStatus === undefined
+    || wallet.ctStatus === 'none'
+    || wallet.ctStatus === WalletStatus.READY)
+);
 
 export type TokenBalanceValue = {
   tokenId: string,

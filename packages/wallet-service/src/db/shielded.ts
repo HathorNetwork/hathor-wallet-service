@@ -7,6 +7,8 @@
 
 import { ServerlessMysql } from 'serverless-mysql';
 import { Bip32Account, RecoveryState, ShieldedOutputMode } from '@wallet-service/common';
+import { deriveCtAddress } from '@wallet-service/common/src/crypto/shieldedAddress';
+import type { Network } from '@hathor/wallet-lib';
 import { DbSelectResult } from '@src/types';
 
 // The two shielded output modes (AmountShielded, FullyShielded) as query params.
@@ -257,9 +259,9 @@ export const rebuildShieldedAddressTxHistory = async (
  * Rebuild a wallet's `wallet_balance` rows by aggregating its addresses'
  * `address_balance` (both transparent and shielded column families), with the
  * per-token `transactions` count taken from `address_tx_history` (distinct txs,
- * so shared txs aren't double-counted). Upsert → idempotent. This subsumes the
- * transparent-only `initWalletBalance`, so it credits caught-up shielded receives
- * in the same pass old clients get their transparent balance.
+ * so shared txs aren't double-counted). Upsert → idempotent. Credits the
+ * transparent balance and any caught-up shielded receives in the same pass, so
+ * it serves both transparent-only and shielded wallets.
  */
 export const rebuildWalletBalance = async (
   mysql: ServerlessMysql,
@@ -316,7 +318,7 @@ export const rebuildWalletBalance = async (
  * Rebuild a wallet's `wallet_tx_history` by aggregating its addresses'
  * `address_tx_history` per (tx, token): transparent `balance` and
  * `shielded_balance_delta` are summed across the wallet's addresses. Upsert →
- * idempotent. Subsumes the transparent-only `initWalletTxHistory`.
+ * idempotent. Serves both transparent-only and shielded wallets.
  */
 export const rebuildWalletTxHistory = async (
   mysql: ServerlessMysql,
@@ -337,4 +339,173 @@ export const rebuildWalletTxHistory = async (
         \`shielded_balance_delta\` = VALUES(\`shielded_balance_delta\`)`,
     [walletId, addresses],
   );
+};
+
+export interface ShieldedOwnershipRow {
+  index: number;
+  spendAddress: string;
+  ctAddress: string;
+  scanPrivkey: Buffer;
+}
+
+/**
+ * Claim shielded ownership of the given derived addresses for a wallet: upsert
+ * `address` rows with the CTSpend account, per-index scan privkey, display
+ * ct_address and a pending catch-up state. Safe over daemon observation rows —
+ * the daemon only ever writes (address, transactions), so ownership columns are
+ * disjoint; `transactions` appears ONLY in the insert list (never zeroed on
+ * duplicate) and a `done` catch-up state is preserved via COALESCE.
+ */
+export const upsertShieldedAddressOwnership = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+  rows: ShieldedOwnershipRow[],
+): Promise<void> => {
+  if (rows.length === 0) return;
+  const values = rows.map((r) => [
+    r.spendAddress, r.index, walletId, 0, Bip32Account.CTSpend, r.scanPrivkey, 'pending', r.ctAddress,
+  ]);
+  await mysql.query(
+    `INSERT INTO \`address\`
+       (\`address\`, \`index\`, \`wallet_id\`, \`transactions\`, \`bip32_account\`, \`scan_privkey\`, \`catchup_state\`, \`ct_address\`)
+     VALUES ?
+     ON DUPLICATE KEY UPDATE
+       \`bip32_account\` = VALUES(\`bip32_account\`),
+       \`wallet_id\` = VALUES(\`wallet_id\`),
+       \`index\` = VALUES(\`index\`),
+       \`ct_address\` = VALUES(\`ct_address\`),
+       \`scan_privkey\` = VALUES(\`scan_privkey\`),
+       \`catchup_state\` = COALESCE(\`catchup_state\`, VALUES(\`catchup_state\`))`,
+    [values],
+  );
+};
+
+/**
+ * All CTSpend addresses claimed by a wallet, in index order — the shielded half
+ * of the address set a reconstruction pass must cover. Reading this back from
+ * the database (rather than trusting one run's derived list) keeps re-loads
+ * covering previously-claimed rows even if the usage window shrank.
+ */
+export const getWalletCtSpendAddresses = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+): Promise<string[]> => {
+  const results: DbSelectResult = await mysql.query(
+    'SELECT `address` FROM `address` WHERE `wallet_id` = ? AND `bip32_account` = ? ORDER BY `index`',
+    [walletId, Bip32Account.CTSpend],
+  );
+  return results.map((r) => r.address as string);
+};
+
+/**
+ * Mark the catch-up pass complete for a wallet's CTSpend rows up to (and
+ * including) maxIndex — scoped so rows this pass did not derive are untouched.
+ * NOTE: `catchup_state` records "the registration pass ran over this address";
+ * re-driving unrecovered outputs is keyed on `tx_output.recovery_state`, never
+ * on this column.
+ */
+export const markShieldedCatchupDone = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+  maxIndex: number,
+): Promise<void> => {
+  await mysql.query(
+    'UPDATE `address` SET `catchup_state` = ? WHERE `wallet_id` = ? AND `bip32_account` = ? AND `index` <= ?',
+    ['done', walletId, Bip32Account.CTSpend, maxIndex],
+  );
+};
+
+export interface GenerateShieldedAddresses {
+  rows: ShieldedOwnershipRow[];
+  addresses: string[];
+  lastUsedShieldedIndex: number | null;
+  /** The subset of `rows` not yet claimed in the database — what a caller must upsert. */
+  newRows: ShieldedOwnershipRow[];
+}
+
+/**
+ * Derive the wallet's shielded (CTSpend) address window under the BIP32 gap
+ * rule: keep deriving blocks of maxGap until maxGap consecutive trailing
+ * addresses show no on-chain usage. Usage is decided from observed non-voided
+ * `tx_output` rows at the derived spend address — any mode, since these P2PKH
+ * addresses can also receive transparent outputs — with no rewinding involved.
+ *
+ * Indices the wallet already claimed are reused from storage instead of
+ * re-derived: keys are immutable per wallet (a conflicting re-registration is
+ * rejected upstream), so stored derivations are authoritative, and per-index
+ * private derivation is the dominant CPU cost — a retry re-derives nothing.
+ * Read-only: claiming the returned `newRows` is the caller's job.
+ */
+export const generateShieldedAddresses = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+  scanXpriv: string,
+  spendXpub: string,
+  maxGap: number,
+  network: Network,
+): Promise<GenerateShieldedAddresses> => {
+  const stored: DbSelectResult = await mysql.query(
+    `SELECT \`address\`, \`index\`, \`scan_privkey\`, \`ct_address\`
+       FROM \`address\`
+      WHERE \`wallet_id\` = ? AND \`bip32_account\` = ?
+        AND \`index\` IS NOT NULL AND \`scan_privkey\` IS NOT NULL AND \`ct_address\` IS NOT NULL`,
+    [walletId, Bip32Account.CTSpend],
+  );
+  const storedByIndex = new Map<number, ShieldedOwnershipRow>(stored.map((r): [number, ShieldedOwnershipRow] => [
+    Number(r.index),
+    {
+      index: Number(r.index),
+      spendAddress: r.address as string,
+      ctAddress: r.ct_address as string,
+      scanPrivkey: r.scan_privkey as Buffer,
+    },
+  ]));
+
+  const allRows: ShieldedOwnershipRow[] = [];
+  const derivedRows: ShieldedOwnershipRow[] = [];
+  let highestCheckedIndex = -1;
+  let lastUsedIndex = -1;
+
+  do {
+    const blockStart = highestCheckedIndex + 1;
+    const block: ShieldedOwnershipRow[] = [];
+    for (let index = blockStart; index < blockStart + maxGap; index++) {
+      const storedRow = storedByIndex.get(index);
+      if (storedRow) {
+        block.push(storedRow);
+      } else {
+        const derived = deriveCtAddress(scanXpriv, spendXpub, index, network);
+        const row = {
+          index,
+          spendAddress: derived.spendAddress,
+          ctAddress: derived.ctAddress,
+          scanPrivkey: derived.scanPrivkey,
+        };
+        block.push(row);
+        derivedRows.push(row);
+      }
+    }
+    allRows.push(...block);
+
+    const results: DbSelectResult = await mysql.query(
+      'SELECT DISTINCT `address` FROM `tx_output` WHERE `address` IN (?) AND `voided` = FALSE',
+      [block.map((r) => r.spendAddress)],
+    );
+    const used = new Set(results.map((r) => r.address as string));
+    for (const row of block) {
+      if (used.has(row.spendAddress) && row.index > lastUsedIndex) {
+        lastUsedIndex = row.index;
+      }
+    }
+    highestCheckedIndex += maxGap;
+  } while (lastUsedIndex + maxGap > highestCheckedIndex);
+
+  const windowEnd = lastUsedIndex + maxGap;
+  const rows = allRows.filter((r) => r.index <= windowEnd);
+  return {
+    rows,
+    addresses: rows.map((r) => r.spendAddress),
+    lastUsedShieldedIndex: lastUsedIndex === -1 ? null : lastUsedIndex,
+    newRows: derivedRows.filter((r) => r.index <= windowEnd),
+  };
 };

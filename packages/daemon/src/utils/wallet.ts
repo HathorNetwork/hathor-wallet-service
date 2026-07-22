@@ -22,6 +22,7 @@ import {
   Wallet,
   WalletBalance,
   WalletBalanceValue,
+  isWalletAttributable,
 } from '../types';
 import {
   Transaction,
@@ -471,6 +472,13 @@ export const getWalletBalanceMap = (
 
     // if this address is not from a started wallet, ignore
     if (!walletId) continue;
+
+    // A wallet mid-load is skipped: its load worker rebuilds `wallet_balance`
+    // absolutely from `address_balance`, so an incremental delta written here
+    // would be clobbered by that rebuild and lost for good. `address_balance`
+    // is still updated (it is written before this map is built), so the
+    // rebuild picks the transaction up and the wallet stays correct.
+    if (!isWalletAttributable(wallet)) continue;
 
     walletBalanceMap[walletId] = TokenBalanceMap.merge(walletBalanceMap[walletId], balanceMap);
   }

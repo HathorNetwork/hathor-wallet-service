@@ -225,4 +225,28 @@ describe('reconstructWallet', () => {
     ))[0];
     expect(String(wbB.usb)).toBe('42'); // recovered token -> second GROUP BY token_id row
   });
+
+  it('folds a fully-shielded HTR output onto the canonical "00" token row', async () => {
+    await seedWallet('w1');
+    await seedCtSpendAddress('ca', 'w1', 0);
+    await insertTx('h1', 800);
+    await insertTx('h2', 810);
+    // A transparent/amount-shielded HTR receive and a fully-shielded HTR receive
+    // must land on the SAME token_id '00' row, not a separate all-zero-uid row.
+    await insertUnownedOutput('h1', 'ca', '00', 1); // mode-1 HTR
+    await insertSatellite('h1', Buffer.alloc(33, 0xe1), Buffer.alloc(33, 0xe1));
+    await insertUnownedOutput('h2', 'ca', null, 2); // mode-2 HTR — token from the rewind
+    await insertSatellite('h2', Buffer.alloc(33, 0xe2), Buffer.alloc(33, 0xe2), Buffer.alloc(33, 0xf2));
+    primeAmountRewind({ commitment: Buffer.alloc(33, 0xe1), ephemeralPubkey: Buffer.alloc(33, 0xe1), value: 100n, tokenUid: Buffer.from('00', 'hex') });
+    // The native token's raw on-chain uid is 32 zero bytes.
+    primeFullyRewind({ commitment: Buffer.alloc(33, 0xe2), ephemeralPubkey: Buffer.alloc(33, 0xe2), value: 42n, tokenUid: Buffer.alloc(32, 0), assetCommitment: Buffer.alloc(33, 0xf2) });
+
+    expect(await reconstructWallet(mysql, 'w1', [], ['ca'], logger)).toEqual({ recovered: 2, failed: 0 });
+
+    // Both receives fold onto the single '00' row: 100 + 42 = 142.
+    expect(String((await readWalletBalance('w1')).usb)).toBe('142');
+    const rows = await mysql.query("SELECT `token_id` FROM `wallet_balance` WHERE `wallet_id` = 'w1'");
+    expect(rows).toHaveLength(1); // no stray all-zero-uid token row
+    expect((rows as { token_id: string }[])[0].token_id).toBe('00');
+  });
 });

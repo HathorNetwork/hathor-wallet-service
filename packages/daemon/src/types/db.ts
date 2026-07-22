@@ -149,8 +149,10 @@ export interface TokenSymbolsRow extends RowDataPacket {
 }
 
 export interface MaxAddressIndexRow extends RowDataPacket {
-  max_among_addresses: number,
-  max_wallet_index: number
+  max_legacy_among_addresses: number | null,
+  max_legacy_wallet_index: number | null,
+  max_ct_among_addresses: number | null,
+  max_ct_wallet_index: number | null,
 }
 
 export interface AddressesWalletsRow extends RowDataPacket {
@@ -159,6 +161,8 @@ export interface AddressesWalletsRow extends RowDataPacket {
   auth_xpubkey: string,
   xpubkey: string,
   maxGap: number,
+  status: string,
+  ct_status: string,
 }
 
 export interface AddressRow extends RowDataPacket {

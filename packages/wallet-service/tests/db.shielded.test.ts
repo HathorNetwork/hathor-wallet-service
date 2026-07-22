@@ -6,7 +6,12 @@
  */
 
 import { ServerlessMysql } from 'serverless-mysql';
+import BIP32Factory from 'bip32';
+import * as ecc from 'tiny-secp256k1';
+import { Network } from '@hathor/wallet-lib';
 import { Bip32Account } from '@wallet-service/common';
+import { deriveCtAddress } from '@wallet-service/common/src/crypto/shieldedAddress';
+import { DbSelectResult } from '@src/types';
 import { getDbConnection, closeDbConnection } from '@src/utils';
 import { cleanDatabase, addToWalletTable, addToAddressTable } from '@tests/utils';
 import {
@@ -15,6 +20,10 @@ import {
   markShieldedTxOutputRecovered,
   markShieldedTxOutputRecoveryFailed,
   getShieldedOutputsToRecover,
+  upsertShieldedAddressOwnership,
+  getWalletCtSpendAddresses,
+  markShieldedCatchupDone,
+  generateShieldedAddresses,
 } from '@src/db/shielded';
 
 const mysql: ServerlessMysql = getDbConnection();
@@ -235,5 +244,170 @@ describe('shielded db: outputs to recover', () => {
     expect(first.map((o) => [o.txId, o.index])).toEqual([['multi', 0], ['multi', 1]]);
     const next = await getShieldedOutputsToRecover(mysql, 'w1', 2, { txId: 'multi', index: 1 });
     expect(next.map((o) => [o.txId, o.index])).toEqual([['multi', 2]]);
+  });
+});
+
+describe('upsertShieldedAddressOwnership', () => {
+  const rows = [
+    { index: 0, spendAddress: 'WSpend0', ctAddress: 'ct0', scanPrivkey: Buffer.alloc(32, 1) },
+    { index: 1, spendAddress: 'WSpend1', ctAddress: 'ct1', scanPrivkey: Buffer.alloc(32, 2) },
+  ];
+
+  it('claims fresh rows with pending catch-up state', async () => {
+    await upsertShieldedAddressOwnership(mysql, 'w1', rows);
+    const res = await mysql.query(
+      'SELECT `address`, `index`, `wallet_id`, `transactions`, `bip32_account`, `catchup_state`, `ct_address`, `scan_privkey` FROM `address` ORDER BY `index`',
+    );
+    expect(res).toHaveLength(2);
+    expect(res[0].wallet_id).toBe('w1');
+    expect(Number(res[0].bip32_account)).toBe(2);
+    expect(res[0].catchup_state).toBe('pending');
+    expect(res[0].ct_address).toBe('ct0');
+    expect(Buffer.from(res[0].scan_privkey).equals(Buffer.alloc(32, 1))).toBe(true);
+    expect(Number(res[0].transactions)).toBe(0);
+  });
+
+  it('claims a daemon observation row without touching its transactions counter', async () => {
+    // daemon observation shape: bare row, involvement already counted
+    await mysql.query('INSERT INTO `address` (`address`, `transactions`) VALUES (?, 3)', ['WSpend0']);
+    await upsertShieldedAddressOwnership(mysql, 'w1', rows);
+    const r = (await mysql.query('SELECT * FROM `address` WHERE `address` = ?', ['WSpend0']))[0];
+    expect(r.wallet_id).toBe('w1');
+    expect(Number(r.transactions)).toBe(3); // preserved — never in the ON DUPLICATE clause
+    expect(r.catchup_state).toBe('pending');
+  });
+
+  it('does not reset a done catch-up state on re-claim', async () => {
+    await upsertShieldedAddressOwnership(mysql, 'w1', rows);
+    await mysql.query('UPDATE `address` SET `catchup_state` = ? WHERE `address` = ?', ['done', 'WSpend0']);
+    await upsertShieldedAddressOwnership(mysql, 'w1', rows);
+    const r = (await mysql.query('SELECT `catchup_state` FROM `address` WHERE `address` = ?', ['WSpend0']))[0];
+    expect(r.catchup_state).toBe('done'); // COALESCE keeps it
+  });
+
+  it('is a no-op for an empty row list', async () => {
+    await upsertShieldedAddressOwnership(mysql, 'w1', []);
+    expect(Number((await mysql.query('SELECT COUNT(*) AS c FROM `address`'))[0].c)).toBe(0);
+  });
+});
+
+describe('getWalletCtSpendAddresses', () => {
+  it('returns only the wallet CTSpend addresses, ordered by index', async () => {
+    await upsertShieldedAddressOwnership(mysql, 'w1', [
+      { index: 1, spendAddress: 'WSpend1', ctAddress: 'ct1', scanPrivkey: Buffer.alloc(32, 2) },
+      { index: 0, spendAddress: 'WSpend0', ctAddress: 'ct0', scanPrivkey: Buffer.alloc(32, 1) },
+    ]);
+    await upsertShieldedAddressOwnership(mysql, 'w2', [
+      { index: 0, spendAddress: 'WOther0', ctAddress: 'ctX', scanPrivkey: Buffer.alloc(32, 9) },
+    ]);
+    // transparent-claimed row of w1 must be excluded
+    await mysql.query('INSERT INTO `address` (`address`, `index`, `wallet_id`, `transactions`) VALUES (?, 0, ?, 0)', ['WTransp0', 'w1']);
+    expect(await getWalletCtSpendAddresses(mysql, 'w1')).toStrictEqual(['WSpend0', 'WSpend1']);
+  });
+});
+
+describe('markShieldedCatchupDone', () => {
+  it('marks only the wallet CTSpend rows up to maxIndex', async () => {
+    await upsertShieldedAddressOwnership(mysql, 'w1', [
+      { index: 0, spendAddress: 'WSpend0', ctAddress: 'ct0', scanPrivkey: Buffer.alloc(32, 1) },
+      { index: 1, spendAddress: 'WSpend1', ctAddress: 'ct1', scanPrivkey: Buffer.alloc(32, 2) },
+      { index: 2, spendAddress: 'WSpend2', ctAddress: 'ct2', scanPrivkey: Buffer.alloc(32, 3) },
+    ]);
+    await markShieldedCatchupDone(mysql, 'w1', 1);
+    const res: DbSelectResult = await mysql.query('SELECT `index`, `catchup_state` FROM `address` ORDER BY `index`');
+    expect(res.map((r) => r.catchup_state)).toStrictEqual(['done', 'done', 'pending']);
+  });
+});
+
+describe('generateShieldedAddresses', () => {
+  const bip32lib = BIP32Factory(ecc);
+  const gapRoot = bip32lib.fromSeed(Buffer.from('02'.repeat(32), 'hex'));
+  const gapScanXpriv = gapRoot.derivePath("m/44'/280'/1'/0").toBase58();
+  const gapSpendXpub = gapRoot.derivePath("m/44'/280'/2'/0").neutered().toBase58();
+  const gapNetwork = new Network(process.env.NETWORK as string);
+  const derivedAt = (i: number) => deriveCtAddress(gapScanXpriv, gapSpendXpub, i, gapNetwork);
+
+  const seedOutputAt = (address: string, txId: string, mode = 1, voided = false) => mysql.query(
+    `INSERT INTO \`tx_output\`
+       (\`tx_id\`, \`index\`, \`address\`, \`value\`, \`token_id\`, \`authorities\`,
+        \`timelock\`, \`heightlock\`, \`locked\`, \`voided\`, \`mode\`, \`recovery_state\`)
+     VALUES (?, 0, ?, NULL, NULL, 0, NULL, NULL, FALSE, ?, ?, 'unowned')`,
+    [txId, address, voided, mode],
+  );
+
+  it('derives exactly maxGap addresses when nothing was ever used', async () => {
+    const res = await generateShieldedAddresses(mysql, 'gap-w', gapScanXpriv, gapSpendXpub, 5, gapNetwork);
+    expect(res.rows).toHaveLength(5);
+    expect(res.lastUsedShieldedIndex).toBeNull();
+    expect(res.rows[0]).toStrictEqual({
+      index: 0,
+      spendAddress: derivedAt(0).spendAddress,
+      ctAddress: derivedAt(0).ctAddress,
+      scanPrivkey: derivedAt(0).scanPrivkey,
+    });
+    expect(res.addresses).toStrictEqual(res.rows.map((r) => r.spendAddress));
+  });
+
+  it('extends the window past chained usage into a later block', async () => {
+    // usage at 3 pulls the window to 0..8; usage at 7 (found in the second
+    // block) pulls it to 0..12. An isolated use at 7 with 0..6 unused would
+    // violate the gap rule itself and is correctly out of reach.
+    await seedOutputAt(derivedAt(3).spendAddress, 'gap-tx0');
+    await seedOutputAt(derivedAt(7).spendAddress, 'gap-tx1');
+    const res = await generateShieldedAddresses(mysql, 'gap-w', gapScanXpriv, gapSpendXpub, 5, gapNetwork);
+    expect(res.lastUsedShieldedIndex).toBe(7);
+    expect(res.rows).toHaveLength(13); // 0..12 = lastUsed + maxGap
+    expect(res.rows[12].index).toBe(12);
+  });
+
+  it('counts a transparent (mode 0) output to a shielded spend address as usage', async () => {
+    await seedOutputAt(derivedAt(2).spendAddress, 'gap-tx2', 0);
+    const res = await generateShieldedAddresses(mysql, 'gap-w', gapScanXpriv, gapSpendXpub, 5, gapNetwork);
+    expect(res.lastUsedShieldedIndex).toBe(2);
+    expect(res.rows).toHaveLength(8); // 0..7
+  });
+
+  it('ignores voided outputs', async () => {
+    await seedOutputAt(derivedAt(3).spendAddress, 'gap-tx3', 1, true);
+    const res = await generateShieldedAddresses(mysql, 'gap-w', gapScanXpriv, gapSpendXpub, 5, gapNetwork);
+    expect(res.lastUsedShieldedIndex).toBeNull();
+    expect(res.rows).toHaveLength(5);
+  });
+
+  it('reuses already-claimed rows instead of re-deriving them', async () => {
+    // Sentinel values distinct from any real derivation: if these come back,
+    // the loop trusted storage (keys are immutable per wallet, so stored
+    // derivations are authoritative) and skipped the expensive derivation.
+    const sentinels = [0, 1, 2, 3, 4].map((i) => ({
+      index: i, spendAddress: `stored-${i}`, ctAddress: `stored-ct-${i}`, scanPrivkey: Buffer.alloc(32, 0xf0 + i),
+    }));
+    await upsertShieldedAddressOwnership(mysql, 'gap-w', sentinels);
+
+    const res = await generateShieldedAddresses(mysql, 'gap-w', gapScanXpriv, gapSpendXpub, 5, gapNetwork);
+    expect(res.rows).toHaveLength(5);
+    expect(res.rows.map((r) => r.spendAddress)).toStrictEqual(sentinels.map((s) => s.spendAddress));
+    expect(res.rows[0].scanPrivkey.equals(Buffer.alloc(32, 0xf0))).toBe(true);
+    expect(res.newRows).toHaveLength(0); // nothing to claim on a retry
+  });
+
+  it('derives only the indices beyond the stored window', async () => {
+    const sentinels = [0, 1, 2].map((i) => ({
+      index: i, spendAddress: `stored-${i}`, ctAddress: `stored-ct-${i}`, scanPrivkey: Buffer.alloc(32, 0xf0 + i),
+    }));
+    await upsertShieldedAddressOwnership(mysql, 'gap-w', sentinels);
+    // usage at the stored index 1 pulls the window to 0..6
+    await seedOutputAt('stored-1', 'gap-tx4');
+
+    const res = await generateShieldedAddresses(mysql, 'gap-w', gapScanXpriv, gapSpendXpub, 5, gapNetwork);
+    expect(res.lastUsedShieldedIndex).toBe(1);
+    expect(res.rows).toHaveLength(7); // 0..6
+    expect(res.rows[1].spendAddress).toBe('stored-1');       // reused
+    expect(res.rows[3]).toStrictEqual({                       // freshly derived
+      index: 3,
+      spendAddress: derivedAt(3).spendAddress,
+      ctAddress: derivedAt(3).ctAddress,
+      scanPrivkey: derivedAt(3).scanPrivkey,
+    });
+    expect(res.newRows.map((r) => r.index)).toStrictEqual([3, 4, 5, 6]);
   });
 });
