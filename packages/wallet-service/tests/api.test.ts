@@ -322,6 +322,91 @@ test('GET /addresses/check_mine', async () => {
   expect(returnBody.details[1].message).toStrictEqual('"addresses[0]" length must be at least 34 characters long');
 });
 
+test('GET /addresses legacy param selects the derivation account', async () => {
+  expect.hasAssertions();
+
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+
+  await addToAddressTable(mysql, [
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 12, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 1, bip32_account: null as any },
+    { address: ADDRESSES[2], index: 7, walletId: 'my-wallet', transactions: 3, bip32_account: 2, ct_address: 'HshLongCtAddress1' },
+  ]);
+
+  // default: legacy only, exact historical shape (no ct_address / account keys)
+  let event = makeGatewayEventWithAuthorizer('my-wallet', null);
+  let result = await addressesGet(event, null, null) as APIGatewayProxyResult;
+  let returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.addresses).toStrictEqual([
+    { address: ADDRESSES[0], index: 0, transactions: 12, seqnum: 0 },
+    { address: ADDRESSES[1], index: 1, transactions: 1, seqnum: 0 },
+  ]);
+
+  // legacy=false: CTSpend rows with ct_address
+  event = makeGatewayEventWithAuthorizer('my-wallet', { legacy: 'false' });
+  result = await addressesGet(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.addresses).toStrictEqual([
+    { address: 'HshLongCtAddress1', spendAddress: ADDRESSES[2], index: 7, transactions: 3, seqnum: 0 },
+  ]);
+
+  // index lookup honours the account selector
+  event = makeGatewayEventWithAuthorizer('my-wallet', { index: '7', legacy: 'false' });
+  result = await addressesGet(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.addresses).toStrictEqual([
+    { address: 'HshLongCtAddress1', spendAddress: ADDRESSES[2], index: 7, transactions: 3, seqnum: 0 },
+  ]);
+  // ...and defaults to legacy: index 7 does not exist in the legacy account
+  event = makeGatewayEventWithAuthorizer('my-wallet', { index: '7' });
+  result = await addressesGet(event, null, null) as APIGatewayProxyResult;
+  expect(result.statusCode).toBe(404);
+});
+
+test('POST /addresses/check_mine resolves membership across all accounts', async () => {
+  expect.hasAssertions();
+
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+
+  await addToAddressTable(mysql, [
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 1, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 0, walletId: 'my-wallet', transactions: 1, bip32_account: 2, ct_address: 'HshLongCtAddress1' },
+  ]);
+
+  // A wallet owns both its Legacy and its CTSpend addresses; a foreign address is not mine.
+  // check_mine returns only a boolean membership map, so it never filters by account.
+  const event = makeGatewayEventWithAuthorizer('my-wallet', null, JSON.stringify({
+    addresses: [ADDRESSES[0], ADDRESSES[1], ADDRESSES[2]],
+  }));
+  const result = await checkMine(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.addresses).toStrictEqual({
+    [ADDRESSES[0]]: true,
+    [ADDRESSES[1]]: true,
+    [ADDRESSES[2]]: false,
+  });
+});
+
 test('GET /addresses/new', async () => {
   expect.hasAssertions();
 
@@ -368,6 +453,61 @@ test('GET /addresses/new', async () => {
   expect(returnBody.addresses).toContainEqual({ address: ADDRESSES[6], index: 6, addressPath: "m/44'/280'/0'/0/6" });
   expect(returnBody.addresses).toContainEqual({ address: ADDRESSES[7], index: 7, addressPath: "m/44'/280'/0'/0/7" });
   expect(returnBody.addresses).toContainEqual({ address: ADDRESSES[8], index: 8, addressPath: "m/44'/280'/0'/0/8" });
+
+  // legacy is not present in the default response
+  expect(returnBody.legacyAddresses).toBeUndefined();
+});
+
+test('GET /addresses/new legacy=false returns shielded and legacy unused addresses', async () => {
+  expect.hasAssertions();
+
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    highestUsedIndex: 4,
+    createdAt: 10000,
+    readyAt: 10001,
+    ctStatus: 'ready',
+    shieldedMaxGap: 3,
+    lastUsedShieldedIndex: 1,
+  }]);
+  await addToAddressTable(mysql, [
+    // Legacy account (0): unused addresses after the transparent frontier (index > 4)
+    { address: ADDRESSES[0], index: 5, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 6, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    // CTSpend account (2): used up to the shielded frontier (index <= 1), unused after it
+    { address: ADDRESSES[2], index: 1, walletId: 'my-wallet', transactions: 2, bip32_account: 2, ct_address: 'Hsh1' },
+    { address: ADDRESSES[3], index: 2, walletId: 'my-wallet', transactions: 0, bip32_account: 2, ct_address: 'Hsh2' },
+    { address: ADDRESSES[4], index: 3, walletId: 'my-wallet', transactions: 0, bip32_account: 2, ct_address: 'Hsh3' },
+    { address: ADDRESSES[5], index: 4, walletId: 'my-wallet', transactions: 0, bip32_account: 2, ct_address: 'Hsh4' },
+  ]);
+
+  const event = makeGatewayEventWithAuthorizer('my-wallet', { legacy: 'false' });
+  const result = await newAddressesGet(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+
+  // `addresses` carry the user-facing CT address within the shielded gap (3), on the account-2 path
+  expect(returnBody.addresses).toStrictEqual([
+    { address: 'Hsh2', index: 2, addressPath: "m/44'/280'/2'/0/2" },
+    { address: 'Hsh3', index: 3, addressPath: "m/44'/280'/2'/0/3" },
+    { address: 'Hsh4', index: 4, addressPath: "m/44'/280'/2'/0/4" },
+  ]);
+  // `spendAddresses` carry the parallel on-chain spend addresses
+  expect(returnBody.spendAddresses).toStrictEqual([
+    { address: ADDRESSES[3], index: 2, addressPath: "m/44'/280'/2'/0/2" },
+    { address: ADDRESSES[4], index: 3, addressPath: "m/44'/280'/2'/0/3" },
+    { address: ADDRESSES[5], index: 4, addressPath: "m/44'/280'/2'/0/4" },
+  ]);
+  // `legacyAddresses` carry today's legacy shape
+  expect(returnBody.legacyAddresses).toStrictEqual([
+    { address: ADDRESSES[0], index: 5, addressPath: "m/44'/280'/0'/0/5" },
+    { address: ADDRESSES[1], index: 6, addressPath: "m/44'/280'/0'/0/6" },
+  ]);
 });
 
 test('GET /addresses/new with no transactions', async () => {
@@ -673,6 +813,111 @@ test('GET /balances', async () => {
   expect(returnBody.balances).toHaveLength(0);
 });
 
+test('GET /balances shielded: merged default, split breakdown and unified status', async () => {
+  expect.hasAssertions();
+  await addToWalletTable(mysql, [{
+    id: 'shielded-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+    ctStatus: 'ready',
+  }]);
+  const token1 = { id: 'token1', name: 'MyToken1', symbol: 'MT1', version: TokenVersion.DEPOSIT };
+  await addToTokenTable(mysql, [{ ...token1, transactions: 0 }]);
+  await addToWalletBalanceTable(mysql, [{
+    walletId: 'shielded-wallet',
+    tokenId: 'token1',
+    unlockedBalance: 1000n,
+    lockedBalance: 0n,
+    unlockedAuthorities: 0,
+    lockedAuthorities: 0,
+    timelockExpires: null,
+    transactions: 50,
+    unlockedShieldedBalance: 2500n,
+    lockedShieldedBalance: 0n,
+    totalShieldedReceived: 2500n,
+  }]);
+
+  // default: merged totals, same field shapes as today
+  let event = makeGatewayEventWithAuthorizer('shielded-wallet', null);
+  let result = await balancesGet(event, null, null) as APIGatewayProxyResult;
+  let returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+  expect(returnBody.status).toBe('ready');
+  expect(returnBody.balances).toContainEqual({
+    token: token1,
+    transactions: 50,
+    balance: { unlocked: 3500, locked: 0 },
+    lockExpires: null,
+    tokenAuthorities: { unlocked: { mint: false, melt: false }, locked: { mint: false, melt: false } },
+  });
+
+  // split=true: breakdown objects
+  event = makeGatewayEventWithAuthorizer('shielded-wallet', { split: 'true' });
+  result = await balancesGet(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.balances).toContainEqual({
+    token: token1,
+    transactions: 50,
+    balance: {
+      unlocked: { transparent: 1000, shielded: 2500, total: 3500 },
+      locked: { transparent: 0, shielded: 0, total: 0 },
+    },
+    lockExpires: null,
+    tokenAuthorities: { unlocked: { mint: false, melt: false }, locked: { mint: false, melt: false } },
+  });
+});
+
+test('GET /balances surfaces creating unified status during shielded catch-up', async () => {
+  expect.hasAssertions();
+  await addToWalletTable(mysql, [{
+    id: 'catching-up-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+    ctStatus: 'creating',
+  }]);
+
+  const event = makeGatewayEventWithAuthorizer('catching-up-wallet', null);
+  const result = await balancesGet(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+  expect(returnBody.status).toBe('creating');
+});
+
+test('GET /balances split=true renders zero backfill for unheld token', async () => {
+  expect.hasAssertions();
+  await addToWalletTable(mysql, [{
+    id: 'empty-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+  await addToTokenTable(mysql, [{ id: 'token9', name: 'T9', symbol: 'T9', version: TokenVersion.DEPOSIT, transactions: 0 }]);
+
+  const event = makeGatewayEventWithAuthorizer('empty-wallet', { token_id: 'token9', split: 'true' });
+  const result = await balancesGet(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.balances).toHaveLength(1);
+  expect(returnBody.balances[0].balance).toStrictEqual({
+    unlocked: { transparent: 0, shielded: 0, total: 0 },
+    locked: { transparent: 0, shielded: 0, total: 0 },
+  });
+});
+
 test('GET /txhistory', async () => {
   expect.hasAssertions();
 
@@ -718,8 +963,8 @@ test('GET /txhistory', async () => {
   expect(result.statusCode).toBe(200);
   expect(returnBody.success).toBe(true);
   expect(returnBody.history).toHaveLength(2);
-  expect(returnBody.history).toContainEqual({ txId: 'tx1', timestamp: 1000, balance: 5, voided: 0, version: 2 });
-  expect(returnBody.history).toContainEqual({ txId: 'tx2', timestamp: 1001, balance: 7, voided: 0, version: 3 });
+  expect(returnBody.history).toContainEqual({ txId: 'tx1', timestamp: 1000, balance: 5, voided: 0, version: 2, tx_kind: 'transparent', balanceBreakdown: { transparent: 5, shielded: 0 } });
+  expect(returnBody.history).toContainEqual({ txId: 'tx2', timestamp: 1001, balance: 7, voided: 0, version: 3, tx_kind: 'transparent', balanceBreakdown: { transparent: 7, shielded: 0 } });
 
   // with count just 1, return only the most recent tx
   event = makeGatewayEventWithAuthorizer('my-wallet', { count: '1' });
@@ -729,7 +974,7 @@ test('GET /txhistory', async () => {
   expect(returnBody.success).toBe(true);
   expect(returnBody.count).toBe(1);
   expect(returnBody.history).toHaveLength(1);
-  expect(returnBody.history).toContainEqual({ txId: 'tx2', timestamp: 1001, balance: 7, voided: 0, version: 3 });
+  expect(returnBody.history).toContainEqual({ txId: 'tx2', timestamp: 1001, balance: 7, voided: 0, version: 3, tx_kind: 'transparent', balanceBreakdown: { transparent: 7, shielded: 0 } });
 
   // skip first item
   event = makeGatewayEventWithAuthorizer('my-wallet', { skip: '1' });
@@ -739,7 +984,7 @@ test('GET /txhistory', async () => {
   expect(returnBody.success).toBe(true);
   expect(returnBody.skip).toBe(1);
   expect(returnBody.history).toHaveLength(1);
-  expect(returnBody.history).toContainEqual({ txId: 'tx1', timestamp: 1000, balance: 5, voided: 0, version: 2 });
+  expect(returnBody.history).toContainEqual({ txId: 'tx1', timestamp: 1000, balance: 5, voided: 0, version: 2, tx_kind: 'transparent', balanceBreakdown: { transparent: 5, shielded: 0 } });
 
   // use other token id
   event = makeGatewayEventWithAuthorizer('my-wallet', { token_id: 'token2' });
@@ -748,7 +993,7 @@ test('GET /txhistory', async () => {
   expect(result.statusCode).toBe(200);
   expect(returnBody.success).toBe(true);
   expect(returnBody.history).toHaveLength(1);
-  expect(returnBody.history).toContainEqual({ txId: 'tx1', timestamp: 1000, balance: 7, voided: 0, version: 2 });
+  expect(returnBody.history).toContainEqual({ txId: 'tx1', timestamp: 1000, balance: 7, voided: 0, version: 2, tx_kind: 'transparent', balanceBreakdown: { transparent: 7, shielded: 0 } });
 
   // it should also return voided transactions
   event = makeGatewayEventWithAuthorizer('my-wallet', { token_id: 'token3' });
@@ -757,7 +1002,43 @@ test('GET /txhistory', async () => {
   expect(result.statusCode).toBe(200);
   expect(returnBody.success).toBe(true);
   expect(returnBody.history).toHaveLength(1);
-  expect(returnBody.history).toContainEqual({ txId: 'tx2', timestamp: 1001, balance: 7, voided: 1, version: 3 });
+  expect(returnBody.history).toContainEqual({ txId: 'tx2', timestamp: 1001, balance: 7, voided: 1, version: 3, tx_kind: 'transparent', balanceBreakdown: { transparent: 7, shielded: 0 } });
+});
+
+test('GET /txhistory carries tx_kind and balanceBreakdown', async () => {
+  expect.hasAssertions();
+
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+  await addToWalletTxHistoryTable(mysql, [
+    ['my-wallet', 'stx1', '00', 150n, 2000, false],            // transparent-only
+    ['my-wallet', 'stx2', '00', 0n, 2001, false, 150n],        // shielded-only
+    ['my-wallet', 'stx3', '00', -50n, 2002, false, 100n],      // mixed
+  ]);
+
+  const event = makeGatewayEventWithAuthorizer('my-wallet', null);
+  const result = await txHistoryGet(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+
+  const byTx = Object.fromEntries(returnBody.history.map((h) => [h.txId, h]));
+  expect(byTx.stx1.tx_kind === 'transparent').toBe(true);
+  expect(byTx.stx1.balance).toBe(150);
+  expect(byTx.stx1.balanceBreakdown).toStrictEqual({ transparent: 150, shielded: 0 });
+  expect(byTx.stx2.tx_kind === 'shielded').toBe(true);
+  expect(byTx.stx2.balance).toBe(150);
+  expect(byTx.stx2.balanceBreakdown).toStrictEqual({ transparent: 0, shielded: 150 });
+  expect(byTx.stx3.tx_kind === 'mixed').toBe(true);
+  expect(byTx.stx3.balance).toBe(50);
+  expect(byTx.stx3.balanceBreakdown).toStrictEqual({ transparent: -50, shielded: 100 });
 });
 
 test('GET /wallet', async () => {

@@ -16,6 +16,7 @@ import * as bitcoinMessage from 'bitcoinjs-message';
 import * as ecc from 'tiny-secp256k1';
 import BIP32Factory from 'bip32';
 import config from '@src/config';
+import { Bip32Account } from '@wallet-service/common';
 
 const bip32 = BIP32Factory(ecc);
 
@@ -170,12 +171,12 @@ export const fetchBlockHeight = async (txId: string, logger: Logger): Promise<[n
 };
 
 /**
- * Creates default address path from address index
+ * Creates an address derivation path from an address index and its bip32 account.
  *
  * @returns {string} The address path
  */
-export const getAddressPath = (index: number): string => (
-  `m/44'/${hathorLib.constants.HATHOR_BIP44_CODE}'/0'/0/${index}`
+export const getAddressPath = (index: number, account: Bip32Account = Bip32Account.Legacy): string => (
+  `m/44'/${hathorLib.constants.HATHOR_BIP44_CODE}'/${account}'/0/${index}`
 );
 
 /**

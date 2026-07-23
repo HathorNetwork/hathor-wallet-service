@@ -1867,11 +1867,13 @@ export const addNewAddresses = async (
   if (Object.keys(addresses).length === 0) return;
   const entries = [];
   for (const [address, index] of Object.entries(addresses)) {
-    entries.push([address, index, walletId, 0]);
+    // Claimed legacy addresses carry an explicit account: an owned address never
+    // has a NULL bip32_account.
+    entries.push([address, index, walletId, 0, Bip32Account.Legacy]);
   }
   await mysql.query(
     `INSERT INTO \`address\`(\`address\`, \`index\`,
-                             \`wallet_id\`, \`transactions\`)
+                             \`wallet_id\`, \`transactions\`, \`bip32_account\`)
      VALUES ?`,
     [entries],
   );

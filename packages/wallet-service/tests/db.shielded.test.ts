@@ -13,7 +13,7 @@ import { Bip32Account } from '@wallet-service/common';
 import { deriveCtAddress } from '@wallet-service/common/src/crypto/shieldedAddress';
 import { DbSelectResult } from '@src/types';
 import { getDbConnection, closeDbConnection } from '@src/utils';
-import { cleanDatabase, addToWalletTable, addToAddressTable } from '@tests/utils';
+import { cleanDatabase, addToWalletTable, addToAddressTable, addToShieldedTxOutputDataTable } from '@tests/utils';
 import {
   findShieldedAddressOwnership,
   findShieldedAddressOwnershipBatch,
@@ -24,6 +24,8 @@ import {
   getWalletCtSpendAddresses,
   markShieldedCatchupDone,
   generateShieldedAddresses,
+  getShieldedTxOutputDataByIds,
+  getShieldedAddressInfoByAddresses,
 } from '@src/db/shielded';
 
 const mysql: ServerlessMysql = getDbConnection();
@@ -409,5 +411,59 @@ describe('generateShieldedAddresses', () => {
       scanPrivkey: derivedAt(3).scanPrivkey,
     });
     expect(res.newRows.map((r) => r.index)).toStrictEqual([3, 4, 5, 6]);
+  });
+});
+
+describe('shielded db: API hydration helpers', () => {
+  it('getShieldedTxOutputDataByIds returns satellite rows keyed by txId:index', async () => {
+    // shielded_tx_output_data FKs onto tx_output(tx_id, index) -> seed the parent rows first.
+    await insertShieldedOutput('tx1', 5, 'a1', 1, 'unowned', null, '00');
+    await insertShieldedOutput('tx2', 0, 'a1', 2, 'unowned', null, null);
+
+    await addToShieldedTxOutputDataTable(mysql, [{
+      txId: 'tx1', index: 5,
+      commitment: Buffer.alloc(33, 1), rangeProof: Buffer.alloc(64, 2),
+      script: Buffer.alloc(4, 3), ephemeralPubkey: Buffer.alloc(33, 4),
+      tokenData: 1,
+    }, {
+      txId: 'tx2', index: 0,
+      commitment: Buffer.alloc(33, 5), rangeProof: Buffer.alloc(64, 6),
+      script: Buffer.alloc(4, 7), ephemeralPubkey: Buffer.alloc(33, 8),
+      assetCommitment: Buffer.alloc(33, 9), surjectionProof: Buffer.alloc(64, 10),
+    }]);
+
+    const map = await getShieldedTxOutputDataByIds(mysql, [
+      { txId: 'tx1', index: 5 },
+      { txId: 'tx2', index: 0 },
+    ]);
+    expect(map.size).toBe(2);
+    expect(map.get('tx1:5')).toStrictEqual({
+      txId: 'tx1', index: 5,
+      commitment: Buffer.alloc(33, 1), ephemeralPubkey: Buffer.alloc(33, 4),
+      rangeProof: Buffer.alloc(64, 2), script: Buffer.alloc(4, 3),
+      tokenData: 1, assetCommitment: null, surjectionProof: null,
+    });
+    expect(map.get('tx2:0').tokenData).toBeNull();
+    expect(map.get('tx2:0').assetCommitment).toStrictEqual(Buffer.alloc(33, 9));
+    expect(map.get('tx2:0').surjectionProof).toStrictEqual(Buffer.alloc(64, 10));
+  });
+
+  it('getShieldedTxOutputDataByIds returns empty map without querying on empty input', async () => {
+    const map = await getShieldedTxOutputDataByIds(mysql, []);
+    expect(map.size).toBe(0);
+  });
+
+  it('getShieldedAddressInfoByAddresses only matches CTSpend rows of the wallet', async () => {
+    await addToAddressTable(mysql, [
+      { address: 'legacyAddr', index: 0, walletId: 'w1', transactions: 1, bip32_account: 0 },
+      { address: 'ctAddr', index: 7, walletId: 'w1', transactions: 1, bip32_account: 2, ct_address: 'HshLongCtAddress1' },
+      { address: 'ctAddrOther', index: 1, walletId: 'w2', transactions: 1, bip32_account: 2, ct_address: 'HshLongCtAddress2' },
+    ]);
+
+    const map = await getShieldedAddressInfoByAddresses(mysql, 'w1', ['legacyAddr', 'ctAddr', 'ctAddrOther']);
+    expect(map.size).toBe(1);
+    expect(map.get('ctAddr')).toStrictEqual({
+      address: 'ctAddr', ctAddress: 'HshLongCtAddress1', shieldedIndex: 7,
+    });
   });
 });

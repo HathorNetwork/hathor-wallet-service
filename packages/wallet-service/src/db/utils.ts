@@ -11,6 +11,7 @@ import { getWalletId } from '@src/utils';
 import {
   WalletStatus,
   CtStatus,
+  TxKind,
   Wallet,
   Tx,
   DbSelectResult,
@@ -99,13 +100,23 @@ export const getWalletFromDbEntry = (entry: Record<string, unknown>): Wallet => 
  *  - no shielded keys registered (`none`) → the legacy status
  *  - either side errored → error
  *  - either side still creating → creating
- *  - both ready → ready
+ *  - otherwise (neither errored nor creating) → ready
  */
 export const computeUnifiedStatus = (status: WalletStatus, ctStatus: CtStatus): WalletStatus => {
   if (ctStatus === 'none') return status;
   if (status === WalletStatus.ERROR || ctStatus === WalletStatus.ERROR) return WalletStatus.ERROR;
   if (status === WalletStatus.CREATING || ctStatus === WalletStatus.CREATING) return WalletStatus.CREATING;
   return WalletStatus.READY;
+};
+
+/**
+ * Classify a history row by which balance deltas are non-zero. A row with
+ * both deltas zero keeps the transparent reading it always had.
+ */
+export const deriveTxKind = (transparentDelta: bigint, shieldedDelta: bigint): TxKind => {
+  if (shieldedDelta === 0n) return 'transparent';
+  if (transparentDelta === 0n) return 'shielded';
+  return 'mixed';
 };
 
 /**

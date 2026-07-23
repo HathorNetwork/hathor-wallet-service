@@ -53,9 +53,11 @@ import {
 import {
   getWalletFromDbEntry,
   getTxsFromDBResult,
+  deriveTxKind,
 } from '@src/db/utils';
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 import { TxInput, Severity } from '@wallet-service/common/src/types';
+import { ShieldedOutputMode, RecoveryState, Bip32Account } from '@wallet-service/common';
 import { Logger } from 'winston';
 import createDefaultLogger from '@src/logger';
 import { FullnodeVersionSchema } from '@src/schemas';
@@ -424,11 +426,14 @@ export const upsertNewAddresses = async (
   lastUsedAddressIndex: number,
 ): Promise<void> => {
   if (Object.keys(addresses).length > 0) {
-    const entries = Object.entries(addresses).map(([address, index]) => [address, index, walletId, 0]);
+    // Claimed legacy addresses carry an explicit account: an owned address never
+    // has a NULL bip32_account. Set it on insert and when an unowned observation
+    // row is claimed (ON DUPLICATE).
+    const entries = Object.entries(addresses).map(([address, index]) => [address, index, walletId, 0, Bip32Account.Legacy]);
     await mysql.query(
-      `INSERT INTO \`address\`(\`address\`, \`index\`, \`wallet_id\`, \`transactions\`)
+      `INSERT INTO \`address\`(\`address\`, \`index\`, \`wallet_id\`, \`transactions\`, \`bip32_account\`)
        VALUES ?
-       ON DUPLICATE KEY UPDATE \`wallet_id\` = VALUES(\`wallet_id\`), \`index\` = VALUES(\`index\`)`,
+       ON DUPLICATE KEY UPDATE \`wallet_id\` = VALUES(\`wallet_id\`), \`index\` = VALUES(\`index\`), \`bip32_account\` = VALUES(\`bip32_account\`)`,
       [entries],
     );
   }
@@ -949,8 +954,9 @@ export const getTxOutput = async (
       WHERE \`tx_id\` = ?
         AND \`index\` = ?
         ${skipSpent ? 'AND `spent_by` IS NULL' : ''}
-        AND \`voided\` = FALSE`,
-    [txId, index],
+        AND \`voided\` = FALSE
+        AND (\`mode\` = ? OR \`recovery_state\` = ?)`,
+    [txId, index, ShieldedOutputMode.Transparent, RecoveryState.Recovered],
   );
 
   if (!results.length || results.length === 0) {
@@ -1002,6 +1008,12 @@ export const getAuthorityUtxo = async (
 /**
  * Get the requested UTXOs.
  *
+ * @remarks
+ * Unrecovered shielded rows are excluded: their `value` and `token_id` are NULL
+ * until recovery, and the mapper's `?? 0` fallback on `value` would otherwise mask
+ * such a row into a spendable-looking zero-value UTXO. Recovered shielded rows stay
+ * selectable.
+ *
  * @param mysql - Database connection
  * @param utxosKeys - Information about the queried UTXOs, including tx_id and index
  * @returns A list of UTXOs with all their properties
@@ -1021,8 +1033,9 @@ export const getUtxos = async (
       WHERE (\`tx_id\`, \`index\`)
          IN (?)
         AND \`spent_by\` IS NULL
-        AND \`voided\` = FALSE`,
-    [entries],
+        AND \`voided\` = FALSE
+        AND (\`mode\` = ? OR \`recovery_state\` = ?)`,
+    [entries, ShieldedOutputMode.Transparent, RecoveryState.Recovered],
   );
 
   const utxos = results.map(mapDbResultToDbTxOutput);
@@ -1405,21 +1418,41 @@ export const updateWalletLockedBalance = async (
  * @param mysql - Database connection
  * @param walletId - Wallet id
  * @param filterAddresses - Optional parameter to filter addresses from the list
+ * @param account - Optional BIP32 account selector. `undefined` returns addresses from all
+ * accounts (existing behavior); `Legacy` and `CTSpend` restrict to that derivation account.
  * @returns A list of addresses and their info (index and transactions)
  */
-export const getWalletAddresses = async (mysql: ServerlessMysql, walletId: string, filterAddresses?: string[]): Promise<AddressInfo[]> => {
+export const getWalletAddresses = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+  filterAddresses?: string[],
+  account?: Bip32Account,
+): Promise<AddressInfo[]> => {
   const addresses: AddressInfo[] = [];
   const subQuery = filterAddresses ? `
     AND \`address\` IN (?)
   ` : '';
+  // Legacy rows created before the shielded columns existed have a NULL
+  // bip32_account, so the legacy selector must be NULL-tolerant.
+  let accountFilter = '';
+  if (account === Bip32Account.Legacy) {
+    accountFilter = 'AND (`bip32_account` IS NULL OR `bip32_account` = 0)';
+  } else if (account !== undefined) {
+    accountFilter = 'AND `bip32_account` = ?';
+  }
+
+  const params: unknown[] = [walletId];
+  if (filterAddresses) params.push(filterAddresses);
+  if (account !== undefined && account !== Bip32Account.Legacy) params.push(account);
 
   const results: DbSelectResult = await mysql.query(`
     SELECT *
       FROM \`address\`
      WHERE \`wallet_id\` = ?
       ${subQuery}
+      ${accountFilter}
   ORDER BY \`index\`
-       ASC`, [walletId, filterAddresses]);
+       ASC`, params);
 
   for (const result of results) {
     const address = {
@@ -1427,6 +1460,8 @@ export const getWalletAddresses = async (mysql: ServerlessMysql, walletId: strin
       index: result.index as number,
       transactions: result.transactions as number,
       seqnum: result.seqnum as number,
+      ctAddress: (result.ct_address ?? null) as string | null,
+      bip32Account: result.bip32_account == null ? null : Number(result.bip32_account),
     };
     addresses.push(address);
   }
@@ -1440,8 +1475,29 @@ export const getWalletAddresses = async (mysql: ServerlessMysql, walletId: strin
  * @param walletId - Wallet id
  * @returns A list of addresses and their indexes
  */
-export const getNewAddresses = async (mysql: ServerlessMysql, wallet: Wallet): Promise<ShortAddressInfo[]> => {
+export const getNewAddresses = async (
+  mysql: ServerlessMysql,
+  wallet: Wallet,
+  account: Bip32Account = Bip32Account.Legacy,
+): Promise<ShortAddressInfo[]> => {
   const addresses: ShortAddressInfo[] = [];
+
+  // Each account has its own frontier (last used index) and gap limit. A wallet
+  // with no shielded keys has no shielded gap and no CTSpend rows, so there is
+  // nothing to return for that account.
+  const isCtSpend = account === Bip32Account.CTSpend;
+  const frontier = isCtSpend ? (wallet.lastUsedShieldedIndex ?? -1) : wallet.lastUsedAddressIndex;
+  const gap = isCtSpend ? wallet.shieldedMaxGap : wallet.maxGap;
+  if (gap == null) {
+    return addresses;
+  }
+  // An owned address always has its account set; a NULL `bip32_account` marks an
+  // unowned observation row whose account is not yet known, so it is never a
+  // candidate here.
+  const accountFilter = isCtSpend
+    ? `AND \`bip32_account\` = ${Bip32Account.CTSpend}`
+    : `AND \`bip32_account\` = ${Bip32Account.Legacy}`;
+
   // Select all addresses that are empty and the index is bigger than the last used address index
   const results: DbSelectResult = await mysql.query(`
     SELECT *
@@ -1449,16 +1505,18 @@ export const getNewAddresses = async (mysql: ServerlessMysql, wallet: Wallet): P
      WHERE \`wallet_id\` = ?
        AND \`transactions\` = 0
        AND \`index\` > ?
+       ${accountFilter}
   ORDER BY \`index\`
        ASC
-  LIMIT ?`, [wallet.walletId, wallet.lastUsedAddressIndex, wallet.maxGap]);
+  LIMIT ?`, [wallet.walletId, frontier, gap]);
 
   for (const result of results) {
     const index = result.index as number;
     const address = {
       address: result.address as string,
       index,
-      addressPath: getAddressPath(index),
+      addressPath: getAddressPath(index, account),
+      ctAddress: (result.ct_address ?? null) as string | null,
     };
     addresses.push(address);
   }
@@ -1489,6 +1547,9 @@ export const getWalletBalances = async (mysql: ServerlessMysql, walletId: string
     SELECT w.total_received AS total_received,
            w.unlocked_balance AS unlocked_balance,
            w.locked_balance AS locked_balance,
+           w.unlocked_shielded_balance AS unlocked_shielded_balance,
+           w.locked_shielded_balance AS locked_shielded_balance,
+           w.total_shielded_received AS total_shielded_received,
            w.unlocked_authorities AS unlocked_authorities,
            w.locked_authorities AS locked_authorities,
            w.timelock_expires AS timelock_expires,
@@ -1503,9 +1564,12 @@ INNER JOIN token ON w.token_id = token.id
 
   const results: DbSelectResult = await mysql.query(query, params);
   for (const result of results) {
-    const totalAmount = BigInt(result.total_received as string);
-    const unlockedBalance = BigInt(result.unlocked_balance as string);
-    const lockedBalance = BigInt(result.locked_balance as string);
+    const totalAmount = dbIntToBigInt(result.total_received);
+    const unlockedBalance = dbIntToBigInt(result.unlocked_balance);
+    const lockedBalance = dbIntToBigInt(result.locked_balance);
+    const unlockedShieldedBalance = dbIntToBigInt(result.unlocked_shielded_balance);
+    const lockedShieldedBalance = dbIntToBigInt(result.locked_shielded_balance);
+    const totalShieldedReceived = dbIntToBigInt(result.total_shielded_received);
     const unlockedAuthorities = new Authorities(result.unlocked_authorities as number);
     const lockedAuthorities = new Authorities(result.locked_authorities as number);
     const timelockExpires = result.timelock_expires as number;
@@ -1517,7 +1581,7 @@ INNER JOIN token ON w.token_id = token.id
         result.symbol as string,
         toTokenVersion(result.token_version as number),
       ),
-      new Balance(totalAmount, unlockedBalance, lockedBalance, timelockExpires, unlockedAuthorities, lockedAuthorities),
+      new Balance(totalAmount, unlockedBalance, lockedBalance, timelockExpires, unlockedAuthorities, lockedAuthorities, unlockedShieldedBalance, lockedShieldedBalance, totalShieldedReceived),
       result.transactions as number,
     );
     balances.push(balance);
@@ -1577,6 +1641,7 @@ export const getWalletTxHistory = async (
   const history: TxTokenBalance[] = [];
   const results: DbSelectResult = await mysql.query(`
     SELECT wallet_tx_history.balance AS balance,
+           wallet_tx_history.shielded_balance_delta AS shielded_balance_delta,
            wallet_tx_history.timestamp AS timestamp,
            wallet_tx_history.token_id AS token_id,
            wallet_tx_history.tx_id AS tx_id,
@@ -1593,12 +1658,19 @@ LEFT OUTER JOIN transaction ON transaction.tx_id = wallet_tx_history.tx_id
     [walletId, tokenId, skip, count]);
 
   for (const result of results) {
+    const transparentDelta = BigInt(result.balance as string);
+    const shieldedDelta = BigInt((result.shielded_balance_delta ?? 0) as string | number);
     const tx: TxTokenBalance = {
       txId: <string>result.tx_id,
       timestamp: <number>result.timestamp,
       voided: <boolean>result.voided,
-      balance: BigInt(result.balance as string),
+      balance: transparentDelta + shieldedDelta,
       version: <number>result.version,
+      tx_kind: deriveTxKind(transparentDelta, shieldedDelta),
+      balanceBreakdown: {
+        transparent: transparentDelta,
+        shielded: shieldedDelta,
+      },
     };
     history.push(tx);
   }
@@ -1682,6 +1754,7 @@ export const getWalletUnlockedUtxos = async (
         AND (\`timelock\` <= ?
              OR \`timelock\` is NULL)
         AND \`locked\` = 1
+        AND \`mode\` = 0
         AND \`spent_by\` IS NULL
         AND \`voided\` = FALSE
         AND \`address\` IN (
@@ -2594,6 +2667,20 @@ export const filterTxOutputs = async (
     finalFilters.tokenId,
   ];
 
+  // Mode/recovery filtering is a single mutually-exclusive clause per kind:
+  //  - transparent: only mode 0
+  //  - shielded: only recovered shielded outputs (their value is known)
+  //  - default (no kind): transparent plus recovered shielded
+  if (finalFilters.kind === 'transparent') {
+    queryParams.push(ShieldedOutputMode.Transparent);
+  } else if (finalFilters.kind === 'shielded') {
+    queryParams.push([ShieldedOutputMode.AmountShielded, ShieldedOutputMode.FullyShielded]);
+    queryParams.push(RecoveryState.Recovered);
+  } else {
+    queryParams.push(ShieldedOutputMode.Transparent);
+    queryParams.push(RecoveryState.Recovered);
+  }
+
   if (finalFilters.authority === 0) {
     queryParams.push(finalFilters.smallerThan);
     queryParams.push(finalFilters.biggerThan);
@@ -2609,6 +2696,9 @@ export const filterTxOutputs = async (
       WHERE \`address\`
          IN (?)
         AND \`token_id\` = ?
+        ${finalFilters.kind === 'transparent' ? 'AND `mode` = ?' : ''}
+        ${finalFilters.kind === 'shielded' ? 'AND `mode` IN (?) AND `recovery_state` = ?' : ''}
+        ${!finalFilters.kind ? 'AND (`mode` = ? OR `recovery_state` = ?)' : ''}
         ${finalFilters.authority !== 0 ? 'AND `authorities` & ? > 0' : 'AND `authorities` = 0'}
         ${finalFilters.ignoreLocked ? 'AND `locked` = FALSE' : ''}
         ${finalFilters.authority === 0 ? 'AND value < ?' : ''}
@@ -2633,20 +2723,31 @@ export const filterTxOutputs = async (
  * @param results - The tx_output results from the database
  * @returns A list of tx_outputs mapped to the DbTxOutput type
  */
-export const mapDbResultToDbTxOutput = (result: any): DbTxOutput => ({
-  txId: result.tx_id as string,
-  index: result.index as number,
-  tokenId: result.token_id as string,
-  address: result.address as string,
-  value: BigInt(result.value),
-  authorities: result.authorities as number,
-  timelock: result.timelock as number,
-  heightlock: result.heightlock as number,
-  locked: result.locked > 0,
-  txProposalId: result.tx_proposal as string,
-  txProposalIndex: result.tx_proposal_index as number,
-  spentBy: result.spent_by as string,
-});
+export const mapDbResultToDbTxOutput = (result: any): DbTxOutput => {
+  // `value` is a NOT-NULL money column for transparent and recovered shielded
+  // rows; it is only NULL on an unrecovered shielded row, which every caller must
+  // exclude in SQL. A NULL reaching here is a real integrity violation — fail
+  // loudly rather than silently coerce it into a spendable-looking zero.
+  if (result.value == null) {
+    throw new Error(`tx_output ${result.tx_id}:${result.index} has a NULL value; unrecovered shielded rows must be filtered out before mapping`);
+  }
+  return {
+    txId: result.tx_id as string,
+    index: result.index as number,
+    tokenId: result.token_id as string,
+    address: result.address as string,
+    value: BigInt(result.value),
+    authorities: result.authorities as number,
+    timelock: result.timelock as number,
+    heightlock: result.heightlock as number,
+    locked: result.locked > 0,
+    txProposalId: result.tx_proposal as string,
+    txProposalIndex: result.tx_proposal_index as number,
+    spentBy: result.spent_by as string,
+    mode: (result.mode ?? 0) as ShieldedOutputMode,
+    recoveryState: (result.recovery_state ?? null) as RecoveryState | null,
+  };
+};
 
 /**
  * Get tx proposal inputs.
@@ -2760,12 +2861,15 @@ export const getExpiredTimelocksUtxos = async (
   mysql: ServerlessMysql,
   now: number,
 ): Promise<DbTxOutput[]> => {
+  // Shielded timelock-unlock accounting is daemon-side follow-up work; this
+  // feeds the transparent-only balance rebuild, so shielded rows are excluded.
   const results: DbSelectResult = await mysql.query(`
     SELECT *
       FROM tx_output
      WHERE locked = TRUE
        AND timelock IS NOT NULL
        AND timelock < ?
+       AND mode = 0
   `, [now]);
 
   const lockedUtxos: DbTxOutput[] = results.map(mapDbResultToDbTxOutput);
@@ -3333,15 +3437,25 @@ export const getAddressAtIndex = async (
   mysql: ServerlessMysql,
   walletId: string,
   index: number,
+  account: Bip32Account = Bip32Account.Legacy,
 ): Promise<AddressInfo | null> => {
+  // Legacy rows created before the shielded columns existed have a NULL
+  // bip32_account, so the legacy selector must be NULL-tolerant.
+  const accountFilter = account === Bip32Account.Legacy
+    ? 'AND (`bip32_account` IS NULL OR `bip32_account` = 0)'
+    : 'AND `bip32_account` = ?';
+  const params: unknown[] = account === Bip32Account.Legacy
+    ? [index, walletId]
+    : [index, walletId, account];
   const addresses = await mysql.query<AddressInfo[]>(
     `
-    SELECT \`address\`, \`index\`, \`transactions\`, \`seqnum\`
+    SELECT \`address\`, \`index\`, \`transactions\`, \`seqnum\`, \`ct_address\`
       FROM \`address\` pd
      WHERE \`index\` = ?
        AND \`wallet_id\` = ?
+       ${accountFilter}
      LIMIT 1`,
-    [index, walletId],
+    params,
   );
 
   if (addresses.length <= 0) {
@@ -3353,7 +3467,9 @@ export const getAddressAtIndex = async (
     index: addresses[0].index,
     transactions: addresses[0].transactions,
     seqnum: addresses[0].seqnum,
-  }
+    // eslint-disable-next-line dot-notation
+    ctAddress: (addresses[0]['ct_address'] ?? null) as string | null,
+  };
 };
 
 /**

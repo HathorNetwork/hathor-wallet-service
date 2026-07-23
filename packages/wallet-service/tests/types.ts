@@ -18,6 +18,9 @@ export interface WalletBalanceEntry {
   lockedAuthorities: number;
   timelockExpires?: number;
   transactions: number;
+  unlockedShieldedBalance?: bigint;
+  lockedShieldedBalance?: bigint;
+  totalShieldedReceived?: bigint;
 }
 
 export interface AddressTxHistoryTableEntry {
@@ -65,4 +68,7 @@ export interface WalletTableEntry {
   highestUsedIndex?: number;
   createdAt: number;
   readyAt: number;
+  ctStatus?: string;
+  shieldedMaxGap?: number | null;
+  lastUsedShieldedIndex?: number | null;
 }
