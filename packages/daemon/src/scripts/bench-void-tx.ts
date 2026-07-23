@@ -65,7 +65,6 @@ const sdk = new NodeSDK({
   }),
   spanProcessor: new MultiSpanProcessor(sdkProcessors),
 });
-sdk.start();
 
 // -------------------------------------------------------------------
 // Now safe to import daemon modules
@@ -73,9 +72,7 @@ sdk.start();
 // eslint-disable-next-line import/first
 import * as mysql2 from 'mysql2/promise';
 // eslint-disable-next-line import/first
-import { voidTx } from '../services';
-// eslint-disable-next-line import/first
-import { EventTxInput, EventTxOutput } from '../types';
+import type { EventTxInput, EventTxOutput } from '../types';
 
 // -------------------------------------------------------------------
 // CLI parsing
@@ -333,6 +330,9 @@ function stats(values: number[]) {
 // Main
 // -------------------------------------------------------------------
 async function main() {
+  await sdk.start();
+  const { voidTx } = await import('../services');
+
   const opts = parseArgs();
   if (!opts.dangerouslyResetDb) {
     throw new Error(
