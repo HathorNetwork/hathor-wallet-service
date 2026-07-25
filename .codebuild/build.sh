@@ -9,6 +9,23 @@ send_slack_message() {
         -X POST https://slack.com/api/chat.postMessage;
 }
 
+print_deploy_banner() {
+    TARGET_ENVIRONMENT=$1;
+    SOURCE_REF=${CODEBUILD_WEBHOOK_HEAD_REF:-unknown};
+    BUILD_ID=${CODEBUILD_BUILD_ID:-unknown};
+
+    echo;
+    echo "========================================================================";
+    echo "====================== HATHOR WALLET SERVICE DEPLOY =====================";
+    echo "========================================================================";
+    echo "BUILD_ID: ${BUILD_ID}";
+    echo "SOURCE_REF: ${SOURCE_REF}";
+    echo "GIT_REF_TO_DEPLOY: ${GIT_REF_TO_DEPLOY}";
+    echo "TARGET_ENVIRONMENT: ${TARGET_ENVIRONMENT}";
+    echo "========================================================================";
+    echo;
+}
+
 deploy_hathor_network_account() {
     exit=false;
 
@@ -34,6 +51,8 @@ deploy_hathor_network_account() {
             export ${var#dev_}="${!var}"
         done
 
+        print_deploy_banner "dev-testnet"
+
         make migrate;
         make build-daemon;
         make deploy-lambdas-dev-testnet;
@@ -45,6 +64,8 @@ deploy_hathor_network_account() {
         for var in "${!mainnet_staging_@}"; do
             export ${var#mainnet_staging_}="${!var}"
         done
+
+        print_deploy_banner "mainnet-staging"
 
         echo $GIT_REF_TO_DEPLOY > /tmp/docker_image_tag
         make migrate;
@@ -61,6 +82,8 @@ deploy_hathor_network_account() {
         for var in "${!testnetindia_@}"; do
             export ${var#testnetindia_}="${!var}"
         done
+
+        print_deploy_banner "testnet-india"
 
         make migrate;
         make build-daemon;
@@ -80,6 +103,9 @@ deploy_hathor_network_account() {
         for var in "${!mainnet_@}"; do
             export ${var#mainnet_}="${!var}"
         done
+
+        print_deploy_banner "mainnet-production"
+
         make migrate;
         make build-daemon;
         make deploy-lambdas-mainnet;
@@ -97,6 +123,9 @@ deploy_hathor_network_account() {
         for var in "${!dev_@}"; do
             export ${var#dev_}="${!var}"
         done
+
+        print_deploy_banner "dev-testnet"
+
         make migrate;
         make build-daemon;
         make deploy-lambdas-dev-testnet;
@@ -115,24 +144,29 @@ deploy_ekvilibro_mainnet() {
 
     # This will match release-candidates
     if expr "${GIT_REF_TO_DEPLOY}" : "v[0-9]\+\.[0-9]\+\.[0-9]\+-rc\.[0-9]\+" >/dev/null; then
+        print_deploy_banner "ekvilibro-mainnet (skipped)"
         echo "We don't deploy ${GIT_REF_TO_DEPLOY} to ekvilibro-mainnet. Nothing to do.";
     # This will match releases only (since release-candidates are already matched above)
     elif expr "${GIT_REF_TO_DEPLOY}" : "v.*" >/dev/null; then
+        print_deploy_banner "ekvilibro-mainnet"
         make migrate;
         make deploy-lambdas-ekvilibro-mainnet;
 
         send_slack_message "New version deployed to ekvilibro-mainnet: ${GIT_REF_TO_DEPLOY}"
     elif expr "${MANUAL_DEPLOY}" : "true" >/dev/null; then
+        print_deploy_banner "ekvilibro-mainnet (manual)"
         make migrate;
         make deploy-lambdas-ekvilibro-mainnet;
 
         send_slack_message "Branch manually deployed to ekvilibro-mainnet: ${GIT_REF_TO_DEPLOY}"
     elif expr "${ROLLBACK}" : "true" >/dev/null; then
+        print_deploy_banner "ekvilibro-mainnet (rollback)"
         make migrate;
         make deploy-lambdas-ekvilibro-mainnet;
 
         send_slack_message "Rollback performed on ekvilibro-mainnet to: ${GIT_REF_TO_DEPLOY}";
     else
+        print_deploy_banner "ekvilibro-mainnet (skipped)"
         echo "We don't deploy ${GIT_REF_TO_DEPLOY} to ekvilibro-mainnet. Nothing to do.";
     fi;
 
@@ -148,21 +182,25 @@ deploy_ekvilibro_testnet() {
 
     # This will match release-candidates or releases
     if expr "${GIT_REF_TO_DEPLOY}" : "v.*" >/dev/null; then
+        print_deploy_banner "ekvilibro-testnet"
         make migrate;
         make deploy-lambdas-ekvilibro-testnet;
 
         send_slack_message "New version deployed to ekvilibro-testnet: ${GIT_REF_TO_DEPLOY}"
     elif expr "${MANUAL_DEPLOY}" : "true" >/dev/null; then
+        print_deploy_banner "ekvilibro-testnet (manual)"
         make migrate;
         make deploy-lambdas-ekvilibro-testnet;
 
         send_slack_message "Branch manually deployed to ekvilibro-testnet: ${GIT_REF_TO_DEPLOY}"
     elif expr "${ROLLBACK}" : "true" >/dev/null; then
+        print_deploy_banner "ekvilibro-testnet (rollback)"
         make migrate;
         make deploy-lambdas-ekvilibro-testnet;
 
         send_slack_message "Rollback performed on ekvilibro-testnet to: ${GIT_REF_TO_DEPLOY}";
     else
+        print_deploy_banner "ekvilibro-testnet (skipped)"
         echo "We don't deploy ${GIT_REF_TO_DEPLOY} to ekvilibro-testnet. Nothing to do.";
     fi;
 }
@@ -177,21 +215,25 @@ deploy_testnet_playground() {
 
     # This will match release-candidates or releases
     if expr "${GIT_REF_TO_DEPLOY}" : "v.*" >/dev/null; then
+        print_deploy_banner "testnet-playground"
         make migrate;
         make deploy-lambdas-testnet-playground;
 
         send_slack_message "New version deployed to testnet-playground: ${GIT_REF_TO_DEPLOY}"
     elif expr "${MANUAL_DEPLOY}" : "true" >/dev/null; then
+        print_deploy_banner "testnet-playground (manual)"
         make migrate;
         make deploy-lambdas-testnet-playground;
 
         send_slack_message "Branch manually deployed to testnet-playground: ${GIT_REF_TO_DEPLOY}"
     elif expr "${ROLLBACK}" : "true" >/dev/null; then
+        print_deploy_banner "testnet-playground (rollback)"
         make migrate;
         make deploy-lambdas-testnet-playground;
 
         send_slack_message "Rollback performed on testnet-playground to: ${GIT_REF_TO_DEPLOY}";
     else
+        print_deploy_banner "testnet-playground (skipped)"
         echo "We don't deploy ${GIT_REF_TO_DEPLOY} to testnet-playground. Nothing to do.";
     fi;
 }
