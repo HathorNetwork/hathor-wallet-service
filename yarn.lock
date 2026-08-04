@@ -14116,7 +14116,7 @@ __metadata:
     eslint-plugin-jest: "npm:28.14.0"
     jest: "npm:29.7.0"
     mysql2: "npm:3.22.0"
-    sequelize: "npm:6.37.2"
+    sequelize: "npm:6.37.8"
     sequelize-cli: "npm:6.6.2"
     tiny-secp256k1: "npm:2.2.3"
     typescript: "npm:5.8.2"
@@ -18805,9 +18805,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"sequelize@npm:6.37.2":
-  version: 6.37.2
-  resolution: "sequelize@npm:6.37.2"
+"sequelize@npm:6.37.8":
+  version: 6.37.8
+  resolution: "sequelize@npm:6.37.8"
   dependencies:
     "@types/debug": "npm:^4.1.8"
     "@types/validator": "npm:^13.7.17"
@@ -18844,7 +18844,7 @@ __metadata:
       optional: true
     tedious:
       optional: true
-  checksum: 10/425f8d5edbca3a34a5c8e68bfcc1f08a27ff5f3e12c333d0c480904404b8b5b41503c08c47fcb12c5ad6cdd463cac5a49cd1af9ce76cb09a0ce23b71145b9270
+  checksum: 10/e9d2874dcdad5c7d2f0ce7138a644f84dfd4ff6687dd12d05813b46dcb41b5e059d49de2028697c25c9cba1f462224cd5851b37a7021d4618863f845f187b481
   languageName: node
   linkType: hard
 
