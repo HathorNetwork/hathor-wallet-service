@@ -108,7 +108,7 @@ deploy_hathor_network_account() {
 deploy_ekvilibro_mainnet() {
     # Deploys the releases to our ekvilibro-mainnet environment
 
-    # We deploy only the Lambdas here, because the daemon used in ekvilibro-testnet is the same as
+    # We deploy only the Lambdas here, because the daemon used in ekvilibro-mainnet is the same as
     # the one built in the hathor-network account, since it runs there as well
 
     echo "Building git ref ${GIT_REF_TO_DEPLOY}..."
@@ -138,35 +138,6 @@ deploy_ekvilibro_mainnet() {
 
 }
 
-deploy_ekvilibro_testnet() {
-    # Deploys the release-candidates and releases to our ekvilibro-testnet environment
-
-    # We deploy only the Lambdas here, because the daemon used in ekvilibro-testnet is the same as
-    # the one built in the hathor-network account, since it runs there as well
-
-    echo "Building git ref ${GIT_REF_TO_DEPLOY}..."
-
-    # This will match release-candidates or releases
-    if expr "${GIT_REF_TO_DEPLOY}" : "v.*" >/dev/null; then
-        make migrate;
-        make deploy-lambdas-ekvilibro-testnet;
-
-        send_slack_message "New version deployed to ekvilibro-testnet: ${GIT_REF_TO_DEPLOY}"
-    elif expr "${MANUAL_DEPLOY}" : "true" >/dev/null; then
-        make migrate;
-        make deploy-lambdas-ekvilibro-testnet;
-
-        send_slack_message "Branch manually deployed to ekvilibro-testnet: ${GIT_REF_TO_DEPLOY}"
-    elif expr "${ROLLBACK}" : "true" >/dev/null; then
-        make migrate;
-        make deploy-lambdas-ekvilibro-testnet;
-
-        send_slack_message "Rollback performed on ekvilibro-testnet to: ${GIT_REF_TO_DEPLOY}";
-    else
-        echo "We don't deploy ${GIT_REF_TO_DEPLOY} to ekvilibro-testnet. Nothing to do.";
-    fi;
-}
-
 # Check the first argument for the desired deploy
 option=$1
 
@@ -174,9 +145,6 @@ case $option in
     # This will be triggered from /.codebuild/buildspec.yml in this repo
     hathor-network)
         deploy_hathor_network_account
-        ;;
-    ekvilibro-testnet)
-        deploy_ekvilibro_testnet
         ;;
     ekvilibro-mainnet)
         deploy_ekvilibro_mainnet
