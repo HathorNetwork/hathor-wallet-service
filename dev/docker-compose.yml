@@ -1,0 +1,46 @@
+services:
+  mysql:
+    restart: always
+    image: centos/mysql-80-centos7
+    container_name: mysql
+    ports:
+      - "3306:3306"
+    mem_limit: 512m
+    environment:
+      - MYSQL_DATABASE=wallet_service_local
+      - MYSQL_USER=wallet_service_user
+      - MYSQL_PASSWORD=password
+      - MYSQL_DEFAULT_AUTHENTICATION_PLUGIN=mysql_native_password
+    networks:
+      - svc
+
+  redis:
+    image: redis:6.2
+    ports:
+      - 6379:6379
+    mem_limit: 96m
+    networks:
+      - svc
+
+  dbadmin:
+    restart: always
+    image: phpmyadmin/phpmyadmin
+    container_name: mariadb-phpmyadmin
+    ports:
+      - "8001:80"
+    mem_limit: 512m
+    depends_on:
+      - mysql
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      # MYSQL_USER: wallet_service_user
+      # MYSQL_PASSWORD: password
+      PMA_USER: wallet_service_user
+      PMA_PASSWORD: password
+    networks:
+      - svc
+
+networks:
+  svc:
+    driver: bridge
