@@ -217,7 +217,8 @@ export default (callback: any, receive: any, config = getConfig()) => {
   // rather than overlapping. DISCONNECTED clears the timer; an in-flight
   // SELECT runs to completion and releases its connection — harmless.
   const sampleLimit = config.BALANCE_VALIDATION_SAMPLE_LIMIT;
-  const windowSeconds = Math.floor(config.BALANCE_VALIDATION_WINDOW_MS / 1000);
+  const windowMs = config.BALANCE_VALIDATION_WINDOW_MS;
+  const windowSeconds = Math.floor(windowMs / 1000);
   // Wrap the SIGNED BIGINT in CAST(... AS CHAR) so values transport to the
   // client as strings. mysql2 returns BIGINT as JS Number by default, which
   // loses precision above 2^53. HTR max supply is well below that, but we
@@ -316,6 +317,15 @@ export default (callback: any, receive: any, config = getConfig()) => {
       logger.error(
         `[monitoring] BALANCE_VALIDATION_SAMPLE_LIMIT=${sampleLimit} is invalid `
         + '(must be a finite number >= 1). Scheduled balance validation will NOT run this session.',
+      );
+      return;
+    }
+
+    if (!Number.isFinite(windowSeconds) || windowSeconds < 1) {
+      logger.error(
+        `[monitoring] BALANCE_VALIDATION_WINDOW_MS=${windowMs} is invalid `
+        + '(must be a finite number >= 1000 so the SQL lookback window is at least 1 second). '
+        + 'Scheduled balance validation will NOT run this session.',
       );
       return;
     }

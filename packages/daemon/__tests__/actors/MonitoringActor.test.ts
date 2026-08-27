@@ -550,5 +550,19 @@ describe('MonitoringActor', () => {
         expect.stringContaining('BALANCE_VALIDATION_SAMPLE_LIMIT=0 is invalid'),
       );
     });
+
+    it('should refuse to schedule validation when the window is invalid', () => {
+      config['BALANCE_VALIDATION_ENABLED'] = true;
+      config['BALANCE_VALIDATION_WINDOW_MS'] = 999; // floors to 0 seconds, yielding invalid SQL
+      const mockLoggerError = jest.spyOn(logger, 'error');
+
+      MonitoringActor(mockCallback, mockReceive, config);
+      sendEvent('CONNECTED');
+
+      expect(setInterval).toHaveBeenCalledTimes(1);
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.stringContaining('BALANCE_VALIDATION_WINDOW_MS=999 is invalid'),
+      );
+    });
   });
 });
