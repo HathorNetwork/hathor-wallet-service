@@ -96,9 +96,12 @@ export default (callback: any, receive: any) => {
     logger.error(e);
   };
 
-  socket.onclose = () => {
+  socket.onclose = (closeEvent) => {
     clearTimeout(pingTimeout);
     clearInterval(pingTimer);
+    // The close code tells who closed the connection: 1006 means it dropped without a
+    // close frame (network path or load balancer), 1000/1001 a deliberate close.
+    logger.info(`WebSocket closed with code ${closeEvent.code}${closeEvent.reason ? `, reason: ${closeEvent.reason}` : ''}`);
     callback({
       type: 'WEBSOCKET_EVENT',
       event: {
@@ -109,6 +112,8 @@ export default (callback: any, receive: any) => {
 
   // Delete websocket connection here:
   return () => {
+    clearTimeout(pingTimeout);
+    clearInterval(pingTimer);
     if (socket) {
       socket.close();
     }

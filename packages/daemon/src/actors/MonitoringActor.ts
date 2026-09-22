@@ -31,7 +31,8 @@ import { getDbConnection } from '../db';
  *    MAJOR alert; the machine keeps running so that a long-running handler
  *    (e.g. a large reorg) is allowed to finish.
  *
- * 3. Reconnection storm detection — fires a MAJOR alert when the daemon
+ * 3. Reconnection storm detection — fires an alert (severity configurable via
+ *    RECONNECTION_STORM_SEVERITY, default MAJOR) when the daemon
  *    reconnects more than RECONNECTION_STORM_THRESHOLD times within
  *    RECONNECTION_STORM_WINDOW_MS.  Duplicate alerts are suppressed for
  *    STORM_ALERT_COOLDOWN_MS (1 min) to avoid spamming the alerting system.
@@ -46,21 +47,22 @@ export default (callback: any, receive: any, config = getConfig()) => {
   logger.info('Starting monitoring actor');
 
   const idleTimeoutMs = config.IDLE_EVENT_TIMEOUT_MS;
-  // Severity for the idle alert is configurable so low-activity networks can avoid
-  // paging at MAJOR (P2) on benign quiet periods. Validate against the enum and fall
+  // Alert severities are configurable so low-activity or non-production networks can
+  // avoid paging at MAJOR (P2) on benign conditions. Validate against the enum and fall
   // back to MAJOR if the configured value is not a recognised severity.
   const validSeverities = new Set<string>(Object.values(Severity));
-  let idleSeverity = Severity.MAJOR;
-  if (validSeverities.has(config.IDLE_EVENT_SEVERITY)) {
-    idleSeverity = config.IDLE_EVENT_SEVERITY as Severity;
-  } else {
-    logger.warn(
-      `[monitoring] Unrecognised IDLE_EVENT_SEVERITY "${config.IDLE_EVENT_SEVERITY}" — falling back to ${Severity.MAJOR}`,
-    );
-  }
+  const resolveSeverity = (name: string, value: string): Severity => {
+    if (validSeverities.has(value)) {
+      return value as Severity;
+    }
+    logger.warn(`[monitoring] Unrecognised ${name} "${value}" — falling back to ${Severity.MAJOR}`);
+    return Severity.MAJOR;
+  };
+  const idleSeverity = resolveSeverity('IDLE_EVENT_SEVERITY', config.IDLE_EVENT_SEVERITY);
   const stuckTimeoutMs = config.STUCK_PROCESSING_TIMEOUT_MS;
   const stormThreshold = config.RECONNECTION_STORM_THRESHOLD;
   const stormWindowMs = config.RECONNECTION_STORM_WINDOW_MS;
+  const stormSeverity = resolveSeverity('RECONNECTION_STORM_SEVERITY', config.RECONNECTION_STORM_SEVERITY);
 
   // ── Idle detection ──────────────────────────────────────────────────────────
   let isConnected = false;
@@ -151,14 +153,16 @@ export default (callback: any, receive: any, config = getConfig()) => {
       stormAlertLastFiredAt = now;
 
       const windowMinutes = Math.round(stormWindowMs / 60000);
-      logger.error(
+      // Logged at warn, not error: the alert below is the notification, so this line must
+      // not also be picked up by log-based alerting.
+      logger.warn(
         `[monitoring] Reconnection storm: ${reconnectionTimestamps.length} reconnections in the last ${windowMinutes} minutes`,
       );
       addAlert(
         'Daemon Reconnection Storm',
         `${reconnectionTimestamps.length} reconnections occurred in the last ${windowMinutes} minute(s). ` +
           'The daemon may be stuck in a reconnection loop.',
-        Severity.MAJOR,
+        stormSeverity,
         {
           reconnectionCount: String(reconnectionTimestamps.length),
           windowMinutes: String(windowMinutes),

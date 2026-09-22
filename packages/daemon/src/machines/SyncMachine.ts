@@ -53,6 +53,8 @@ import {
   shiftMetadataChange,
   startStream,
   clearSocket,
+  stopSocket,
+  WEBSOCKET_ACTOR_ID,
   storeEvent,
   sendAck,
   increaseRetry,
@@ -137,7 +139,7 @@ export const SyncMachine = Machine<Context, any, Event>({
     },
     [SYNC_MACHINE_STATES.CONNECTING]: {
       entry: assign({
-        socket: () => spawn(WebSocketActor),
+        socket: () => spawn(WebSocketActor, WEBSOCKET_ACTOR_ID),
       }),
       on: {
         WEBSOCKET_EVENT: [{
@@ -150,6 +152,7 @@ export const SyncMachine = Machine<Context, any, Event>({
     },
     [SYNC_MACHINE_STATES.RECONNECTING]: {
       onEntry: [
+        'stopSocket',
         'clearSocket',
         'increaseRetry',
         'stopHealthcheckPing',
@@ -428,6 +431,7 @@ export const SyncMachine = Machine<Context, any, Event>({
     shiftMetadataChange,
     startStream,
     clearSocket,
+    stopSocket,
     storeEvent,
     sendAck,
     increaseRetry,
