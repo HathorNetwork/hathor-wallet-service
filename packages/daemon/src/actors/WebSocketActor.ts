@@ -27,6 +27,9 @@ export default (callback: any, receive: any) => {
   const socket: WebSocket = new WebSocket(getFullnodeWsUrl());
   let pingTimeout: NodeJS.Timeout = createPingTimeout();
   let pingTimer: NodeJS.Timer;
+  // Set when the daemon closes the socket itself (the actor was stopped), so the
+  // close log tells a local close apart from one done by the other side.
+  let closedByDaemon = false;
 
   const heartbeat = () => {
     logger.debug('Pong received from server');
@@ -96,9 +99,14 @@ export default (callback: any, receive: any) => {
     logger.error(e);
   };
 
-  socket.onclose = () => {
+  socket.onclose = (closeEvent) => {
     clearTimeout(pingTimeout);
     clearInterval(pingTimer);
+    // The close code tells who closed the connection: 1006 means it dropped without a
+    // close frame (network path or load balancer), 1000/1001 a deliberate close.
+    const reason = closeEvent.reason ? `, reason: ${closeEvent.reason}` : '';
+    const closedBy = closedByDaemon ? ', closed by daemon' : '';
+    logger.info(`WebSocket closed with code ${closeEvent.code}${reason}${closedBy}`);
     callback({
       type: 'WEBSOCKET_EVENT',
       event: {
@@ -109,6 +117,9 @@ export default (callback: any, receive: any) => {
 
   // Delete websocket connection here:
   return () => {
+    closedByDaemon = true;
+    clearTimeout(pingTimeout);
+    clearInterval(pingTimer);
     if (socket) {
       socket.close();
     }

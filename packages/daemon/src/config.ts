@@ -101,6 +101,10 @@ export const STUCK_PROCESSING_TIMEOUT_MS = parseInt(process.env.STUCK_PROCESSING
 export const RECONNECTION_STORM_THRESHOLD = parseInt(process.env.RECONNECTION_STORM_THRESHOLD ?? '10', 10);
 // Time window (ms) for reconnection storm detection
 export const RECONNECTION_STORM_WINDOW_MS = parseInt(process.env.RECONNECTION_STORM_WINDOW_MS ?? String(5 * 60 * 1000), 10);  // 5 minutes
+// Severity of the reconnection storm alert. Defaults to 'major' (P2). Non-production
+// networks can lower this to avoid paging on a condition that does not affect users.
+// Validated like IDLE_EVENT_SEVERITY; an unrecognised value falls back to 'major'.
+export const RECONNECTION_STORM_SEVERITY = process.env.RECONNECTION_STORM_SEVERITY ?? 'major';
 
 // Other
 export const USE_SSL = process.env.USE_SSL === 'true';
@@ -161,6 +165,7 @@ export default () => ({
   STUCK_PROCESSING_TIMEOUT_MS,
   RECONNECTION_STORM_THRESHOLD,
   RECONNECTION_STORM_WINDOW_MS,
+  RECONNECTION_STORM_SEVERITY,
   BALANCE_VALIDATION_ENABLED,
   BALANCE_VALIDATION_INTERVAL_MS,
   BALANCE_VALIDATION_WINDOW_MS,
