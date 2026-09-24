@@ -71,7 +71,10 @@ custom:
         namespace: 'AWS/Lambda'
         metric: "Duration"
         statistic: Average
-        threshold: 1000 # This is in milliseconds
+        # In milliseconds. Kept below the 2s timeout of the WS lambdas. At low
+        # traffic one cold-start invocation (~1.1s) is the whole 1-min average,
+        # so 1000 fired on single slow calls.
+        threshold: 1500
         period: 60
         evaluationPeriods: 1
         comparisonOperator: GreaterThanThreshold
