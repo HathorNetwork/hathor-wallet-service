@@ -219,6 +219,10 @@ provider:
     # OTEL_EXPORTER_OTLP_ENDPOINT must be set per-function (env budget is tight).
     # Set OTEL_CONSOLE_DEBUG=true to print spans to CloudWatch logs.
     OTEL_CONSOLE_DEBUG: ${env:OTEL_CONSOLE_DEBUG, ""}
+    # Disabled by default: no OTLP receiver is reachable from the Lambdas yet, and
+    # loading the SDK adds ~0.7s to every cold start. Set to "false" in the deploy
+    # env together with OTEL_EXPORTER_OTLP_ENDPOINT to enable tracing.
+    OTEL_SDK_DISABLED: ${env:OTEL_SDK_DISABLED, "true"}
 
 functions:
   getLatestBlock:
