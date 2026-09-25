@@ -72,7 +72,7 @@
     "dotenv": "8.2.0",
     "lodash": "4.17.23",
     "mysql2": "3.9.8",
-    "sequelize": "6.33.0",
+    "sequelize": "6.37.8",
     "websocket": "1.0.33",
     "winston": "3.13.0",
     "ws": "8.17.1",
