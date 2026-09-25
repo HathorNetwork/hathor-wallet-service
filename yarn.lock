@@ -3467,11 +3467,11 @@ __metadata:
   linkType: hard
 
 "@hapi/content@npm:^6.0.0":
-  version: 6.0.0
-  resolution: "@hapi/content@npm:6.0.0"
+  version: 6.0.2
+  resolution: "@hapi/content@npm:6.0.2"
   dependencies:
     "@hapi/boom": "npm:^10.0.0"
-  checksum: 10/51a62c805e505f90e928d50554a7dcb5a56db7e3508cf258b148f668fa293e814161009340a8f586107edae2d2fdf5bc31056c3c70ec1cf85c325eaae226ce5b
+  checksum: 10/41715d30de194d9f5ccc3926028dd331d52cf9b55657d0f384edfb8e7c7b83716539d6eb23492d784cb764635988ee926ba51d1dfc0c2a6b52b4f69bfb4e04d8
   languageName: node
   linkType: hard
 
