@@ -247,7 +247,7 @@ functions:
           - lambda:InvokeFunction
           - lambda:InvokeAsync
         Resource:
-          arn:aws:lambda:${self:provider.region}:${self:provider.environment.ACCOUNT_ID}:function:hathor-explorer-service-${self:custom.explorerServiceStage}-create_or_update_dag_metadata
+          arn:aws:lambda:${self:provider.region}:${self:provider.environment.ACCOUNT_ID}:function:${self:provider.environment.EXPLORER_SERVICE_PREFIX}-${self:custom.explorerServiceStage}-create_or_update_dag_metadata
   loadWalletAsync:
     # Canonical async load: derives transparent + shielded address paths and
     # reconstructs both balances in one pass.
