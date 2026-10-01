@@ -138,6 +138,35 @@ deploy_ekvilibro_mainnet() {
 
 }
 
+deploy_testnet_shielded_outputs() {
+    # Deploys the release-candidates and releases to our testnet-shielded-outputs environment
+
+    # We deploy only the Lambdas here, because the daemon used in testnet-shielded-outputs is the same as
+    # the one built in the hathor-network account, since it runs there as well
+
+    echo "Building git ref ${GIT_REF_TO_DEPLOY}..."
+
+    # This will match release-candidates or releases
+    if expr "${GIT_REF_TO_DEPLOY}" : "v.*" >/dev/null; then
+        make migrate;
+        make deploy-lambdas-testnet-shielded-outputs;
+
+        send_slack_message "New version deployed to testnet-shielded-outputs: ${GIT_REF_TO_DEPLOY}"
+    elif expr "${MANUAL_DEPLOY}" : "true" >/dev/null; then
+        make migrate;
+        make deploy-lambdas-testnet-shielded-outputs;
+
+        send_slack_message "Branch manually deployed to testnet-shielded-outputs: ${GIT_REF_TO_DEPLOY}"
+    elif expr "${ROLLBACK}" : "true" >/dev/null; then
+        make migrate;
+        make deploy-lambdas-testnet-shielded-outputs;
+
+        send_slack_message "Rollback performed on testnet-shielded-outputs to: ${GIT_REF_TO_DEPLOY}";
+    else
+        echo "We don't deploy ${GIT_REF_TO_DEPLOY} to testnet-shielded-outputs. Nothing to do.";
+    fi;
+}
+
 # Check the first argument for the desired deploy
 option=$1
 
@@ -148,6 +177,9 @@ case $option in
         ;;
     ekvilibro-mainnet)
         deploy_ekvilibro_mainnet
+        ;;
+    testnet-shielded-outputs)
+        deploy_testnet_shielded_outputs
         ;;
     *)
         echo "Invalid option: $option"

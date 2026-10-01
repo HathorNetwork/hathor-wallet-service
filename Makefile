@@ -30,6 +30,10 @@ deploy-lambdas-dev-testnet:
 deploy-lambdas-testnet-india:
 	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage india --region eu-central-1
 
+.PHONY: deploy-lambdas-testnet-shielded-outputs
+deploy-lambdas-testnet-shielded-outputs:
+	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage shielded --region eu-central-1 --aws-profile testnet-shielded-outputs
+
 .PHONY: deploy-lambdas-mainnet-staging
 deploy-lambdas-mainnet-staging:
 	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage mainnet-stg --region eu-central-1
