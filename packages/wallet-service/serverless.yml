@@ -34,6 +34,10 @@ custom:
       - mainnet
       - mainnet-stg
       - testnet
+      - shielded
+      - india
+      - dev-testnet
+      - ekvi-main
     topics: # SNS Topics to send alerts to
       major:
         alarm:
