@@ -9,8 +9,8 @@ export default tseslint.config(
       '**/.webpack/**',
       '**/.serverless/**',
       '**/coverage/**',
-      // Carried over from .eslintignore. sequelize-cli generates the migrations,
-      // so linting them would let a freshly generated file fail CI.
+      // sequelize-cli generates the migrations, so linting them would let a
+      // freshly generated file fail CI.
       'db/**',
     ],
   },
@@ -43,9 +43,9 @@ export default tseslint.config(
       },
     },
     rules: {
-      // Carried over from .eslintrc.yml: @ts-ignore is the agreed way to park a
-      // suppression until an upstream type is fixed, `any` is still widespread,
-      // and unused-vars is handled by the compiler.
+      // @ts-ignore is the agreed way to park a suppression until an upstream
+      // type is fixed, `any` is still widespread, and unused vars are already
+      // reported by the compiler.
       '@typescript-eslint/ban-ts-comment': 'off',
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-unused-vars': 'off',

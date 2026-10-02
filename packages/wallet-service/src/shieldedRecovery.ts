@@ -129,15 +129,25 @@ let missingProviderAlerted = false;
 const reportMissingProvider = async (walletId: string, logger: Logger): Promise<void> => {
   logger.warn('Shielded catch-up skipped: no shielded crypto provider is registered', { walletId });
   if (missingProviderAlerted) return;
-  missingProviderAlerted = true;
-  await addAlert(
-    'Shielded crypto provider not registered',
-    'Shielded outputs cannot be recovered: no shielded crypto provider is registered. '
-    + 'Owned shielded outputs stay unowned and balances exclude them until one is installed.',
-    Severity.MAJOR,
-    { wallet_id: walletId, source: 'wallet-service' },
-    logger,
-  );
+  // Mark as alerted only once the alert is actually away, and never let a
+  // failure here escape: this runs inside the wallet load, and the missing
+  // provider must still be reported on a later sweep if this attempt fails.
+  try {
+    await addAlert(
+      'Shielded crypto provider not registered',
+      'Shielded outputs cannot be recovered: no shielded crypto provider is registered. '
+      + 'Owned shielded outputs stay unowned and balances exclude them until one is installed.',
+      Severity.MAJOR,
+      { wallet_id: walletId, source: 'wallet-service' },
+      logger,
+    );
+    missingProviderAlerted = true;
+  } catch (e) {
+    logger.error('Failed to report the missing shielded crypto provider; will retry on the next sweep', {
+      walletId,
+      error: String(e),
+    });
+  }
 };
 
 /**

@@ -30,14 +30,14 @@ custom:
   stage: ${opt:stage, 'dev'}
   explorerServiceStage: ${env:EXPLORER_STAGE, 'dev'}
   alerts:
+    # Alarm actions publish to the production OpsGenie topics, so a stage belongs
+    # here only if its failures should page the production on-call rotation.
     stages: # Select which stages to deploy alarms to
       - mainnet
       - mainnet-stg
       - testnet
       - shielded
       - india
-      - dev-testnet
-      - ekvi-main
     topics: # SNS Topics to send alerts to
       major:
         alarm:

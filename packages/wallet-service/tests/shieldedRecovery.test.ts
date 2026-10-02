@@ -163,9 +163,11 @@ describe('recoverShieldedOutput', () => {
 });
 
 describe('findAndRewindShielded with no crypto provider', () => {
-  // One test, not two: the "alert once" guard is module state, so only the first
-  // sweep in the process can observe it being consumed.
-  it('skips the sweep, leaves outputs unowned, and alerts once rather than per output', async () => {
+  // A single test on purpose: the missing-provider alert is latched in module
+  // state that is never reset, so only the first sweep in a process can observe
+  // the latch being taken. Splitting this would make the later cases assert on
+  // an already-consumed latch.
+  it('skips the sweep, leaves outputs unowned, and alerts once but retries a failed alert', async () => {
     // beforeEach registers the mock provider; drop it to reproduce production.
     clearShieldedCryptoProvider();
     await insertShieldedOutput('tx1', 0, 'a1', 1, 'unowned');
@@ -173,19 +175,26 @@ describe('findAndRewindShielded with no crypto provider', () => {
     const getSpy = jest.spyOn(ShieldedDb, 'getShieldedOutputsToRecover');
     const failSpy = jest.spyOn(ShieldedDb, 'markShieldedTxOutputRecoveryFailed');
 
+    // First attempt fails to emit: that must not consume the latch, or the
+    // operator would never learn the provider is missing.
+    mockedAddAlert.mockRejectedValueOnce(new Error('sqs unavailable'));
+
     const first = await findAndRewindShielded(mysql, 'w1', logger);
     const second = await findAndRewindShielded(mysql, 'w2', logger);
+    const third = await findAndRewindShielded(mysql, 'w3', logger);
 
-    expect(first).toStrictEqual({ recovered: 0, failed: 0 });
-    expect(second).toStrictEqual({ recovered: 0, failed: 0 });
+    for (const result of [first, second, third]) {
+      expect(result).toStrictEqual({ recovered: 0, failed: 0 });
+    }
+    // The sweep never reaches the database and never fails an output.
     expect(getSpy).not.toHaveBeenCalled();
     expect(failSpy).not.toHaveBeenCalled();
 
-    // Two outputs over two sweeps must still be a single alert: the old code
-    // emitted one MAJOR per output per sweep.
-    expect(mockedAddAlert).toHaveBeenCalledTimes(1);
-    expect(mockedAddAlert.mock.calls[0][0]).toBe('Shielded crypto provider not registered');
-    expect(mockedAddAlert.mock.calls[0][2]).toBe(Severity.MAJOR);
+    // Two attempts: the failed one, then the one that stuck. The third sweep is
+    // silent — the old code emitted one MAJOR per output per sweep.
+    expect(mockedAddAlert).toHaveBeenCalledTimes(2);
+    expect(mockedAddAlert.mock.calls[1][0]).toBe('Shielded crypto provider not registered');
+    expect(mockedAddAlert.mock.calls[1][2]).toBe(Severity.MAJOR);
 
     // The rows must stay `unowned`: `recovery_failed` is unreachable for the
     // daemon's promote helper, so a later catch-up could never pick them up.

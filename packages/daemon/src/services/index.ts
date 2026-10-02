@@ -823,15 +823,25 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         }
 
         if (missingProviderAlertPending) {
-          missingProviderAlerted = true;
-          await addAlert(
-            'Shielded crypto provider not registered',
-            'Shielded outputs are being ingested but cannot be recovered: no shielded crypto '
-            + 'provider is registered. Owned outputs stay unowned and balances exclude them.',
-            Severity.MAJOR,
-            { tx_id: hash, shielded_outputs: shieldedOutputs.length, source: 'daemon' },
-            logger,
-          );
+          // Mark as alerted only once the alert is away, and swallow a failure:
+          // the vertex is already committed, so throwing here would send the
+          // SyncMachine to its terminal ERROR state over a reportable condition.
+          try {
+            await addAlert(
+              'Shielded crypto provider not registered',
+              'Shielded outputs are being ingested but cannot be recovered: no shielded crypto '
+              + 'provider is registered. Owned outputs stay unowned and balances exclude them.',
+              Severity.MAJOR,
+              { tx_id: hash, shielded_outputs: shieldedOutputs.length, source: 'daemon' },
+              logger,
+            );
+            missingProviderAlerted = true;
+          } catch (alertErr) {
+            logger.error('Failed to report the missing shielded crypto provider; will retry on the next vertex', {
+              txId: hash,
+              error: String(alertErr),
+            });
+          }
         }
       } catch (e) {
         try {

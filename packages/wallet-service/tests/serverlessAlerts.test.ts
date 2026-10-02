@@ -18,6 +18,19 @@ const readAlertStages = (): string[] => {
 };
 
 /**
+ * Stages that deliberately get no alarms.
+ *
+ * The alarm actions publish to the production OpsGenie topics, so a stage only belongs in
+ * `alerts.stages` if its failures should page the production on-call rotation.
+ */
+const NO_ALARMS = new Set([
+  // A development stage: a broken branch deployed here must not page on-call.
+  'dev-testnet',
+  // A partner deployment in a separate AWS account, with its own operators.
+  'ekvi-main',
+]);
+
+/**
  * Every `--stage <name>` the Makefile deploys. `invoke-local` is excluded: it runs a function
  * locally and creates no CloudWatch resources, so it needs no alarms.
  */
@@ -33,10 +46,19 @@ const readDeployedStages = (): string[] => {
 };
 
 describe('serverless alert stages', () => {
-  it('declares alarms for every stage the Makefile deploys', () => {
+  it('declares alarms for every deployed stage that should page on-call', () => {
     const alertStages = readAlertStages();
-    const missing = readDeployedStages().filter((stage) => !alertStages.includes(stage));
+    const missing = readDeployedStages()
+      .filter((stage) => !NO_ALARMS.has(stage))
+      .filter((stage) => !alertStages.includes(stage));
 
     expect(missing).toStrictEqual([]);
+  });
+
+  it('does not wire alarms for stages that must not page on-call', () => {
+    const alertStages = readAlertStages();
+    const pages = [...NO_ALARMS].filter((stage) => alertStages.includes(stage));
+
+    expect(pages).toStrictEqual([]);
   });
 });

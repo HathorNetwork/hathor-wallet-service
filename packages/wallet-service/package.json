@@ -4,7 +4,7 @@
   "scripts": {
     "jest": "jest --runInBand --collectCoverage --detectOpenHandles --forceExit",
     "lint": "yarn run -T eslint --config ../../eslint.config.mjs src tests",
-    "lint-fix": "eslint src/ tests/ --fix --ext .js,.jsx,.ts,.tsx src tests",
+    "lint-fix": "yarn run -T eslint --config ../../eslint.config.mjs --fix src tests",
     "check-types": "tsc --noemit --skipLibCheck",
     "test": "jest",
     "debug:offline": "node --inspect-brk ./node_modules/.bin/serverless offline start --host 0.0.0.0 --httpPort 3000"

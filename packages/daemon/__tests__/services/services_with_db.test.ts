@@ -2426,18 +2426,43 @@ describe('handleVertexAccepted with shielded outputs', () => {
       event: fixture,
     };
 
+    const providerAlerts = () => mockAddAlert.mock.calls
+      .filter(([title]) => title === 'Shielded crypto provider not registered');
+
     await handleVertexAccepted(context as any, undefined as any);
+    const afterFirst = providerAlerts().length;
+
+    // A second vertex, to pin that the missing provider is reported per process
+    // rather than per vertex (or per output). The latch lives in module state
+    // that no test resets, and earlier tests in this file ingest shielded
+    // vertices without a provider, so the absolute count here depends on run
+    // order — the load-bearing assertion is that the second vertex adds none.
+    const secondFixture = JSON.parse(JSON.stringify(fixture));
+    secondFixture.event.data.hash = 'cd'.repeat(32);
+    await handleVertexAccepted(
+      { ...context, txCache: new LRU(100), event: secondFixture } as any,
+      undefined as any,
+    );
 
     // `recovery_failed` is unreachable for markTxOutputRecovered (guarded on
     // `unowned`), so a failed attempt would strand the row permanently.
-    const txOutput = await getTxOutput(mysql, txHash, 1, false);
-    expect(txOutput).not.toBeNull();
-    expect(txOutput!.recoveryState).toBe('unowned');
-    expect(txOutput!.value).toBeNull();
+    for (const hash of [txHash, secondFixture.event.data.hash]) {
+      const txOutput = await getTxOutput(mysql, hash, 1, false);
+      expect(txOutput).not.toBeNull();
+      expect(txOutput!.recoveryState).toBe('unowned');
+      expect(txOutput!.value).toBeNull();
+    }
 
     // No per-output failure alert: the old path emitted one MAJOR per output.
     const failureAlerts = mockAddAlert.mock.calls.filter(([title]) => title === 'Shielded recovery failed');
     expect(failureAlerts).toHaveLength(0);
+
+    // Never more than one, and the second vertex adds nothing.
+    expect(afterFirst).toBeLessThanOrEqual(1);
+    expect(providerAlerts()).toHaveLength(afterFirst);
+    for (const call of providerAlerts()) {
+      expect(call[2]).toBe(Severity.MAJOR);
+    }
   });
 
   it('recovers a later vertex once a provider is registered', async () => {

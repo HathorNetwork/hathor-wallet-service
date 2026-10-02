@@ -11,10 +11,12 @@
  * Owns the typed surface used to recover the cleartext {value, token, blinding
  * factors} of a shielded output from a scan key. The actual crypto is performed
  * by a registered `IShieldedCryptoProvider` (the NAPI `@hathor/ct-crypto-node`
- * or wasm `@hathor/ct-crypto-wasm` binding). Until a provider is registered the
- * two entry points reject with `RewindError`; ingestion treats that as a failed
- * recovery (the output lands in `recovery_state = 'recovery_failed'`). Tests
- * register a deterministic stub provider via `setShieldedCryptoProvider`.
+ * or wasm `@hathor/ct-crypto-wasm` binding). With no provider registered the two
+ * entry points reject with `RewindError`, so callers check
+ * `isShieldedCryptoProviderRegistered()` first and skip the rewind entirely —
+ * owned outputs stay in `recovery_state = 'unowned'`, which a later catch-up can
+ * still promote. Tests register a deterministic stub provider via
+ * `setShieldedCryptoProvider`.
  */
 
 import hathorLib from '@hathor/wallet-lib';
