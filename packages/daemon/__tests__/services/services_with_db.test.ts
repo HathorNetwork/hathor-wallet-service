@@ -54,7 +54,7 @@ import { DbTxOutput, EventTxInput } from '../../src/types';
 import { Connection } from 'mysql2/promise';
 import eventsFixture from '../__fixtures__/events';
 import { primeAmountRewind, primeFullyRewind, resetCtCryptoMock } from '../mocks/ct-crypto-node';
-import { Severity } from '@wallet-service/common';
+import { Severity, clearShieldedCryptoProvider } from '@wallet-service/common';
 
 /**
  * @jest-environment node
@@ -2395,6 +2395,104 @@ describe('handleVertexAccepted with shielded outputs', () => {
       [so.decoded.address],
     );
     expect(balRows).toHaveLength(0);
+  });
+
+  it('leaves an owned shielded output unowned when no crypto provider is registered', async () => {
+    expect.hasAssertions();
+
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0].token_data = 0;
+    const txHash = fixture.event.data.hash;
+    const so = fixture.event.data.shielded_outputs[0];
+
+    // Owned shielded address (bip32_account = 2 = CTSpend): without the
+    // short-circuit this is the row that would attempt a rewind and fail.
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [so.decoded.address, Buffer.alloc(32, 0x42)],
+    );
+
+    clearShieldedCryptoProvider();
+    mockAddAlert.mockClear();
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    // `recovery_failed` is unreachable for markTxOutputRecovered (guarded on
+    // `unowned`), so a failed attempt would strand the row permanently.
+    const txOutput = await getTxOutput(mysql, txHash, 1, false);
+    expect(txOutput).not.toBeNull();
+    expect(txOutput!.recoveryState).toBe('unowned');
+    expect(txOutput!.value).toBeNull();
+
+    // No per-output failure alert: the old path emitted one MAJOR per output.
+    const failureAlerts = mockAddAlert.mock.calls.filter(([title]) => title === 'Shielded recovery failed');
+    expect(failureAlerts).toHaveLength(0);
+  });
+
+  it('recovers a later vertex once a provider is registered', async () => {
+    expect.hasAssertions();
+
+    const first = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    first.event.data.shielded_outputs[0].token_data = 0;
+    const so = first.event.data.shielded_outputs[0];
+
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [so.decoded.address, Buffer.alloc(32, 0x42)],
+    );
+
+    const baseContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      rewardMinBlocks: 300,
+    };
+
+    // Ingest with no provider: the output is skipped, not failed.
+    clearShieldedCryptoProvider();
+    mockAddAlert.mockClear();
+    await handleVertexAccepted(
+      { ...baseContext, txCache: new LRU(100), event: first } as any,
+      undefined as any,
+    );
+    expect((await getTxOutput(mysql, first.event.data.hash, 1, false))!.recoveryState).toBe('unowned');
+
+    // A provider becomes available. The skip must not be latched: the next
+    // vertex has to rewind normally.
+    const second = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    second.event.data.shielded_outputs[0].token_data = 0;
+    second.event.data.hash = 'ab'.repeat(32);
+
+    resetCtCryptoMock();
+    primeAmountRewind({
+      commitment: Buffer.from(so.commitment, 'hex'),
+      ephemeralPubkey: Buffer.from(so.ephemeral_pubkey, 'hex'),
+      value: 150n,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+
+    await handleVertexAccepted(
+      { ...baseContext, txCache: new LRU(100), event: second } as any,
+      undefined as any,
+    );
+
+    const recovered = await getTxOutput(mysql, second.event.data.hash, 1, false);
+    expect(recovered!.recoveryState).toBe('recovered');
+    expect(recovered!.value).toBe(150n);
+    expect(recovered!.tokenId).toBe('00');
   });
 
   it('writes shielded amount columns on the unified address_balance row for recovered shielded outputs', async () => {

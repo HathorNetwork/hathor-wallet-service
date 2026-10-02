@@ -13,6 +13,7 @@ import {
   addAlert,
   Severity,
   ShieldedOutputMode,
+  isShieldedCryptoProviderRegistered,
 } from '@wallet-service/common';
 import {
   getShieldedOutputsToRecover,
@@ -117,6 +118,28 @@ export const recoverShieldedOutput = async (
   }
 };
 
+/** Set once a missing-provider alert has been emitted, so a sweep per wallet load does not page repeatedly. */
+let missingProviderAlerted = false;
+
+/**
+ * Report an absent shielded crypto provider once per process. The condition is
+ * environmental rather than per-output, so one alert carries all the
+ * information an operator needs; `addAlert` swallows its own errors.
+ */
+const reportMissingProvider = async (walletId: string, logger: Logger): Promise<void> => {
+  logger.warn('Shielded catch-up skipped: no shielded crypto provider is registered', { walletId });
+  if (missingProviderAlerted) return;
+  missingProviderAlerted = true;
+  await addAlert(
+    'Shielded crypto provider not registered',
+    'Shielded outputs cannot be recovered: no shielded crypto provider is registered. '
+    + 'Owned shielded outputs stay unowned and balances exclude them until one is installed.',
+    Severity.MAJOR,
+    { wallet_id: walletId, source: 'wallet-service' },
+    logger,
+  );
+};
+
 /**
  * Find and rewind all of a wallet's not-yet-recovered shielded outputs — a
  * registration catch-up that also re-drives any `recovery_failed` rows, so an
@@ -131,6 +154,15 @@ export const findAndRewindShielded = async (
   logger: Logger,
   pageSize = 100,
 ): Promise<{ recovered: number; failed: number }> => {
+  // With no provider every rewind throws, and recording the outputs as
+  // recovery_failed would strand them: the daemon's promote helper only
+  // advances rows that are still `unowned`. Leave them untouched for a later
+  // catch-up and report one alert for the whole sweep instead of one per output.
+  if (!isShieldedCryptoProviderRegistered()) {
+    await reportMissingProvider(walletId, logger);
+    return { recovered: 0, failed: 0 };
+  }
+
   let recovered = 0;
   let failed = 0;
   let after: { txId: string; index: number } | undefined;

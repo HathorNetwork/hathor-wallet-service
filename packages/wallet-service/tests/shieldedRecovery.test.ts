@@ -7,11 +7,12 @@
 
 import { Logger } from 'winston';
 import { ServerlessMysql } from 'serverless-mysql';
-import { addAlert, Severity } from '@wallet-service/common';
+import { addAlert, Severity, clearShieldedCryptoProvider } from '@wallet-service/common';
 import { getDbConnection, closeDbConnection } from '@src/utils';
 import { cleanDatabase } from '@tests/utils';
 import { resetCtCryptoMock, primeAmountRewind, primeFullyRewind } from '@tests/utils/ct-crypto-mock';
-import { recoverShieldedOutput } from '@src/shieldedRecovery';
+import { recoverShieldedOutput, findAndRewindShielded } from '@src/shieldedRecovery';
+import * as ShieldedDb from '@src/db/shielded';
 import { ShieldedOutputToRecover } from '@src/db/shielded';
 
 // addAlert reaches SQS; replace just that export on the common barrel with a mock,
@@ -158,5 +159,40 @@ describe('recoverShieldedOutput', () => {
     );
     // the mark ran before the alert threw, so the row is still left for re-drive
     expect((await readOutput('tx6', 0)).recovery_state).toBe('recovery_failed');
+  });
+});
+
+describe('findAndRewindShielded with no crypto provider', () => {
+  // One test, not two: the "alert once" guard is module state, so only the first
+  // sweep in the process can observe it being consumed.
+  it('skips the sweep, leaves outputs unowned, and alerts once rather than per output', async () => {
+    // beforeEach registers the mock provider; drop it to reproduce production.
+    clearShieldedCryptoProvider();
+    await insertShieldedOutput('tx1', 0, 'a1', 1, 'unowned');
+    await insertShieldedOutput('tx1', 1, 'a1', 1, 'unowned');
+    const getSpy = jest.spyOn(ShieldedDb, 'getShieldedOutputsToRecover');
+    const failSpy = jest.spyOn(ShieldedDb, 'markShieldedTxOutputRecoveryFailed');
+
+    const first = await findAndRewindShielded(mysql, 'w1', logger);
+    const second = await findAndRewindShielded(mysql, 'w2', logger);
+
+    expect(first).toStrictEqual({ recovered: 0, failed: 0 });
+    expect(second).toStrictEqual({ recovered: 0, failed: 0 });
+    expect(getSpy).not.toHaveBeenCalled();
+    expect(failSpy).not.toHaveBeenCalled();
+
+    // Two outputs over two sweeps must still be a single alert: the old code
+    // emitted one MAJOR per output per sweep.
+    expect(mockedAddAlert).toHaveBeenCalledTimes(1);
+    expect(mockedAddAlert.mock.calls[0][0]).toBe('Shielded crypto provider not registered');
+    expect(mockedAddAlert.mock.calls[0][2]).toBe(Severity.MAJOR);
+
+    // The rows must stay `unowned`: `recovery_failed` is unreachable for the
+    // daemon's promote helper, so a later catch-up could never pick them up.
+    expect((await readOutput('tx1', 0)).recovery_state).toBe('unowned');
+    expect((await readOutput('tx1', 1)).recovery_state).toBe('unowned');
+
+    getSpy.mockRestore();
+    failSpy.mockRestore();
   });
 });
