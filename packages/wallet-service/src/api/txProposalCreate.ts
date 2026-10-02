@@ -9,6 +9,8 @@ import 'source-map-support/register';
 import { v4 as uuidv4 } from 'uuid';
 import Joi from 'joi';
 
+import { isShieldedMode, ShieldedOutputMode } from '@wallet-service/common';
+
 import { ApiError } from '@src/api/errors';
 import { walletIdProxyHandler } from '@src/commons';
 import {
@@ -105,6 +107,17 @@ export const create = middy(walletIdProxyHandler(async (walletId, event) => {
 
   if (missing.length > 0) {
     return closeDbAndGetError(mysql, ApiError.INPUTS_NOT_FOUND, { missing });
+  }
+
+  // Spending a shielded output is not supported: the service cannot build the
+  // proof, and the derivation path returned below assumes the legacy account.
+  // Refuse before any utxo is locked under the proposal.
+  const shielded = inputUtxos
+    .filter((utxo) => isShieldedMode(utxo.mode ?? ShieldedOutputMode.Transparent))
+    .map((utxo) => ({ txId: utxo.txId, index: utxo.index }));
+
+  if (shielded.length > 0) {
+    return closeDbAndGetError(mysql, ApiError.INPUTS_SHIELDED_UNSUPPORTED, { shielded });
   }
 
   // check if the inputs sent by the user belong to his wallet
