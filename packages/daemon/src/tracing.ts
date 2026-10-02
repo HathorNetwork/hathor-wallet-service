@@ -5,10 +5,13 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+/* eslint-disable @typescript-eslint/no-require-imports -- OTel has to patch
+   instrumented libraries before they are imported, and these requires are
+   skipped entirely when the SDK is disabled. Static imports would defeat both. */
+
 // Skip all OTel initialization when disabled — avoids module loading cost.
 if (process.env.OTEL_SDK_DISABLED !== 'true') {
   // Use require() so that imports are fully skipped when disabled.
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { NodeSDK } = require('@opentelemetry/sdk-node');
   const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-http');
   const { BatchSpanProcessor } = require('@opentelemetry/sdk-trace-node');
@@ -34,8 +37,7 @@ if (process.env.OTEL_SDK_DISABLED !== 'true') {
   const sdk = new NodeSDK({
     resource: new Resource({
       'service.name': process.env.OTEL_SERVICE_NAME || 'wallet-service-daemon',
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      // The daemon package.json has no "version" field — the monorepo root
+          // The daemon package.json has no "version" field — the monorepo root
       // package.json is the single source of truth (kept in sync with git tags).
       'service.version': process.env.SERVICE_VERSION || require('../../../package.json').version || 'unknown',
       'deployment.environment': process.env.STAGE || 'local',

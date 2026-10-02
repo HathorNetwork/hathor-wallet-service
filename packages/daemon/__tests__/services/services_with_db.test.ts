@@ -349,7 +349,7 @@ describe('voidTransaction with input unspending', () => {
     );
 
     // A's output should be unspent now
-    let utxoA = await getTxOutput(mysql, txIdA, 0, true);
+    const utxoA = await getTxOutput(mysql, txIdA, 0, true);
     expect(utxoA).not.toBeNull();
     expect(utxoA?.spentBy).toBeNull(); // Should pass - should be null
 

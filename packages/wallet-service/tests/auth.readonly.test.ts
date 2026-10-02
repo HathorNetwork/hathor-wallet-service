@@ -306,7 +306,11 @@ describe('tokenHandler (full-access)', () => {
 
     // We need to mock verifySignature to return true for this test
     // since we can't easily create a valid signature that matches the stored auth xpubkey
+    // require() on purpose: spying needs the live module object, which a static
+    // import binding does not expose.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const originalVerifySignature = require('@src/utils').verifySignature;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     jest.spyOn(require('@src/utils'), 'verifySignature').mockReturnValueOnce(true);
 
     const signature = bitcore.Message(message).sign(privateKey);

@@ -232,7 +232,7 @@ export class NftUtils {
    */
   static transformFullNodeTxForNftDetection(fullNodeData: FullNodeTransaction): HistoryTransaction {
     // Create a new object with the required properties
-    let transformedTx: HistoryTransaction = {
+    const transformedTx: HistoryTransaction = {
       tx_id: fullNodeData.hash, // Add tx_id for compatibility
       version: fullNodeData.version,
       tokens: fullNodeData.tokens,

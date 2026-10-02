@@ -13,7 +13,7 @@
   "scripts": {
     "build": "tsc -b",
     "start": "node dist/index.js",
-    "lint": "eslint ."
+    "lint": "yarn run -T eslint --config ../../eslint.config.mjs src"
   },
   "peerDependencies": {
     "@hathor/wallet-lib": "4.0.0"

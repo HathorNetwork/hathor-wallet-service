@@ -118,7 +118,7 @@ export const closeDbConnection = async (mysql: ServerlessMysql): Promise<void> =
  *
  * @param array - An array containing the items
  */
-export const arrayShuffle = <T extends unknown>(array: T[]): T[] => {
+export const arrayShuffle = <T>(array: T[]): T[] => {
   /* eslint-disable no-param-reassign */
   let j;
   let x;

@@ -109,7 +109,7 @@ describe('statusCode:400', () => {
     expect(returnBody.details).toMatchInlineSnapshot(`
 [
   {
-    "message": "\"txId\" is not allowed to be empty",
+    "message": ""txId" is not allowed to be empty",
     "path": [
       "txId",
     ],
