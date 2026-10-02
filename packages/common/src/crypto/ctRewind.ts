@@ -82,6 +82,22 @@ export function clearShieldedCryptoProvider(): void {
   provider = null;
 }
 
+/**
+ * Whether a provider is available for the rewind entry points.
+ *
+ * Callers use this to skip work that can only fail: with no provider, an
+ * attempted rewind throws `RewindError` and the output would be recorded as
+ * `recovery_failed` — a state the daemon's promote helper cannot leave — so
+ * ingestion and catch-up both leave such outputs `unowned` instead.
+ *
+ * Read this per unit of work rather than caching it: a provider can be
+ * registered at any point, and a cached `false` would suppress real failures
+ * once one exists.
+ */
+export function isShieldedCryptoProviderRegistered(): boolean {
+  return provider !== null;
+}
+
 function requireProvider(): IShieldedCryptoProvider {
   if (!provider) {
     throw new RewindError(NO_PROVIDER);

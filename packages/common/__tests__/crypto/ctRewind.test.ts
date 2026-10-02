@@ -12,6 +12,7 @@ import {
   RewindError,
   setShieldedCryptoProvider,
   clearShieldedCryptoProvider,
+  isShieldedCryptoProviderRegistered,
 } from '@src/crypto/ctRewind';
 import type { IShieldedCryptoProvider } from '@hathor/ct-crypto-provider';
 
@@ -131,6 +132,27 @@ describe('ctRewind wrapper', () => {
     const r = await rewindFully(fullyArgs());
     expect(r.tokenUid).toBe('00'); // folded to the canonical NATIVE_TOKEN_UID
     expect(r.value).toBe(42n);
+  });
+
+  describe('isShieldedCryptoProviderRegistered', () => {
+    it('is false before a provider is registered', () => {
+      clearShieldedCryptoProvider();
+
+      expect(isShieldedCryptoProviderRegistered()).toBe(false);
+    });
+
+    it('is true once a provider is registered and false again after it is cleared', () => {
+      setShieldedCryptoProvider(
+        stubProvider({
+          rewindAmountShieldedOutput: jest.fn(),
+          rewindFullShieldedOutput: jest.fn(),
+        }),
+      );
+      expect(isShieldedCryptoProviderRegistered()).toBe(true);
+
+      clearShieldedCryptoProvider();
+      expect(isShieldedCryptoProviderRegistered()).toBe(false);
+    });
   });
 });
 
