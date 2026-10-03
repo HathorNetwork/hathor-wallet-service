@@ -14,6 +14,7 @@ import {
   Severity,
   ShieldedOutputMode,
   isShieldedCryptoProviderRegistered,
+  MISSING_SHIELDED_PROVIDER_ALERT,
 } from '@wallet-service/common';
 import {
   getShieldedOutputsToRecover,
@@ -118,36 +119,30 @@ export const recoverShieldedOutput = async (
   }
 };
 
-/** Set once a missing-provider alert has been emitted, so a sweep per wallet load does not page repeatedly. */
+/** Set once this process has reported the missing provider. */
 let missingProviderAlerted = false;
 
+/** Clear the missing-provider report guard — for test isolation. */
+export const resetMissingProviderAlert = (): void => {
+  missingProviderAlerted = false;
+};
+
 /**
- * Report an absent shielded crypto provider once per process. The condition is
- * environmental rather than per-output, so one alert carries all the
- * information an operator needs; `addAlert` swallows its own errors.
+ * Report the absent provider once per process. Delivery is best-effort:
+ * `addAlert` logs and swallows a failed SQS send, so there is nothing to retry
+ * on and the guard is taken either way.
  */
 const reportMissingProvider = async (walletId: string, logger: Logger): Promise<void> => {
   logger.warn('Shielded catch-up skipped: no shielded crypto provider is registered', { walletId });
   if (missingProviderAlerted) return;
-  // Mark as alerted only once the alert is actually away, and never let a
-  // failure here escape: this runs inside the wallet load, and the missing
-  // provider must still be reported on a later sweep if this attempt fails.
-  try {
-    await addAlert(
-      'Shielded crypto provider not registered',
-      'Shielded outputs cannot be recovered: no shielded crypto provider is registered. '
-      + 'Owned shielded outputs stay unowned and balances exclude them until one is installed.',
-      Severity.MAJOR,
-      { wallet_id: walletId, source: 'wallet-service' },
-      logger,
-    );
-    missingProviderAlerted = true;
-  } catch (e) {
-    logger.error('Failed to report the missing shielded crypto provider; will retry on the next sweep', {
-      walletId,
-      error: String(e),
-    });
-  }
+  missingProviderAlerted = true;
+  await addAlert(
+    MISSING_SHIELDED_PROVIDER_ALERT.title,
+    MISSING_SHIELDED_PROVIDER_ALERT.message,
+    MISSING_SHIELDED_PROVIDER_ALERT.severity,
+    { wallet_id: walletId, source: 'wallet-service' },
+    logger,
+  );
 };
 
 /**

@@ -7,11 +7,16 @@
 
 import { Logger } from 'winston';
 import { ServerlessMysql } from 'serverless-mysql';
-import { addAlert, Severity, clearShieldedCryptoProvider } from '@wallet-service/common';
+import {
+  addAlert,
+  Severity,
+  clearShieldedCryptoProvider,
+  Bip32Account,
+} from '@wallet-service/common';
 import { getDbConnection, closeDbConnection } from '@src/utils';
-import { cleanDatabase } from '@tests/utils';
+import { cleanDatabase, addToAddressTable } from '@tests/utils';
 import { resetCtCryptoMock, primeAmountRewind, primeFullyRewind } from '@tests/utils/ct-crypto-mock';
-import { recoverShieldedOutput, findAndRewindShielded } from '@src/shieldedRecovery';
+import { recoverShieldedOutput, findAndRewindShielded, resetMissingProviderAlert } from '@src/shieldedRecovery';
 import * as ShieldedDb from '@src/db/shielded';
 import { ShieldedOutputToRecover } from '@src/db/shielded';
 
@@ -53,6 +58,7 @@ const amountOutput = (overrides: Partial<ShieldedOutputToRecover> = {}): Shielde
 beforeEach(async () => {
   await cleanDatabase(mysql);
   resetCtCryptoMock();
+  resetMissingProviderAlert();
   mockedAddAlert.mockClear();
 });
 
@@ -162,42 +168,56 @@ describe('recoverShieldedOutput', () => {
   });
 });
 
+/**
+ * A shielded output the sweep can actually pick up: `getShieldedOutputsToRecover`
+ * inner-joins the satellite row and a CTSpend `address` row carrying a scan key,
+ * so a bare `tx_output` row alone would be invisible to it either way.
+ */
+const seedRecoverableOutput = async (txId: string, index: number, address: string) => {
+  await insertShieldedOutput(txId, index, address, 1, 'unowned');
+  await mysql.query(
+    `INSERT INTO \`shielded_tx_output_data\`
+       (\`tx_id\`, \`index\`, \`commitment\`, \`range_proof\`, \`script\`, \`ephemeral_pubkey\`, \`asset_commitment\`)
+     VALUES (?, ?, ?, ?, ?, ?, NULL)`,
+    [txId, index, Buffer.alloc(33, 0xa1), Buffer.alloc(8, 0xb1), Buffer.alloc(1), Buffer.alloc(33, 0xc1)],
+  );
+};
+
 describe('findAndRewindShielded with no crypto provider', () => {
-  // A single test on purpose: the missing-provider alert is latched in module
-  // state that is never reset, so only the first sweep in a process can observe
-  // the latch being taken. Splitting this would make the later cases assert on
-  // an already-consumed latch.
-  it('skips the sweep, leaves outputs unowned, and alerts once but retries a failed alert', async () => {
+  it('skips the sweep, leaves recoverable outputs unowned, and alerts once', async () => {
     // beforeEach registers the mock provider; drop it to reproduce production.
     clearShieldedCryptoProvider();
-    await insertShieldedOutput('tx1', 0, 'a1', 1, 'unowned');
-    await insertShieldedOutput('tx1', 1, 'a1', 1, 'unowned');
+    await addToAddressTable(mysql, [{
+      address: 'a1', index: 0, walletId: 'w1', transactions: 0,
+      bip32_account: Bip32Account.CTSpend, scan_privkey: Buffer.alloc(32, 1),
+    }]);
+    // Two outputs the sweep would otherwise rewind and fail.
+    await seedRecoverableOutput('tx1', 0, 'a1');
+    await seedRecoverableOutput('tx1', 1, 'a1');
+
+    // Sanity: without the short-circuit these rows ARE visible to the getter,
+    // so the `unowned` assertions below are load-bearing.
+    expect(await ShieldedDb.getShieldedOutputsToRecover(mysql, 'w1', 10)).toHaveLength(2);
+
     const getSpy = jest.spyOn(ShieldedDb, 'getShieldedOutputsToRecover');
     const failSpy = jest.spyOn(ShieldedDb, 'markShieldedTxOutputRecoveryFailed');
 
-    // First attempt fails to emit: that must not consume the latch, or the
-    // operator would never learn the provider is missing.
-    mockedAddAlert.mockRejectedValueOnce(new Error('sqs unavailable'));
-
     const first = await findAndRewindShielded(mysql, 'w1', logger);
-    const second = await findAndRewindShielded(mysql, 'w2', logger);
-    const third = await findAndRewindShielded(mysql, 'w3', logger);
+    const second = await findAndRewindShielded(mysql, 'w1', logger);
 
-    for (const result of [first, second, third]) {
-      expect(result).toStrictEqual({ recovered: 0, failed: 0 });
-    }
-    // The sweep never reaches the database and never fails an output.
+    expect(first).toStrictEqual({ recovered: 0, failed: 0 });
+    expect(second).toStrictEqual({ recovered: 0, failed: 0 });
     expect(getSpy).not.toHaveBeenCalled();
     expect(failSpy).not.toHaveBeenCalled();
 
-    // Two attempts: the failed one, then the one that stuck. The third sweep is
-    // silent — the old code emitted one MAJOR per output per sweep.
-    expect(mockedAddAlert).toHaveBeenCalledTimes(2);
-    expect(mockedAddAlert.mock.calls[1][0]).toBe('Shielded crypto provider not registered');
-    expect(mockedAddAlert.mock.calls[1][2]).toBe(Severity.MAJOR);
+    // One alert for two outputs across two sweeps; the old code emitted one
+    // MAJOR per output per sweep.
+    expect(mockedAddAlert).toHaveBeenCalledTimes(1);
+    expect(mockedAddAlert.mock.calls[0][0]).toBe('Shielded crypto provider not registered');
+    expect(mockedAddAlert.mock.calls[0][2]).toBe(Severity.MINOR);
 
-    // The rows must stay `unowned`: `recovery_failed` is unreachable for the
-    // daemon's promote helper, so a later catch-up could never pick them up.
+    // Still `unowned`, not `recovery_failed`: the daemon's promote helper only
+    // advances rows in that state, so failing them here would strand them.
     expect((await readOutput('tx1', 0)).recovery_state).toBe('unowned');
     expect((await readOutput('tx1', 1)).recovery_state).toBe('unowned');
 

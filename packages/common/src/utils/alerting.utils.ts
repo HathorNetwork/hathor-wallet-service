@@ -65,3 +65,21 @@ export const addAlert = async (
     logger.error('[ALERT] Erroed while sending message to the alert sqs queue', err);
   }
 };
+
+/**
+ * Shared content for the "no shielded crypto provider" alert, so the daemon and
+ * the wallet-service report the same condition identically.
+ *
+ * `MINOR` rather than `MAJOR`: the condition is deployment-wide and expected
+ * until a provider ships, and no operator action can clear it in the meantime.
+ * Each side holds its own once-per-process guard — they are separate
+ * deployments, so a shared guard would not dedupe across them anyway, and the
+ * alert must stay observable through each package's own `addAlert` import.
+ */
+export const MISSING_SHIELDED_PROVIDER_ALERT = {
+  title: 'Shielded crypto provider not registered',
+  message: 'Shielded outputs are being observed but cannot be recovered: no shielded crypto '
+    + 'provider is registered. Owned outputs stay unowned and balances exclude them until one '
+    + 'is installed.',
+  severity: Severity.MINOR,
+} as const;

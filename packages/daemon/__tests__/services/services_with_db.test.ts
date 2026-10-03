@@ -29,7 +29,7 @@ jest.mock('@wallet-service/common', () => {
 
 import { TokenVersion } from '@hathor/wallet-lib';
 import * as db from '../../src/db';
-import { handleVoidedTx, voidTx, handleTokenCreated, handleVertexAccepted, handleUnvoidedTx, handleVertexRemoved } from '../../src/services';
+import { handleVoidedTx, voidTx, handleTokenCreated, handleVertexAccepted, handleUnvoidedTx, handleVertexRemoved, resetMissingProviderAlert } from '../../src/services';
 import { LRU } from '../../src/utils';
 import {
   addOrUpdateTx,
@@ -2414,6 +2414,7 @@ describe('handleVertexAccepted with shielded outputs', () => {
     );
 
     clearShieldedCryptoProvider();
+    resetMissingProviderAlert();
     mockAddAlert.mockClear();
 
     const context = {
@@ -2430,13 +2431,9 @@ describe('handleVertexAccepted with shielded outputs', () => {
       .filter(([title]) => title === 'Shielded crypto provider not registered');
 
     await handleVertexAccepted(context as any, undefined as any);
-    const afterFirst = providerAlerts().length;
 
-    // A second vertex, to pin that the missing provider is reported per process
-    // rather than per vertex (or per output). The latch lives in module state
-    // that no test resets, and earlier tests in this file ingest shielded
-    // vertices without a provider, so the absolute count here depends on run
-    // order — the load-bearing assertion is that the second vertex adds none.
+    // A second vertex, to pin that the missing provider is reported once per
+    // process rather than per vertex (or per output).
     const secondFixture = JSON.parse(JSON.stringify(fixture));
     secondFixture.event.data.hash = 'cd'.repeat(32);
     await handleVertexAccepted(
@@ -2457,12 +2454,9 @@ describe('handleVertexAccepted with shielded outputs', () => {
     const failureAlerts = mockAddAlert.mock.calls.filter(([title]) => title === 'Shielded recovery failed');
     expect(failureAlerts).toHaveLength(0);
 
-    // Never more than one, and the second vertex adds nothing.
-    expect(afterFirst).toBeLessThanOrEqual(1);
-    expect(providerAlerts()).toHaveLength(afterFirst);
-    for (const call of providerAlerts()) {
-      expect(call[2]).toBe(Severity.MAJOR);
-    }
+    // Exactly one missing-provider alert across both vertices.
+    expect(providerAlerts()).toHaveLength(1);
+    expect(providerAlerts()[0][2]).toBe(Severity.MINOR);
   });
 
   it('recovers a later vertex once a provider is registered', async () => {

@@ -98,7 +98,12 @@ import {
   bumpAddressInvolvement,
   decrementAddressInvolvement,
 } from '../db';
-import { rewindAmount, rewindFully, isShieldedCryptoProviderRegistered } from '@wallet-service/common';
+import {
+  rewindAmount,
+  rewindFully,
+  isShieldedCryptoProviderRegistered,
+  MISSING_SHIELDED_PROVIDER_ALERT,
+} from '@wallet-service/common';
 import getConfig, { VALIDATE_ADDRESS_BALANCES } from '../config';
 import logger from '../logger';
 import { invokeOnTxPushNotificationRequestedLambda, getDaemonUptime, retryWithBackoff } from '../utils';
@@ -107,8 +112,13 @@ import { JSONBigInt } from '@hathor/wallet-lib/lib/utils/bigint';
 
 const tracer = trace.getTracer('wallet-service-daemon');
 
-/** Set once a missing-provider alert has been emitted, so ingestion does not page per vertex. */
+/** Set once this process has reported the missing shielded crypto provider. */
 let missingProviderAlerted = false;
+
+/** Clear the missing-provider report guard — for test isolation. */
+export const resetMissingProviderAlert = (): void => {
+  missingProviderAlerted = false;
+};
 
 async function withSpan<T>(name: string, fn: () => Promise<T>): Promise<T> {
   return tracer.startActiveSpan(name, async (s) => {
@@ -601,7 +611,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             txId: hash,
             shieldedOutputs: shieldedOutputs.length,
           });
-          missingProviderAlertPending = !missingProviderAlerted;
+          missingProviderAlertPending = true;
         }
 
         // Bump address.transactions once per involved address using the
@@ -822,26 +832,19 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
           );
         }
 
-        if (missingProviderAlertPending) {
-          // Mark as alerted only once the alert is away, and swallow a failure:
-          // the vertex is already committed, so throwing here would send the
-          // SyncMachine to its terminal ERROR state over a reportable condition.
-          try {
-            await addAlert(
-              'Shielded crypto provider not registered',
-              'Shielded outputs are being ingested but cannot be recovered: no shielded crypto '
-              + 'provider is registered. Owned outputs stay unowned and balances exclude them.',
-              Severity.MAJOR,
-              { tx_id: hash, shielded_outputs: shieldedOutputs.length, source: 'daemon' },
-              logger,
-            );
-            missingProviderAlerted = true;
-          } catch (alertErr) {
-            logger.error('Failed to report the missing shielded crypto provider; will retry on the next vertex', {
-              txId: hash,
-              error: String(alertErr),
-            });
-          }
+        // Deferred past the commit like the recovery-failure alerts: addAlert
+        // performs an SQS round-trip, which must not run while the ingest
+        // transaction holds row locks. Reported once per process, not per
+        // vertex; delivery is best-effort since addAlert swallows send errors.
+        if (missingProviderAlertPending && !missingProviderAlerted) {
+          missingProviderAlerted = true;
+          await addAlert(
+            MISSING_SHIELDED_PROVIDER_ALERT.title,
+            MISSING_SHIELDED_PROVIDER_ALERT.message,
+            MISSING_SHIELDED_PROVIDER_ALERT.severity,
+            { tx_id: hash, shielded_outputs: shieldedOutputs.length, source: 'daemon' },
+            logger,
+          );
         }
       } catch (e) {
         try {

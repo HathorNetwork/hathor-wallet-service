@@ -31,6 +31,13 @@ const NO_ALARMS = new Set([
 ]);
 
 /**
+ * Stages that are alarmed but that the Makefile does not deploy. Keeping the
+ * alarms is deliberate — they are cheap, and dropping them would silently
+ * remove coverage from an environment deployed by some other means.
+ */
+const ALARMED_WITHOUT_MAKEFILE_TARGET = new Set(['testnet']);
+
+/**
  * Every `--stage <name>` the Makefile deploys. `invoke-local` is excluded: it runs a function
  * locally and creates no CloudWatch resources, so it needs no alarms.
  */
@@ -60,5 +67,14 @@ describe('serverless alert stages', () => {
     const pages = [...NO_ALARMS].filter((stage) => alertStages.includes(stage));
 
     expect(pages).toStrictEqual([]);
+  });
+
+  it('alarms no stage the Makefile does not deploy', () => {
+    const deployed = new Set(readDeployedStages());
+    const orphaned = readAlertStages()
+      .filter((stage) => !deployed.has(stage))
+      .filter((stage) => !ALARMED_WITHOUT_MAKEFILE_TARGET.has(stage));
+
+    expect(orphaned).toStrictEqual([]);
   });
 });
