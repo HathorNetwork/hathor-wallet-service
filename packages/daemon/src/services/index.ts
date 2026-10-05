@@ -582,13 +582,12 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
                 if (tokenIdHex === null) {
                   throw new Error('AmountShielded token_data does not resolve to a known token');
                 }
-                const tokenUid = Buffer.from(tokenIdHex, 'hex');
                 const r = await rewindAmount({
                   scanPrivkey: owned.scan_privkey,
                   ephemeralPubkey: ephem,
                   commitment: commit,
                   rangeProof: range,
-                  tokenUid,
+                  tokenId: tokenIdHex,
                 });
                 await markTxOutputRecovered(mysql, hash, idx, {
                   value: r.value,

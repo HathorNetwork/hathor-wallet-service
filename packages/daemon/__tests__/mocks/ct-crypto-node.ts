@@ -48,6 +48,22 @@ function key(commitment: Buffer, ephem: Buffer): string {
   return commitment.toString('hex') + ':' + ephem.toString('hex');
 }
 
+/** Arguments of the most recent `rewindAmountShieldedOutput` call. */
+export interface RecordedAmountRewindArgs {
+  privateKey: Buffer;
+  ephemeralPubkey: Buffer;
+  commitment: Buffer;
+  rangeProof: Buffer;
+  tokenUid: Buffer;
+}
+
+let lastAmountArgs: RecordedAmountRewindArgs | null = null;
+
+/** The last amount-rewind call, or null if none since the mock was reset. */
+export function lastAmountRewindArgs(): RecordedAmountRewindArgs | null {
+  return lastAmountArgs;
+}
+
 export function primeAmountRewind(p: AmountPriming): void {
   amountMap.set(key(p.commitment, p.ephemeralPubkey), p);
 }
@@ -63,12 +79,14 @@ export function primeFullyRewind(p: FullyPriming): void {
  */
 const mockProvider = {
   async rewindAmountShieldedOutput(
-    _privateKey: Buffer,
+    privateKey: Buffer,
     ephemeralPubkey: Buffer,
     commitment: Buffer,
     rangeProof: Buffer,
+    tokenUid: Buffer,
   ) {
     receivedRangeProofs.push(rangeProof);
+    lastAmountArgs = { privateKey, ephemeralPubkey, commitment, rangeProof, tokenUid };
     const p = amountMap.get(key(commitment, ephemeralPubkey));
     if (!p) {
       throw new Error('mock: no AmountShielded priming for (commitment, ephemeralPubkey)');
@@ -101,5 +119,6 @@ export function resetCtCryptoMock(): void {
   amountMap.clear();
   fullyMap.clear();
   receivedRangeProofs.length = 0;
+  lastAmountArgs = null;
   setShieldedCryptoProvider(mockProvider);
 }

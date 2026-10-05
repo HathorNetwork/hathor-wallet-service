@@ -57,8 +57,12 @@ export interface AmountRewindArgs {
   commitment: Buffer;
   /** Bulletproof range proof bytes from the output. */
   rangeProof: Buffer;
-  /** 32B token UID the output is denominated in (visible for AmountShielded). */
-  tokenUid: Buffer;
+  /**
+   * Canonical token id as stored (`"00"` for the native token, else the 64-hex
+   * on-chain uid). Expanded to the provider's 32-byte form internally — callers
+   * pass what `tx_output.token_id` holds and never build the buffer themselves.
+   */
+  tokenId: string;
 }
 
 export interface FullyRewindArgs {
@@ -115,13 +119,20 @@ export async function rewindAmount(
   args: AmountRewindArgs,
 ): Promise<IRewoundAmountShieldedOutput> {
   const p = requireProvider();
+  // Expanded here rather than at each call site: `tx_output.token_id` holds the
+  // canonical form, and hex-decoding that directly yields one byte for the
+  // native token where the asset generator needs 32.
+  const tokenUid = Buffer.from(denormalizeShieldedTokenId(args.tokenId), 'hex');
+  if (tokenUid.length !== 32) {
+    throw new RewindError(`shielded token uid must be 32 bytes, got ${tokenUid.length}`);
+  }
   try {
     return await p.rewindAmountShieldedOutput(
       args.scanPrivkey,
       args.ephemeralPubkey,
       args.commitment,
       args.rangeProof,
-      args.tokenUid,
+      tokenUid,
     );
   } catch (e) {
     if (e instanceof RewindError) throw e;
@@ -143,6 +154,21 @@ export const normalizeShieldedTokenId = (tokenUidHex: string): string => (
   tokenUidHex === hathorLib.constants.NATIVE_TOKEN_UID_HEX
     ? hathorLib.constants.NATIVE_TOKEN_UID
     : tokenUidHex
+);
+
+/**
+ * Inverse of `normalizeShieldedTokenId`: expand a stored token id to the
+ * 32-byte on-chain form the crypto provider expects.
+ *
+ * The provider derives the asset generator from the raw uid, so the native
+ * token must reach it as `NATIVE_TOKEN_UID_HEX` (32 zero bytes) rather than the
+ * canonical `NATIVE_TOKEN_UID` (`"00"`) used throughout storage. A custom
+ * token's id is already the on-chain form and is returned unchanged.
+ */
+export const denormalizeShieldedTokenId = (tokenIdHex: string): string => (
+  tokenIdHex === hathorLib.constants.NATIVE_TOKEN_UID
+    ? hathorLib.constants.NATIVE_TOKEN_UID_HEX
+    : tokenIdHex
 );
 
 /**

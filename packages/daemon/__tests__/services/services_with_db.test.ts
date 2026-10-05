@@ -59,6 +59,7 @@ import { FullNodeEventSchema } from '../../src/types/event';
 import {
   primeAmountRewind,
   primeFullyRewind,
+  lastAmountRewindArgs,
   receivedRangeProofs,
   resetCtCryptoMock,
 } from '../mocks/ct-crypto-node';
@@ -2343,6 +2344,48 @@ describe('handleVertexAccepted with shielded outputs', () => {
     expect(mockAddAlert).not.toHaveBeenCalled();
     // The rewind gets the range proof decoded from base64, as hathor-core sends it.
     expect(receivedRangeProofs).toEqual([Buffer.alloc(64, 0x03)]);
+  });
+
+  it('hands the provider a 32-byte token uid for a native-token shielded output', async () => {
+    expect.hasAssertions();
+
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0].token_data = 0; // native token (HTR)
+    const so = fixture.event.data.shielded_outputs[0];
+
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [so.decoded.address, Buffer.alloc(32, 0x42)],
+    );
+
+    resetCtCryptoMock();
+    primeAmountRewind({
+      commitment: Buffer.from(so.commitment, 'hex'),
+      ephemeralPubkey: Buffer.from(so.ephemeral_pubkey, 'hex'),
+      value: 150n,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+
+    await handleVertexAccepted({
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    } as any, undefined as any);
+
+    // A 1-byte '00' would make every native-token rewind fail even with a
+    // working provider, because the asset generator is derived from this uid.
+    const args = lastAmountRewindArgs();
+    expect(args).not.toBeNull();
+    expect(args!.tokenUid).toHaveLength(32);
+
+    // The stored token id stays canonical.
+    const txOutput = await getTxOutput(mysql, fixture.event.data.hash, 1, false);
+    expect(txOutput!.tokenId).toBe('00');
   });
 
   it('recovers a matched FullyShielded output, taking token_id from the rewind result', async () => {

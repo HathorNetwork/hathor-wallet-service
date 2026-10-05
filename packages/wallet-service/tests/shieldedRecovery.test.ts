@@ -15,7 +15,7 @@ import {
 } from '@wallet-service/common';
 import { getDbConnection, closeDbConnection } from '@src/utils';
 import { cleanDatabase, addToAddressTable } from '@tests/utils';
-import { resetCtCryptoMock, primeAmountRewind, primeFullyRewind } from '@tests/utils/ct-crypto-mock';
+import { resetCtCryptoMock, primeAmountRewind, primeFullyRewind, lastAmountRewindArgs } from '@tests/utils/ct-crypto-mock';
 import { recoverShieldedOutput, findAndRewindShielded, resetMissingProviderAlert } from '@src/shieldedRecovery';
 import * as ShieldedDb from '@src/db/shielded';
 import { ShieldedOutputToRecover } from '@src/db/shielded';
@@ -71,7 +71,7 @@ describe('recoverShieldedOutput', () => {
     await insertShieldedOutput('tx1', 0, 'a1', 1, 'unowned');
     const out = amountOutput();
     primeAmountRewind({
-      commitment: out.commitment, ephemeralPubkey: out.ephemeralPubkey, value: 1500n, tokenUid: Buffer.from('00', 'hex'),
+      commitment: out.commitment, ephemeralPubkey: out.ephemeralPubkey, value: 1500n, tokenUid: Buffer.alloc(32, 0),
     });
 
     const outcome = await recoverShieldedOutput(mysql, 'w1', out, logger);
@@ -82,6 +82,25 @@ describe('recoverShieldedOutput', () => {
     expect(String(row.value)).toBe('1500');
     expect(row.token_id).toBe('00');
     expect(mockedAddAlert).not.toHaveBeenCalled();
+  });
+
+  it('hands the provider a 32-byte uid for the canonical native token', async () => {
+    await insertShieldedOutput('tx1', 0, 'a1', 1, 'unowned');
+    const out = amountOutput();
+    primeAmountRewind({
+      commitment: out.commitment,
+      ephemeralPubkey: out.ephemeralPubkey,
+      value: 1500n,
+      tokenUid: Buffer.alloc(32, 0),
+    });
+
+    await recoverShieldedOutput(mysql, 'w1', out, logger);
+
+    // tx_output.token_id holds the canonical '00'; the asset generator needs 32 bytes.
+    const args = lastAmountRewindArgs();
+    expect(args).not.toBeNull();
+    expect(args!.tokenUid).toHaveLength(32);
+    expect(args!.tokenUid.equals(Buffer.alloc(32, 0))).toBe(true);
   });
 
   it('recovers a fully-shielded output, taking the token from the rewind', async () => {

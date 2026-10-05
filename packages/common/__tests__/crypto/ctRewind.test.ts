@@ -13,6 +13,7 @@ import {
   setShieldedCryptoProvider,
   clearShieldedCryptoProvider,
   isShieldedCryptoProviderRegistered,
+  denormalizeShieldedTokenId,
 } from '@src/crypto/ctRewind';
 import type { IShieldedCryptoProvider } from '@hathor/ct-crypto-provider';
 
@@ -23,7 +24,7 @@ const amountArgs = () => ({
   ephemeralPubkey: buf(33, 2),
   commitment: buf(33, 3),
   rangeProof: buf(64, 4),
-  tokenUid: buf(32, 0),
+  tokenId: '00', // canonical native token
 });
 
 const fullyArgs = () => ({
@@ -65,7 +66,8 @@ describe('ctRewind wrapper', () => {
       args.ephemeralPubkey,
       args.commitment,
       args.rangeProof,
-      args.tokenUid,
+      // The canonical id is expanded before it reaches the provider.
+      Buffer.from(denormalizeShieldedTokenId(args.tokenId), 'hex'),
     ]);
   });
 
@@ -163,5 +165,61 @@ describe('normalizeShieldedTokenId', () => {
 
   it('leaves a custom token uid unchanged', () => {
     expect(normalizeShieldedTokenId('ab'.repeat(32))).toBe('ab'.repeat(32));
+  });
+});
+
+describe('denormalizeShieldedTokenId', () => {
+  it('expands the canonical native uid to its 32-byte on-chain form', () => {
+    expect(denormalizeShieldedTokenId('00')).toBe('00'.repeat(32));
+  });
+
+  it('leaves a custom token uid unchanged', () => {
+    expect(denormalizeShieldedTokenId('ab'.repeat(32))).toBe('ab'.repeat(32));
+  });
+
+  it('round-trips with normalizeShieldedTokenId', () => {
+    expect(normalizeShieldedTokenId(denormalizeShieldedTokenId('00'))).toBe('00');
+    const custom = 'cd'.repeat(32);
+    expect(normalizeShieldedTokenId(denormalizeShieldedTokenId(custom))).toBe(custom);
+  });
+});
+
+describe('rewindAmount token uid expansion', () => {
+  afterEach(() => clearShieldedCryptoProvider());
+
+  const recordingProvider = (seen: Buffer[]) => stubProvider({
+    rewindAmountShieldedOutput: async (
+      _k: Buffer, _e: Buffer, _c: Buffer, _r: Buffer, tokenUid: Buffer,
+    ) => {
+      seen.push(tokenUid);
+      return { value: 1n, blindingFactor: buf(32) };
+    },
+  });
+
+  it('hands the provider 32 bytes for the canonical native token', async () => {
+    const seen: Buffer[] = [];
+    setShieldedCryptoProvider(recordingProvider(seen));
+
+    await rewindAmount(amountArgs());
+
+    expect(seen[0]).toHaveLength(32);
+    expect(seen[0].equals(Buffer.alloc(32, 0))).toBe(true);
+  });
+
+  it('hands the provider a custom token uid unchanged', async () => {
+    const custom = 'cd'.repeat(32);
+    const seen: Buffer[] = [];
+    setShieldedCryptoProvider(recordingProvider(seen));
+
+    await rewindAmount({ ...amountArgs(), tokenId: custom });
+
+    expect(seen[0].toString('hex')).toBe(custom);
+  });
+
+  it('rejects a token id that is not 32 bytes once expanded', async () => {
+    setShieldedCryptoProvider(recordingProvider([]));
+
+    await expect(rewindAmount({ ...amountArgs(), tokenId: 'abcd' }))
+      .rejects.toBeInstanceOf(RewindError);
   });
 });
