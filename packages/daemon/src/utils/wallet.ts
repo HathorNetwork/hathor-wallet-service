@@ -257,6 +257,16 @@ export interface ShieldedRecoveryResult {
 }
 
 /**
+ * A shielded input whose stored row contradicts the mode declared on the wire.
+ * Collected so the caller can alert after the ingest transaction commits.
+ */
+export interface ShieldedInputAnomaly {
+  txId: string;
+  index: number;
+  storedMode: number;
+}
+
+/**
  * Build the unified per-(address, token) balance map for a vertex.
  *
  * Combines four contribution sources into a single map so the address /
@@ -301,6 +311,7 @@ export const getUnifiedBalanceMap = async (
   shieldedRecoveryResults: ShieldedRecoveryResult[],
   eventInputs: EventTxInput[],
   headers: EventTxHeader[],
+  anomalies: ShieldedInputAnomaly[] = [],
 ): Promise<StringMap<TokenBalanceMap>> => {
   const map: StringMap<TokenBalanceMap> = {};
 
@@ -335,6 +346,26 @@ export const getUnifiedBalanceMap = async (
     if (!ei?.spent_output || !isShieldedMode(ei.spent_output.mode)) continue;
     const row = await getTxOutput(mysql, ei.tx_id, ei.index, false);
     if (!row) continue;
+    // The wire says this input spends a shielded output. If the row stored at
+    // that (tx_id, index) is transparent, the concatenated-index assumption
+    // (shielded outputs numbered after the transparent ones) does not hold for
+    // this vertex: deriving a debit from the wrong row would overstate the
+    // balance, and updateTxOutputSpentBy has already marked a real transparent
+    // UTXO spent. Report it rather than skipping quietly.
+    //
+    // Logged here and collected for the caller: this runs inside the ingest
+    // transaction, where an SQS round-trip must not hold tx_output/address row
+    // locks, so the alert itself is emitted after the commit.
+    if (!isShieldedMode(row.mode)) {
+      logger.error('shielded input resolved to a non-shielded tx_output', {
+        txId: ei.tx_id,
+        index: ei.index,
+        wireMode: ei.spent_output.mode,
+        storedMode: row.mode,
+      });
+      anomalies.push({ txId: ei.tx_id, index: ei.index, storedMode: row.mode });
+      continue;
+    }
     if (row.recoveryState !== RecoveryState.Recovered) continue;
     if (row.value === null || row.tokenId === null) continue;
     const owned = await findShieldedAddressOwnership(mysql, row.address);

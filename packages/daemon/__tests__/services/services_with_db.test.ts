@@ -53,6 +53,7 @@ import {
 import { DbTxOutput, EventTxInput } from '../../src/types';
 import { Connection } from 'mysql2/promise';
 import eventsFixture from '../__fixtures__/events';
+import logger from '../../src/logger';
 import alphaV4ShieldedVertexEvent from '../__fixtures__/alpha-v4-shielded-vertex-event';
 import alphaV4FullyShieldedSpendEvent from '../__fixtures__/alpha-v4-fully-shielded-spend-event';
 import { FullNodeEventSchema } from '../../src/types/event';
@@ -3555,6 +3556,62 @@ describe('handleVertexAccepted with shielded spends', () => {
     );
     expect(walletBalanceRows).toHaveLength(1);
     expect(BigInt(walletBalanceRows[0].unlocked_shielded_balance)).toBe(0n);
+  });
+  it('does not debit when a shielded input resolves to a transparent row', async () => {
+    expect.hasAssertions();
+
+    // The wire declares an AmountShielded input, but the row stored at that
+    // (tx_id, index) is transparent (mode 0, NULL recovery_state) — which is
+    // what a wrong index-space assumption would resolve to.
+    await mysql.query(
+      `INSERT INTO tx_output
+         (tx_id, \`index\`, mode, address, value, token_id, authorities,
+          timelock, heightlock, locked, voided, spent_by, recovery_state)
+       VALUES (?, ?, 0, ?, ?, ?, 0, NULL, NULL, FALSE, FALSE, NULL, NULL)`,
+      [PREV_TX_ID, PREV_INDEX, SHIELDED_ADDRESS, SEEDED_VALUE.toString(), TOKEN_ID],
+    );
+
+    const logSpy = jest.spyOn(logger, 'error').mockImplementation(() => logger);
+    mockAddAlert.mockClear();
+
+    await handleVertexAccepted({
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildSpendingVertex(),
+    } as any, undefined as any);
+
+    // No balance may be derived from the wrong row. The vertex has no outputs,
+    // so nothing should create a per-token row for this address at all.
+    const [balRows] = await mysql.query<any[]>(
+      'SELECT `unlocked_shielded_balance` FROM `address_balance` WHERE `address` = ? AND `token_id` = ?',
+      [SHIELDED_ADDRESS, TOKEN_ID],
+    );
+    expect(balRows).toHaveLength(0);
+
+    // And the mismatch must be reported, not skipped quietly.
+    expect(logSpy).toHaveBeenCalledWith(
+      'shielded input resolved to a non-shielded tx_output',
+      expect.objectContaining({
+        txId: PREV_TX_ID,
+        index: PREV_INDEX,
+        wireMode: 1,
+        storedMode: 0,
+      }),
+    );
+
+    const anomalyAlerts = mockAddAlert.mock.calls
+      .filter(([title]) => title === 'Shielded input resolved to a non-shielded output');
+    expect(anomalyAlerts).toHaveLength(1);
+    expect(anomalyAlerts[0][2]).toBe(Severity.MAJOR);
+    expect(anomalyAlerts[0][3]).toMatchObject({
+      tx_id: PREV_TX_ID, index: PREV_INDEX, stored_mode: 0,
+    });
+
+    logSpy.mockRestore();
   });
 });
 

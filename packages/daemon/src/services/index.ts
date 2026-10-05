@@ -41,6 +41,7 @@ import {
   getInvolvedAddresses,
   getUnifiedBalanceMap,
   ShieldedRecoveryResult,
+  ShieldedInputAnomaly,
   getUnixTimestamp,
   unlockUtxos,
   unlockTimelockedUtxos,
@@ -509,6 +510,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         // registered at any time, and a stale `false` would hide real failures.
         const canRewind = isShieldedCryptoProviderRegistered();
         let missingProviderAlertPending = false;
+        const shieldedInputAnomalies: ShieldedInputAnomaly[] = [];
 
         // Walk shielded_outputs[] with concatenated index = transparentCount + i.
         // Each shielded output produces three rows: the unified `tx_output`, the
@@ -675,6 +677,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             shieldedRecoveryResults,
             inputs,
             headers,
+            shieldedInputAnomalies,
           );
 
           // update address tables (address, address_balance, address_tx_history)
@@ -858,6 +861,23 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         // performs an SQS round-trip, which must not run while the ingest
         // transaction holds row locks. Reported once per process, not per
         // vertex; delivery is best-effort since addAlert swallows send errors.
+        for (const anomaly of shieldedInputAnomalies) {
+          await addAlert(
+            'Shielded input resolved to a non-shielded output',
+            `Input ${anomaly.txId}:${anomaly.index} is declared shielded on the wire but the `
+            + `stored row has mode ${anomaly.storedMode}; its balance was not reversed and a `
+            + 'transparent output at that index may have been marked spent.',
+            Severity.MAJOR,
+            {
+              tx_id: anomaly.txId,
+              index: anomaly.index,
+              stored_mode: anomaly.storedMode,
+              source: 'daemon',
+            },
+            logger,
+          );
+        }
+
         if (missingProviderAlertPending && !missingProviderAlerted) {
           missingProviderAlerted = true;
           await emitDeferredAlert(
