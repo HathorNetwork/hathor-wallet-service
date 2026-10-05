@@ -906,12 +906,11 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         // Deferred past the commit like the recovery-failure alerts: addAlert
         // performs an SQS round-trip, which must not run while the ingest
         // transaction holds row locks. Reported once per process, not per
-        // vertex; delivery is best-effort since addAlert swallows send errors.
-        // One alert per vertex, not per output: a malformed stream would
-        // otherwise become an alert storm.
+        // vertex. One alert per vertex, not per output: a malformed stream
+        // would otherwise become an alert storm.
         if (shieldedStorageViolations.length > 0) {
           const first = shieldedStorageViolations[0];
-          await addAlert(
+          await emitDeferredAlert(
             'Shielded output exceeds its storage limits',
             `${shieldedStorageViolations.length} shielded output(s) of ${hash} were not stored. `
             + `First: index ${first.index} — ${first.reason}`,
@@ -925,12 +924,11 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
               violations: shieldedStorageViolations,
               source: 'daemon',
             },
-            logger,
           );
         }
 
         for (const anomaly of shieldedInputAnomalies) {
-          await addAlert(
+          await emitDeferredAlert(
             'Shielded input resolved to a non-shielded output',
             `Input ${anomaly.txId}:${anomaly.index} is declared shielded on the wire but the `
             + `stored row has mode ${anomaly.storedMode}; its balance was not reversed and a `
@@ -942,7 +940,6 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
               stored_mode: anomaly.storedMode,
               source: 'daemon',
             },
-            logger,
           );
         }
 
