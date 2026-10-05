@@ -48,6 +48,7 @@ import {
   getUnifiedBalanceMap,
   ShieldedRecoveryResult,
   ShieldedInputAnomaly,
+  partitionShieldedInputs,
   getUnixTimestamp,
   unlockUtxos,
   unlockTimelockedUtxos,
@@ -520,11 +521,16 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         const shieldedStorageViolations: { index: number; scope: string; reason: string }[] = [];
 
         // Walk shielded_outputs[] with concatenated index = transparentCount + i.
-        // Each shielded output produces three rows: the unified `tx_output`, the
+        // A storable output produces three rows: the `tx_output` row, the
         // `shielded_tx_output_data` satellite carrying the per-output crypto payload,
         // and an `address` observation row (with bip32_account = Bip32Account.CTSpend).
-        // Every row lands in `recovery_state = 'unowned'` and is then promoted in-line
-        // below when a wallet has claimed the spend address.
+        // It lands in `recovery_state = 'unowned'` and is promoted in-line below when
+        // a wallet has claimed the spend address.
+        //
+        // An output that does not fit its columns produces fewer: a satellite-scope
+        // violation skips the payload and records `recovery_failed`; an output-scope
+        // violation writes nothing. Either way the vertex still ingests — see
+        // checkShieldedOutputStorable.
         for (let i = 0; i < shieldedOutputs.length; i++) {
           const so = shieldedOutputs[i];
           const idx = transparentCount + i;
@@ -674,13 +680,23 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         // This is now the single canonical writer of the involvement
         // counter — updateAddressTablesWithTx no longer touches the
         // address row directly; it only writes per-token rows.
-        const involvedAddresses = getInvolvedAddresses(inputs, outputs, shieldedOutputs, headers);
+        const involvedAddresses = getInvolvedAddresses(inputs, outputs, shieldedOutputs, headers, hash);
         await withSpan('bumpAddressInvolvement', () => bumpAddressInvolvement(mysql, involvedAddresses));
 
         // Mark tx utxos as spent. Kind-agnostic: only uses tx_id+index, so
         // we pass the raw event inputs — both transparent and shielded —
         // even though prepareInputs only emits transparent TxInput rows.
-        await withSpan('updateTxOutputSpentBy', () => updateTxOutputSpentBy(mysql, inputs, hash));
+        // Validate the shielded inputs BEFORE marking anything spent. A
+        // wire-shielded input whose stored row is transparent means the
+        // concatenated-index assumption does not hold for this vertex, and
+        // marking that row spent is an irreversible write against a real
+        // transparent UTXO — committed in this very transaction. Excluding the
+        // offenders here prevents the damage instead of reporting it after.
+        const spendableInputs = await withSpan(
+          'partitionShieldedInputs',
+          () => partitionShieldedInputs(mysql!, inputs, shieldedInputAnomalies),
+        );
+        await withSpan('updateTxOutputSpentBy', () => updateTxOutputSpentBy(mysql, spendableInputs, hash));
 
         // Genesis tx has no inputs and outputs, so nothing to be updated.
         // Nano contracts contribute an address even without inputs/outputs
@@ -705,7 +721,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             txInputs,
             txOutputs,
             shieldedRecoveryResults,
-            inputs,
+            spendableInputs,
             headers,
             shieldedInputAnomalies,
           );
@@ -1144,7 +1160,7 @@ export const voidTx = async (
 
   // Reverse the address-grain involvement counter for the SAME set the ingest
   // path bumped via bumpAddressInvolvement.
-  const involvedAddresses = getInvolvedAddresses(inputs, outputs, shieldedOutputs, headers);
+  const involvedAddresses = getInvolvedAddresses(inputs, outputs, shieldedOutputs, headers, hash);
   await withSpan('decrementAddressInvolvement', () => decrementAddressInvolvement(mysql, involvedAddresses));
 
   // CRITICAL: Unspend the inputs when voiding a transaction

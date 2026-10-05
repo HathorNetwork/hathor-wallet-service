@@ -112,8 +112,13 @@ function requireProvider(): IShieldedCryptoProvider {
 }
 
 /**
- * Recover {value, blindingFactor} from an amount-shielded output whose token UID
- * is already known from the visible `token_data` field.
+ * Recover {value, blindingFactor} from an amount-shielded output whose token is
+ * already known from the visible `token_data` field.
+ *
+ * Takes the token id in its stored canonical form and expands it to the
+ * provider's 32-byte uid internally (see `AmountRewindArgs.tokenId`). Rejects
+ * with `RewindError` if the expansion does not yield 32 bytes — both callers
+ * route that to `recovery_failed` plus an alert, never to a sync halt.
  */
 export async function rewindAmount(
   args: AmountRewindArgs,

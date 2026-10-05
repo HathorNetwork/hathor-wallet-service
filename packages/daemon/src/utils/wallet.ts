@@ -215,17 +215,21 @@ export const getInvolvedAddresses = (
   outputs: EventTxOutput[],
   shieldedOutputs: ShieldedOutput[],
   headers: EventTxHeader[],
+  txId?: string,
 ): Set<string> => {
   const involved = new Set<string>();
 
   // An address wider than its column can have no row in `address` or
   // `tx_output`, and letting one reach bumpAddressInvolvement fails the whole
   // ingest transaction — which halts sync permanently. Dropping it here covers
-  // the shielded-input side too, which the output loop never sees.
+  // every source this function walks, including a shielded input's address,
+  // which the output loop never sees. Nano header addresses reach
+  // `updateAddressTablesWithTx` by a separate route and are not covered.
   const addInvolved = (address: string | undefined | null): void => {
     if (!address) return;
     if (address.length > ADDRESS_COLUMN_MAX_CHARS) {
       logger.error('dropping an over-cap address from the involvement set', {
+        txId,
         length: address.length,
         max: ADDRESS_COLUMN_MAX_CHARS,
       });
@@ -324,6 +328,47 @@ export interface ShieldedInputAnomaly {
  * the raw wire-level input array, used here only to drive the shielded
  * spend reversal lookup.
  */
+/**
+ * Split the event inputs into those safe to act on and those whose stored row
+ * contradicts the mode declared on the wire.
+ *
+ * Shielded outputs are assumed to occupy the concatenated index space after the
+ * transparent ones. If that is ever wrong, `(tx_id, index)` for a shielded
+ * input resolves to the vertex's *transparent* output at that index — and
+ * marking that row spent is an irreversible write against a real user UTXO.
+ * So ingestion runs this before `updateTxOutputSpentBy` and excludes the
+ * offenders, rather than detecting the mismatch after the fact.
+ *
+ * Mismatches are logged here and pushed to `anomalies` for the caller to alert
+ * on after the transaction commits — an SQS round-trip must not hold row locks.
+ */
+export const partitionShieldedInputs = async (
+  mysql: MysqlConnection,
+  eventInputs: EventTxInput[],
+  anomalies: ShieldedInputAnomaly[],
+): Promise<EventTxInput[]> => {
+  const safe: EventTxInput[] = [];
+  for (const ei of eventInputs) {
+    if (!ei?.spent_output || !isShieldedMode(ei.spent_output.mode)) {
+      safe.push(ei);
+      continue;
+    }
+    const row = await getTxOutput(mysql, ei.tx_id, ei.index, false);
+    if (row && !isShieldedMode(row.mode)) {
+      logger.error('shielded input resolved to a non-shielded tx_output', {
+        txId: ei.tx_id,
+        index: ei.index,
+        wireMode: ei.spent_output.mode,
+        storedMode: row.mode,
+      });
+      anomalies.push({ txId: ei.tx_id, index: ei.index, storedMode: row.mode });
+      continue;
+    }
+    safe.push(ei);
+  }
+  return safe;
+};
+
 export const getUnifiedBalanceMap = async (
   mysql: MysqlConnection,
   txInputs: TxInput[],

@@ -3679,6 +3679,16 @@ describe('handleVertexAccepted with shielded spends', () => {
     );
     expect(balRows).toHaveLength(0);
 
+    // The decisive assertion: the transparent row must NOT have been marked
+    // spent. updateTxOutputSpentBy runs before the balance map, so detecting
+    // the mismatch later would leave this irreversible write committed.
+    const [spentRows] = await mysql.query<any[]>(
+      'SELECT `spent_by` FROM `tx_output` WHERE `tx_id` = ? AND `index` = ?',
+      [PREV_TX_ID, PREV_INDEX],
+    );
+    expect(spentRows).toHaveLength(1);
+    expect(spentRows[0].spent_by).toBeNull();
+
     // And the mismatch must be reported, not skipped quietly.
     expect(logSpy).toHaveBeenCalledWith(
       'shielded input resolved to a non-shielded tx_output',

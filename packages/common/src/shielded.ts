@@ -68,6 +68,8 @@ export type Bip32Account = (typeof Bip32Account)[keyof typeof Bip32Account];
 const SCRIPT_COLUMN_MAX_BYTES = 1024;
 const TOKEN_DATA_COLUMN_MAX = 255;
 const BLOB_COLUMN_MAX_BYTES = 65535;
+/** `tx_output.timelock` is INT UNSIGNED. */
+const TIMELOCK_COLUMN_MAX = 4294967295;
 
 /**
  * Width of `tx_output.address` and `address.address`. Exported because the
@@ -97,6 +99,12 @@ const hexBytes = (hexString: string): number => Math.floor(hexString.length / 2)
  * terminal ERROR state and halts sync permanently. Rejecting the single output
  * instead keeps the rest of the vertex ingesting.
  *
+ * Covers every wire field that reaches a narrower column: `decoded.address`
+ * and `decoded.timelock` on `tx_output`, and `script`, the two proofs and
+ * `token_data` on the satellite. `commitment`, `ephemeral_pubkey` and
+ * `asset_commitment` are pinned to exactly 33 bytes by the Zod schema, so they
+ * cannot overflow their VARBINARY(33) columns and are not re-checked here.
+ *
  * Every limit here is a *column* width, not a protocol cap. The protocol caps
  * (`MAX_RANGE_PROOF_SIZE`, `MAX_SURJECTION_PROOF_SIZE`) sit far below the BLOB
  * columns, so checking them would park consensus-valid outputs permanently
@@ -109,7 +117,7 @@ export const checkShieldedOutputStorable = (output: {
   range_proof: string;
   surjection_proof?: string | null;
   token_data?: number | null;
-  decoded: { address: string };
+  decoded: { address: string; timelock?: number | null };
 }): ShieldedStorageCheck => {
   const { address } = output.decoded;
   if (typeof address !== 'string' || address.length > ADDRESS_COLUMN_MAX_CHARS) {
@@ -117,6 +125,15 @@ export const checkShieldedOutputStorable = (output: {
       storable: false,
       scope: 'output',
       reason: `decoded.address is ${address?.length ?? 0} chars, column holds ${ADDRESS_COLUMN_MAX_CHARS}`,
+    };
+  }
+
+  const { timelock } = output.decoded;
+  if (timelock != null && (timelock < 0 || timelock > TIMELOCK_COLUMN_MAX)) {
+    return {
+      storable: false,
+      scope: 'output',
+      reason: `decoded.timelock is ${timelock}, column holds 0-${TIMELOCK_COLUMN_MAX}`,
     };
   }
 
