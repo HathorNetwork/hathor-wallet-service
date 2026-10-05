@@ -2184,6 +2184,10 @@ describe('handleVertexAccepted with shielded outputs', () => {
     );
     expect(satelliteRows).toHaveLength(1);
     expect(satelliteRows[0].token_data).toBe(shieldedOutput.token_data);
+    // The blobs arrive base64-encoded on the wire and are stored as raw bytes.
+    expect(satelliteRows[0].range_proof).toEqual(Buffer.alloc(64, 0x03));
+    expect(satelliteRows[0].script).toEqual(Buffer.alloc(20, 0x04));
+    expect(satelliteRows[0].commitment).toEqual(Buffer.alloc(33, 0x02));
 
     // Verify the shielded address observation row landed on the unified
     // `address` table with NULL bip32_account (unclaimed; derivation account
@@ -2273,11 +2277,11 @@ describe('handleVertexAccepted with shielded outputs', () => {
     fixture.event.data.shielded_outputs[0] = {
       mode: 2,
       commitment: '02'.repeat(33),
-      range_proof: '03'.repeat(64),
-      script: '04'.repeat(20),
+      range_proof: Buffer.alloc(64, 0x03).toString('base64'),
+      script: Buffer.alloc(20, 0x04).toString('base64'),
       ephemeral_pubkey: '05'.repeat(33),
       asset_commitment: '06'.repeat(33),
-      surjection_proof: '07'.repeat(64),
+      surjection_proof: Buffer.alloc(64, 0x07).toString('base64'),
       decoded: {
         address: 'WShieldedAddress1',
       },
@@ -2339,11 +2343,11 @@ describe('handleVertexAccepted with shielded outputs', () => {
     fixture.event.data.shielded_outputs[0] = {
       mode: 2,
       commitment: '02'.repeat(33),
-      range_proof: '03'.repeat(64),
-      script: '04'.repeat(20),
+      range_proof: Buffer.alloc(64, 0x03).toString('base64'),
+      script: Buffer.alloc(20, 0x04).toString('base64'),
       ephemeral_pubkey: '05'.repeat(33),
       asset_commitment: '06'.repeat(33),
-      surjection_proof: '07'.repeat(64),
+      surjection_proof: Buffer.alloc(64, 0x07).toString('base64'),
       decoded: {
         address: 'WShieldedAddress1',
       },
@@ -3033,8 +3037,8 @@ describe('handleVertexAccepted with shielded spends', () => {
           spent_output: {
             mode: 1,
             commitment: '02'.repeat(33),
-            range_proof: '03'.repeat(64),
-            script: '04'.repeat(20),
+            range_proof: Buffer.alloc(64, 0x03).toString('base64'),
+            script: Buffer.alloc(20, 0x04).toString('base64'),
             ephemeral_pubkey: '05'.repeat(33),
             token_data: 0,
             decoded: {
@@ -3339,11 +3343,11 @@ describe('handleVertexAccepted with shielded spends', () => {
             spent_output: {
               mode: 2,
               commitment: '02'.repeat(33),
-              range_proof: '03'.repeat(64),
-              script: '04'.repeat(20),
+              range_proof: Buffer.alloc(64, 0x03).toString('base64'),
+              script: Buffer.alloc(20, 0x04).toString('base64'),
               ephemeral_pubkey: '05'.repeat(33),
               asset_commitment: '06'.repeat(33),
-              surjection_proof: '07'.repeat(64),
+              surjection_proof: Buffer.alloc(64, 0x07).toString('base64'),
               decoded: {
                 address: SHIELDED_ADDRESS,
               },
@@ -3754,8 +3758,8 @@ describe('handleVoidedTx with shielded', () => {
             spent_output: {
               mode: 1,
               commitment: '02'.repeat(33),
-              range_proof: '03'.repeat(64),
-              script: '04'.repeat(20),
+              range_proof: Buffer.alloc(64, 0x03).toString('base64'),
+              script: Buffer.alloc(20, 0x04).toString('base64'),
               ephemeral_pubkey: '05'.repeat(33),
               token_data: 0,
               decoded: {

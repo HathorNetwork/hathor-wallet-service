@@ -6,10 +6,12 @@
  */
 
 import {
+  FullNodeEventSchema,
   ShieldedOutputSchema,
   SpentOutputSchema,
   TxEventDataWithoutMetaSchema,
 } from '../../src/types/event';
+import alphaV4ShieldedVertexEvent from '../__fixtures__/alpha-v4-shielded-vertex-event';
 
 describe('shielded event schemas', () => {
   describe('ShieldedOutputSchema', () => {
@@ -17,8 +19,8 @@ describe('shielded event schemas', () => {
       const v = ShieldedOutputSchema.parse({
         mode: 1,
         commitment: 'aa'.repeat(33),
-        range_proof: 'bb'.repeat(64),
-        script: 'cc'.repeat(20),
+        range_proof: Buffer.alloc(64, 0xbb).toString('base64'),
+        script: Buffer.alloc(20, 0xcc).toString('base64'),
         ephemeral_pubkey: 'dd'.repeat(33),
         token_data: 1,
         decoded: { address: 'WT4nABC' },
@@ -33,17 +35,17 @@ describe('shielded event schemas', () => {
       const v = ShieldedOutputSchema.parse({
         mode: 2,
         commitment: 'aa'.repeat(33),
-        range_proof: 'bb'.repeat(64),
-        script: 'cc'.repeat(20),
+        range_proof: Buffer.alloc(64, 0xbb).toString('base64'),
+        script: Buffer.alloc(20, 0xcc).toString('base64'),
         ephemeral_pubkey: 'dd'.repeat(33),
         asset_commitment: 'ee'.repeat(33),
-        surjection_proof: 'ff'.repeat(64),
+        surjection_proof: Buffer.alloc(64, 0xff).toString('base64'),
         decoded: { address: 'WT4nXYZ' },
       });
       expect(v.mode).toBe(2);
       if (v.mode === 2) {
         expect(v.asset_commitment).toBe('ee'.repeat(33));
-        expect(v.surjection_proof).toBe('ff'.repeat(64));
+        expect(v.surjection_proof).toBe(Buffer.alloc(64, 0xff).toString('base64'));
       }
     });
 
@@ -52,8 +54,8 @@ describe('shielded event schemas', () => {
         ShieldedOutputSchema.parse({
           mode: 9,
           commitment: 'aa'.repeat(33),
-          range_proof: 'bb'.repeat(64),
-          script: 'cc'.repeat(20),
+          range_proof: Buffer.alloc(64, 0xbb).toString('base64'),
+          script: Buffer.alloc(20, 0xcc).toString('base64'),
           ephemeral_pubkey: 'dd'.repeat(33),
           decoded: { address: 'WT4n' },
         })
@@ -93,8 +95,8 @@ describe('shielded event schemas', () => {
       const s = SpentOutputSchema.parse({
         mode: 1,
         commitment: 'aa'.repeat(33),
-        range_proof: 'bb'.repeat(64),
-        script: 'cc'.repeat(20),
+        range_proof: Buffer.alloc(64, 0xbb).toString('base64'),
+        script: Buffer.alloc(20, 0xcc).toString('base64'),
         ephemeral_pubkey: 'dd'.repeat(33),
         token_data: 1,
         decoded: { address: 'WT4n' },
@@ -144,8 +146,8 @@ describe('shielded event schemas', () => {
           {
             mode: 1,
             commitment: 'aa'.repeat(33),
-            range_proof: 'bb'.repeat(64),
-            script: 'cc'.repeat(20),
+            range_proof: Buffer.alloc(64, 0xbb).toString('base64'),
+            script: Buffer.alloc(20, 0xcc).toString('base64'),
             ephemeral_pubkey: 'dd'.repeat(33),
             token_data: 1,
             decoded: { address: 'WT4n' },
@@ -153,11 +155,11 @@ describe('shielded event schemas', () => {
           {
             mode: 2,
             commitment: 'aa'.repeat(33),
-            range_proof: 'bb'.repeat(64),
-            script: 'cc'.repeat(20),
+            range_proof: Buffer.alloc(64, 0xbb).toString('base64'),
+            script: Buffer.alloc(20, 0xcc).toString('base64'),
             ephemeral_pubkey: 'dd'.repeat(33),
             asset_commitment: 'ee'.repeat(33),
-            surjection_proof: 'ff'.repeat(64),
+            surjection_proof: Buffer.alloc(64, 0xff).toString('base64'),
             decoded: { address: 'WT4n' },
           },
         ],
@@ -165,6 +167,24 @@ describe('shielded event schemas', () => {
       expect(v.shielded_outputs).toHaveLength(2);
       expect(v.shielded_outputs[0].mode).toBe(1);
       expect(v.shielded_outputs[1].mode).toBe(2);
+    });
+  });
+
+  describe('real fullnode event', () => {
+    // Event 47541 of testnet-shielded-outputs, as an experimental-shielded-outputs-alpha-v4
+    // fullnode sends it: the first vertex with shielded outputs on that chain. hathor-core
+    // base64-encodes range_proof and script, and hex-encodes commitment and ephemeral_pubkey.
+    it('parses a vertex with shielded outputs', () => {
+      const result = FullNodeEventSchema.safeParse(alphaV4ShieldedVertexEvent);
+      expect(result.success).toBe(true);
+    });
+
+    it('decodes the base64 blobs to their raw sizes', () => {
+      const [first] = alphaV4ShieldedVertexEvent.event.data.shielded_outputs;
+      // A P2PKH script is 25 bytes.
+      expect(Buffer.from(first.script, 'base64')).toHaveLength(25);
+      expect(Buffer.from(first.range_proof, 'base64').toString('base64')).toBe(first.range_proof);
+      expect(Buffer.from(first.commitment, 'hex')).toHaveLength(33);
     });
   });
 });

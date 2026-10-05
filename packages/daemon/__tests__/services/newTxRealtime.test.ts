@@ -135,11 +135,11 @@ describe('handleVertexAccepted realtime new-tx payload', () => {
     fixture.event.data.shielded_outputs.push({
       mode: 2,
       commitment: '0a'.repeat(33),
-      range_proof: '0b'.repeat(64),
-      script: '0c'.repeat(20),
+      range_proof: Buffer.alloc(64, 0x0b).toString('base64'),
+      script: Buffer.alloc(20, 0x0c).toString('base64'),
       ephemeral_pubkey: '0d'.repeat(33),
       asset_commitment: '0e'.repeat(33),
-      surjection_proof: '0f'.repeat(64),
+      surjection_proof: Buffer.alloc(64, 0x0f).toString('base64'),
       decoded: { address: 'WShieldedAddress2' },
     });
 

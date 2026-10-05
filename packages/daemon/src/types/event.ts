@@ -121,6 +121,11 @@ export const EventTxOutputSchema = z.object({
 export type EventTxOutput = z.infer<typeof EventTxOutputSchema>;
 
 const HexStringSchema = z.string().regex(/^([0-9a-fA-F]{2})+$/);
+// hathor-core's `_shielded_output_to_json` hex-encodes the fixed-size points
+// (commitment, ephemeral_pubkey, asset_commitment) but base64-encodes the
+// variable-size blobs (range_proof, script, surjection_proof), like the
+// transparent `script`.
+const Base64StringSchema = z.string().base64();
 
 const ShieldedDecodedSchema = z.object({
   address: z.string(),
@@ -133,8 +138,8 @@ const ShieldedDecodedSchema = z.object({
 
 const BaseShieldedFieldsSchema = z.object({
   commitment: HexStringSchema.length(66),
-  range_proof: HexStringSchema,
-  script: HexStringSchema,
+  range_proof: Base64StringSchema,
+  script: Base64StringSchema,
   ephemeral_pubkey: HexStringSchema.length(66),
   decoded: ShieldedDecodedSchema,
 });
@@ -148,7 +153,7 @@ export type AmountShieldedOutput = z.infer<typeof AmountShieldedOutputSchema>;
 export const FullyShieldedOutputSchema = BaseShieldedFieldsSchema.extend({
   mode: z.literal(2),
   asset_commitment: HexStringSchema.length(66),
-  surjection_proof: HexStringSchema,
+  surjection_proof: Base64StringSchema,
 });
 export type FullyShieldedOutput = z.infer<typeof FullyShieldedOutputSchema>;
 
