@@ -48,6 +48,10 @@ jobs:
       run: |
         nix develop . -c yarn install
 
+    - name: Lint
+      run: |
+        nix develop . -c yarn lint
+
     - name: Initialize DB
       run: |
         nix develop . -c yarn sequelize db:migrate

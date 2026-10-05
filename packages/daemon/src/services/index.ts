@@ -98,7 +98,12 @@ import {
   bumpAddressInvolvement,
   decrementAddressInvolvement,
 } from '../db';
-import { rewindAmount, rewindFully } from '@wallet-service/common';
+import {
+  rewindAmount,
+  rewindFully,
+  isShieldedCryptoProviderRegistered,
+  MISSING_SHIELDED_PROVIDER_ALERT,
+} from '@wallet-service/common';
 import getConfig, { VALIDATE_ADDRESS_BALANCES } from '../config';
 import logger from '../logger';
 import { invokeOnTxPushNotificationRequestedLambda, getDaemonUptime, retryWithBackoff } from '../utils';
@@ -106,6 +111,37 @@ import { addAlert, Severity } from '@wallet-service/common';
 import { JSONBigInt } from '@hathor/wallet-lib/lib/utils/bigint';
 
 const tracer = trace.getTracer('wallet-service-daemon');
+
+/** Set once this process has reported the missing shielded crypto provider. */
+let missingProviderAlerted = false;
+
+/** Clear the missing-provider report guard — for test isolation. */
+export const resetMissingProviderAlert = (): void => {
+  missingProviderAlerted = false;
+};
+
+/**
+ * Emit an alert that is deferred past a commit, swallowing any failure.
+ *
+ * `addAlert` catches a failed SQS *send*, but building the client and the
+ * command happens outside that catch, so it can still throw. A throw after
+ * `mysql.commit()` would reach the ingest catch, attempt a rollback on an
+ * already-committed transaction and report the vertex as failed — turning a
+ * reportable condition into a sync halt. Alerting must never change the
+ * outcome of work that is already durable.
+ */
+const emitDeferredAlert = async (
+  title: string,
+  message: string,
+  severity: Severity,
+  metadata: unknown,
+): Promise<void> => {
+  try {
+    await addAlert(title, message, severity, metadata, logger);
+  } catch (e) {
+    logger.error('deferred alert failed to emit', { title, error: String(e) });
+  }
+};
 
 async function withSpan<T>(name: string, fn: () => Promise<T>): Promise<T> {
   return tracer.startActiveSpan(name, async (s) => {
@@ -469,6 +505,11 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         // row locks.
         const failedShieldedRecoveries: { txId: string; index: number; error: string }[] = [];
 
+        // Read once per vertex, not cached across vertices: a provider can be
+        // registered at any time, and a stale `false` would hide real failures.
+        const canRewind = isShieldedCryptoProviderRegistered();
+        let missingProviderAlertPending = false;
+
         // Walk shielded_outputs[] with concatenated index = transparentCount + i.
         // Each shielded output produces three rows: the unified `tx_output`, the
         // `shielded_tx_output_data` satellite carrying the per-output crypto payload,
@@ -522,7 +563,14 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
           // If a wallet has claimed this shielded address, attempt the rewind
           // in line. Success → mark the output recovered with the revealed
           // value/token; failure → mark it recovery_failed and emit an alert.
-          const owned = await findShieldedAddressOwnership(mysql, so.decoded.address);
+          //
+          // Skip the ownership lookup entirely when no rewind is possible: its
+          // only purpose is to decide whether to rewind, and recording the
+          // output as recovery_failed would strand it — the promote helper only
+          // advances rows that are still `unowned`.
+          const owned = canRewind
+            ? await findShieldedAddressOwnership(mysql, so.decoded.address)
+            : null;
           if (owned) {
             try {
               const ephem = Buffer.from(so.ephemeral_pubkey, 'hex');
@@ -579,6 +627,14 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
               failedShieldedRecoveries.push({ txId: hash, index: idx, error: String(e) });
             }
           }
+        }
+
+        if (!canRewind && shieldedOutputs.length > 0) {
+          logger.warn('Shielded outputs ingested without a rewind: no shielded crypto provider is registered', {
+            txId: hash,
+            shieldedOutputs: shieldedOutputs.length,
+          });
+          missingProviderAlertPending = true;
         }
 
         // Bump address.transactions once per involved address using the
@@ -787,15 +843,29 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         await mysql.commit();
 
         // Transaction committed and its row locks released: now emit any
-        // deferred shielded-recovery-failure alerts. addAlert swallows its own
-        // errors, so this cannot affect the already-committed state.
+        // deferred shielded-recovery-failure alerts. Routed through
+        // emitDeferredAlert so an alerting failure cannot be mistaken for an
+        // ingest failure.
         for (const failure of failedShieldedRecoveries) {
-          await addAlert(
+          await emitDeferredAlert(
             'Shielded recovery failed',
             `Failed to rewind shielded output ${failure.txId}:${failure.index} for owned address`,
             Severity.MAJOR,
             { tx_id: failure.txId, index: failure.index, error: failure.error },
-            logger,
+          );
+        }
+
+        // Deferred past the commit like the recovery-failure alerts: addAlert
+        // performs an SQS round-trip, which must not run while the ingest
+        // transaction holds row locks. Reported once per process, not per
+        // vertex; delivery is best-effort since addAlert swallows send errors.
+        if (missingProviderAlertPending && !missingProviderAlerted) {
+          missingProviderAlerted = true;
+          await emitDeferredAlert(
+            MISSING_SHIELDED_PROVIDER_ALERT.title,
+            MISSING_SHIELDED_PROVIDER_ALERT.message,
+            MISSING_SHIELDED_PROVIDER_ALERT.severity,
+            { tx_id: hash, shielded_outputs: shieldedOutputs.length, source: 'daemon' },
           );
         }
       } catch (e) {

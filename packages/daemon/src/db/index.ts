@@ -515,14 +515,16 @@ export async function markTxOutputRecovered(
 /**
  * Record that the rewind threw for an output we believed we owned.
  *
- * This is NOT a terminal state: an output can land here when the wallet is not
- * yet registered (or recovery is otherwise impossible at ingest time), and the
- * RFC requires `recovery_failed`/`unowned` rows to remain re-scannable so they
- * can still reach `recovered` once the wallet registers. The follow-up catchup
- * sweep (keyed on `address.catchup_state`) is what re-drives them; it is not
- * implemented yet. The `recovery_state = 'unowned'` guard below only makes the
- * inline ingest write idempotent against re-delivery of the same vertex — it
- * does not preclude the future catchup from reprocessing the row.
+ * Reached only when a provider is registered and the rewind itself failed —
+ * ingestion skips the rewind entirely when none is, leaving the row `unowned`.
+ *
+ * Re-driving a row out of this state needs a helper that admits it:
+ * `markTxOutputRecovered` below is guarded `recovery_state = 'unowned'` (so that
+ * a re-delivered vertex is a no-op) and therefore cannot promote a
+ * `recovery_failed` row. The wallet-service's equivalent guards on
+ * `<> 'recovered'` and can. A catch-up sweep must use the latter form, and must
+ * select on `tx_output.recovery_state` rather than on `address.catchup_state`,
+ * which is marked done regardless of how many outputs were recovered.
  */
 export async function markTxOutputRecoveryFailed(
   conn: any,

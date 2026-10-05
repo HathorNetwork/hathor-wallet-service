@@ -10,7 +10,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "lint": "eslint .",
+    "lint": "yarn run -T eslint --config ../../eslint.config.mjs src __tests__",
     "build": "tsc -b",
     "start": "node dist/index.js",
     "dev:up": "docker compose -f docker-compose.dev.yml up -d",
@@ -40,13 +40,7 @@
     "@types/mysql": "2.15.21",
     "@types/node": "17.0.45",
     "@types/ws": "8.5.5",
-    "@typescript-eslint/eslint-plugin": "6.7.3",
-    "@typescript-eslint/parser": "6.7.3",
     "better-sqlite3": "11.7.0",
-    "eslint": "9.3.0",
-    "eslint-config-airbnb-base": "15.0.0",
-    "eslint-plugin-import": "2.29.1",
-    "eslint-plugin-jest": "27.4.0",
     "jest": "29.6.4",
     "sequelize-cli": "6.6.1",
     "ts-jest": "29.1.1",

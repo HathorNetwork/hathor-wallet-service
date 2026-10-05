@@ -25,6 +25,7 @@ import {
 import { APIGatewayProxyResult } from 'aws-lambda';
 
 import { ApiError } from '@src/api/errors';
+import { ShieldedOutputMode, RecoveryState } from '@wallet-service/common';
 
 import hathorLib, { CreateTokenTransaction } from '@hathor/wallet-lib';
 
@@ -2176,4 +2177,146 @@ test('POST /txproposals with nano contract tx should increment caller address se
   expect(after.seqnum).toBe(4);
 
   spy.mockRestore();
+});
+
+test.each([
+  ['AmountShielded', ShieldedOutputMode.AmountShielded],
+  ['FullyShielded', ShieldedOutputMode.FullyShielded],
+])('POST /txproposals rejects a recovered %s utxo with ApiError.INPUTS_SHIELDED_UNSUPPORTED', async (_label, mode) => {
+  expect.hasAssertions();
+
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+  await addToAddressTable(mysql, [{
+    address: ADDRESSES[0],
+    index: 0,
+    walletId: 'my-wallet',
+    transactions: 1,
+    bip32_account: 2,
+  }]);
+
+  // A shielded output whose value has been revealed. It passes every ownership
+  // and availability check, which is exactly why it needs an explicit refusal.
+  const utxos = [{
+    txId: TX_IDS[0],
+    index: 0,
+    tokenId: '00',
+    address: ADDRESSES[0],
+    value: 300n,
+    authorities: 0,
+    timelock: null,
+    heightlock: null,
+    locked: false,
+    spentBy: null,
+    mode,
+    recoveryState: RecoveryState.Recovered,
+  }];
+  await addToUtxoTable(mysql, utxos);
+
+  const script = new hathorLib.P2PKH(new hathorLib.Address(ADDRESSES[0], {
+    network: new hathorLib.Network(process.env.NETWORK),
+  })).createScript();
+  const transaction = new hathorLib.Transaction(
+    [new hathorLib.Input(utxos[0].txId, utxos[0].index)],
+    [new hathorLib.Output(300n, script, { tokenData: 0 })],
+  );
+
+  const event = makeGatewayEventWithAuthorizer('my-wallet', null, JSON.stringify({
+    txHex: transaction.toHex(),
+  }));
+  const result = await txProposalCreate(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+
+  expect(result.statusCode).toBe(400);
+  expect(returnBody.success).toBe(false);
+  expect(returnBody.error).toBe(ApiError.INPUTS_SHIELDED_UNSUPPORTED);
+  expect(returnBody.shielded).toStrictEqual([{ txId: TX_IDS[0], index: 0 }]);
+
+  // The refusal must happen before anything is locked.
+  const stillFree = await getUtxos(mysql, [{ txId: TX_IDS[0], index: 0 }]);
+  expect(stillFree[0].txProposalId).toBeFalsy();
+});
+
+test('POST /txproposals rejects the whole proposal when only one input is shielded', async () => {
+  expect.hasAssertions();
+
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+  await addToAddressTable(mysql, [{
+    address: ADDRESSES[0],
+    index: 0,
+    walletId: 'my-wallet',
+    transactions: 2,
+    bip32_account: 0,
+  }]);
+
+  const utxos = [{
+    txId: TX_IDS[0],
+    index: 0,
+    tokenId: '00',
+    address: ADDRESSES[0],
+    value: 100n,
+    authorities: 0,
+    timelock: null,
+    heightlock: null,
+    locked: false,
+    spentBy: null,
+  }, {
+    txId: TX_IDS[1],
+    index: 0,
+    tokenId: '00',
+    address: ADDRESSES[0],
+    value: 200n,
+    authorities: 0,
+    timelock: null,
+    heightlock: null,
+    locked: false,
+    spentBy: null,
+    mode: ShieldedOutputMode.AmountShielded,
+    recoveryState: RecoveryState.Recovered,
+  }];
+  await addToUtxoTable(mysql, utxos);
+
+  const script = new hathorLib.P2PKH(new hathorLib.Address(ADDRESSES[0], {
+    network: new hathorLib.Network(process.env.NETWORK),
+  })).createScript();
+  const transaction = new hathorLib.Transaction(
+    [
+      new hathorLib.Input(utxos[0].txId, utxos[0].index),
+      new hathorLib.Input(utxos[1].txId, utxos[1].index),
+    ],
+    [new hathorLib.Output(300n, script, { tokenData: 0 })],
+  );
+
+  const event = makeGatewayEventWithAuthorizer('my-wallet', null, JSON.stringify({
+    txHex: transaction.toHex(),
+  }));
+  const result = await txProposalCreate(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+
+  expect(result.statusCode).toBe(400);
+  expect(returnBody.error).toBe(ApiError.INPUTS_SHIELDED_UNSUPPORTED);
+  // Only the shielded input is named, but neither may be locked.
+  expect(returnBody.shielded).toStrictEqual([{ txId: TX_IDS[1], index: 0 }]);
+
+  const stillFree = await getUtxos(mysql, [
+    { txId: TX_IDS[0], index: 0 },
+    { txId: TX_IDS[1], index: 0 },
+  ]);
+  expect(stillFree).toHaveLength(2);
+  stillFree.forEach((utxo) => expect(utxo.txProposalId).toBeFalsy());
 });

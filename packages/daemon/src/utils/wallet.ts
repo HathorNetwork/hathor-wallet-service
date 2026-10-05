@@ -138,7 +138,7 @@ export const getAddressBalanceMap = (
       continue;
     }
 
-    const address = input.decoded?.address!;
+    const address = input.decoded.address;
 
     // get the TokenBalanceMap from this input
     const tokenBalanceMap = TokenBalanceMap.fromTxInput(input);
@@ -306,7 +306,7 @@ export const getUnifiedBalanceMap = async (
 
   for (const input of txInputs) {
     if (!isDecodedValid(input.decoded)) continue;
-    const address = input.decoded?.address!;
+    const address = input.decoded.address;
     const tokenMap = TokenBalanceMap.fromTxInput(input);
     map[address] = TokenBalanceMap.merge(map[address], tokenMap);
   }

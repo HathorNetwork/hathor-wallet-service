@@ -70,11 +70,8 @@ sdk.start();
 // -------------------------------------------------------------------
 // Now safe to import daemon modules
 // -------------------------------------------------------------------
-// eslint-disable-next-line import/first
 import * as mysql2 from 'mysql2/promise';
-// eslint-disable-next-line import/first
 import { voidTx } from '../services';
-// eslint-disable-next-line import/first
 import { EventTxInput, EventTxOutput } from '../types';
 
 // -------------------------------------------------------------------

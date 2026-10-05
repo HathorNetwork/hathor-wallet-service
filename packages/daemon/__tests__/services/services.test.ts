@@ -163,6 +163,9 @@ jest.mock('@wallet-service/common', () => {
     isShieldedMode: (mode: number) =>
       mode === ShieldedOutputMode.AmountShielded
         || mode === ShieldedOutputMode.FullyShielded,
+    // These vertices carry no shielded outputs, so the value only has to let
+    // ingestion take its usual path; `true` keeps the pre-shielded behaviour.
+    isShieldedCryptoProviderRegistered: () => true,
   };
 });
 

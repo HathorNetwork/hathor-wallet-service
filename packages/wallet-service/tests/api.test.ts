@@ -1867,7 +1867,7 @@ test('GET /wallet/tokens/token_id/details', async () => {
   expect(returnBody.details).toMatchInlineSnapshot(`
   [
     {
-      "message": "\"token_id\" length must be at least 64 characters long",
+      "message": ""token_id" length must be at least 64 characters long",
       "path": [
         "token_id",
       ],
@@ -2051,7 +2051,7 @@ test('GET /wallet/proxy/transactions/{txId}', async () => {
     {
       "details": [
         {
-          "message": "\"txId\" is required",
+          "message": ""txId" is required",
           "path": [
             "txId",
           ],
@@ -2100,7 +2100,7 @@ test('GET /wallet/proxy/{txId}/confirmation_data', async () => {
     {
       "details": [
         {
-          "message": "\"txId\" is required",
+          "message": ""txId" is required",
           "path": [
             "txId",
           ],
@@ -2146,7 +2146,7 @@ test('GET /wallet/proxy/graphviz/neighbours', async () => {
     {
       "details": [
         {
-          "message": "\"maxLevel\" is required",
+          "message": ""maxLevel" is required",
           "path": [
             "maxLevel",
           ],
@@ -2166,19 +2166,19 @@ test('GET /wallet/proxy/graphviz/neighbours', async () => {
     {
       "details": [
         {
-          "message": "\"txId\" is required",
+          "message": ""txId" is required",
           "path": [
             "txId",
           ],
         },
         {
-          "message": "\"graphType\" is required",
+          "message": ""graphType" is required",
           "path": [
             "graphType",
           ],
         },
         {
-          "message": "\"maxLevel\" is required",
+          "message": ""maxLevel" is required",
           "path": [
             "maxLevel",
           ],
