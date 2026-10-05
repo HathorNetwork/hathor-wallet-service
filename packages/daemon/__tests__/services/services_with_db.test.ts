@@ -2347,6 +2347,93 @@ describe('handleVertexAccepted with shielded outputs', () => {
     expect(receivedRangeProofs).toEqual([Buffer.alloc(64, 0x03)]);
   });
 
+  it('ingests the vertex when a shielded output address is wider than its column', async () => {
+    expect.hasAssertions();
+
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0].token_data = 0;
+    // 35 chars: one past tx_output.address and address.address VARCHAR(34).
+    // Skipping insertTxOutput alone is not enough — the address also reaches
+    // `address` through bumpAddressInvolvement.
+    fixture.event.data.shielded_outputs[0].decoded.address = 'W'.repeat(35);
+    const txHash = fixture.event.data.hash;
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+
+    await expect(handleVertexAccepted({
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    } as any, undefined as any)).resolves.not.toThrow();
+
+    // The vertex ingested and its transparent output is intact.
+    const [txRows] = await mysql.query<any[]>('SELECT `tx_id` FROM `transaction` WHERE `tx_id` = ?', [txHash]);
+    expect(txRows).toHaveLength(1);
+    expect(await getTxOutput(mysql, txHash, 0, false)).not.toBeNull();
+
+    // Neither the shielded tx_output nor an `address` row could be written.
+    expect(await getTxOutput(mysql, txHash, 1, false)).toBeNull();
+    const [addrRows] = await mysql.query<any[]>(
+      'SELECT `address` FROM `address` WHERE `address` = ?', ['W'.repeat(35)],
+    );
+    expect(addrRows).toHaveLength(0);
+
+    const violations = mockAddAlert.mock.calls
+      .filter(([title]) => title === 'Shielded output exceeds its storage limits');
+    expect(violations).toHaveLength(1);
+    expect(violations[0][3]).toMatchObject({ scope: 'output' });
+  });
+
+  it('parks an oversized shielded output and still ingests the vertex', async () => {
+    expect.hasAssertions();
+
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0].token_data = 0;
+    // One byte past the VARBINARY(1024) script column: this used to raise
+    // ER_DATA_TOO_LONG inside the ingest transaction and halt sync for good.
+    fixture.event.data.shielded_outputs[0].script = 'ab'.repeat(1025);
+    const txHash = fixture.event.data.hash;
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+
+    // Must not throw: a throw here reaches the sync machine's terminal state.
+    await expect(handleVertexAccepted({
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    } as any, undefined as any)).resolves.not.toThrow();
+
+    // The vertex itself ingested, transparent output and all.
+    const [txRows] = await mysql.query<any[]>('SELECT `tx_id` FROM `transaction` WHERE `tx_id` = ?', [txHash]);
+    expect(txRows).toHaveLength(1);
+    expect(await getTxOutput(mysql, txHash, 0, false)).not.toBeNull();
+
+    // The output is recorded as a failed recovery, with no satellite row.
+    const txOutput = await getTxOutput(mysql, txHash, 1, false);
+    expect(txOutput!.recoveryState).toBe('recovery_failed');
+    const [satRows] = await mysql.query<any[]>(
+      'SELECT `tx_id` FROM `shielded_tx_output_data` WHERE `tx_id` = ?', [txHash],
+    );
+    expect(satRows).toHaveLength(0);
+
+    // And it is reported.
+    const violations = mockAddAlert.mock.calls
+      .filter(([title]) => title === 'Shielded output exceeds its storage limits');
+    expect(violations).toHaveLength(1);
+    expect(violations[0][2]).toBe(Severity.MAJOR);
+    expect(violations[0][3]).toMatchObject({ tx_id: txHash, index: 1, scope: 'satellite' });
+  });
+
   it('hands the provider a 32-byte token uid for a native-token shielded output', async () => {
     expect.hasAssertions();
 

@@ -44,7 +44,12 @@ import {
   updateAddressLockedBalance,
   updateWalletLockedBalance,
 } from '../db';
-import { ShieldedOutputMode, RecoveryState, isShieldedMode } from '@wallet-service/common';
+import {
+  ShieldedOutputMode,
+  RecoveryState,
+  isShieldedMode,
+  ADDRESS_COLUMN_MAX_CHARS,
+} from '@wallet-service/common';
 import logger from '../logger';
 import { stringMapIterator } from './helpers';
 
@@ -213,6 +218,22 @@ export const getInvolvedAddresses = (
 ): Set<string> => {
   const involved = new Set<string>();
 
+  // An address wider than its column can have no row in `address` or
+  // `tx_output`, and letting one reach bumpAddressInvolvement fails the whole
+  // ingest transaction — which halts sync permanently. Dropping it here covers
+  // the shielded-input side too, which the output loop never sees.
+  const addInvolved = (address: string | undefined | null): void => {
+    if (!address) return;
+    if (address.length > ADDRESS_COLUMN_MAX_CHARS) {
+      logger.error('dropping an over-cap address from the involvement set', {
+        length: address.length,
+        max: ADDRESS_COLUMN_MAX_CHARS,
+      });
+      return;
+    }
+    involved.add(address);
+  };
+
   for (const input of inputs) {
     const spent = input?.spent_output;
     if (!spent) continue;
@@ -221,23 +242,22 @@ export const getInvolvedAddresses = (
     // decode failed upstream; skip empty/unknown values.
     const decoded = (spent as { decoded?: { address?: string } | null }).decoded;
     const address = decoded && (decoded as { address?: string }).address;
-    if (address) involved.add(address);
+    addInvolved(address);
   }
 
   for (const output of outputs) {
     if (!isDecodedValid(output.decoded, ['address'])) continue;
     const address = (output.decoded as { address?: string }).address;
-    if (address) involved.add(address);
+    addInvolved(address);
   }
 
   for (const so of shieldedOutputs) {
-    const address = so.decoded?.address;
-    if (address) involved.add(address);
+    addInvolved(so.decoded?.address);
   }
 
   for (const header of headers) {
     if (!isNanoHeader(header)) continue;
-    if (header.nc_address) involved.add(header.nc_address);
+    addInvolved(header.nc_address);
   }
 
   return involved;

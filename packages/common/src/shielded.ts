@@ -57,3 +57,102 @@ export const Bip32Account = {
   CTSpend: 2,
 } as const;
 export type Bip32Account = (typeof Bip32Account)[keyof typeof Bip32Account];
+
+/**
+ * Widths of the columns these fields are stored in. Kept next to the check so
+ * the two cannot drift apart: `shielded_tx_output_data.script` is
+ * VARBINARY(1024), `token_data` is TINYINT UNSIGNED, `range_proof` and
+ * `surjection_proof` are BLOB, and both `tx_output.address` and
+ * `address.address` are VARCHAR(34).
+ */
+const SCRIPT_COLUMN_MAX_BYTES = 1024;
+const TOKEN_DATA_COLUMN_MAX = 255;
+const BLOB_COLUMN_MAX_BYTES = 65535;
+
+/**
+ * Width of `tx_output.address` and `address.address`. Exported because the
+ * involvement set has to drop over-cap addresses too — they reach `address`
+ * directly and would fail the same way.
+ */
+export const ADDRESS_COLUMN_MAX_CHARS = 34;
+
+export type ShieldedStorageCheck =
+  | { storable: true }
+  /**
+   * `scope: 'output'` — the violation is on `tx_output` itself, so no row can
+   * be written for this output at all. `scope: 'satellite'` — `tx_output` is
+   * fine but `shielded_tx_output_data` is not, so the output can be recorded
+   * as a failed recovery without its crypto payload.
+   */
+  | { storable: false; scope: 'output' | 'satellite'; reason: string };
+
+/** Byte length of a hex-encoded field. */
+const hexBytes = (hexString: string): number => Math.floor(hexString.length / 2);
+
+/**
+ * Whether a shielded output from the wire fits the columns it is stored in.
+ *
+ * Checked before any INSERT: under STRICT_TRANS_TABLES an over-cap field raises
+ * an error inside the ingest transaction, which reaches the sync machine's
+ * terminal ERROR state and halts sync permanently. Rejecting the single output
+ * instead keeps the rest of the vertex ingesting.
+ *
+ * Every limit here is a *column* width, not a protocol cap. The protocol caps
+ * (`MAX_RANGE_PROOF_SIZE`, `MAX_SURJECTION_PROOF_SIZE`) sit far below the BLOB
+ * columns, so checking them would park consensus-valid outputs permanently
+ * whenever hathor-core and the pinned wallet-lib disagree — the opposite of
+ * what this guard is for.
+ */
+export const checkShieldedOutputStorable = (output: {
+  mode: number;
+  script: string;
+  range_proof: string;
+  surjection_proof?: string | null;
+  token_data?: number | null;
+  decoded: { address: string };
+}): ShieldedStorageCheck => {
+  const { address } = output.decoded;
+  if (typeof address !== 'string' || address.length > ADDRESS_COLUMN_MAX_CHARS) {
+    return {
+      storable: false,
+      scope: 'output',
+      reason: `decoded.address is ${address?.length ?? 0} chars, column holds ${ADDRESS_COLUMN_MAX_CHARS}`,
+    };
+  }
+
+  if (hexBytes(output.script) > SCRIPT_COLUMN_MAX_BYTES) {
+    return {
+      storable: false,
+      scope: 'satellite',
+      reason: `script is ${hexBytes(output.script)} bytes, column holds ${SCRIPT_COLUMN_MAX_BYTES}`,
+    };
+  }
+
+  if (hexBytes(output.range_proof) > BLOB_COLUMN_MAX_BYTES) {
+    return {
+      storable: false,
+      scope: 'satellite',
+      reason: `range_proof is ${hexBytes(output.range_proof)} bytes, column holds ${BLOB_COLUMN_MAX_BYTES}`,
+    };
+  }
+
+  if (output.surjection_proof
+    && hexBytes(output.surjection_proof) > BLOB_COLUMN_MAX_BYTES) {
+    return {
+      storable: false,
+      scope: 'satellite',
+      reason: `surjection_proof is ${hexBytes(output.surjection_proof)} bytes, column holds ${BLOB_COLUMN_MAX_BYTES}`,
+    };
+  }
+
+  if (output.token_data != null
+    && (output.token_data < 0 || output.token_data > TOKEN_DATA_COLUMN_MAX)) {
+    return {
+      storable: false,
+      scope: 'satellite',
+      reason: `token_data is ${output.token_data}, column holds 0-${TOKEN_DATA_COLUMN_MAX}`,
+    };
+  }
+
+  return { storable: true };
+};

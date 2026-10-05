@@ -10,7 +10,13 @@ import hathorLib from '@hathor/wallet-lib';
 import { Connection as MysqlConnection, PoolConnection } from 'mysql2/promise';
 import axios from 'axios';
 import { get } from 'lodash';
-import { NftUtils, ShieldedOutputMode, RecoveryState, isShieldedMode } from '@wallet-service/common';
+import {
+  NftUtils,
+  ShieldedOutputMode,
+  RecoveryState,
+  isShieldedMode,
+  checkShieldedOutputStorable,
+} from '@wallet-service/common';
 import {
   StringMap,
   Wallet,
@@ -511,6 +517,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         const canRewind = isShieldedCryptoProviderRegistered();
         let missingProviderAlertPending = false;
         const shieldedInputAnomalies: ShieldedInputAnomaly[] = [];
+        const shieldedStorageViolations: { index: number; scope: string; reason: string }[] = [];
 
         // Walk shielded_outputs[] with concatenated index = transparentCount + i.
         // Each shielded output produces three rows: the unified `tx_output`, the
@@ -522,6 +529,21 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
           const so = shieldedOutputs[i];
           const idx = transparentCount + i;
           const isAmount = so.mode === ShieldedOutputMode.AmountShielded;
+
+          // Reject before any INSERT: an over-cap field raises an error inside
+          // this transaction, which reaches the sync machine's terminal state
+          // and halts sync for good. Parking the single output keeps the rest
+          // of the vertex ingesting.
+          const storage = checkShieldedOutputStorable(so);
+          if (!storage.storable) {
+            shieldedStorageViolations.push({
+              index: idx, scope: storage.scope, reason: storage.reason,
+            });
+            if (storage.scope === 'output') {
+              // The violation is on tx_output itself; no row can be written.
+              continue;
+            }
+          }
 
           // Shielded outputs don't carry a wire-level `locked` flag, so the
           // daemon derives it locally from `decoded.timelock` (if present) and
@@ -544,8 +566,16 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             heightlock,
             locked: shieldedLocked,
             voided: false,
-            recovery_state: RecoveryState.Unowned,
+            recovery_state: storage.storable ? RecoveryState.Unowned : RecoveryState.RecoveryFailed,
           });
+
+          if (!storage.storable) {
+            // Terminal by construction: the crypto payload is never stored, so
+            // nothing in this system can ever rewind this output. `unowned`
+            // would falsely advertise it as promotable to a catch-up sweep.
+            await upsertShieldedAddressObservation(mysql, so.decoded.address);
+            continue;
+          }
 
           await insertShieldedTxOutputData(mysql, {
             tx_id: hash,
@@ -861,6 +891,28 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         // performs an SQS round-trip, which must not run while the ingest
         // transaction holds row locks. Reported once per process, not per
         // vertex; delivery is best-effort since addAlert swallows send errors.
+        // One alert per vertex, not per output: a malformed stream would
+        // otherwise become an alert storm.
+        if (shieldedStorageViolations.length > 0) {
+          const first = shieldedStorageViolations[0];
+          await addAlert(
+            'Shielded output exceeds its storage limits',
+            `${shieldedStorageViolations.length} shielded output(s) of ${hash} were not stored. `
+            + `First: index ${first.index} — ${first.reason}`,
+            Severity.MAJOR,
+            {
+              tx_id: hash,
+              count: shieldedStorageViolations.length,
+              index: first.index,
+              scope: first.scope,
+              reason: first.reason,
+              violations: shieldedStorageViolations,
+              source: 'daemon',
+            },
+            logger,
+          );
+        }
+
         for (const anomaly of shieldedInputAnomalies) {
           await addAlert(
             'Shielded input resolved to a non-shielded output',
