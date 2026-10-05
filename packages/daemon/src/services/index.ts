@@ -120,6 +120,29 @@ export const resetMissingProviderAlert = (): void => {
   missingProviderAlerted = false;
 };
 
+/**
+ * Emit an alert that is deferred past a commit, swallowing any failure.
+ *
+ * `addAlert` catches a failed SQS *send*, but building the client and the
+ * command happens outside that catch, so it can still throw. A throw after
+ * `mysql.commit()` would reach the ingest catch, attempt a rollback on an
+ * already-committed transaction and report the vertex as failed — turning a
+ * reportable condition into a sync halt. Alerting must never change the
+ * outcome of work that is already durable.
+ */
+const emitDeferredAlert = async (
+  title: string,
+  message: string,
+  severity: Severity,
+  metadata: unknown,
+): Promise<void> => {
+  try {
+    await addAlert(title, message, severity, metadata, logger);
+  } catch (e) {
+    logger.error('deferred alert failed to emit', { title, error: String(e) });
+  }
+};
+
 async function withSpan<T>(name: string, fn: () => Promise<T>): Promise<T> {
   return tracer.startActiveSpan(name, async (s) => {
     try {
@@ -820,15 +843,15 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         await mysql.commit();
 
         // Transaction committed and its row locks released: now emit any
-        // deferred shielded-recovery-failure alerts. addAlert swallows its own
-        // errors, so this cannot affect the already-committed state.
+        // deferred shielded-recovery-failure alerts. Routed through
+        // emitDeferredAlert so an alerting failure cannot be mistaken for an
+        // ingest failure.
         for (const failure of failedShieldedRecoveries) {
-          await addAlert(
+          await emitDeferredAlert(
             'Shielded recovery failed',
             `Failed to rewind shielded output ${failure.txId}:${failure.index} for owned address`,
             Severity.MAJOR,
             { tx_id: failure.txId, index: failure.index, error: failure.error },
-            logger,
           );
         }
 
@@ -838,12 +861,11 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         // vertex; delivery is best-effort since addAlert swallows send errors.
         if (missingProviderAlertPending && !missingProviderAlerted) {
           missingProviderAlerted = true;
-          await addAlert(
+          await emitDeferredAlert(
             MISSING_SHIELDED_PROVIDER_ALERT.title,
             MISSING_SHIELDED_PROVIDER_ALERT.message,
             MISSING_SHIELDED_PROVIDER_ALERT.severity,
             { tx_id: hash, shielded_outputs: shieldedOutputs.length, source: 'daemon' },
-            logger,
           );
         }
       } catch (e) {

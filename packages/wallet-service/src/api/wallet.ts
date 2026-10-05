@@ -824,6 +824,7 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
     //    The rewind drains run BEFORE the rebuilds (which recompute absolutes
     //    from tx_output), so everything revealed lands in a single rebuild.
     const ctSpendAddresses = hasShieldedKeys ? await getWalletCtSpendAddresses(mysql, walletId) : [];
+    let catchupSkipped = false;
     if (hasShieldedKeys) {
       const firstSweep = await findAndRewindShielded(mysql, walletId, logger);
       // Settle drain: a daemon ingest whose ownership check snapshotted the
@@ -837,6 +838,15 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
       const failedRewinds = firstSweep.failed + settleSweep.failed;
       if (failedRewinds > 0) {
         logger.error('Shielded outputs failed to recover during load', { walletId, failed: failedRewinds });
+      }
+      // A sweep that never ran (no crypto provider) must not be mistaken for a
+      // completed one: recording the catch-up as done would tell a later sweep
+      // there is nothing left to pick up, and the wallet's shielded balance
+      // would stay incomplete for good. The wallet still becomes ready — its
+      // transparent side is correct and the shielded side is simply pending.
+      catchupSkipped = firstSweep.skipped || settleSweep.skipped;
+      if (catchupSkipped) {
+        logger.warn('Shielded catch-up left pending: the sweep could not run', { walletId });
       }
       await rebuildShieldedAddressBalances(mysql, ctSpendAddresses);
       await rebuildShieldedAddressTxHistory(mysql, ctSpendAddresses);
@@ -854,8 +864,10 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
       await rebuildWalletTxHistory(mysql, walletId, ownedAddresses);
 
       if (hasShieldedKeys) {
-        const highestDerivedIndex = shielded.rows[shielded.rows.length - 1].index;
-        await markShieldedCatchupDone(mysql, walletId, highestDerivedIndex);
+        if (!catchupSkipped) {
+          const highestDerivedIndex = shielded.rows[shielded.rows.length - 1].index;
+          await markShieldedCatchupDone(mysql, walletId, highestDerivedIndex);
+        }
         await markWalletLoadReady(mysql, walletId, !legacyWasReady);
       } else {
         // Defensive legacy-only path: no shielded lifecycle is fabricated.

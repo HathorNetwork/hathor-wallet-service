@@ -153,19 +153,30 @@ const reportMissingProvider = async (walletId: string, logger: Logger): Promise<
  * cursor (rather than set membership) is what guarantees the loop advances and
  * terminates. Never throws — a failed output is marked + alerted and counted.
  */
+export interface SweepOutcome {
+  recovered: number;
+  failed: number;
+  /**
+   * True when the sweep never ran because no crypto provider is registered.
+   * Distinguishes "nothing to do" from "could not even look", so the caller
+   * does not record the catch-up as complete.
+   */
+  skipped: boolean;
+}
+
 export const findAndRewindShielded = async (
   mysql: ServerlessMysql,
   walletId: string,
   logger: Logger,
   pageSize = 100,
-): Promise<{ recovered: number; failed: number }> => {
+): Promise<SweepOutcome> => {
   // With no provider every rewind throws, and recording the outputs as
   // recovery_failed would strand them: the daemon's promote helper only
   // advances rows that are still `unowned`. Leave them untouched for a later
   // catch-up and report one alert for the whole sweep instead of one per output.
   if (!isShieldedCryptoProviderRegistered()) {
     await reportMissingProvider(walletId, logger);
-    return { recovered: 0, failed: 0 };
+    return { recovered: 0, failed: 0, skipped: true };
   }
 
   let recovered = 0;
@@ -182,7 +193,7 @@ export const findAndRewindShielded = async (
     const last = page[page.length - 1];
     after = { txId: last.txId, index: last.index };
   }
-  return { recovered, failed };
+  return { recovered, failed, skipped: false };
 };
 
 /**
@@ -201,8 +212,8 @@ export const reconstructWallet = async (
   legacyAddresses: string[],
   ctSpendAddresses: string[],
   logger: Logger,
-): Promise<{ recovered: number; failed: number }> => {
-  let rewind = { recovered: 0, failed: 0 };
+): Promise<SweepOutcome> => {
+  let rewind: SweepOutcome = { recovered: 0, failed: 0, skipped: false };
   if (ctSpendAddresses.length > 0) {
     rewind = await findAndRewindShielded(mysql, walletId, logger);
     await rebuildShieldedAddressBalances(mysql, ctSpendAddresses);

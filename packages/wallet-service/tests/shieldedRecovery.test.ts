@@ -205,8 +205,8 @@ describe('findAndRewindShielded with no crypto provider', () => {
     const first = await findAndRewindShielded(mysql, 'w1', logger);
     const second = await findAndRewindShielded(mysql, 'w1', logger);
 
-    expect(first).toStrictEqual({ recovered: 0, failed: 0 });
-    expect(second).toStrictEqual({ recovered: 0, failed: 0 });
+    expect(first).toStrictEqual({ recovered: 0, failed: 0, skipped: true });
+    expect(second).toStrictEqual({ recovered: 0, failed: 0, skipped: true });
     expect(getSpy).not.toHaveBeenCalled();
     expect(failSpy).not.toHaveBeenCalled();
 
@@ -223,5 +223,22 @@ describe('findAndRewindShielded with no crypto provider', () => {
 
     getSpy.mockRestore();
     failSpy.mockRestore();
+  });
+
+  it('reports the sweep as skipped so the caller leaves catch-up pending', async () => {
+    clearShieldedCryptoProvider();
+
+    const outcome = await findAndRewindShielded(mysql, 'w1', logger);
+
+    // `skipped` is what distinguishes "could not even look" from "nothing to
+    // do" — without it the load marks catch-up done and no later sweep retries.
+    expect(outcome).toStrictEqual({ recovered: 0, failed: 0, skipped: true });
+  });
+
+  it('reports a completed sweep as not skipped', async () => {
+    // beforeEach leaves the mock provider registered.
+    const outcome = await findAndRewindShielded(mysql, 'w1', logger);
+
+    expect(outcome).toStrictEqual({ recovered: 0, failed: 0, skipped: false });
   });
 });

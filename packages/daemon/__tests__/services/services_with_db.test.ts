@@ -2459,6 +2459,38 @@ describe('handleVertexAccepted with shielded outputs', () => {
     expect(providerAlerts()[0][2]).toBe(Severity.MINOR);
   });
 
+  it('does not report a missing provider for a transparent-only vertex', async () => {
+    expect.hasAssertions();
+
+    // No shielded outputs at all: a deployment with no provider must stay quiet
+    // for ordinary traffic, or every block would page on-call.
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs = [];
+    fixture.event.data.hash = 'ef'.repeat(32);
+
+    clearShieldedCryptoProvider();
+    resetMissingProviderAlert();
+    mockAddAlert.mockClear();
+
+    await handleVertexAccepted({
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    } as any, undefined as any);
+
+    // The vertex still ingests.
+    const [txRows] = await mysql.query<any[]>(
+      'SELECT `tx_id` FROM `transaction` WHERE `tx_id` = ?', [fixture.event.data.hash],
+    );
+    expect(txRows).toHaveLength(1);
+
+    expect(mockAddAlert).not.toHaveBeenCalled();
+  });
+
   it('recovers a later vertex once a provider is registered', async () => {
     expect.hasAssertions();
 

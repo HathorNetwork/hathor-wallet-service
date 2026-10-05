@@ -2179,7 +2179,10 @@ test('POST /txproposals with nano contract tx should increment caller address se
   spy.mockRestore();
 });
 
-test('POST /txproposals rejects a recovered shielded utxo with ApiError.INPUTS_SHIELDED_UNSUPPORTED', async () => {
+test.each([
+  ['AmountShielded', ShieldedOutputMode.AmountShielded],
+  ['FullyShielded', ShieldedOutputMode.FullyShielded],
+])('POST /txproposals rejects a recovered %s utxo with ApiError.INPUTS_SHIELDED_UNSUPPORTED', async (_label, mode) => {
   expect.hasAssertions();
 
   await addToWalletTable(mysql, [{
@@ -2212,7 +2215,7 @@ test('POST /txproposals rejects a recovered shielded utxo with ApiError.INPUTS_S
     heightlock: null,
     locked: false,
     spentBy: null,
-    mode: ShieldedOutputMode.AmountShielded,
+    mode,
     recoveryState: RecoveryState.Recovered,
   }];
   await addToUtxoTable(mysql, utxos);
