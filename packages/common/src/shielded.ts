@@ -88,6 +88,9 @@ export type ShieldedStorageCheck =
    */
   | { storable: false; scope: 'output' | 'satellite'; reason: string };
 
+/** Matches a hex-encoded byte string: pairs of hex digits, nothing else. */
+const HEX_FIELD = /^(?:[0-9a-fA-F]{2})*$/;
+
 /**
  * Decoded byte length of a hex-encoded wire field, or `null` if the value is
  * not hex.
@@ -98,9 +101,10 @@ export type ShieldedStorageCheck =
  * is what hathor-core emits for these fields), `length / 2` would under-count
  * by a third and wave through a value the column cannot hold — the exact halt
  * this guard exists to prevent. Returning `null` instead parks the output with
- * an alert, which is recoverable; a sync halt is not.
+ * an alert, which keeps sync running; a halt does not. The parked row is
+ * terminal — see `getShieldedOutputsToRecover` — so this buys the daemon
+ * staying up, not a later retry.
  */
-const HEX_FIELD = /^(?:[0-9a-fA-F]{2})*$/;
 const hexBytes = (hexString: string): number | null => (
   HEX_FIELD.test(hexString) ? hexString.length / 2 : null
 );

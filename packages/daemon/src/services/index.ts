@@ -554,8 +554,10 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         //
         // An output that does not fit its columns produces fewer: a satellite-scope
         // violation skips the payload and records `recovery_failed`; an output-scope
-        // violation writes nothing. Either way the vertex still ingests — see
-        // checkShieldedOutputStorable.
+        // violation writes no `tx_output` row at all (a timelock violation still
+        // leaves its address in the involvement set, which the void path reverses;
+        // an address violation leaves nothing). Either way the vertex still
+        // ingests — see checkShieldedOutputStorable.
         for (let i = 0; i < shieldedOutputs.length; i++) {
           const so = shieldedOutputs[i];
           const idx = transparentCount + i;
@@ -708,9 +710,10 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         const involvedAddresses = getInvolvedAddresses(inputs, outputs, shieldedOutputs, headers, hash);
         await withSpan('bumpAddressInvolvement', () => bumpAddressInvolvement(mysql, involvedAddresses));
 
-        // Mark tx utxos as spent. Kind-agnostic: only uses tx_id+index, so
-        // we pass the raw event inputs — both transparent and shielded —
-        // even though prepareInputs only emits transparent TxInput rows.
+        // Mark tx utxos as spent. Kind-agnostic: only uses tx_id+index, so it
+        // takes the event inputs — transparent and shielded alike — even though
+        // prepareInputs only emits transparent TxInput rows. `spendableInputs`
+        // rather than the raw set: the anomalous ones must not be marked spent.
         await withSpan('updateTxOutputSpentBy', () => updateTxOutputSpentBy(mysql, spendableInputs, hash));
 
         // Genesis tx has no inputs and outputs, so nothing to be updated.
@@ -927,7 +930,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             'Shielded output exceeds its storage limits',
             `${shieldedStorageViolations.length} shielded output(s) of ${hash} were not fully `
             + `stored (satellite-scope keeps the tx_output row as recovery_failed; output-scope `
-            + `writes nothing). First: index ${first.index}, scope ${first.scope} — ${first.reason}`,
+            + `writes no tx_output row). First: index ${first.index}, scope ${first.scope} — ${first.reason}`,
             Severity.MAJOR,
             {
               tx_id: hash,
@@ -968,6 +971,9 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
           );
         }
 
+        // Once per process (see `missingProviderAlerted`), not per vertex, and
+        // best-effort: addAlert swallows a failed send, so a process that fails
+        // to deliver this will not try again.
         if (missingProviderAlertPending && !missingProviderAlerted) {
           missingProviderAlerted = true;
           await emitDeferredAlert(
