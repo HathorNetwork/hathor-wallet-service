@@ -103,7 +103,7 @@ describe('findAndRewindShielded', () => {
 
     const result = await findAndRewindShielded(mysql, 'w1', logger, 2); // pageSize 2 → forces >1 page
 
-    expect(result).toEqual({ recovered: 2, failed: 1, skipped: false });
+    expect(result).toEqual({ recovered: 2, failed: 1, missed: 0, skipped: false });
     expect((await readState('o1')).s).toBe('recovered');
     expect(String((await readState('o1')).v)).toBe('100');
     expect((await readState('o3')).s).toBe('recovery_failed');
@@ -114,7 +114,7 @@ describe('findAndRewindShielded', () => {
     await seedWallet('w1');
     await seedCtSpendAddress('ca', 'w1', 0);
 
-    expect(await findAndRewindShielded(mysql, 'w1', logger)).toEqual({ recovered: 0, failed: 0, skipped: false });
+    expect(await findAndRewindShielded(mysql, 'w1', logger)).toEqual({ recovered: 0, failed: 0, missed: 0, skipped: false });
   });
 
   it('re-drives a previously recovery_failed output (no reset needed)', async () => {
@@ -131,7 +131,7 @@ describe('findAndRewindShielded', () => {
 
     const result = await findAndRewindShielded(mysql, 'w1', logger);
 
-    expect(result).toEqual({ recovered: 1, failed: 0, skipped: false });
+    expect(result).toEqual({ recovered: 1, failed: 0, missed: 0, skipped: false });
     expect((await readState('f1')).s).toBe('recovered');
   });
 });
@@ -192,11 +192,11 @@ describe('reconstructWallet', () => {
     primeAmountRewind({ commitment: Buffer.alloc(33, 0xb2), ephemeralPubkey: Buffer.alloc(33, 0xb2), value: 250n, tokenUid: Buffer.alloc(32, 0) });
 
     const first = await reconstructWallet(mysql, 'w1', ['ta'], ['ca'], logger);
-    expect(first).toEqual({ recovered: 2, failed: 0, skipped: false });
+    expect(first).toEqual({ recovered: 2, failed: 0, missed: 0, skipped: false });
     // second pass: outputs are already 'recovered', so nothing is rewound and the
     // rebuilds re-snapshot (replace, not add)
     const second = await reconstructWallet(mysql, 'w1', ['ta'], ['ca'], logger);
-    expect(second).toEqual({ recovered: 0, failed: 0, skipped: false });
+    expect(second).toEqual({ recovered: 0, failed: 0, missed: 0, skipped: false });
 
     const wb = await readWalletBalance('w1');
     expect(String(wb.usb)).toBe('350'); // 100 + 250, not doubled
@@ -217,7 +217,7 @@ describe('reconstructWallet', () => {
     primeAmountRewind({ commitment: Buffer.alloc(33, 0xc1), ephemeralPubkey: Buffer.alloc(33, 0xc1), value: 100n, tokenUid: Buffer.alloc(32, 0) });
     primeFullyRewind({ commitment: Buffer.alloc(33, 0xc2), ephemeralPubkey: Buffer.alloc(33, 0xc2), value: 42n, tokenUid: Buffer.from(tokenB, 'hex'), assetCommitment: Buffer.alloc(33, 0xd2) });
 
-    expect(await reconstructWallet(mysql, 'w1', [], ['ca'], logger)).toEqual({ recovered: 2, failed: 0, skipped: false });
+    expect(await reconstructWallet(mysql, 'w1', [], ['ca'], logger)).toEqual({ recovered: 2, failed: 0, missed: 0, skipped: false });
 
     expect(String((await readWalletBalance('w1')).usb)).toBe('100'); // token '00' row
     const wbB = (await mysql.query(
@@ -241,7 +241,7 @@ describe('reconstructWallet', () => {
     // The native token's raw on-chain uid is 32 zero bytes.
     primeFullyRewind({ commitment: Buffer.alloc(33, 0xe2), ephemeralPubkey: Buffer.alloc(33, 0xe2), value: 42n, tokenUid: Buffer.alloc(32, 0), assetCommitment: Buffer.alloc(33, 0xf2) });
 
-    expect(await reconstructWallet(mysql, 'w1', [], ['ca'], logger)).toEqual({ recovered: 2, failed: 0, skipped: false });
+    expect(await reconstructWallet(mysql, 'w1', [], ['ca'], logger)).toEqual({ recovered: 2, failed: 0, missed: 0, skipped: false });
 
     // Both receives fold onto the single '00' row: 100 + 42 = 142.
     expect(String((await readWalletBalance('w1')).usb)).toBe('142');

@@ -15,7 +15,9 @@ import {
 } from '@wallet-service/common';
 import { getDbConnection, closeDbConnection } from '@src/utils';
 import { cleanDatabase, addToAddressTable } from '@tests/utils';
-import { resetCtCryptoMock, primeAmountRewind, primeFullyRewind, lastAmountRewindArgs } from '@tests/utils/ct-crypto-mock';
+import {
+  resetCtCryptoMock, primeAmountRewind, primeFullyRewind, primeScanMiss, lastAmountRewindArgs,
+} from '@tests/utils/ct-crypto-mock';
 import { recoverShieldedOutput, findAndRewindShielded, resetMissingProviderAlert } from '@src/shieldedRecovery';
 import * as ShieldedDb from '@src/db/shielded';
 import { ShieldedOutputToRecover } from '@src/db/shielded';
@@ -76,7 +78,7 @@ describe('recoverShieldedOutput', () => {
 
     const outcome = await recoverShieldedOutput(mysql, 'w1', out, logger);
 
-    expect(outcome).toEqual({ txId: 'tx1', index: 0, address: 'a1', recovered: true, tokenId: '00', value: 1500n });
+    expect(outcome).toEqual({ txId: 'tx1', index: 0, address: 'a1', recovered: true, missed: false, tokenId: '00', value: 1500n });
     const row = await readOutput('tx1', 0);
     expect(row.recovery_state).toBe('recovered');
     expect(String(row.value)).toBe('1500');
@@ -224,8 +226,8 @@ describe('findAndRewindShielded with no crypto provider', () => {
     const first = await findAndRewindShielded(mysql, 'w1', logger);
     const second = await findAndRewindShielded(mysql, 'w1', logger);
 
-    expect(first).toStrictEqual({ recovered: 0, failed: 0, skipped: true });
-    expect(second).toStrictEqual({ recovered: 0, failed: 0, skipped: true });
+    expect(first).toStrictEqual({ recovered: 0, failed: 0, missed: 0, skipped: true });
+    expect(second).toStrictEqual({ recovered: 0, failed: 0, missed: 0, skipped: true });
     expect(getSpy).not.toHaveBeenCalled();
     expect(failSpy).not.toHaveBeenCalled();
 
@@ -233,7 +235,7 @@ describe('findAndRewindShielded with no crypto provider', () => {
     // MAJOR per output per sweep.
     expect(mockedAddAlert).toHaveBeenCalledTimes(1);
     expect(mockedAddAlert.mock.calls[0][0]).toBe('Shielded crypto provider not registered');
-    expect(mockedAddAlert.mock.calls[0][2]).toBe(Severity.MINOR);
+    expect(mockedAddAlert.mock.calls[0][2]).toBe(Severity.MAJOR);
 
     // Still `unowned`, not `recovery_failed`: the daemon's promote helper only
     // advances rows in that state, so failing them here would strand them.
@@ -251,13 +253,66 @@ describe('findAndRewindShielded with no crypto provider', () => {
 
     // `skipped` is what distinguishes "could not even look" from "nothing to
     // do" — without it the load marks catch-up done and no later sweep retries.
-    expect(outcome).toStrictEqual({ recovered: 0, failed: 0, skipped: true });
+    expect(outcome).toStrictEqual({ recovered: 0, failed: 0, missed: 0, skipped: true });
   });
 
   it('reports a completed sweep as not skipped', async () => {
     // beforeEach leaves the mock provider registered.
     const outcome = await findAndRewindShielded(mysql, 'w1', logger);
 
-    expect(outcome).toStrictEqual({ recovered: 0, failed: 0, skipped: false });
+    expect(outcome).toStrictEqual({ recovered: 0, failed: 0, missed: 0, skipped: false });
+  });
+});
+
+describe('scan misses', () => {
+  const claim = () => addToAddressTable(mysql, [{
+    address: 'a1', index: 0, walletId: 'w1', transactions: 0,
+    bip32_account: Bip32Account.CTSpend, scan_privkey: Buffer.alloc(32, 1),
+  }]);
+
+  it.each(['unowned', 'recovery_failed'])(
+    'leaves a %s output as it was and raises no per-output alert',
+    async (state) => {
+      await insertShieldedOutput('tx1', 0, 'a1', 1, state);
+      const out = amountOutput();
+      primeScanMiss({ commitment: out.commitment, ephemeralPubkey: out.ephemeralPubkey });
+
+      const outcome = await recoverShieldedOutput(mysql, 'w1', out, logger);
+
+      expect(outcome).toStrictEqual({ txId: 'tx1', index: 0, address: 'a1', recovered: false, missed: true });
+      expect((await readOutput('tx1', 0)).recovery_state).toBe(state);
+      expect(mockedAddAlert).not.toHaveBeenCalled();
+    },
+  );
+
+  it('counts the misses of a sweep apart from failures and alerts once for them', async () => {
+    await claim();
+    // Two outputs the scan key does not open, and one it does.
+    for (const [index, fill] of [[0, 0xa1], [1, 0xa2], [2, 0xa3]]) {
+      await insertShieldedOutput('tx1', index, 'a1', 1, 'unowned');
+      await mysql.query("UPDATE `tx_output` SET `token_id` = '00' WHERE `tx_id` = 'tx1' AND `index` = ?", [index]);
+      await mysql.query(
+        `INSERT INTO \`shielded_tx_output_data\`
+           (\`tx_id\`, \`index\`, \`commitment\`, \`range_proof\`, \`script\`, \`ephemeral_pubkey\`, \`asset_commitment\`)
+         VALUES ('tx1', ?, ?, ?, ?, ?, NULL)`,
+        [index, Buffer.alloc(33, fill), Buffer.alloc(8), Buffer.alloc(1), Buffer.alloc(33, fill)],
+      );
+    }
+    primeScanMiss({ commitment: Buffer.alloc(33, 0xa1), ephemeralPubkey: Buffer.alloc(33, 0xa1) });
+    primeScanMiss({ commitment: Buffer.alloc(33, 0xa2), ephemeralPubkey: Buffer.alloc(33, 0xa2) });
+    primeAmountRewind({
+      commitment: Buffer.alloc(33, 0xa3), ephemeralPubkey: Buffer.alloc(33, 0xa3),
+      value: 5n, tokenUid: Buffer.alloc(32, 0),
+    });
+
+    const outcome = await findAndRewindShielded(mysql, 'w1', logger);
+
+    expect(outcome).toStrictEqual({ recovered: 1, failed: 0, missed: 2, skipped: false });
+    expect((await readOutput('tx1', 0)).recovery_state).toBe('unowned');
+    expect((await readOutput('tx1', 1)).recovery_state).toBe('unowned');
+    expect(mockedAddAlert).toHaveBeenCalledTimes(1);
+    expect(mockedAddAlert.mock.calls[0][0]).toBe("Shielded output not addressed to its owner's scan key");
+    expect(mockedAddAlert.mock.calls[0][2]).toBe(Severity.MAJOR);
+    expect(mockedAddAlert.mock.calls[0][3]).toMatchObject({ wallet_id: 'w1', count: 2 });
   });
 });

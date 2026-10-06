@@ -18,6 +18,7 @@ import {
   checkShieldedOutputStorable,
   ShieldedStorageCheck,
   EPHEMERAL_PUBKEY_BYTES,
+  ShieldedScanMissError,
 } from '@wallet-service/common';
 import {
   StringMap,
@@ -546,6 +547,9 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         // must not run while the ingest transaction holds tx_output/address
         // row locks.
         const failedShieldedRecoveries: { txId: string; index: number; error: string }[] = [];
+        // Owned outputs the wallet's scan key did not open. Alerted after commit
+        // too, once per vertex.
+        const shieldedScanMisses: { index: number; address: string }[] = [];
 
         // Read once per vertex, not cached across vertices: a provider can be
         // registered at any time, and a stale `false` would hide real failures.
@@ -745,9 +749,20 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
                 });
               }
             } catch (e) {
-              await markTxOutputRecoveryFailed(mysql, hash, idx);
-              // Defer the alert until after commit — see failedShieldedRecoveries.
-              failedShieldedRecoveries.push({ txId: hash, index: idx, error: String(e) });
+              if (e instanceof ShieldedScanMissError) {
+                // Not a failed recovery: the output is not addressed to the key
+                // we hold for this address. Left `unowned`, which a recovery
+                // with the right key can still promote; `recovery_failed`
+                // would strand it.
+                logger.warn('Shielded output not addressed to its owner\'s scan key', {
+                  txId: hash, index: idx, address: so.decoded.address,
+                });
+                shieldedScanMisses.push({ index: idx, address: so.decoded.address });
+              } else {
+                await markTxOutputRecoveryFailed(mysql, hash, idx);
+                // Defer the alert until after commit — see failedShieldedRecoveries.
+                failedShieldedRecoveries.push({ txId: hash, index: idx, error: String(e) });
+              }
             }
           }
         }
@@ -978,6 +993,29 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             `Failed to rewind shielded output ${failure.txId}:${failure.index} for owned address`,
             Severity.MAJOR,
             { tx_id: failure.txId, index: failure.index, error: failure.error },
+          );
+        }
+
+        // A scan miss on a claimed address is either a sender that did not
+        // encrypt to the wallet's scan key, or a scan key here that does not
+        // match the one the client derived. The second affects every output
+        // of every such wallet, which is why it pages.
+        if (shieldedScanMisses.length > 0) {
+          const first = shieldedScanMisses[0];
+          await emitDeferredAlert(
+            'Shielded output not addressed to its owner\'s scan key',
+            `${shieldedScanMisses.length} shielded output(s) of ${hash} pay a claimed address `
+            + `but did not open with that wallet's scan key; they were left unowned. First: index `
+            + `${first.index}, address ${first.address}`,
+            Severity.MAJOR,
+            {
+              tx_id: hash,
+              count: shieldedScanMisses.length,
+              index: first.index,
+              address: first.address,
+              outputs: shieldedScanMisses.slice(0, ALERT_LIST_CAP),
+              source: 'daemon',
+            },
           );
         }
 

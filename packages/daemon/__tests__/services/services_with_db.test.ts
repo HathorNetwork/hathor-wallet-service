@@ -61,6 +61,7 @@ import {
   primeAmountRewind,
   primeFullyRewind,
   lastAmountRewindArgs,
+  primeScanMiss,
   receivedRangeProofs,
   resetCtCryptoMock,
 } from '../mocks/ct-crypto-node';
@@ -2751,7 +2752,7 @@ describe('handleVertexAccepted with shielded outputs', () => {
 
     // Exactly one missing-provider alert across both vertices.
     expect(providerAlerts()).toHaveLength(1);
-    expect(providerAlerts()[0][2]).toBe(Severity.MINOR);
+    expect(providerAlerts()[0][2]).toBe(Severity.MAJOR);
   });
 
   it('does not report a missing provider for a transparent-only vertex', async () => {
@@ -5058,5 +5059,65 @@ describe('a shielded vertex with optional fields left out', () => {
     // started rather than going negative or staying raised.
     expect(await shieldedBalance()).toBe(0n);
     expect(await transactions()).toBe(0);
+  });
+});
+
+describe('a scan miss on a claimed shielded address', () => {
+  // The real alpha-v4 vertex: two AmountShielded HTR outputs to one address.
+  const wire = alphaV4ShieldedVertexEvent.event.data;
+  const [missed, opened] = wire.shielded_outputs;
+  const address = missed.decoded.address;
+
+  beforeEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [address, Buffer.alloc(32, 0x42)],
+    );
+  });
+
+  afterEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  it('leaves the output unowned and alerts once, instead of recording a failed recovery', async () => {
+    expect.hasAssertions();
+
+    primeScanMiss({
+      commitment: Buffer.from(missed.commitment, 'hex'),
+      ephemeralPubkey: Buffer.from(missed.ephemeral_pubkey, 'hex'),
+    });
+    primeAmountRewind({
+      commitment: Buffer.from(opened.commitment, 'hex'),
+      ephemeralPubkey: Buffer.from(opened.ephemeral_pubkey, 'hex'),
+      value: 150n,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+    const event = FullNodeEventSchema.parse(JSON.parse(JSON.stringify(alphaV4ShieldedVertexEvent)));
+
+    await handleVertexAccepted({
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event,
+    } as any, undefined as any);
+
+    expect((await getTxOutput(mysql, wire.hash, 0, false))!.recoveryState).toBe('unowned');
+    // The other output of the same vertex is unaffected.
+    expect((await getTxOutput(mysql, wire.hash, 1, false))!.recoveryState).toBe('recovered');
+
+    const titles = mockAddAlert.mock.calls.map(([title]) => title);
+    expect(titles).not.toContain('Shielded recovery failed');
+    const misses = mockAddAlert.mock.calls
+      .filter(([title]) => title === "Shielded output not addressed to its owner's scan key");
+    expect(misses).toHaveLength(1);
+    expect(misses[0][2]).toBe(Severity.MAJOR);
+    expect(misses[0][3]).toMatchObject({ tx_id: wire.hash, count: 1, index: 0, address });
   });
 });

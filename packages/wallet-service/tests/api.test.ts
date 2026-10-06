@@ -65,7 +65,8 @@ import {
 } from '@tests/utils';
 import fullnode from '@src/fullnode';
 import { getHealthcheck } from '@src/api/healthcheck';
-import { Severity } from '@wallet-service/common';
+import { resetCtCryptoMock } from '@tests/utils/ct-crypto-mock';
+import { Severity, clearShieldedCryptoProvider } from '@wallet-service/common';
 import { deriveCtAddress } from '@wallet-service/common/src/crypto/shieldedAddress';
 import { convertApiVersionData } from '@src/nodeConfig';
 
@@ -2191,6 +2192,33 @@ test('GET /wallet/proxy/graphviz/neighbours', async () => {
 });
 
 describe('GET /health', () => {
+  // The provider is reported as a component of its own; these cases register
+  // the test provider so only the component under test can fail.
+  beforeEach(() => resetCtCryptoMock());
+  afterEach(() => clearShieldedCryptoProvider());
+
+  test('fails when no shielded crypto provider is registered', async () => {
+    expect.hasAssertions();
+
+    clearShieldedCryptoProvider();
+    jest.spyOn(fullnode, 'getStatus').mockResolvedValue({ dag: { best_block: { height: 321 } } });
+    jest.spyOn(fullnode, 'getHealth').mockResolvedValue({ status: 'pass' });
+    await addToTransactionTable(mysql, [['tx1', 100, 2, false, 321, 60]]);
+
+    const result = await getHealthcheck(makeGatewayEvent({}), null, null) as APIGatewayProxyResult;
+    const returnBody = JSON.parse(result.body as string);
+
+    expect(returnBody.status).toBe('fail');
+    expect(returnBody.checks['shielded:crypto_provider']).toStrictEqual([{
+      affectsServiceHealth: true,
+      componentName: 'shielded:crypto_provider',
+      componentType: 'internal',
+      output: expect.stringContaining('Shielded crypto provider failed to load'),
+      status: 'fail',
+      time: expect.any(String),
+    }]);
+  });
+
   test('success case', async () => {
     expect.hasAssertions();
 
@@ -2249,6 +2277,14 @@ describe('GET /health', () => {
           'componentName': 'fullnode:health',
           'componentType': 'http',
           'output': 'Fullnode is healthy',
+          'status': 'pass',
+          'time': expect.any(String),
+        }],
+        'shielded:crypto_provider': [{
+          'affectsServiceHealth': true,
+          'componentName': 'shielded:crypto_provider',
+          'componentType': 'internal',
+          'output': 'Shielded crypto provider is registered',
           'status': 'pass',
           'time': expect.any(String),
         }],
@@ -2320,6 +2356,14 @@ describe('GET /health', () => {
           'status': 'pass',
           'time': expect.any(String),
         }],
+        'shielded:crypto_provider': [{
+          'affectsServiceHealth': true,
+          'componentName': 'shielded:crypto_provider',
+          'componentType': 'internal',
+          'output': 'Shielded crypto provider is registered',
+          'status': 'pass',
+          'time': expect.any(String),
+        }],
       }
     });
   });
@@ -2375,6 +2419,14 @@ describe('GET /health', () => {
           'componentName': 'fullnode:health',
           'componentType': 'http',
           'output': 'Fullnode is healthy',
+          'status': 'pass',
+          'time': expect.any(String),
+        }],
+        'shielded:crypto_provider': [{
+          'affectsServiceHealth': true,
+          'componentName': 'shielded:crypto_provider',
+          'componentType': 'internal',
+          'output': 'Shielded crypto provider is registered',
           'status': 'pass',
           'time': expect.any(String),
         }],
@@ -2438,6 +2490,14 @@ describe('GET /health', () => {
           'componentType': 'http',
           'output': 'Error checking fullnode health: Fullnode exploded!',
           'status': 'fail',
+          'time': expect.any(String),
+        }],
+        'shielded:crypto_provider': [{
+          'affectsServiceHealth': true,
+          'componentName': 'shielded:crypto_provider',
+          'componentType': 'internal',
+          'output': 'Shielded crypto provider is registered',
+          'status': 'pass',
           'time': expect.any(String),
         }],
       }
@@ -2510,6 +2570,14 @@ describe('GET /health', () => {
           'componentType': 'http',
           'output': 'Fullnode is unhealthy: {"status":"fail","output":"Fullnode exploded!","checks":{"sync":{"status":"fail","output":"Sync is not working"}}}',
           'status': 'fail',
+          'time': expect.any(String),
+        }],
+        'shielded:crypto_provider': [{
+          'affectsServiceHealth': true,
+          'componentName': 'shielded:crypto_provider',
+          'componentType': 'internal',
+          'output': 'Shielded crypto provider is registered',
+          'status': 'pass',
           'time': expect.any(String),
         }],
       }

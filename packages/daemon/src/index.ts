@@ -13,9 +13,13 @@ import { SyncMachine } from './machines';
 import logger from './logger';
 import { checkEnvVariables } from './config';
 import { bigIntUtils } from '@hathor/wallet-lib';
+import { registerShieldedCryptoProvider } from './shieldedCrypto';
 
 const main = async () => {
   checkEnvVariables();
+  // Before the first event, so no vertex is ingested without a provider that
+  // could have had one.
+  await registerShieldedCryptoProvider();
   // Interpret the machine (start it and listen to its state changes)
   const machine = interpret(SyncMachine);
 

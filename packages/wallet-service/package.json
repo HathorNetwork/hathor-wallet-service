@@ -18,6 +18,7 @@
     "@aws-sdk/client-apigatewaymanagementapi": "3.540.0",
     "@aws-sdk/client-lambda": "3.540.0",
     "@aws-sdk/client-sqs": "3.540.0",
+    "@hathor/ct-crypto-node": "0.5.0",
     "@hathor/healthcheck-lib": "0.1.0",
     "@middy/core": "2.5.7",
     "@middy/http-cors": "2.5.7",

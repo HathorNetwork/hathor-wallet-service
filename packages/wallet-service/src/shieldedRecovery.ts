@@ -15,7 +15,9 @@ import {
   ShieldedOutputMode,
   isShieldedCryptoProviderRegistered,
   MISSING_SHIELDED_PROVIDER_ALERT,
+  ShieldedScanMissError,
 } from '@wallet-service/common';
+import { ensureShieldedCryptoProvider, shieldedCryptoLoadError } from '@src/shieldedCrypto';
 import {
   getShieldedOutputsToRecover,
   markShieldedTxOutputRecovered,
@@ -32,6 +34,11 @@ export interface RecoverOutcome {
   index: number;
   address: string;
   recovered: boolean;
+  /**
+   * True when the wallet's scan key did not open the output. Not a failure:
+   * the output was left `unowned` rather than marked `recovery_failed`.
+   */
+  missed: boolean;
   /** Revealed token + value, set only when `recovered` is true. */
   tokenId?: string;
   value?: bigint;
@@ -43,6 +50,10 @@ export interface RecoverOutcome {
  * token). On any rewind failure the output is marked `recovery_failed` and an
  * alert is emitted for the on-call retry helper — recovery is never allowed to
  * throw, so a bad output can't abort a whole catch-up batch.
+ *
+ * A scan miss is the exception: the output is not addressed to this wallet's
+ * scan key, which is not a failure to retry. It is left as it was and reported
+ * as `missed`, for the sweep to alert on once.
  *
  * AmountShielded (mode 1) already knows its token from `token_data`; FullyShielded
  * (mode 2) recovers the token from the rewind itself.
@@ -87,8 +98,14 @@ export const recoverShieldedOutput = async (
     }
 
     await markShieldedTxOutputRecovered(mysql, output.txId, output.index, { value, tokenId });
-    return { ...base, recovered: true, tokenId, value };
+    return { ...base, recovered: true, missed: false, tokenId, value };
   } catch (e) {
+    if (e instanceof ShieldedScanMissError) {
+      logger.warn('Shielded output not addressed to its owner\'s scan key', {
+        txId: output.txId, index: output.index, walletId,
+      });
+      return { ...base, recovered: false, missed: true };
+    }
     // The failure-reporting path must not throw either: a transient DB/SQS blip here
     // would otherwise escape the catch-up loop and abort the whole batch. A swallowed
     // mark just leaves the output non-recovered, so the next catch-up re-drives it.
@@ -115,9 +132,12 @@ export const recoverShieldedOutput = async (
         error: String(reportErr),
       });
     }
-    return { ...base, recovered: false };
+    return { ...base, recovered: false, missed: false };
   }
 };
+
+/** Most outputs listed in one scan-miss alert; `count` carries the total. */
+const MISSED_ALERT_LIST_CAP = 10;
 
 /** Set once this process has reported the missing provider. */
 let missingProviderAlerted = false;
@@ -140,7 +160,7 @@ const reportMissingProvider = async (walletId: string, logger: Logger): Promise<
     MISSING_SHIELDED_PROVIDER_ALERT.title,
     MISSING_SHIELDED_PROVIDER_ALERT.message,
     MISSING_SHIELDED_PROVIDER_ALERT.severity,
-    { wallet_id: walletId, source: 'wallet-service' },
+    { wallet_id: walletId, load_error: shieldedCryptoLoadError(), source: 'wallet-service' },
     logger,
   );
 };
@@ -156,6 +176,8 @@ const reportMissingProvider = async (walletId: string, logger: Logger): Promise<
 export interface SweepOutcome {
   recovered: number;
   failed: number;
+  /** Outputs the wallet's scan key did not open; left as they were. */
+  missed: number;
   /**
    * True when the sweep never ran because no crypto provider is registered.
    * Distinguishes "nothing to do" from "could not even look", so the caller
@@ -174,13 +196,15 @@ export const findAndRewindShielded = async (
   // recovery_failed would strand them: the daemon's promote helper only
   // advances rows that are still `unowned`. Leave them untouched for a later
   // catch-up and report one alert for the whole sweep instead of one per output.
+  await ensureShieldedCryptoProvider(logger);
   if (!isShieldedCryptoProviderRegistered()) {
     await reportMissingProvider(walletId, logger);
-    return { recovered: 0, failed: 0, skipped: true };
+    return { recovered: 0, failed: 0, missed: 0, skipped: true };
   }
 
   let recovered = 0;
   let failed = 0;
+  const missed: { txId: string; index: number }[] = [];
   let after: { txId: string; index: number } | undefined;
   for (;;) {
     const page = await getShieldedOutputsToRecover(mysql, walletId, pageSize, after);
@@ -188,12 +212,36 @@ export const findAndRewindShielded = async (
     for (const output of page) {
       const outcome = await recoverShieldedOutput(mysql, walletId, output, logger);
       if (outcome.recovered) recovered += 1;
+      else if (outcome.missed) missed.push({ txId: output.txId, index: output.index });
       else failed += 1;
     }
     const last = page[page.length - 1];
     after = { txId: last.txId, index: last.index };
   }
-  return { recovered, failed, skipped: false };
+
+  // One alert per sweep. A sender that did not encrypt to the wallet's scan
+  // key explains one miss; misses across a wallet's outputs point at a scan
+  // key here that does not match the one the client derived.
+  if (missed.length > 0) {
+    try {
+      await addAlert(
+        'Shielded output not addressed to its owner\'s scan key',
+        `${missed.length} shielded output(s) of wallet ${walletId} did not open with its scan key; `
+        + 'they were left as they were.',
+        Severity.MAJOR,
+        {
+          wallet_id: walletId,
+          count: missed.length,
+          outputs: missed.slice(0, MISSED_ALERT_LIST_CAP),
+          source: 'wallet-service',
+        },
+        logger,
+      );
+    } catch (e) {
+      logger.error('Failed to report shielded scan misses', { walletId, error: String(e) });
+    }
+  }
+  return { recovered, failed, missed: missed.length, skipped: false };
 };
 
 /**
@@ -213,7 +261,7 @@ export const reconstructWallet = async (
   ctSpendAddresses: string[],
   logger: Logger,
 ): Promise<SweepOutcome> => {
-  let rewind: SweepOutcome = { recovered: 0, failed: 0, skipped: false };
+  let rewind: SweepOutcome = { recovered: 0, failed: 0, missed: 0, skipped: false };
   if (ctSpendAddresses.length > 0) {
     rewind = await findAndRewindShielded(mysql, walletId, logger);
     await rebuildShieldedAddressBalances(mysql, ctSpendAddresses);

@@ -48,6 +48,40 @@ export class RewindError extends Error {
   }
 }
 
+/**
+ * The scan key does not open this output: it is not addressed to that key.
+ *
+ * Unlike any other `RewindError`, this says nothing is wrong with the output
+ * or the provider. For an address a wallet has claimed, it means the sender
+ * did not encrypt to the wallet's scan key — or that the key this system
+ * holds is not the one the client derived — so callers leave the output
+ * `unowned`, where a corrected key can still recover it.
+ */
+export class ShieldedScanMissError extends RewindError {
+  constructor(cause?: unknown) {
+    super('shielded output is not addressed to this scan key', cause);
+    this.name = 'ShieldedScanMissError';
+  }
+}
+
+/**
+ * Whether a provider error is its scan-miss signal.
+ *
+ * Matched by name rather than `instanceof`: each workspace installs its own
+ * copy of `@hathor/ct-crypto-provider`, so the class the provider throws need
+ * not be the one this package would import.
+ */
+const isProviderScanMiss = (e: unknown): boolean => (
+  e instanceof Error && e.name === 'ScanMissError'
+);
+
+/** Re-throw a provider rewind failure as the matching `RewindError`. */
+const toRewindError = (e: unknown, message: string): RewindError => {
+  if (e instanceof RewindError) return e;
+  if (isProviderScanMiss(e)) return new ShieldedScanMissError(e);
+  return new RewindError(message, e);
+};
+
 export interface AmountRewindArgs {
   /** 32B recipient scan private key. */
   scanPrivkey: Buffer;
@@ -104,6 +138,31 @@ export function isShieldedCryptoProviderRegistered(): boolean {
   return provider !== null;
 }
 
+export type ShieldedCryptoInit = { ok: true } | { ok: false; error: string };
+
+/**
+ * Load a provider, prove it runs, and register it.
+ *
+ * `load` is the caller's literal `require` of the native binding: the binding
+ * loads its binary when the module is first required, so a missing or
+ * wrong-platform binary throws there. Calling into it once more catches a
+ * binary that loads but cannot run. Either failure is returned, not thrown,
+ * and leaves any registered provider in place — without one the system keeps
+ * ingesting shielded outputs and leaves them `unowned`.
+ */
+export async function initShieldedCryptoProvider(
+  load: () => IShieldedCryptoProvider,
+): Promise<ShieldedCryptoInit> {
+  try {
+    const candidate = load();
+    await candidate.generateRandomBlindingFactor();
+    setShieldedCryptoProvider(candidate);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
 function requireProvider(): IShieldedCryptoProvider {
   if (!provider) {
     throw new RewindError(NO_PROVIDER);
@@ -140,8 +199,7 @@ export async function rewindAmount(
       tokenUid,
     );
   } catch (e) {
-    if (e instanceof RewindError) throw e;
-    throw new RewindError('shielded amount rewind failed', e);
+    throw toRewindError(e, 'shielded amount rewind failed');
   }
 }
 
@@ -199,7 +257,6 @@ export async function rewindFully(
     );
     return { ...result, tokenUid: normalizeShieldedTokenId(result.tokenUid) };
   } catch (e) {
-    if (e instanceof RewindError) throw e;
-    throw new RewindError('shielded full rewind failed', e);
+    throw toRewindError(e, 'shielded full rewind failed');
   }
 }
