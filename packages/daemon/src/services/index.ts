@@ -601,10 +601,13 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
           // satellite insert and the rewind consume them unchanged.
           const commitment = Buffer.from(so.commitment, 'hex');
           // An absent ephemeral pubkey is stored as 33 zero bytes, the encoding
-          // hathor-core itself uses for "not present" on the wire.
+          // hathor-core itself uses for "not present" on the wire. Zero bytes
+          // that arrive explicitly mean the same, as they do to the sweep.
+          const absentPubkey = Buffer.alloc(EPHEMERAL_PUBKEY_BYTES);
           const ephemeralPubkey = so.ephemeral_pubkey
             ? Buffer.from(so.ephemeral_pubkey, 'hex')
-            : Buffer.alloc(EPHEMERAL_PUBKEY_BYTES);
+            : absentPubkey;
+          const hasEphemeralPubkey = !ephemeralPubkey.equals(absentPubkey);
           const rangeProof = Buffer.from(so.range_proof, 'base64');
           const script = Buffer.from(so.script, 'base64');
           const assetCommitment = !isAmount ? Buffer.from(so.asset_commitment, 'hex') : null;
@@ -696,7 +699,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
           // advances rows that are still `unowned`. Without an ephemeral pubkey
           // there is no shared secret to rewind from, so that output stays
           // `unowned` too.
-          const owned = canRewind && so.ephemeral_pubkey
+          const owned = canRewind && hasEphemeralPubkey
             ? await findShieldedAddressOwnership(mysql, so.decoded.address)
             : null;
           if (owned) {

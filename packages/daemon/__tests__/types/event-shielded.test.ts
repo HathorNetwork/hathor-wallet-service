@@ -105,9 +105,11 @@ describe('shielded event schemas', () => {
       ['bad padding', 'dqkU='],
       ['the base64url alphabet', 'ab-_'],
     ];
-    it.each(fields.flatMap(([field, output]) => badValues.map(
-      ([label, value]) => [field, label, output, value] as const,
-    )))('rejects a %s with %s', (field, _label, output, value) => {
+    // An empty script is valid (see 'accepts an empty script'); the proofs
+    // never are.
+    it.each(fields.flatMap(([field, output]) => badValues
+      .filter(([label]) => !(field === 'script' && label === 'empty'))
+      .map(([label, value]) => [field, label, output, value] as const)))('rejects a %s with %s', (field, _label, output, value) => {
       expect(ShieldedOutputSchema.safeParse({ ...output, [field]: value }).success).toBe(false);
     });
   });
@@ -252,7 +254,20 @@ describe('shielded event schemas', () => {
       expect(result.success).toBe(true);
       const so = (result as any).data.event.data.shielded_outputs[0];
       expect(isMalformedShieldedOutput(so)).toBe(false);
-      expect(so.decoded ?? null).toBeNull();
+      expect(so.decoded).toBeNull();
+    });
+
+    it('accepts an empty script, which has no address', () => {
+      const event = realEvent();
+      event.event.data.shielded_outputs[0].script = '';
+      event.event.data.shielded_outputs[0].decoded = null;
+
+      const result = FullNodeEventSchema.safeParse(event);
+
+      expect(result.success).toBe(true);
+      const so = (result as any).data.event.data.shielded_outputs[0];
+      expect(isMalformedShieldedOutput(so)).toBe(false);
+      expect(so.script).toBe('');
     });
   });
 
@@ -314,8 +329,11 @@ describe('shielded event schemas', () => {
     });
 
     it('still fails a transparent spent output that does not validate', () => {
-      expect(SpentOutputSchema.safeParse({ mode: 0, value: 1, token_data: 'x', script: '' }).success)
-        .toBe(false);
+      const result = SpentOutputSchema.safeParse({ mode: 0, value: 1, token_data: 'x', script: '' });
+
+      expect(result.success).toBe(false);
+      // Reports the field that failed, not that no shielded mode matched.
+      expect((result as any).error.issues.map((i: any) => i.path.join('.'))).toContain('token_data');
     });
   });
 
@@ -339,7 +357,11 @@ describe('shielded event schemas', () => {
       const event = realEvent();
       event.event.data.headers = [{ id: '10', nc_seqnum: 1 }];
 
-      expect(FullNodeEventSchema.safeParse(event).success).toBe(false);
+      const result = FullNodeEventSchema.safeParse(event);
+
+      expect(result.success).toBe(false);
+      const paths = (result as any).error.issues.map((i: any) => i.path.join('.'));
+      expect(paths).toContain('event.data.headers.0.nc_id');
     });
   });
 

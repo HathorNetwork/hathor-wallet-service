@@ -126,6 +126,32 @@ const HexStringSchema = z.string().regex(/^([0-9a-fA-F]{2})+$/);
 // variable-size blobs (range_proof, script, surjection_proof), like the
 // transparent `script`. `base64()` alone accepts an empty string.
 const Base64StringSchema = z.string().min(1).base64();
+// hathor-core bounds a shielded script's size from above only, so an empty
+// script is valid; like any script that is not an address script, it simply
+// has no `decoded`.
+const ShieldedScriptSchema = z.string().base64();
+
+/**
+ * Parse `raw` with `schema` from inside a transform, forwarding its issues.
+ * Lets a schema choose what to parse with before parsing, so a failure
+ * reports the real cause rather than a union's "no option matched".
+ */
+const parseWith = <S extends z.ZodTypeAny>(
+  schema: S, raw: unknown, ctx: z.RefinementCtx,
+): z.infer<S> => {
+  const parsed = schema.safeParse(raw);
+  if (!parsed.success) {
+    for (const issue of parsed.error.issues) {
+      ctx.addIssue(issue);
+    }
+    return z.NEVER;
+  }
+  return parsed.data;
+};
+
+const fieldOf = (raw: unknown, field: string): unknown => (
+  raw && typeof raw === 'object' ? (raw as Record<string, unknown>)[field] : undefined
+);
 
 const ShieldedDecodedSchema = z.object({
   address: z.string(),
@@ -141,11 +167,12 @@ const ShieldedDecodedSchema = z.object({
 // so consumers have one "no address" case to handle.
 const OptionalShieldedDecodedSchema = z.preprocess(
   (raw) => (
-    raw && typeof raw === 'object' && !Array.isArray(raw) && Object.keys(raw).length === 0
+    raw == null
+      || (typeof raw === 'object' && !Array.isArray(raw) && Object.keys(raw).length === 0)
       ? null
       : raw
   ),
-  ShieldedDecodedSchema.nullish(),
+  ShieldedDecodedSchema.nullable(),
 );
 
 // `.length(66)` pins commitment, ephemeral_pubkey and asset_commitment to 33
@@ -154,7 +181,7 @@ const OptionalShieldedDecodedSchema = z.preprocess(
 const BaseShieldedFieldsSchema = z.object({
   commitment: HexStringSchema.length(66),
   range_proof: Base64StringSchema,
-  script: Base64StringSchema,
+  script: ShieldedScriptSchema,
   // Optional in the protocol: hathor-core omits it (sends null) when the sender
   // supplied none, and such an output cannot be rewound.
   ephemeral_pubkey: HexStringSchema.length(66).nullish(),
@@ -220,7 +247,7 @@ const KnownShieldedModeSchema = z.object({
  * mode is known but the rest does not validate. Anything without a known mode
  * is left to the strict schema, which fails the event.
  */
-const LenientShieldedOutputSchema = z.unknown().transform((raw, ctx): ShieldedOutputEntry => {
+const toShieldedOutputEntry = (raw: unknown, ctx: z.RefinementCtx): ShieldedOutputEntry => {
   const parsed = ShieldedOutputSchema.safeParse(raw);
   if (parsed.success) {
     return parsed.data;
@@ -233,7 +260,9 @@ const LenientShieldedOutputSchema = z.unknown().transform((raw, ctx): ShieldedOu
     return z.NEVER;
   }
   return { mode: known.data.mode, malformed: true, reason: describeIssues(parsed.error) };
-});
+};
+
+const LenientShieldedOutputSchema = z.unknown().transform(toShieldedOutputEntry);
 
 const TransparentSpentOutputSchema = EventTxOutputSchema.extend({
   mode: z.literal(0),
@@ -246,14 +275,15 @@ export const SpentOutputSchema = z.preprocess(
     }
     return raw;
   },
-  z.union([
-    // The output being spent was parked the same way when it was created, so
-    // its spend has to parse leniently too or it would stop sync instead.
-    // Tried first: the transparent `value` coercion throws, rather than
-    // failing, on a value it cannot read, so it must not see shielded payloads.
-    LenientShieldedOutputSchema,
-    TransparentSpentOutputSchema,
-  ]),
+  // Chosen by mode rather than tried in turn, so a failure names its real
+  // cause. A shielded spent output parses leniently: the output it spends was
+  // parked the same way when it was created, and its spend must not stop sync
+  // either.
+  z.unknown().transform((raw, ctx): z.infer<typeof TransparentSpentOutputSchema> | ShieldedOutputEntry => (
+    fieldOf(raw, 'mode') === 0
+      ? parseWith(TransparentSpentOutputSchema, raw, ctx)
+      : toShieldedOutputEntry(raw, ctx)
+  )),
 );
 export type SpentOutput = z.infer<typeof SpentOutputSchema>;
 
@@ -278,14 +308,16 @@ export type EventTxNanoHeader = z.infer<typeof EventTxNanoHeaderSchema>;
 /**
  * Any header that is not a nano header. hathor-core emits only nano headers
  * today, but the protocol defines others; the daemon does not act on them, so
- * accepting them keeps a new header type from stopping sync. The id check
- * keeps a malformed nano header from slipping through as one of these.
+ * accepting them keeps a new header type from stopping sync.
  */
-const EventTxOtherHeaderSchema = z.object({
-  id: z.string().refine((id) => id !== NANO_HEADER_ID, 'a nano header must match the nano schema'),
-}).passthrough();
+const EventTxOtherHeaderSchema = z.object({ id: z.string() }).passthrough();
 
-export const EventTxHeaderSchema = z.union([EventTxNanoHeaderSchema, EventTxOtherHeaderSchema]);
+// Chosen by id, so a nano header must match the nano schema in full.
+export const EventTxHeaderSchema = z.unknown().transform((raw, ctx) => (
+  fieldOf(raw, 'id') === NANO_HEADER_ID
+    ? parseWith(EventTxNanoHeaderSchema, raw, ctx)
+    : parseWith(EventTxOtherHeaderSchema, raw, ctx)
+));
 export type EventTxHeader = z.infer<typeof EventTxHeaderSchema>;
 
 export function isNanoHeader(header: EventTxHeader): header is EventTxNanoHeader {

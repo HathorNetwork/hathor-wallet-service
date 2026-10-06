@@ -203,8 +203,8 @@ export const getAddressBalanceMap = (
  *  - Shielded outputs: every shielded `decoded.address`, regardless of
  *    ownership or recovery state. Unowned shielded outputs still mark
  *    their address as involved so an observer can see something happened.
- *  - Shielded inputs: `spent_output.decoded.address` — present on all
- *    shielded spent_output variants.
+ *  - Shielded inputs: `spent_output.decoded.address`, when the spent
+ *    output has an address and its payload validated.
  *  - Nano-contract headers: `nc_address`.
  *
  * Pure function over wire data; no DB lookups. The caller is responsible
@@ -242,9 +242,9 @@ export const getInvolvedAddresses = (
   for (const input of inputs) {
     const spent = input?.spent_output;
     if (!spent) continue;
-    // `spent_output.decoded` is present on every variant of the union
-    // (transparent + both shielded). Address may still be absent if the
-    // decode failed upstream; skip empty/unknown values.
+    // A transparent spent output may have failed to decode, a shielded one
+    // may have no address, and a malformed one carries no `decoded` at all;
+    // all of these contribute nothing.
     const decoded = (spent as { decoded?: { address?: string } | null }).decoded;
     const address = decoded && (decoded as { address?: string }).address;
     addInvolved(address);
@@ -319,6 +319,15 @@ export const partitionShieldedInputs = async (
     if (!ei?.spent_output || !isShieldedMode(ei.spent_output.mode)) {
       safe.push(ei);
       continue;
+    }
+    if (isMalformedShieldedOutput(ei.spent_output)) {
+      // Its output was parked when its own vertex arrived, so there is
+      // normally no row to spend; the lookup below still checks.
+      logger.warn('spending a shielded output whose payload failed validation', {
+        txId: ei.tx_id,
+        index: ei.index,
+        reason: ei.spent_output.reason,
+      });
     }
     const row = await getTxOutput(mysql, ei.tx_id, ei.index, false);
     if (row && !isShieldedMode(row.mode)) {

@@ -214,7 +214,7 @@ describe('shielded db: outputs to recover', () => {
 
   it('excludes recovered, voided, and other-wallet outputs', async () => {
     await insertShieldedOutput('recovered', 0, 'a1', 1, 'recovered', '5', '00');
-    await insertSatellite('recovered', 0, { commitment: Buffer.alloc(33), rangeProof: Buffer.alloc(8), ephemeralPubkey: Buffer.alloc(33) });
+    await insertSatellite('recovered', 0, { commitment: Buffer.alloc(33), rangeProof: Buffer.alloc(8), ephemeralPubkey: Buffer.alloc(33, 1) });
     await insertShieldedOutput('other', 0, 'a2', 1, 'unowned', null, '00'); // wallet w2
     await insertSatellite('other', 0, { commitment: Buffer.alloc(33, 2), rangeProof: Buffer.alloc(8), ephemeralPubkey: Buffer.alloc(33, 2) });
     // own-wallet (w1), unowned, but VOIDED -> only the `voided = FALSE` filter excludes it

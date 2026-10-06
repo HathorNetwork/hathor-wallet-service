@@ -4938,7 +4938,10 @@ describe('a valid or malformed shielded vertex never stops sync', () => {
     expect(alerts[0][3].reason).toContain('commitment');
   });
 
-  it('stores an output without an ephemeral pubkey as zero bytes and does not rewind it', async () => {
+  it.each([
+    ['absent', null],
+    ['sent as zero bytes', '00'.repeat(33)],
+  ])('treats an ephemeral pubkey that is %s as absent: zero bytes stored, no rewind', async (_label, wireValue) => {
     expect.hasAssertions();
 
     // Claimed by a wallet, with a provider registered: everything a rewind
@@ -4950,7 +4953,7 @@ describe('a valid or malformed shielded vertex never stops sync', () => {
     );
     const event = parseReal((data) => {
       for (const so of data.shielded_outputs) {
-        so.ephemeral_pubkey = null;
+        so.ephemeral_pubkey = wireValue;
       }
     });
 
@@ -4985,6 +4988,22 @@ describe('a valid or malformed shielded vertex never stops sync', () => {
     expect(alertTitles()).toStrictEqual([]);
   });
 
+  it('skips a shielded output with an empty script, without an alert', async () => {
+    expect.hasAssertions();
+
+    // Valid in hathor-core: an empty script is not an address script.
+    const event = parseReal((data) => {
+      data.shielded_outputs[0].script = '';
+      data.shielded_outputs[0].decoded = null;
+    });
+
+    await expect(ingest(event)).resolves.not.toThrow();
+
+    expect(await getTxOutput(mysql, wire.hash, 0, false)).toBeNull();
+    expect(await getTxOutput(mysql, wire.hash, 1, false)).not.toBeNull();
+    expect(alertTitles()).toStrictEqual([]);
+  });
+
   it('ingests a spend of a malformed shielded output', async () => {
     expect.hasAssertions();
 
@@ -5007,10 +5026,41 @@ describe('a valid or malformed shielded vertex never stops sync', () => {
   it('voids a vertex with a malformed shielded output back to where it started', async () => {
     expect.hasAssertions();
 
+    // The parked output sits next to an owned output that is recovered, so the
+    // void has a balance to reverse as well as the involvement counter.
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [address, Buffer.alloc(32, 0x42)],
+    );
+    const sibling = wire.shielded_outputs[1];
+    primeAmountRewind({
+      commitment: Buffer.from(sibling.commitment, 'hex'),
+      ephemeralPubkey: Buffer.from(sibling.ephemeral_pubkey, 'hex'),
+      value: 150n,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
     const event = parseReal((data) => {
       data.shielded_outputs[0].commitment = 'not hex';
     });
     await ingest(event);
+
+    const shieldedBalance = async () => {
+      const [rows] = await mysql.query<any[]>(
+        `SELECT \`unlocked_shielded_balance\` AS b FROM \`address_balance\`
+          WHERE \`address\` = ? AND \`token_id\` = '00'`, [address],
+      );
+      return rows.length === 0 ? 0n : BigInt(rows[0].b);
+    };
+    const transactions = async () => {
+      const [rows] = await mysql.query<any[]>(
+        'SELECT `transactions` FROM `address` WHERE `address` = ?', [address],
+      );
+      return Number(rows[0].transactions);
+    };
+    expect((await getTxOutput(mysql, wire.hash, 1, false))!.recoveryState).toBe('recovered');
+    expect(await shieldedBalance()).toBe(150n);
+    expect(await transactions()).toBe(1);
 
     const { data } = event.event as any;
     await expect(voidTx(
@@ -5018,12 +5068,9 @@ describe('a valid or malformed shielded vertex never stops sync', () => {
       data.tokens, data.headers ?? [], data.version,
     )).resolves.not.toThrow();
 
-    // Ingest and void walk the same involvement set, so the counter returns
-    // to zero rather than going negative or staying raised.
-    const [addrRows] = await mysql.query<any[]>(
-      'SELECT `transactions` FROM `address` WHERE `address` = ?', [address],
-    );
-    expect(addrRows).toHaveLength(1);
-    expect(Number(addrRows[0].transactions)).toBe(0);
+    // Ingest and void walk the same sources, so both return to where they
+    // started rather than going negative or staying raised.
+    expect(await shieldedBalance()).toBe(0n);
+    expect(await transactions()).toBe(0);
   });
 });
