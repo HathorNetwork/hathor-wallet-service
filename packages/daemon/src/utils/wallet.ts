@@ -291,6 +291,49 @@ export interface ShieldedInputAnomaly {
 }
 
 /**
+ * Split the event inputs into those safe to act on and those whose stored row
+ * contradicts the mode declared on the wire.
+ *
+ * Shielded outputs are assumed to occupy the concatenated index space after the
+ * transparent ones. If that is ever wrong, `(tx_id, index)` for a shielded
+ * input resolves to the vertex's *transparent* output at that index, and acting
+ * on it writes against a real user UTXO: the unlock moves value between the
+ * locked and unlocked balance columns (there is no re-lock path) and
+ * `updateTxOutputSpentBy` marks the row spent. Ingestion therefore runs this
+ * before either, and excludes the offenders, rather than detecting the
+ * mismatch once the writes are already in the transaction.
+ *
+ * Mismatches are logged here and pushed to `anomalies` for the caller to alert
+ * on after the transaction commits — an SQS round-trip must not hold row locks.
+ */
+export const partitionShieldedInputs = async (
+  mysql: MysqlConnection,
+  eventInputs: EventTxInput[],
+  anomalies: ShieldedInputAnomaly[],
+): Promise<EventTxInput[]> => {
+  const safe: EventTxInput[] = [];
+  for (const ei of eventInputs) {
+    if (!ei?.spent_output || !isShieldedMode(ei.spent_output.mode)) {
+      safe.push(ei);
+      continue;
+    }
+    const row = await getTxOutput(mysql, ei.tx_id, ei.index, false);
+    if (row && !isShieldedMode(row.mode)) {
+      logger.error('shielded input resolved to a non-shielded tx_output', {
+        txId: ei.tx_id,
+        index: ei.index,
+        wireMode: ei.spent_output.mode,
+        storedMode: row.mode,
+      });
+      anomalies.push({ txId: ei.tx_id, index: ei.index, storedMode: row.mode });
+      continue;
+    }
+    safe.push(ei);
+  }
+  return safe;
+};
+
+/**
  * Build the unified per-(address, token) balance map for a vertex.
  *
  * Combines four contribution sources into a single map so the address /
@@ -328,47 +371,6 @@ export interface ShieldedInputAnomaly {
  * the raw wire-level input array, used here only to drive the shielded
  * spend reversal lookup.
  */
-/**
- * Split the event inputs into those safe to act on and those whose stored row
- * contradicts the mode declared on the wire.
- *
- * Shielded outputs are assumed to occupy the concatenated index space after the
- * transparent ones. If that is ever wrong, `(tx_id, index)` for a shielded
- * input resolves to the vertex's *transparent* output at that index — and
- * marking that row spent is an irreversible write against a real user UTXO.
- * So ingestion runs this before `updateTxOutputSpentBy` and excludes the
- * offenders, rather than detecting the mismatch after the fact.
- *
- * Mismatches are logged here and pushed to `anomalies` for the caller to alert
- * on after the transaction commits — an SQS round-trip must not hold row locks.
- */
-export const partitionShieldedInputs = async (
-  mysql: MysqlConnection,
-  eventInputs: EventTxInput[],
-  anomalies: ShieldedInputAnomaly[],
-): Promise<EventTxInput[]> => {
-  const safe: EventTxInput[] = [];
-  for (const ei of eventInputs) {
-    if (!ei?.spent_output || !isShieldedMode(ei.spent_output.mode)) {
-      safe.push(ei);
-      continue;
-    }
-    const row = await getTxOutput(mysql, ei.tx_id, ei.index, false);
-    if (row && !isShieldedMode(row.mode)) {
-      logger.error('shielded input resolved to a non-shielded tx_output', {
-        txId: ei.tx_id,
-        index: ei.index,
-        wireMode: ei.spent_output.mode,
-        storedMode: row.mode,
-      });
-      anomalies.push({ txId: ei.tx_id, index: ei.index, storedMode: row.mode });
-      continue;
-    }
-    safe.push(ei);
-  }
-  return safe;
-};
-
 export const getUnifiedBalanceMap = async (
   mysql: MysqlConnection,
   txInputs: TxInput[],

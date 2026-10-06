@@ -120,6 +120,13 @@ import { JSONBigInt } from '@hathor/wallet-lib/lib/utils/bigint';
 
 const tracer = trace.getTracer('wallet-service-daemon');
 
+/**
+ * How many per-item entries an aggregated alert embeds. The alert body is a
+ * single SQS message and the downstream alert manager maps metadata into a much
+ * smaller details field, so the list is capped; `count` carries the real total.
+ */
+const ALERT_LIST_CAP = 10;
+
 /** Set once this process has reported the missing shielded crypto provider. */
 let missingProviderAlerted = false;
 
@@ -461,10 +468,28 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
           await unlockTimelockedUtxos(mysql, now);
         }
 
+        // Validate the shielded inputs before anything acts on them. A
+        // wire-shielded input whose stored row is transparent means the
+        // concatenated-index assumption does not hold for this vertex, and
+        // every path below would otherwise mutate the wrong row: the unlock
+        // moves value between the locked and unlocked columns (with no re-lock
+        // path), and updateTxOutputSpentBy marks a real transparent UTXO spent.
+        // Both are committed in this transaction, so the exclusion has to come
+        // first — detecting it afterwards would only describe the damage.
+        //
+        // `getInvolvedAddresses` below deliberately keeps using the raw inputs:
+        // the involvement counter is wire-level and the void path reverses it
+        // from the same wire set, so filtering here would break that symmetry.
+        const shieldedInputAnomalies: ShieldedInputAnomaly[] = [];
+        const spendableInputs = await withSpan(
+          'partitionShieldedInputs',
+          () => partitionShieldedInputs(mysql!, inputs, shieldedInputAnomalies),
+        );
+
         // check if any of the inputs are still marked as locked and update tables accordingly.
         // See remarks on getLockedUtxoFromInputs for more explanation. It's important to perform this
         // before updating the balances
-        const lockedInputs = await getLockedUtxoFromInputs(mysql, inputs);
+        const lockedInputs = await getLockedUtxoFromInputs(mysql, spendableInputs);
         await unlockUtxos(mysql, lockedInputs, true);
 
         // add transaction outputs to the tx_outputs table
@@ -517,13 +542,13 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         // registered at any time, and a stale `false` would hide real failures.
         const canRewind = isShieldedCryptoProviderRegistered();
         let missingProviderAlertPending = false;
-        const shieldedInputAnomalies: ShieldedInputAnomaly[] = [];
         const shieldedStorageViolations: { index: number; scope: string; reason: string }[] = [];
 
         // Walk shielded_outputs[] with concatenated index = transparentCount + i.
         // A storable output produces three rows: the `tx_output` row, the
         // `shielded_tx_output_data` satellite carrying the per-output crypto payload,
-        // and an `address` observation row (with bip32_account = Bip32Account.CTSpend).
+        // and an `address` observation row (address + involvement only; the
+        // CTSpend account and scan key are set when a wallet claims it).
         // It lands in `recovery_state = 'unowned'` and is promoted in-line below when
         // a wallet has claimed the spend address.
         //
@@ -686,16 +711,6 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         // Mark tx utxos as spent. Kind-agnostic: only uses tx_id+index, so
         // we pass the raw event inputs — both transparent and shielded —
         // even though prepareInputs only emits transparent TxInput rows.
-        // Validate the shielded inputs BEFORE marking anything spent. A
-        // wire-shielded input whose stored row is transparent means the
-        // concatenated-index assumption does not hold for this vertex, and
-        // marking that row spent is an irreversible write against a real
-        // transparent UTXO — committed in this very transaction. Excluding the
-        // offenders here prevents the damage instead of reporting it after.
-        const spendableInputs = await withSpan(
-          'partitionShieldedInputs',
-          () => partitionShieldedInputs(mysql!, inputs, shieldedInputAnomalies),
-        );
         await withSpan('updateTxOutputSpentBy', () => updateTxOutputSpentBy(mysql, spendableInputs, hash));
 
         // Genesis tx has no inputs and outputs, so nothing to be updated.
@@ -905,9 +920,8 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
         // Deferred past the commit like the recovery-failure alerts: addAlert
         // performs an SQS round-trip, which must not run while the ingest
-        // transaction holds row locks. Reported once per process, not per
-        // vertex. One alert per vertex, not per output: a malformed stream
-        // would otherwise become an alert storm.
+        // transaction holds row locks. One alert per vertex rather than per
+        // output, so a malformed stream cannot become an alert storm.
         if (shieldedStorageViolations.length > 0) {
           const first = shieldedStorageViolations[0];
           await emitDeferredAlert(
@@ -922,7 +936,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
               index: first.index,
               scope: first.scope,
               reason: first.reason,
-              violations: shieldedStorageViolations,
+              violations: shieldedStorageViolations.slice(0, ALERT_LIST_CAP),
               source: 'daemon',
             },
           );
@@ -935,16 +949,21 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             'Shielded input resolved to a non-shielded output',
             `${shieldedInputAnomalies.length} input(s) of ${hash} are declared shielded on the `
             + `wire while the stored row is transparent, so the concatenated-index assumption `
-            + `does not hold for this vertex. They were excluded before anything was marked `
-            + `spent, so no transparent UTXO was consumed and no balance was reversed. `
-            + `First: ${first.txId}:${first.index}, stored mode ${first.storedMode}.`,
+            + `does not hold for this vertex. They were excluded before anything read or wrote `
+            + `them, so no UTXO was unlocked or marked spent and no balance moved. Their `
+            + `addresses do still count toward address.transactions, which the void path `
+            + `reverses. First: ${first.txId}:${first.index}, stored mode ${first.storedMode}.`,
             Severity.MAJOR,
             {
               // The vertex doing the spending, so the alert names the offender.
               tx_id: hash,
               count: shieldedInputAnomalies.length,
               first_input: { tx_id: first.txId, index: first.index, stored_mode: first.storedMode },
-              anomalies: shieldedInputAnomalies,
+              // snake_case to match the sibling keys, and capped: the alert body
+              // is one SQS message and `count` already carries the total.
+              inputs: shieldedInputAnomalies.slice(0, ALERT_LIST_CAP).map((a) => ({
+                tx_id: a.txId, index: a.index, stored_mode: a.storedMode,
+              })),
               source: 'daemon',
             },
           );
