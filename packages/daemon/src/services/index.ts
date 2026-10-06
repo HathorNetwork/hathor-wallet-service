@@ -738,7 +738,6 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             shieldedRecoveryResults,
             spendableInputs,
             headers,
-            shieldedInputAnomalies,
           );
 
           // update address tables (address, address_balance, address_tx_history)

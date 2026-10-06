@@ -93,6 +93,24 @@ describe('checkShieldedOutputStorable', () => {
     expect((result as { reason: string }).reason).toContain('not hex-encoded');
   });
 
+  it('rejects the whole output when the timelock does not fit its column', () => {
+    // `timelock` lands on tx_output, so no row can be written at all.
+    expect(checkShieldedOutputStorable(amountOutput({ decoded: { address: 'W'.repeat(34), timelock: 4294967296 } })))
+      .toMatchObject({ storable: false, scope: 'output' });
+    expect(checkShieldedOutputStorable(amountOutput({ decoded: { address: 'W'.repeat(34), timelock: -1 } })))
+      .toMatchObject({ storable: false, scope: 'output' });
+  });
+
+  it('accepts the largest timelock the column holds', () => {
+    expect(checkShieldedOutputStorable(amountOutput({ decoded: { address: 'W'.repeat(34), timelock: 4294967295 } })))
+      .toStrictEqual({ storable: true });
+  });
+
+  it('accepts an absent timelock', () => {
+    expect(checkShieldedOutputStorable(amountOutput({ decoded: { address: 'W'.repeat(34) } })))
+      .toStrictEqual({ storable: true });
+  });
+
   it('rejects the whole output when the address does not fit its column', () => {
     // `address` is the one field on tx_output itself, so the row cannot be
     // stored at all — not even as a failed recovery.
