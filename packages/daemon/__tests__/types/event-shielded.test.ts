@@ -267,6 +267,40 @@ describe('shielded event schemas', () => {
     });
   });
 
+  describe('a shielded spent output with optional fields left out', () => {
+    // #500 applies to spends too: SpentOutputSchema reuses the output schemas,
+    // and an output that ingested without these fields is later spent.
+    const realSpentOutput = () => {
+      const event = JSON.parse(JSON.stringify(alphaV4FullyShieldedSpendEvent));
+      return event.event.data.inputs.find((i: any) => i.spent_output.mode === 1).spent_output;
+    };
+
+    it.each([
+      ['null', null],
+      ['absent', undefined],
+    ])('accepts an ephemeral_pubkey that is %s', (_label, value) => {
+      const spent = { ...realSpentOutput(), ephemeral_pubkey: value };
+
+      const result = SpentOutputSchema.safeParse(spent);
+
+      expect(result.success).toBe(true);
+      expect((result as any).data.ephemeral_pubkey ?? null).toBeNull();
+    });
+
+    it.each([
+      ['null', null],
+      ['absent', undefined],
+      ['an empty object', {}],
+    ])('reads a decoded that is %s as no address', (_label, value) => {
+      const spent = { ...realSpentOutput(), decoded: value };
+
+      const result = SpentOutputSchema.safeParse(spent);
+
+      expect(result.success).toBe(true);
+      expect((result as any).data.decoded).toBeNull();
+    });
+  });
+
   describe('a shielded payload that does not match the schema', () => {
     // hathor-core verifies every shielded field before it emits a vertex, so
     // a mismatch here means the schema drifted from core. The event fails, so

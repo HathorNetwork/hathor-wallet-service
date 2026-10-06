@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import WebSocketActor from '../../src/actors/WebSocketActor';
+import WebSocketActor, { settleWithin, SCHEMA_FAILURE_ALERT_TIMEOUT_MS } from '../../src/actors/WebSocketActor';
 import logger from '../../src/logger';
 import alphaV4ShieldedVertexEvent from '../__fixtures__/alpha-v4-shielded-vertex-event';
 
@@ -121,6 +121,29 @@ describe('WebSocketActor', () => {
 
       expect(callback).toHaveBeenCalledWith(expect.objectContaining({ type: 'FULLNODE_EVENT' }));
       expect(mockAddAlert).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('settleWithin', () => {
+    it('gives up on an alert that never settles once the timeout passes', async () => {
+      let settled = false;
+      settleWithin(new Promise(() => {}), SCHEMA_FAILURE_ALERT_TIMEOUT_MS).then(() => { settled = true; });
+
+      await jest.advanceTimersByTimeAsync(SCHEMA_FAILURE_ALERT_TIMEOUT_MS - 1);
+      expect(settled).toBe(false);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(settled).toBe(true);
+    });
+
+    it('does not wait for the timeout once the alert settles, sent or not', async () => {
+      const alerts = [() => Promise.resolve(), () => Promise.reject(new Error('SQS is down'))];
+      for (const alert of alerts) {
+        let settled = false;
+        settleWithin(alert(), SCHEMA_FAILURE_ALERT_TIMEOUT_MS).then(() => { settled = true; });
+
+        await jest.advanceTimersByTimeAsync(0);
+        expect(settled).toBe(true);
+      }
     });
   });
 });

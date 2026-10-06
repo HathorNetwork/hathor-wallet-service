@@ -21,6 +21,24 @@ const PING_INTERVAL = 5000; // Will ping every 5s
 const ALERT_ISSUE_CAP = 10;
 
 /**
+ * Longest the daemon waits for the schema-failure alert before failing anyway.
+ * The SQS client sets no timeout of its own, and a send that never settles
+ * would otherwise keep the process up, reconnecting, instead of exiting.
+ */
+export const SCHEMA_FAILURE_ALERT_TIMEOUT_MS = 5000;
+
+/** Resolve when `promise` settles or `ms` elapses, whichever comes first. */
+export const settleWithin = (promise: Promise<unknown>, ms: number): Promise<void> => (
+  new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    promise.finally(() => {
+      clearTimeout(timer);
+      resolve();
+    }).catch(() => {});
+  })
+);
+
+/**
  * Page on an event the schema rejects. A crash loop on its own only shows in
  * the logs, and the cause is almost always drift between hathor-core's event
  * format and this schema, which needs a deploy to fix. Never throws.
@@ -120,9 +138,12 @@ export default (callback: any, receive: any) => {
       haltedOnUnparseableEvent = true;
       logger.error(`Could not parse event: ${socketEvent.data.toString()}`);
       const failure = new Error(parseResult.error.message);
-      // Fails the same way as a throw here would, once the alert has gone out:
-      // the rejection is unhandled, which ends the process.
-      reportUnparseableEvent(raw, parseResult.error).then(() => {
+      // Fails the same way as a throw here would, once the alert has gone out
+      // or timed out: the rejection is unhandled, which ends the process.
+      settleWithin(
+        reportUnparseableEvent(raw, parseResult.error),
+        SCHEMA_FAILURE_ALERT_TIMEOUT_MS,
+      ).then(() => {
         throw failure;
       });
       return;

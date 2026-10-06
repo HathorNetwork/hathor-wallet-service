@@ -4986,6 +4986,29 @@ describe('a shielded vertex with optional fields left out', () => {
     expect(alertTitles()).toStrictEqual([]);
   });
 
+  it('ingests a spend of a shielded output with no pubkey and no address', async () => {
+    expect.hasAssertions();
+
+    // Event 70473 spends a shielded output; strip both optional fields from
+    // the spent output, as hathor-core sends them for such an output.
+    const raw = JSON.parse(JSON.stringify(alphaV4FullyShieldedSpendEvent));
+    const shieldedInput = raw.event.data.inputs.find((i: any) => i.spent_output.mode === 1);
+    shieldedInput.spent_output.ephemeral_pubkey = null;
+    shieldedInput.spent_output.decoded = null;
+    const event = FullNodeEventSchema.parse(raw);
+
+    await expect(ingest(event)).resolves.not.toThrow();
+
+    const [txRows] = await mysql.query<any[]>(
+      'SELECT `tx_id` FROM `transaction` WHERE `tx_id` = ?', [raw.event.data.hash],
+    );
+    expect(txRows).toHaveLength(1);
+    // The spent output's missing address contributes nothing; the vertex's own
+    // shielded outputs still land.
+    expect(await getTxOutput(mysql, raw.event.data.hash, 0, false)).not.toBeNull();
+    expect(alertTitles()).toStrictEqual([]);
+  });
+
   it('voids a vertex with an addressless shielded output back to where it started', async () => {
     expect.hasAssertions();
 
