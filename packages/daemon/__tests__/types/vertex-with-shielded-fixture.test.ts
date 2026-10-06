@@ -6,7 +6,7 @@
  */
 
 import EventFixtures from '../__fixtures__/events';
-import { TxEventDataSchema } from '../../src/types/event';
+import { TxEventDataSchema, isMalformedShieldedOutput } from '../../src/types/event';
 
 const { VERTEX_WITH_SHIELDED } = EventFixtures;
 
@@ -18,14 +18,15 @@ describe('VERTEX_WITH_SHIELDED fixture', () => {
     expect(parsed.shielded_outputs).toHaveLength(1);
 
     const shielded = parsed.shielded_outputs[0];
+    expect(isMalformedShieldedOutput(shielded)).toBe(false);
     expect(shielded.mode).toBe(1);
-    if (shielded.mode === 1) {
+    if (!isMalformedShieldedOutput(shielded) && shielded.mode === 1) {
       expect(shielded.token_data).toBe(1);
       expect(shielded.commitment).toBe('02'.repeat(33));
       expect(shielded.range_proof).toBe(Buffer.alloc(64, 0x03).toString('base64'));
       expect(shielded.script).toBe(Buffer.alloc(20, 0x04).toString('base64'));
       expect(shielded.ephemeral_pubkey).toBe('05'.repeat(33));
-      expect(shielded.decoded.address).toBe('WShieldedAddress1');
+      expect(shielded.decoded?.address).toBe('WShieldedAddress1');
     }
   });
 

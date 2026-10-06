@@ -4876,3 +4876,154 @@ describe('handleVertexRemoved with shielded', () => {
     expect(wbAfter).toHaveLength(0);
   });
 });
+
+describe('a valid or malformed shielded vertex never stops sync', () => {
+  // The real alpha-v4 event, parsed the way WebSocketActor parses it, after
+  // `mutate` changes exactly the field under test. Both of its shielded
+  // outputs are AmountShielded HTR outputs to the same address, at indexes 0
+  // and 1 (the vertex has no transparent outputs).
+  const parseReal = (mutate: (data: any) => void) => {
+    const raw = JSON.parse(JSON.stringify(alphaV4ShieldedVertexEvent));
+    mutate(raw.event.data);
+    return FullNodeEventSchema.parse(raw);
+  };
+  const wire = alphaV4ShieldedVertexEvent.event.data;
+  const address = wire.shielded_outputs[0].decoded.address;
+
+  const ingest = (event: unknown) => handleVertexAccepted({
+    socket: expect.any(Object),
+    healthcheck: expect.any(Object),
+    retryAttempt: 0,
+    initialEventId: null,
+    txCache: new LRU(100),
+    rewardMinBlocks: 300,
+    event,
+  } as any, undefined as any);
+
+  const alertTitles = () => mockAddAlert.mock.calls.map(([title]) => title);
+
+  beforeEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+  });
+
+  afterEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  it('parks a malformed shielded output and ingests the rest of the vertex', async () => {
+    expect.hasAssertions();
+
+    const event = parseReal((data) => {
+      data.shielded_outputs[0].commitment = 'not hex';
+    });
+
+    await expect(ingest(event)).resolves.not.toThrow();
+
+    // The malformed output leaves no row; the valid one keeps its own index.
+    expect(await getTxOutput(mysql, wire.hash, 0, false)).toBeNull();
+    const kept = await getTxOutput(mysql, wire.hash, 1, false);
+    expect(kept!.recoveryState).toBe('unowned');
+    const [satRows] = await mysql.query<any[]>(
+      'SELECT `index` FROM `shielded_tx_output_data` WHERE `tx_id` = ?', [wire.hash],
+    );
+    expect(satRows.map((r) => r.index)).toStrictEqual([1]);
+
+    const alerts = mockAddAlert.mock.calls
+      .filter(([title]) => title === 'Shielded output failed validation');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0][2]).toBe(Severity.MAJOR);
+    expect(alerts[0][3]).toMatchObject({ tx_id: wire.hash, count: 1, index: 0 });
+    expect(alerts[0][3].reason).toContain('commitment');
+  });
+
+  it('stores an output without an ephemeral pubkey as zero bytes and does not rewind it', async () => {
+    expect.hasAssertions();
+
+    // Claimed by a wallet, with a provider registered: everything a rewind
+    // needs except the pubkey itself.
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [address, Buffer.alloc(32, 0x42)],
+    );
+    const event = parseReal((data) => {
+      for (const so of data.shielded_outputs) {
+        so.ephemeral_pubkey = null;
+      }
+    });
+
+    await expect(ingest(event)).resolves.not.toThrow();
+
+    expect(lastAmountRewindArgs()).toBeNull();
+    for (const index of [0, 1]) {
+      const row = await getTxOutput(mysql, wire.hash, index, false);
+      expect(row!.recoveryState).toBe('unowned');
+    }
+    const [satRows] = await mysql.query<any[]>(
+      'SELECT `ephemeral_pubkey` FROM `shielded_tx_output_data` WHERE `tx_id` = ?', [wire.hash],
+    );
+    expect(satRows).toHaveLength(2);
+    for (const r of satRows) {
+      expect(r.ephemeral_pubkey).toEqual(Buffer.alloc(33));
+    }
+    expect(mockAddAlert).not.toHaveBeenCalled();
+  });
+
+  it('skips a shielded output whose script has no address, without an alert', async () => {
+    expect.hasAssertions();
+
+    const event = parseReal((data) => {
+      data.shielded_outputs[0].decoded = null;
+    });
+
+    await expect(ingest(event)).resolves.not.toThrow();
+
+    expect(await getTxOutput(mysql, wire.hash, 0, false)).toBeNull();
+    expect(await getTxOutput(mysql, wire.hash, 1, false)).not.toBeNull();
+    expect(alertTitles()).toStrictEqual([]);
+  });
+
+  it('ingests a spend of a malformed shielded output', async () => {
+    expect.hasAssertions();
+
+    // The spent output was parked when its own vertex arrived, so this
+    // database has no row for it; the spend must still go through.
+    const raw = JSON.parse(JSON.stringify(alphaV4FullyShieldedSpendEvent));
+    const shieldedInput = raw.event.data.inputs.find((i: any) => i.spent_output.mode === 1);
+    shieldedInput.spent_output.range_proof = '!';
+    const event = FullNodeEventSchema.parse(raw);
+
+    await expect(ingest(event)).resolves.not.toThrow();
+
+    const [txRows] = await mysql.query<any[]>(
+      'SELECT `tx_id` FROM `transaction` WHERE `tx_id` = ?', [raw.event.data.hash],
+    );
+    expect(txRows).toHaveLength(1);
+    expect(await getTxOutput(mysql, raw.event.data.hash, 0, false)).not.toBeNull();
+  });
+
+  it('voids a vertex with a malformed shielded output back to where it started', async () => {
+    expect.hasAssertions();
+
+    const event = parseReal((data) => {
+      data.shielded_outputs[0].commitment = 'not hex';
+    });
+    await ingest(event);
+
+    const { data } = event.event as any;
+    await expect(voidTx(
+      mysql, data.hash, data.inputs, data.outputs, data.shielded_outputs,
+      data.tokens, data.headers ?? [], data.version,
+    )).resolves.not.toThrow();
+
+    // Ingest and void walk the same involvement set, so the counter returns
+    // to zero rather than going negative or staying raised.
+    const [addrRows] = await mysql.query<any[]>(
+      'SELECT `transactions` FROM `address` WHERE `address` = ?', [address],
+    );
+    expect(addrRows).toHaveLength(1);
+    expect(Number(addrRows[0].transactions)).toBe(0);
+  });
+});

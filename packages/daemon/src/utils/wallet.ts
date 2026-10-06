@@ -16,7 +16,8 @@ import {
   EventTxInput,
   EventTxOutput,
   isNanoHeader,
-  ShieldedOutput,
+  isMalformedShieldedOutput,
+  ShieldedOutputEntry,
   StringMap,
   TokenBalanceValue,
   Wallet,
@@ -213,7 +214,7 @@ export const getAddressBalanceMap = (
 export const getInvolvedAddresses = (
   inputs: EventTxInput[],
   outputs: EventTxOutput[],
-  shieldedOutputs: ShieldedOutput[],
+  shieldedOutputs: ShieldedOutputEntry[],
   headers: EventTxHeader[],
   txId?: string,
 ): Set<string> => {
@@ -256,6 +257,8 @@ export const getInvolvedAddresses = (
   }
 
   for (const so of shieldedOutputs) {
+    // Nothing in a malformed payload is trusted, the address included.
+    if (isMalformedShieldedOutput(so)) continue;
     addInvolved(so.decoded?.address);
   }
 

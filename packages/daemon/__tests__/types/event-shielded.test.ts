@@ -10,6 +10,7 @@ import {
   ShieldedOutputSchema,
   SpentOutputSchema,
   TxEventDataWithoutMetaSchema,
+  isMalformedShieldedOutput,
 } from '../../src/types/event';
 import alphaV4ShieldedVertexEvent from '../__fixtures__/alpha-v4-shielded-vertex-event';
 import alphaV4FullyShieldedSpendEvent from '../__fixtures__/alpha-v4-fully-shielded-spend-event';
@@ -215,6 +216,130 @@ describe('shielded event schemas', () => {
       expect(v.shielded_outputs).toHaveLength(2);
       expect(v.shielded_outputs[0].mode).toBe(1);
       expect(v.shielded_outputs[1].mode).toBe(2);
+    });
+  });
+
+  describe('fields hathor-core treats as optional', () => {
+    // A copy of the real event, so each case differs from what hathor-core
+    // actually sends by exactly the field under test.
+    const realEvent = () => JSON.parse(JSON.stringify(alphaV4ShieldedVertexEvent));
+
+    it.each([
+      ['null', null],
+      ['absent', undefined],
+    ])('accepts an ephemeral_pubkey that is %s', (_label, value) => {
+      const event = realEvent();
+      event.event.data.shielded_outputs[0].ephemeral_pubkey = value;
+
+      const result = FullNodeEventSchema.safeParse(event);
+
+      expect(result.success).toBe(true);
+      const so = (result as any).data.event.data.shielded_outputs[0];
+      expect(isMalformedShieldedOutput(so)).toBe(false);
+      expect(so.ephemeral_pubkey ?? null).toBeNull();
+    });
+
+    it.each([
+      ['null', null],
+      ['absent', undefined],
+      ['an empty object', {}],
+    ])('reads a decoded that is %s as no address', (_label, value) => {
+      const event = realEvent();
+      event.event.data.shielded_outputs[0].decoded = value;
+
+      const result = FullNodeEventSchema.safeParse(event);
+
+      expect(result.success).toBe(true);
+      const so = (result as any).data.event.data.shielded_outputs[0];
+      expect(isMalformedShieldedOutput(so)).toBe(false);
+      expect(so.decoded ?? null).toBeNull();
+    });
+  });
+
+  describe('a shielded output with a known mode and an invalid payload', () => {
+    const realEvent = () => JSON.parse(JSON.stringify(alphaV4ShieldedVertexEvent));
+
+    it('keeps the event, standing a placeholder in for the output', () => {
+      const event = realEvent();
+      event.event.data.shielded_outputs[0].commitment = 'not hex';
+
+      const result = FullNodeEventSchema.safeParse(event);
+
+      expect(result.success).toBe(true);
+      const outputs = (result as any).data.event.data.shielded_outputs;
+      // Same length, so the concatenated index of every later output holds.
+      expect(outputs).toHaveLength(2);
+      expect(outputs[0]).toStrictEqual({
+        mode: 1,
+        malformed: true,
+        reason: expect.stringContaining('commitment'),
+      });
+      expect(isMalformedShieldedOutput(outputs[1])).toBe(false);
+    });
+
+    it('caps the reason it keeps', () => {
+      const event = realEvent();
+      const so = event.event.data.shielded_outputs[0];
+      for (const field of ['commitment', 'range_proof', 'script', 'ephemeral_pubkey']) {
+        so[field] = '!'.repeat(1000);
+      }
+
+      const result = FullNodeEventSchema.safeParse(event);
+
+      expect(result.success).toBe(true);
+      const reason = (result as any).data.event.data.shielded_outputs[0].reason;
+      expect(reason.length).toBeLessThanOrEqual(500);
+    });
+
+    it('still fails the event when the mode is unknown', () => {
+      // An unknown mode means the protocol changed, which needs a deploy.
+      const event = realEvent();
+      event.event.data.shielded_outputs[0].mode = 3;
+
+      expect(FullNodeEventSchema.safeParse(event).success).toBe(false);
+    });
+
+    it('keeps a spend of such an output, standing a placeholder in for the spent output', () => {
+      const s = SpentOutputSchema.parse({
+        mode: 2,
+        commitment: 'aa'.repeat(33),
+        range_proof: Buffer.alloc(64, 0xbb).toString('base64'),
+        script: Buffer.alloc(20, 0xcc).toString('base64'),
+        ephemeral_pubkey: 'dd'.repeat(33),
+        // asset_commitment and surjection_proof missing
+        decoded: { address: 'WT4n' },
+      });
+
+      expect(s).toMatchObject({ mode: 2, malformed: true });
+    });
+
+    it('still fails a transparent spent output that does not validate', () => {
+      expect(SpentOutputSchema.safeParse({ mode: 0, value: 1, token_data: 'x', script: '' }).success)
+        .toBe(false);
+    });
+  });
+
+  describe('headers', () => {
+    const realEvent = () => JSON.parse(JSON.stringify(alphaV4ShieldedVertexEvent));
+    const nanoHeader = {
+      id: '10', nc_seqnum: 1, nc_id: 'aa', nc_method: 'initialize', nc_address: 'WT4n',
+    };
+
+    it('accepts a header type the daemon does not act on', () => {
+      const event = realEvent();
+      event.event.data.headers = [nanoHeader, { id: '11', entries: [] }];
+
+      const result = FullNodeEventSchema.safeParse(event);
+
+      expect(result.success).toBe(true);
+      expect((result as any).data.event.data.headers).toHaveLength(2);
+    });
+
+    it('still fails a nano header missing its fields', () => {
+      const event = realEvent();
+      event.event.data.headers = [{ id: '10', nc_seqnum: 1 }];
+
+      expect(FullNodeEventSchema.safeParse(event).success).toBe(false);
     });
   });
 

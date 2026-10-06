@@ -59,6 +59,12 @@ export const Bip32Account = {
 export type Bip32Account = (typeof Bip32Account)[keyof typeof Bip32Account];
 
 /**
+ * Size of a compressed ephemeral pubkey. An output without one is stored as
+ * this many zero bytes, the encoding hathor-core uses for "not present".
+ */
+export const EPHEMERAL_PUBKEY_BYTES = 33;
+
+/**
  * Widths of the columns these fields are stored in. Kept next to the check so
  * the two cannot drift apart: `shielded_tx_output_data.script` is
  * VARBINARY(1024), `token_data` is TINYINT UNSIGNED, `range_proof` and

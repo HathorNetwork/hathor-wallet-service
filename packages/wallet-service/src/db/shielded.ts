@@ -6,7 +6,12 @@
  */
 
 import { ServerlessMysql } from 'serverless-mysql';
-import { Bip32Account, RecoveryState, ShieldedOutputMode } from '@wallet-service/common';
+import {
+  Bip32Account,
+  EPHEMERAL_PUBKEY_BYTES,
+  RecoveryState,
+  ShieldedOutputMode,
+} from '@wallet-service/common';
 import { deriveCtAddress } from '@wallet-service/common/src/crypto/shieldedAddress';
 import type { Network } from '@hathor/wallet-lib';
 import { DbSelectResult } from '@src/types';
@@ -149,6 +154,10 @@ export interface ShieldedOutputToRecover {
  * construction — nothing in this system can rewind a payload that was never
  * stored. Keep that join if this query is ever rewritten, or parked outputs will
  * be re-driven forever.
+ *
+ * Outputs stored without an ephemeral pubkey (all zero bytes) are skipped too:
+ * the rewind needs that key, so trying would only mark them `recovery_failed`
+ * and alert on every catch-up. They stay `unowned`.
  */
 export const getShieldedOutputsToRecover = async (
   mysql: ServerlessMysql,
@@ -161,8 +170,15 @@ export const getShieldedOutputsToRecover = async (
   // the last row seen guarantees forward progress.
   const cursor = after ? 'AND (t.`tx_id` > ? OR (t.`tx_id` = ? AND t.`index` > ?))' : '';
   // Placeholder order follows the SQL text: join account, wallet, the two shielded
-  // modes, the recovered-guard, then (optional) cursor keys, then limit.
-  const head = [Bip32Account.CTSpend, walletId, ...SHIELDED_MODES, RecoveryState.Recovered];
+  // modes, the recovered-guard, the absent-pubkey guard, then (optional) cursor
+  // keys, then limit.
+  const head = [
+    Bip32Account.CTSpend,
+    walletId,
+    ...SHIELDED_MODES,
+    RecoveryState.Recovered,
+    Buffer.alloc(EPHEMERAL_PUBKEY_BYTES),
+  ];
   const params = after
     ? [...head, after.txId, after.txId, after.index, limit]
     : [...head, limit];
@@ -182,6 +198,7 @@ export const getShieldedOutputsToRecover = async (
         AND t.\`mode\` IN (?, ?)
         AND t.\`voided\` = FALSE
         AND t.\`recovery_state\` <> ?
+        AND d.\`ephemeral_pubkey\` <> ?
         ${cursor}
       ORDER BY t.\`tx_id\`, t.\`index\`
       LIMIT ?`,
