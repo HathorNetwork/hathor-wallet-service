@@ -16,8 +16,7 @@ import {
   EventTxInput,
   EventTxOutput,
   isNanoHeader,
-  isMalformedShieldedOutput,
-  ShieldedOutputEntry,
+  ShieldedOutput,
   StringMap,
   TokenBalanceValue,
   Wallet,
@@ -200,9 +199,10 @@ export const getAddressBalanceMap = (
  *
  *  - Transparent inputs: `spent_output.decoded.address` (when decode succeeded).
  *  - Transparent outputs: `decoded.address` (when decode succeeded).
- *  - Shielded outputs: every shielded `decoded.address`, regardless of
- *    ownership or recovery state. Unowned shielded outputs still mark
- *    their address as involved so an observer can see something happened.
+ *  - Shielded outputs: `decoded.address` of every shielded output that has
+ *    one, regardless of ownership or recovery state. Unowned shielded
+ *    outputs still mark their address as involved so an observer can see
+ *    something happened; an output with no address contributes nothing.
  *  - Shielded inputs: `spent_output.decoded.address`, when the spent
  *    output has an address and its payload validated.
  *  - Nano-contract headers: `nc_address`.
@@ -214,7 +214,7 @@ export const getAddressBalanceMap = (
 export const getInvolvedAddresses = (
   inputs: EventTxInput[],
   outputs: EventTxOutput[],
-  shieldedOutputs: ShieldedOutputEntry[],
+  shieldedOutputs: ShieldedOutput[],
   headers: EventTxHeader[],
   txId?: string,
 ): Set<string> => {
@@ -242,9 +242,8 @@ export const getInvolvedAddresses = (
   for (const input of inputs) {
     const spent = input?.spent_output;
     if (!spent) continue;
-    // A transparent spent output may have failed to decode, a shielded one
-    // may have no address, and a malformed one carries no `decoded` at all;
-    // all of these contribute nothing.
+    // A transparent spent output may have failed to decode and a shielded
+    // one may have no address; neither contributes anything.
     const decoded = (spent as { decoded?: { address?: string } | null }).decoded;
     const address = decoded && (decoded as { address?: string }).address;
     addInvolved(address);
@@ -257,8 +256,6 @@ export const getInvolvedAddresses = (
   }
 
   for (const so of shieldedOutputs) {
-    // Nothing in a malformed payload is trusted, the address included.
-    if (isMalformedShieldedOutput(so)) continue;
     addInvolved(so.decoded?.address);
   }
 
@@ -319,15 +316,6 @@ export const partitionShieldedInputs = async (
     if (!ei?.spent_output || !isShieldedMode(ei.spent_output.mode)) {
       safe.push(ei);
       continue;
-    }
-    if (isMalformedShieldedOutput(ei.spent_output)) {
-      // Its output was parked when its own vertex arrived, so there is
-      // normally no row to spend; the lookup below still checks.
-      logger.warn('spending a shielded output whose payload failed validation', {
-        txId: ei.tx_id,
-        index: ei.index,
-        reason: ei.spent_output.reason,
-      });
     }
     const row = await getTxOutput(mysql, ei.tx_id, ei.index, false);
     if (row && !isShieldedMode(row.mode)) {

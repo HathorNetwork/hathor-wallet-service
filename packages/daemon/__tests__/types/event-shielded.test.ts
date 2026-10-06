@@ -10,7 +10,6 @@ import {
   ShieldedOutputSchema,
   SpentOutputSchema,
   TxEventDataWithoutMetaSchema,
-  isMalformedShieldedOutput,
 } from '../../src/types/event';
 import alphaV4ShieldedVertexEvent from '../__fixtures__/alpha-v4-shielded-vertex-event';
 import alphaV4FullyShieldedSpendEvent from '../__fixtures__/alpha-v4-fully-shielded-spend-event';
@@ -237,7 +236,6 @@ describe('shielded event schemas', () => {
 
       expect(result.success).toBe(true);
       const so = (result as any).data.event.data.shielded_outputs[0];
-      expect(isMalformedShieldedOutput(so)).toBe(false);
       expect(so.ephemeral_pubkey ?? null).toBeNull();
     });
 
@@ -253,7 +251,6 @@ describe('shielded event schemas', () => {
 
       expect(result.success).toBe(true);
       const so = (result as any).data.event.data.shielded_outputs[0];
-      expect(isMalformedShieldedOutput(so)).toBe(false);
       expect(so.decoded).toBeNull();
     });
 
@@ -266,91 +263,94 @@ describe('shielded event schemas', () => {
 
       expect(result.success).toBe(true);
       const so = (result as any).data.event.data.shielded_outputs[0];
-      expect(isMalformedShieldedOutput(so)).toBe(false);
       expect(so.script).toBe('');
     });
   });
 
-  describe('a shielded output with a known mode and an invalid payload', () => {
+  describe('a shielded payload that does not match the schema', () => {
+    // hathor-core verifies every shielded field before it emits a vertex, so
+    // a mismatch here means the schema drifted from core. The event fails, so
+    // sync stops on it and replays it once the schema is fixed.
     const realEvent = () => JSON.parse(JSON.stringify(alphaV4ShieldedVertexEvent));
+    const issuePaths = (result: any) => result.error.issues.map((i: any) => i.path.join('.'));
 
-    it('keeps the event, standing a placeholder in for the output', () => {
+    it('fails the event on an invalid field', () => {
       const event = realEvent();
       event.event.data.shielded_outputs[0].commitment = 'not hex';
 
       const result = FullNodeEventSchema.safeParse(event);
 
-      expect(result.success).toBe(true);
-      const outputs = (result as any).data.event.data.shielded_outputs;
-      // Same length, so the concatenated index of every later output holds.
-      expect(outputs).toHaveLength(2);
-      expect(outputs[0]).toStrictEqual({
-        mode: 1,
-        malformed: true,
-        reason: expect.stringContaining('commitment'),
-      });
-      expect(isMalformedShieldedOutput(outputs[1])).toBe(false);
+      expect(result.success).toBe(false);
+      expect(issuePaths(result)).toContain('event.data.shielded_outputs.0.commitment');
     });
 
-    it('caps the reason it keeps', () => {
-      const event = realEvent();
-      const so = event.event.data.shielded_outputs[0];
-      for (const field of ['commitment', 'range_proof', 'script', 'ephemeral_pubkey']) {
-        so[field] = '!'.repeat(1000);
-      }
-
-      const result = FullNodeEventSchema.safeParse(event);
-
-      expect(result.success).toBe(true);
-      const reason = (result as any).data.event.data.shielded_outputs[0].reason;
-      expect(reason.length).toBeLessThanOrEqual(500);
-    });
-
-    it('still fails the event when the mode is unknown', () => {
-      // An unknown mode means the protocol changed, which needs a deploy.
+    it('fails the event on an unknown mode', () => {
       const event = realEvent();
       event.event.data.shielded_outputs[0].mode = 3;
 
       expect(FullNodeEventSchema.safeParse(event).success).toBe(false);
     });
 
-    it('keeps a spend of such an output, standing a placeholder in for the spent output', () => {
-      const s = SpentOutputSchema.parse({
+    // Only null, absent and `{}` mean "no address"; any other shape is drift.
+    it.each([
+      ['an array', []],
+      ['an object without an address', { type: 'P2PKH' }],
+    ])('fails the event on a decoded that is %s', (_label, decoded) => {
+      const event = realEvent();
+      event.event.data.shielded_outputs[0].decoded = decoded;
+
+      expect(FullNodeEventSchema.safeParse(event).success).toBe(false);
+    });
+
+    it('fails a shielded spent output missing a field', () => {
+      const result = SpentOutputSchema.safeParse({
         mode: 2,
         commitment: 'aa'.repeat(33),
         range_proof: Buffer.alloc(64, 0xbb).toString('base64'),
         script: Buffer.alloc(20, 0xcc).toString('base64'),
         ephemeral_pubkey: 'dd'.repeat(33),
-        // asset_commitment and surjection_proof missing
+        surjection_proof: Buffer.alloc(64, 0xff).toString('base64'),
         decoded: { address: 'WT4n' },
       });
 
-      expect(s).toMatchObject({ mode: 2, malformed: true });
+      expect(result.success).toBe(false);
+      expect(issuePaths(result)).toContain('asset_commitment');
     });
 
-    it('still fails a transparent spent output that does not validate', () => {
+    it('fails a transparent spent output that does not validate, naming the field', () => {
       const result = SpentOutputSchema.safeParse({ mode: 0, value: 1, token_data: 'x', script: '' });
 
       expect(result.success).toBe(false);
-      // Reports the field that failed, not that no shielded mode matched.
-      expect((result as any).error.issues.map((i: any) => i.path.join('.'))).toContain('token_data');
+      expect(issuePaths(result)).toContain('token_data');
     });
   });
 
   describe('headers', () => {
     const realEvent = () => JSON.parse(JSON.stringify(alphaV4ShieldedVertexEvent));
+    const issuePaths = (result: any) => result.error.issues.map((i: any) => i.path.join('.'));
     const nanoHeader = {
       id: '10', nc_seqnum: 1, nc_id: 'aa', nc_method: 'initialize', nc_address: 'WT4n',
     };
 
-    it('accepts a header type the daemon does not act on', () => {
+    it.each(['11', '12', '13'])('accepts and keeps a header with id %s, which the daemon ignores', (id) => {
       const event = realEvent();
-      event.event.data.headers = [nanoHeader, { id: '11', entries: [] }];
+      event.event.data.headers = [nanoHeader, { id, entries: [] }];
 
       const result = FullNodeEventSchema.safeParse(event);
 
       expect(result.success).toBe(true);
       expect((result as any).data.event.data.headers).toHaveLength(2);
+    });
+
+    // Mint and melt change token supply; ignoring them would lose it silently.
+    it.each(['14', '15', '99'])('fails the event on a header with id %s', (id) => {
+      const event = realEvent();
+      event.event.data.headers = [{ id }];
+
+      const result = FullNodeEventSchema.safeParse(event);
+
+      expect(result.success).toBe(false);
+      expect(issuePaths(result)).toContain('event.data.headers.0.id');
     });
 
     it('still fails a nano header missing its fields', () => {
@@ -360,8 +360,7 @@ describe('shielded event schemas', () => {
       const result = FullNodeEventSchema.safeParse(event);
 
       expect(result.success).toBe(false);
-      const paths = (result as any).error.issues.map((i: any) => i.path.join('.'));
-      expect(paths).toContain('event.data.headers.0.nc_id');
+      expect(issuePaths(result)).toContain('event.data.headers.0.nc_id');
     });
   });
 

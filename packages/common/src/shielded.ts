@@ -111,9 +111,11 @@ const overSized = (
  *
  * Covers every wire field that reaches a narrower column: `decoded.address`
  * and `decoded.timelock` on `tx_output`, and `script`, the two proofs and
- * `token_data` on the satellite. `commitment`, `ephemeral_pubkey` and
- * `asset_commitment` are pinned to exactly 33 bytes by the Zod schema, so they
- * cannot overflow their VARBINARY(33) columns and are not re-checked here.
+ * `token_data` on the satellite. `commitment` and `asset_commitment` are
+ * pinned to exactly 33 bytes by the Zod schema; `ephemeral_pubkey` is too when
+ * present, and is stored as `EPHEMERAL_PUBKEY_BYTES` zero bytes when absent.
+ * None of them can overflow their VARBINARY(33) columns, so they are not
+ * re-checked here.
  *
  * The byte fields are taken already decoded, so the sizes measured are the
  * sizes stored, whatever encoding the wire uses.

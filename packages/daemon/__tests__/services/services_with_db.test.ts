@@ -4877,7 +4877,7 @@ describe('handleVertexRemoved with shielded', () => {
   });
 });
 
-describe('a valid or malformed shielded vertex never stops sync', () => {
+describe('a shielded vertex with optional fields left out', () => {
   // The real alpha-v4 event, parsed the way WebSocketActor parses it, after
   // `mutate` changes exactly the field under test. Both of its shielded
   // outputs are AmountShielded HTR outputs to the same address, at indexes 0
@@ -4912,32 +4912,6 @@ describe('a valid or malformed shielded vertex never stops sync', () => {
     await mysql.query('DELETE FROM shielded_tx_output_data');
   });
 
-  it('parks a malformed shielded output and ingests the rest of the vertex', async () => {
-    expect.hasAssertions();
-
-    const event = parseReal((data) => {
-      data.shielded_outputs[0].commitment = 'not hex';
-    });
-
-    await expect(ingest(event)).resolves.not.toThrow();
-
-    // The malformed output leaves no row; the valid one keeps its own index.
-    expect(await getTxOutput(mysql, wire.hash, 0, false)).toBeNull();
-    const kept = await getTxOutput(mysql, wire.hash, 1, false);
-    expect(kept!.recoveryState).toBe('unowned');
-    const [satRows] = await mysql.query<any[]>(
-      'SELECT `index` FROM `shielded_tx_output_data` WHERE `tx_id` = ?', [wire.hash],
-    );
-    expect(satRows.map((r) => r.index)).toStrictEqual([1]);
-
-    const alerts = mockAddAlert.mock.calls
-      .filter(([title]) => title === 'Shielded output failed validation');
-    expect(alerts).toHaveLength(1);
-    expect(alerts[0][2]).toBe(Severity.MAJOR);
-    expect(alerts[0][3]).toMatchObject({ tx_id: wire.hash, count: 1, index: 0 });
-    expect(alerts[0][3].reason).toContain('commitment');
-  });
-
   it.each([
     ['absent', null],
     ['sent as zero bytes', '00'.repeat(33)],
@@ -4957,6 +4931,8 @@ describe('a valid or malformed shielded vertex never stops sync', () => {
       }
     });
 
+    const warnSpy = jest.spyOn(logger, 'warn');
+
     await expect(ingest(event)).resolves.not.toThrow();
 
     expect(lastAmountRewindArgs()).toBeNull();
@@ -4972,6 +4948,12 @@ describe('a valid or malformed shielded vertex never stops sync', () => {
       expect(r.ephemeral_pubkey).toEqual(Buffer.alloc(33));
     }
     expect(mockAddAlert).not.toHaveBeenCalled();
+    // The address is claimed, so the funds it cannot see are traced.
+    expect(warnSpy).toHaveBeenCalledWith(
+      'Shielded output to a claimed address has no ephemeral pubkey; left unowned',
+      expect.objectContaining({ txId: wire.hash, index: 0, address }),
+    );
+    warnSpy.mockRestore();
   });
 
   it('skips a shielded output whose script has no address, without an alert', async () => {
@@ -5004,30 +4986,11 @@ describe('a valid or malformed shielded vertex never stops sync', () => {
     expect(alertTitles()).toStrictEqual([]);
   });
 
-  it('ingests a spend of a malformed shielded output', async () => {
+  it('voids a vertex with an addressless shielded output back to where it started', async () => {
     expect.hasAssertions();
 
-    // The spent output was parked when its own vertex arrived, so this
-    // database has no row for it; the spend must still go through.
-    const raw = JSON.parse(JSON.stringify(alphaV4FullyShieldedSpendEvent));
-    const shieldedInput = raw.event.data.inputs.find((i: any) => i.spent_output.mode === 1);
-    shieldedInput.spent_output.range_proof = '!';
-    const event = FullNodeEventSchema.parse(raw);
-
-    await expect(ingest(event)).resolves.not.toThrow();
-
-    const [txRows] = await mysql.query<any[]>(
-      'SELECT `tx_id` FROM `transaction` WHERE `tx_id` = ?', [raw.event.data.hash],
-    );
-    expect(txRows).toHaveLength(1);
-    expect(await getTxOutput(mysql, raw.event.data.hash, 0, false)).not.toBeNull();
-  });
-
-  it('voids a vertex with a malformed shielded output back to where it started', async () => {
-    expect.hasAssertions();
-
-    // The parked output sits next to an owned output that is recovered, so the
-    // void has a balance to reverse as well as the involvement counter.
+    // The addressless output sits next to an owned output that is recovered,
+    // so the void has a balance to reverse as well as the involvement counter.
     await mysql.query(
       `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
        VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
@@ -5041,7 +5004,7 @@ describe('a valid or malformed shielded vertex never stops sync', () => {
       tokenUid: Buffer.alloc(32, 0x00),
     });
     const event = parseReal((data) => {
-      data.shielded_outputs[0].commitment = 'not hex';
+      data.shielded_outputs[0].decoded = null;
     });
     await ingest(event);
 

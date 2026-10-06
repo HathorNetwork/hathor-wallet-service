@@ -35,8 +35,7 @@ import {
   StandardFullNodeEvent,
   EventTxHeader,
   isNanoHeader,
-  isMalformedShieldedOutput,
-  ShieldedOutputEntry,
+  ShieldedOutput,
 } from '../types';
 import {
   TxInput,
@@ -554,15 +553,16 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         let missingProviderAlertPending = false;
         const shieldedStorageViolations: ({ index: number }
           & Pick<Extract<ShieldedStorageCheck, { storable: false }>, 'scope' | 'reason'>)[] = [];
-        const malformedShieldedOutputs: { index: number; reason: string }[] = [];
 
         // Walk shielded_outputs[] with concatenated index = transparentCount + i.
         // A storable output produces three rows: the `tx_output` row, the
         // `shielded_tx_output_data` satellite carrying the per-output crypto payload,
         // and an `address` observation row (address + involvement only; the
         // CTSpend account and scan key are set when a wallet claims it).
-        // It lands in `recovery_state = 'unowned'` and is promoted in-line below when
-        // a wallet has claimed the spend address.
+        // It lands in `recovery_state = 'unowned'` and is promoted in-line below
+        // when a wallet has claimed the spend address, a crypto provider is
+        // registered and the output carries an ephemeral pubkey; otherwise it
+        // stays `unowned`.
         //
         // An output that does not fit its columns produces fewer: a satellite-scope
         // violation skips the payload and records `recovery_failed`; an output-scope
@@ -571,21 +571,11 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         // an address violation leaves nothing). Either way the vertex still
         // ingests — see checkShieldedOutputStorable.
         //
-        // An output whose payload failed validation, or that has no address,
-        // produces no rows at all — see the two checks at the top of the loop.
+        // An output with no address produces no rows at all — see the check at
+        // the top of the loop.
         for (let i = 0; i < shieldedOutputs.length; i++) {
           const so = shieldedOutputs[i];
           const idx = transparentCount + i;
-
-          if (isMalformedShieldedOutput(so)) {
-            // Nothing in the payload can be trusted, not even the address, so
-            // there is nothing to store. The rest of the vertex still ingests.
-            malformedShieldedOutputs.push({ index: idx, reason: so.reason });
-            logger.error('Shielded output parked: its payload failed validation', {
-              txId: hash, index: idx, reason: so.reason,
-            });
-            continue;
-          }
 
           if (!so.decoded) {
             // The script is not an address script, so no wallet can own this
@@ -696,13 +686,20 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
           // Skip the ownership lookup entirely when no rewind is possible: its
           // only purpose is to decide whether to rewind, and recording the
           // output as recovery_failed would strand it — the promote helper only
-          // advances rows that are still `unowned`. Without an ephemeral pubkey
-          // there is no shared secret to rewind from, so that output stays
-          // `unowned` too.
-          const owned = canRewind && hasEphemeralPubkey
+          // advances rows that are still `unowned`.
+          const owned = canRewind
             ? await findShieldedAddressOwnership(mysql, so.decoded.address)
             : null;
-          if (owned) {
+          if (owned && !hasEphemeralPubkey) {
+            // No shared secret to rewind from, so the output stays `unowned`
+            // and the recovery sweep skips it too. Wallet-lib likewise treats
+            // such an output as not the wallet's, but its funds then never
+            // show up for the address's owner, so it is traced.
+            logger.warn('Shielded output to a claimed address has no ephemeral pubkey; left unowned', {
+              txId: hash, index: idx, address: so.decoded.address,
+            });
+          }
+          if (owned && hasEphemeralPubkey) {
             try {
               if (isAmount) {
                 const tokenIdHex = resolveShieldedTokenId(so.token_data);
@@ -901,11 +898,8 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             // same set bumpAddressInvolvement consumed). Clients intersect
             // `addresses` with their own and refetch.
             // One entry per shielded output, so a client can still count
-            // positions: a malformed or addressless output reports no address.
+            // positions: an addressless output reports no address.
             shielded_outputs: shieldedOutputs.map((so) => {
-              if (isMalformedShieldedOutput(so)) {
-                return { mode: so.mode, decoded: null };
-              }
               const decoded = so.decoded ? { address: so.decoded.address } : null;
               // token_data only exists on AmountShielded; FullyShielded hides it.
               return so.mode === ShieldedOutputMode.AmountShielded
@@ -1006,26 +1000,6 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
               scope: first.scope,
               reason: first.reason,
               violations: shieldedStorageViolations.slice(0, ALERT_LIST_CAP),
-              source: 'daemon',
-            },
-          );
-        }
-
-        // One alert per vertex, matching the storage-violation alert above.
-        if (malformedShieldedOutputs.length > 0) {
-          const first = malformedShieldedOutputs[0];
-          await emitDeferredAlert(
-            'Shielded output failed validation',
-            `${malformedShieldedOutputs.length} shielded output(s) of ${hash} did not match the `
-            + `event schema and were not stored; the rest of the vertex ingested. First: index `
-            + `${first.index} — ${first.reason}`,
-            Severity.MAJOR,
-            {
-              tx_id: hash,
-              count: malformedShieldedOutputs.length,
-              index: first.index,
-              reason: first.reason,
-              outputs: malformedShieldedOutputs.slice(0, ALERT_LIST_CAP),
               source: 'daemon',
             },
           );
@@ -1213,7 +1187,7 @@ export const voidTx = async (
   hash: string,
   inputs: EventTxInput[],
   outputs: EventTxOutput[],
-  shieldedOutputs: ShieldedOutputEntry[],
+  shieldedOutputs: ShieldedOutput[],
   tokens: string[],
   headers: EventTxHeader[],
   version: number,

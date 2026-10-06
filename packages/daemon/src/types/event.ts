@@ -175,9 +175,9 @@ const OptionalShieldedDecodedSchema = z.preprocess(
   ShieldedDecodedSchema.nullable(),
 );
 
-// `.length(66)` pins commitment, ephemeral_pubkey and asset_commitment to 33
-// bytes, the width of their VARBINARY(33) columns. checkShieldedOutputStorable
-// relies on this and does not re-check them.
+// `.length(66)` pins commitment, asset_commitment and (when present)
+// ephemeral_pubkey to 33 bytes, the width of their VARBINARY(33) columns.
+// checkShieldedOutputStorable relies on this and does not re-check them.
 const BaseShieldedFieldsSchema = z.object({
   commitment: HexStringSchema.length(66),
   range_proof: Base64StringSchema,
@@ -207,63 +207,6 @@ export const ShieldedOutputSchema = z.discriminatedUnion('mode', [
 ]);
 export type ShieldedOutput = z.infer<typeof ShieldedOutputSchema>;
 
-/**
- * A shielded output of a known mode whose payload failed validation.
- *
- * Stands in for the output so its slot in the concatenated index space is
- * kept, while nothing from the payload is trusted: ingestion parks it and
- * alerts, and every other consumer skips it. A malformed payload is something
- * any sender can broadcast, so it must not stop sync — unlike an unknown mode,
- * which means the protocol moved on and still fails the whole event.
- */
-export interface MalformedShieldedOutput {
-  mode: ShieldedModeValue;
-  malformed: true;
-  reason: string;
-}
-
-type ShieldedModeValue = ShieldedOutput['mode'];
-
-export type ShieldedOutputEntry = ShieldedOutput | MalformedShieldedOutput;
-
-export const isMalformedShieldedOutput = (
-  output: ShieldedOutputEntry | SpentOutput,
-): output is MalformedShieldedOutput => (output as { malformed?: unknown }).malformed === true;
-
-/** Longest `reason` kept on a malformed output; it ends up in logs and alerts. */
-const MALFORMED_REASON_MAX_CHARS = 500;
-
-const describeIssues = (error: z.ZodError): string => error.issues
-  .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
-  .join('; ')
-  .slice(0, MALFORMED_REASON_MAX_CHARS);
-
-const KnownShieldedModeSchema = z.object({
-  mode: z.union([z.literal(1), z.literal(2)]),
-}).passthrough();
-
-/**
- * Parse a shielded output, or reduce it to a `MalformedShieldedOutput` when its
- * mode is known but the rest does not validate. Anything without a known mode
- * is left to the strict schema, which fails the event.
- */
-const toShieldedOutputEntry = (raw: unknown, ctx: z.RefinementCtx): ShieldedOutputEntry => {
-  const parsed = ShieldedOutputSchema.safeParse(raw);
-  if (parsed.success) {
-    return parsed.data;
-  }
-  const known = KnownShieldedModeSchema.safeParse(raw);
-  if (!known.success) {
-    for (const issue of parsed.error.issues) {
-      ctx.addIssue(issue);
-    }
-    return z.NEVER;
-  }
-  return { mode: known.data.mode, malformed: true, reason: describeIssues(parsed.error) };
-};
-
-const LenientShieldedOutputSchema = z.unknown().transform(toShieldedOutputEntry);
-
 const TransparentSpentOutputSchema = EventTxOutputSchema.extend({
   mode: z.literal(0),
 });
@@ -275,15 +218,11 @@ export const SpentOutputSchema = z.preprocess(
     }
     return raw;
   },
-  // Chosen by mode rather than tried in turn, so a failure names its real
-  // cause. A shielded spent output parses leniently: the output it spends was
-  // parked the same way when it was created, and its spend must not stop sync
-  // either.
-  z.unknown().transform((raw, ctx): z.infer<typeof TransparentSpentOutputSchema> | ShieldedOutputEntry => (
-    fieldOf(raw, 'mode') === 0
-      ? parseWith(TransparentSpentOutputSchema, raw, ctx)
-      : toShieldedOutputEntry(raw, ctx)
-  )),
+  z.discriminatedUnion('mode', [
+    TransparentSpentOutputSchema,
+    AmountShieldedOutputSchema,
+    FullyShieldedOutputSchema,
+  ]),
 );
 export type SpentOutput = z.infer<typeof SpentOutputSchema>;
 
@@ -306,18 +245,35 @@ export const EventTxNanoHeaderSchema = z.object({
 export type EventTxNanoHeader = z.infer<typeof EventTxNanoHeaderSchema>;
 
 /**
- * Any header that is not a nano header. hathor-core emits only nano headers
- * today, but the protocol defines others; the daemon does not act on them, so
- * accepting them keeps a new header type from stopping sync.
+ * Header ids the daemon can accept and ignore: fee (`11`), shielded outputs
+ * (`12`, already flattened into `shielded_outputs`) and unshield balance
+ * (`13`). Balances come from the inputs and outputs, so none of them carries
+ * anything to ingest. hathor-core emits only nano headers today.
+ *
+ * Deliberately an allowlist. Mint (`14`) and melt (`15`) headers change token
+ * supply, and any id not listed here may too, so those fail the event rather
+ * than being dropped without a trace.
  */
-const EventTxOtherHeaderSchema = z.object({ id: z.string() }).passthrough();
+const IGNORED_HEADER_IDS: ReadonlySet<string> = new Set(['11', '12', '13']);
+
+const EventTxIgnoredHeaderSchema = z.object({ id: z.string() }).passthrough();
 
 // Chosen by id, so a nano header must match the nano schema in full.
-export const EventTxHeaderSchema = z.unknown().transform((raw, ctx) => (
-  fieldOf(raw, 'id') === NANO_HEADER_ID
-    ? parseWith(EventTxNanoHeaderSchema, raw, ctx)
-    : parseWith(EventTxOtherHeaderSchema, raw, ctx)
-));
+export const EventTxHeaderSchema = z.unknown().transform((raw, ctx) => {
+  const id = fieldOf(raw, 'id');
+  if (id === NANO_HEADER_ID) {
+    return parseWith(EventTxNanoHeaderSchema, raw, ctx);
+  }
+  if (typeof id === 'string' && IGNORED_HEADER_IDS.has(id)) {
+    return parseWith(EventTxIgnoredHeaderSchema, raw, ctx);
+  }
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ['id'],
+    message: `header id ${String(id)} is not one the daemon can safely ignore`,
+  });
+  return z.NEVER;
+});
 export type EventTxHeader = z.infer<typeof EventTxHeaderSchema>;
 
 export function isNanoHeader(header: EventTxHeader): header is EventTxNanoHeader {
@@ -332,7 +288,7 @@ export const TxEventDataWithoutMetaSchema = z.object({
   nonce: bigIntUtils.bigIntCoercibleSchema,
   inputs: EventTxInputSchema.array(),
   outputs: EventTxOutputSchema.array(),
-  shielded_outputs: z.array(LenientShieldedOutputSchema).default([]),
+  shielded_outputs: z.array(ShieldedOutputSchema).default([]),
   headers: EventTxHeaderSchema.array().optional(),
   parents: z.string().array(),
   tokens: z.string().array(),
