@@ -88,8 +88,33 @@ export type ShieldedStorageCheck =
    */
   | { storable: false; scope: 'output' | 'satellite'; reason: string };
 
-/** Byte length of a hex-encoded field. */
-const hexBytes = (hexString: string): number => Math.floor(hexString.length / 2);
+/**
+ * Decoded byte length of a hex-encoded wire field, or `null` if the value is
+ * not hex.
+ *
+ * The caller measures the wire string rather than a decoded Buffer, so it is
+ * coupled to the encoding the event schema accepts. That coupling is made to
+ * fail closed: if a field ever arrives in another encoding (base64, say, which
+ * is what hathor-core emits for these fields), `length / 2` would under-count
+ * by a third and wave through a value the column cannot hold — the exact halt
+ * this guard exists to prevent. Returning `null` instead parks the output with
+ * an alert, which is recoverable; a sync halt is not.
+ */
+const HEX_FIELD = /^(?:[0-9a-fA-F]{2})*$/;
+const hexBytes = (hexString: string): number | null => (
+  HEX_FIELD.test(hexString) ? hexString.length / 2 : null
+);
+
+/** A field that is over its column, or not in the encoding we can measure. */
+const overSized = (
+  field: string, value: string, max: number,
+): { reason: string } | null => {
+  const bytes = hexBytes(value);
+  if (bytes === null) {
+    return { reason: `${field} is not hex-encoded, so its stored size cannot be checked` };
+  }
+  return bytes > max ? { reason: `${field} is ${bytes} bytes, column holds ${max}` } : null;
+};
 
 /**
  * Whether a shielded output from the wire fits the columns it is stored in.
@@ -137,29 +162,13 @@ export const checkShieldedOutputStorable = (output: {
     };
   }
 
-  if (hexBytes(output.script) > SCRIPT_COLUMN_MAX_BYTES) {
-    return {
-      storable: false,
-      scope: 'satellite',
-      reason: `script is ${hexBytes(output.script)} bytes, column holds ${SCRIPT_COLUMN_MAX_BYTES}`,
-    };
-  }
-
-  if (hexBytes(output.range_proof) > BLOB_COLUMN_MAX_BYTES) {
-    return {
-      storable: false,
-      scope: 'satellite',
-      reason: `range_proof is ${hexBytes(output.range_proof)} bytes, column holds ${BLOB_COLUMN_MAX_BYTES}`,
-    };
-  }
-
-  if (output.surjection_proof
-    && hexBytes(output.surjection_proof) > BLOB_COLUMN_MAX_BYTES) {
-    return {
-      storable: false,
-      scope: 'satellite',
-      reason: `surjection_proof is ${hexBytes(output.surjection_proof)} bytes, column holds ${BLOB_COLUMN_MAX_BYTES}`,
-    };
+  const sized = overSized('script', output.script, SCRIPT_COLUMN_MAX_BYTES)
+    ?? overSized('range_proof', output.range_proof, BLOB_COLUMN_MAX_BYTES)
+    ?? (output.surjection_proof
+      ? overSized('surjection_proof', output.surjection_proof, BLOB_COLUMN_MAX_BYTES)
+      : null);
+  if (sized) {
+    return { storable: false, scope: 'satellite', reason: sized.reason };
   }
 
   if (output.token_data != null

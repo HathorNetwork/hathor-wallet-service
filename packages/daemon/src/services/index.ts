@@ -912,8 +912,9 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
           const first = shieldedStorageViolations[0];
           await emitDeferredAlert(
             'Shielded output exceeds its storage limits',
-            `${shieldedStorageViolations.length} shielded output(s) of ${hash} were not stored. `
-            + `First: index ${first.index} — ${first.reason}`,
+            `${shieldedStorageViolations.length} shielded output(s) of ${hash} were not fully `
+            + `stored (satellite-scope keeps the tx_output row as recovery_failed; output-scope `
+            + `writes nothing). First: index ${first.index}, scope ${first.scope} — ${first.reason}`,
             Severity.MAJOR,
             {
               tx_id: hash,
@@ -927,17 +928,23 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
           );
         }
 
-        for (const anomaly of shieldedInputAnomalies) {
+        // One alert per vertex, matching the storage-violation alert above.
+        if (shieldedInputAnomalies.length > 0) {
+          const first = shieldedInputAnomalies[0];
           await emitDeferredAlert(
             'Shielded input resolved to a non-shielded output',
-            `Input ${anomaly.txId}:${anomaly.index} is declared shielded on the wire but the `
-            + `stored row has mode ${anomaly.storedMode}; its balance was not reversed and a `
-            + 'transparent output at that index may have been marked spent.',
+            `${shieldedInputAnomalies.length} input(s) of ${hash} are declared shielded on the `
+            + `wire while the stored row is transparent, so the concatenated-index assumption `
+            + `does not hold for this vertex. They were excluded before anything was marked `
+            + `spent, so no transparent UTXO was consumed and no balance was reversed. `
+            + `First: ${first.txId}:${first.index}, stored mode ${first.storedMode}.`,
             Severity.MAJOR,
             {
-              tx_id: anomaly.txId,
-              index: anomaly.index,
-              stored_mode: anomaly.storedMode,
+              // The vertex doing the spending, so the alert names the offender.
+              tx_id: hash,
+              count: shieldedInputAnomalies.length,
+              first_input: { tx_id: first.txId, index: first.index, stored_mode: first.storedMode },
+              anomalies: shieldedInputAnomalies,
               source: 'daemon',
             },
           );

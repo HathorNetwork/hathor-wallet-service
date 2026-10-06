@@ -27,22 +27,19 @@ export interface Wallet {
 }
 
 /**
- * A wallet is attributable for balance once neither lifecycle is still loading.
+ * A wallet is only attributable for balance once BOTH lifecycles have settled.
  *
- * While a side is loading, the load worker is rebuilding `wallet_balance`
- * absolutely from `address_balance`; attributing incremental deltas at the same
- * time races that rebuild and the increment is silently lost. This has to
- * consider `ct_status` too — a shielded upgrade runs with `status = 'ready'`
- * while `ct_status = 'creating'`.
- *
- * A side that ended in `error` is not loading: its load has terminated, and a
- * retry goes back through `creating`. So `error` must not withhold attribution,
- * or a failed shielded registration would also freeze the wallet's ordinary
- * transparent balance.
+ * While either side is still loading, the load worker is rebuilding
+ * `wallet_balance` absolutely from `address_balance`; attributing incremental
+ * deltas at the same time races that rebuild and the increment is silently lost.
+ * Note this must consider `ct_status` too — a shielded upgrade runs with
+ * `status = 'ready'` while `ct_status = 'creating'`.
  */
 export const isWalletAttributable = (wallet: Wallet): boolean => (
   wallet.status === WalletStatus.READY
-  && wallet.ctStatus !== WalletStatus.CREATING
+  && (wallet.ctStatus === undefined
+    || wallet.ctStatus === 'none'
+    || wallet.ctStatus === WalletStatus.READY)
 );
 
 export type TokenBalanceValue = {

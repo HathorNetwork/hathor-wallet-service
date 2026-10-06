@@ -2347,6 +2347,46 @@ describe('handleVertexAccepted with shielded outputs', () => {
     expect(receivedRangeProofs).toEqual([Buffer.alloc(64, 0x03)]);
   });
 
+  it('groups multiple storage violations into one alert per vertex', async () => {
+    expect.hasAssertions();
+
+    // Two violating outputs. A regression to one alert per output would double
+    // this count, which nothing else in the suite would notice.
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    const template = fixture.event.data.shielded_outputs[0];
+    fixture.event.data.shielded_outputs = [
+      { ...JSON.parse(JSON.stringify(template)), token_data: 0, script: 'ab'.repeat(1025) },
+      { ...JSON.parse(JSON.stringify(template)), token_data: 0, script: 'cd'.repeat(1025) },
+    ];
+    fixture.event.data.hash = 'ba'.repeat(32);
+    const txHash = fixture.event.data.hash;
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+
+    await expect(handleVertexAccepted({
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    } as any, undefined as any)).resolves.not.toThrow();
+
+    const violations = mockAddAlert.mock.calls
+      .filter(([title]) => title === 'Shielded output exceeds its storage limits');
+    expect(violations).toHaveLength(1);
+    expect(violations[0][3]).toMatchObject({ tx_id: txHash, count: 2 });
+    expect(violations[0][3].violations).toHaveLength(2);
+
+    // Both rows are parked, neither halts the vertex.
+    for (const index of [1, 2]) {
+      const row = await getTxOutput(mysql, txHash, index, false);
+      expect(row!.recoveryState).toBe('recovery_failed');
+    }
+  });
+
   it('ingests the vertex when a shielded output address is wider than its column', async () => {
     expect.hasAssertions();
 
@@ -3704,9 +3744,16 @@ describe('handleVertexAccepted with shielded spends', () => {
       .filter(([title]) => title === 'Shielded input resolved to a non-shielded output');
     expect(anomalyAlerts).toHaveLength(1);
     expect(anomalyAlerts[0][2]).toBe(Severity.MAJOR);
+    // tx_id is the SPENDING vertex, so the alert names the offender; the
+    // offending input is carried separately.
     expect(anomalyAlerts[0][3]).toMatchObject({
-      tx_id: PREV_TX_ID, index: PREV_INDEX, stored_mode: 0,
+      tx_id: SPEND_TX_ID,
+      count: 1,
+      first_input: { tx_id: PREV_TX_ID, index: PREV_INDEX, stored_mode: 0 },
     });
+    // The old message claimed a transparent output "may have been marked
+    // spent"; the pre-spend partition makes that impossible.
+    expect(anomalyAlerts[0][1]).not.toContain('may have been marked spent');
 
     logSpy.mockRestore();
   });

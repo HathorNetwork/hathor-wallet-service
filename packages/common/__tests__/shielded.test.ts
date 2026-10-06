@@ -83,6 +83,16 @@ describe('checkShieldedOutputStorable', () => {
       .toMatchObject({ storable: false, scope: 'satellite' });
   });
 
+  it('parks a field it cannot measure rather than waving it through', () => {
+    // base64 is what hathor-core actually emits for these fields; measuring it
+    // as hex would under-count by a third and let an over-column value reach
+    // the INSERT, which is the halt this guard exists to prevent.
+    const result = checkShieldedOutputStorable(amountOutput({ script: 'AAAA++//' }));
+
+    expect(result).toMatchObject({ storable: false, scope: 'satellite' });
+    expect((result as { reason: string }).reason).toContain('not hex-encoded');
+  });
+
   it('rejects the whole output when the address does not fit its column', () => {
     // `address` is the one field on tx_output itself, so the row cannot be
     // stored at all — not even as a failed recovery.
