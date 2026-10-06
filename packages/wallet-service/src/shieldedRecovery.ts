@@ -67,7 +67,7 @@ export const recoverShieldedOutput = async (
         ephemeralPubkey: output.ephemeralPubkey,
         commitment: output.commitment,
         rangeProof: output.rangeProof,
-        tokenUid: Buffer.from(output.tokenId, 'hex'),
+        tokenId: output.tokenId,
       });
       value = r.value;
       tokenId = output.tokenId;

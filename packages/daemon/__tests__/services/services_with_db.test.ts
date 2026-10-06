@@ -53,12 +53,14 @@ import {
 import { DbTxOutput, EventTxInput } from '../../src/types';
 import { Connection } from 'mysql2/promise';
 import eventsFixture from '../__fixtures__/events';
+import logger from '../../src/logger';
 import alphaV4ShieldedVertexEvent from '../__fixtures__/alpha-v4-shielded-vertex-event';
 import alphaV4FullyShieldedSpendEvent from '../__fixtures__/alpha-v4-fully-shielded-spend-event';
 import { FullNodeEventSchema } from '../../src/types/event';
 import {
   primeAmountRewind,
   primeFullyRewind,
+  lastAmountRewindArgs,
   receivedRangeProofs,
   resetCtCryptoMock,
 } from '../mocks/ct-crypto-node';
@@ -2345,6 +2347,205 @@ describe('handleVertexAccepted with shielded outputs', () => {
     expect(receivedRangeProofs).toEqual([Buffer.alloc(64, 0x03)]);
   });
 
+  it('groups multiple storage violations into one alert per vertex', async () => {
+    expect.hasAssertions();
+
+    // Two violating outputs. A regression to one alert per output would double
+    // this count, which nothing else in the suite would notice.
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    const template = fixture.event.data.shielded_outputs[0];
+    fixture.event.data.shielded_outputs = [
+      { ...JSON.parse(JSON.stringify(template)), token_data: 0, script: Buffer.alloc(1025, 0xab).toString('base64') },
+      { ...JSON.parse(JSON.stringify(template)), token_data: 0, script: Buffer.alloc(1025, 0xcd).toString('base64') },
+    ];
+    fixture.event.data.hash = 'ba'.repeat(32);
+    const txHash = fixture.event.data.hash;
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+
+    await expect(handleVertexAccepted({
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    } as any, undefined as any)).resolves.not.toThrow();
+
+    const violations = mockAddAlert.mock.calls
+      .filter(([title]) => title === 'Shielded output exceeds its storage limits');
+    expect(violations).toHaveLength(1);
+    expect(violations[0][3]).toMatchObject({ tx_id: txHash, count: 2 });
+    expect(violations[0][3].violations).toHaveLength(2);
+
+    // Both rows are parked, neither halts the vertex.
+    for (const index of [1, 2]) {
+      const row = await getTxOutput(mysql, txHash, index, false);
+      expect(row!.recoveryState).toBe('recovery_failed');
+    }
+  });
+
+  it('ingests the vertex when a shielded output address is wider than its column', async () => {
+    expect.hasAssertions();
+
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0].token_data = 0;
+    // 35 chars: one past tx_output.address and address.address VARCHAR(34).
+    // Skipping insertTxOutput alone is not enough — the address also reaches
+    // `address` through bumpAddressInvolvement.
+    fixture.event.data.shielded_outputs[0].decoded.address = 'W'.repeat(35);
+    const txHash = fixture.event.data.hash;
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+
+    await expect(handleVertexAccepted({
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    } as any, undefined as any)).resolves.not.toThrow();
+
+    // The vertex ingested and its transparent output is intact.
+    const [txRows] = await mysql.query<any[]>('SELECT `tx_id` FROM `transaction` WHERE `tx_id` = ?', [txHash]);
+    expect(txRows).toHaveLength(1);
+    expect(await getTxOutput(mysql, txHash, 0, false)).not.toBeNull();
+
+    // Neither the shielded tx_output nor an `address` row could be written.
+    expect(await getTxOutput(mysql, txHash, 1, false)).toBeNull();
+    const [addrRows] = await mysql.query<any[]>(
+      'SELECT `address` FROM `address` WHERE `address` = ?', ['W'.repeat(35)],
+    );
+    expect(addrRows).toHaveLength(0);
+
+    const violations = mockAddAlert.mock.calls
+      .filter(([title]) => title === 'Shielded output exceeds its storage limits');
+    expect(violations).toHaveLength(1);
+    expect(violations[0][3]).toMatchObject({ scope: 'output' });
+  });
+
+  it('parks an oversized shielded output and still ingests the vertex', async () => {
+    expect.hasAssertions();
+
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0].token_data = 0;
+    // One byte past the VARBINARY(1024) script column: under strict mode the
+    // INSERT raises ER_DATA_TOO_LONG inside the ingest transaction, which
+    // would halt sync.
+    fixture.event.data.shielded_outputs[0].script = Buffer.alloc(1025, 0xab).toString('base64');
+    const txHash = fixture.event.data.hash;
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+
+    // Must not throw: a throw here reaches the sync machine's terminal state.
+    await expect(handleVertexAccepted({
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    } as any, undefined as any)).resolves.not.toThrow();
+
+    // The vertex itself ingested, transparent output and all.
+    const [txRows] = await mysql.query<any[]>('SELECT `tx_id` FROM `transaction` WHERE `tx_id` = ?', [txHash]);
+    expect(txRows).toHaveLength(1);
+    expect(await getTxOutput(mysql, txHash, 0, false)).not.toBeNull();
+
+    // The output is recorded as a failed recovery, with no satellite row.
+    const txOutput = await getTxOutput(mysql, txHash, 1, false);
+    expect(txOutput!.recoveryState).toBe('recovery_failed');
+    const [satRows] = await mysql.query<any[]>(
+      'SELECT `tx_id` FROM `shielded_tx_output_data` WHERE `tx_id` = ?', [txHash],
+    );
+    expect(satRows).toHaveLength(0);
+
+    // And it is reported.
+    const violations = mockAddAlert.mock.calls
+      .filter(([title]) => title === 'Shielded output exceeds its storage limits');
+    expect(violations).toHaveLength(1);
+    expect(violations[0][2]).toBe(Severity.MAJOR);
+    expect(violations[0][3]).toMatchObject({ tx_id: txHash, index: 1, scope: 'satellite' });
+    // Sized from the decoded bytes, not from the length of the base64 string.
+    expect(violations[0][3].reason).toBe('script is 1025 bytes, column holds 1024');
+  });
+
+  it('parks an out-of-range token_data without recording a token for it', async () => {
+    expect.hasAssertions();
+
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    // One past the TINYINT UNSIGNED column. The token-index mask would fold
+    // 256 onto HTR, so the parked row must not claim a token at all.
+    fixture.event.data.shielded_outputs[0].token_data = 256;
+    const txHash = fixture.event.data.hash;
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+
+    await expect(handleVertexAccepted({
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    } as any, undefined as any)).resolves.not.toThrow();
+
+    const txOutput = await getTxOutput(mysql, txHash, 1, false);
+    expect(txOutput!.recoveryState).toBe('recovery_failed');
+    expect(txOutput!.tokenId).toBeNull();
+  });
+
+  it('hands the provider a 32-byte token uid for a native-token shielded output', async () => {
+    expect.hasAssertions();
+
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0].token_data = 0; // native token (HTR)
+    const so = fixture.event.data.shielded_outputs[0];
+
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [so.decoded.address, Buffer.alloc(32, 0x42)],
+    );
+
+    resetCtCryptoMock();
+    primeAmountRewind({
+      commitment: Buffer.from(so.commitment, 'hex'),
+      ephemeralPubkey: Buffer.from(so.ephemeral_pubkey, 'hex'),
+      value: 150n,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+
+    await handleVertexAccepted({
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    } as any, undefined as any);
+
+    // A 1-byte '00' would make every native-token rewind fail even with a
+    // working provider, because the asset generator is derived from this uid.
+    const args = lastAmountRewindArgs();
+    expect(args).not.toBeNull();
+    expect(args!.tokenUid).toHaveLength(32);
+
+    // The stored token id stays canonical.
+    const txOutput = await getTxOutput(mysql, fixture.event.data.hash, 1, false);
+    expect(txOutput!.tokenId).toBe('00');
+  });
+
   it('recovers a matched FullyShielded output, taking token_id from the rewind result', async () => {
     expect.hasAssertions();
 
@@ -3512,6 +3713,77 @@ describe('handleVertexAccepted with shielded spends', () => {
     );
     expect(walletBalanceRows).toHaveLength(1);
     expect(BigInt(walletBalanceRows[0].unlocked_shielded_balance)).toBe(0n);
+  });
+  it('does not debit when a shielded input resolves to a transparent row', async () => {
+    expect.hasAssertions();
+
+    // The wire declares an AmountShielded input, but the row stored at that
+    // (tx_id, index) is transparent (mode 0, NULL recovery_state) — which is
+    // what a wrong index-space assumption would resolve to.
+    await mysql.query(
+      `INSERT INTO tx_output
+         (tx_id, \`index\`, mode, address, value, token_id, authorities,
+          timelock, heightlock, locked, voided, spent_by, recovery_state)
+       VALUES (?, ?, 0, ?, ?, ?, 0, NULL, NULL, FALSE, FALSE, NULL, NULL)`,
+      [PREV_TX_ID, PREV_INDEX, SHIELDED_ADDRESS, SEEDED_VALUE.toString(), TOKEN_ID],
+    );
+
+    const logSpy = jest.spyOn(logger, 'error').mockImplementation(() => logger);
+    mockAddAlert.mockClear();
+
+    await handleVertexAccepted({
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildSpendingVertex(),
+    } as any, undefined as any);
+
+    // No balance may be derived from the wrong row. The vertex has no outputs,
+    // so nothing should create a per-token row for this address at all.
+    const [balRows] = await mysql.query<any[]>(
+      'SELECT `unlocked_shielded_balance` FROM `address_balance` WHERE `address` = ? AND `token_id` = ?',
+      [SHIELDED_ADDRESS, TOKEN_ID],
+    );
+    expect(balRows).toHaveLength(0);
+
+    // The decisive assertion: the transparent row must NOT have been marked
+    // spent. updateTxOutputSpentBy runs before the balance map, so detecting
+    // the mismatch later would leave this irreversible write committed.
+    const [spentRows] = await mysql.query<any[]>(
+      'SELECT `spent_by` FROM `tx_output` WHERE `tx_id` = ? AND `index` = ?',
+      [PREV_TX_ID, PREV_INDEX],
+    );
+    expect(spentRows).toHaveLength(1);
+    expect(spentRows[0].spent_by).toBeNull();
+
+    // And the mismatch must be reported, not skipped quietly.
+    expect(logSpy).toHaveBeenCalledWith(
+      'shielded input resolved to a non-shielded tx_output',
+      expect.objectContaining({
+        txId: PREV_TX_ID,
+        index: PREV_INDEX,
+        wireMode: 1,
+        storedMode: 0,
+      }),
+    );
+
+    const anomalyAlerts = mockAddAlert.mock.calls
+      .filter(([title]) => title === 'Shielded input resolved to a non-shielded output');
+    expect(anomalyAlerts).toHaveLength(1);
+    expect(anomalyAlerts[0][2]).toBe(Severity.MAJOR);
+    // tx_id is the spending vertex, whose inputs were excluded; the funding
+    // tx whose layout is wrong is carried in first_input.
+    expect(anomalyAlerts[0][3]).toMatchObject({
+      tx_id: SPEND_TX_ID,
+      count: 1,
+      first_input: { tx_id: PREV_TX_ID, index: PREV_INDEX, stored_mode: 0 },
+    });
+    expect(anomalyAlerts[0][1]).toContain('no UTXO was unlocked or marked spent');
+
+    logSpy.mockRestore();
   });
 });
 

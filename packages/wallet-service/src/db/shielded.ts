@@ -138,6 +138,17 @@ export interface ShieldedOutputToRecover {
  * on-chain crypto bytes (`shielded_tx_output_data`) needed to rewind them. So a
  * catch-up re-drives previously-failed outputs too, and failed ones are never
  * downgraded to `unowned`. Ordered by (tx_id, index) so pagination is stable.
+ *
+ * `recovery_state <> 'recovered'` carries two different meanings, and nothing on
+ * the `tx_output` row distinguishes them:
+ *   - a rewind that failed and should be retried, and
+ *   - an output the daemon parked because its payload did not fit its columns.
+ *
+ * The INNER JOIN on `shielded_tx_output_data` is what separates them: a parked
+ * output has no satellite row, so it is never selected here and is terminal by
+ * construction — nothing in this system can rewind a payload that was never
+ * stored. Keep that join if this query is ever rewritten, or parked outputs will
+ * be re-driven forever.
  */
 export const getShieldedOutputsToRecover = async (
   mysql: ServerlessMysql,

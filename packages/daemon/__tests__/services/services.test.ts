@@ -117,6 +117,8 @@ jest.mock('../../src/utils', () => ({
   getAddressBalanceMap: jest.fn(),
   getInvolvedAddresses: jest.fn(() => new Set<string>()),
   getUnifiedBalanceMap: jest.fn().mockResolvedValue({}),
+  // These vertices carry no shielded inputs, so every input is spendable.
+  partitionShieldedInputs: jest.fn(async (_mysql, inputs) => inputs),
   validateAddressBalances: jest.fn(),
   LRU: jest.fn(),
   unlockTimelockedUtxos: jest.fn(),

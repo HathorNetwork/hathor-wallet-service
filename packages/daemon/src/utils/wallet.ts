@@ -44,7 +44,12 @@ import {
   updateAddressLockedBalance,
   updateWalletLockedBalance,
 } from '../db';
-import { ShieldedOutputMode, RecoveryState, isShieldedMode } from '@wallet-service/common';
+import {
+  ShieldedOutputMode,
+  RecoveryState,
+  isShieldedMode,
+  ADDRESS_COLUMN_MAX_CHARS,
+} from '@wallet-service/common';
 import logger from '../logger';
 import { stringMapIterator } from './helpers';
 
@@ -210,8 +215,28 @@ export const getInvolvedAddresses = (
   outputs: EventTxOutput[],
   shieldedOutputs: ShieldedOutput[],
   headers: EventTxHeader[],
+  txId?: string,
 ): Set<string> => {
   const involved = new Set<string>();
+
+  // An address wider than its column can have no row in `address` or
+  // `tx_output`, and letting one reach bumpAddressInvolvement fails the whole
+  // ingest transaction — which halts sync permanently. Dropping it here covers
+  // every source this function walks, including a shielded input's address,
+  // which the output loop never sees. Nano header addresses reach
+  // `updateAddressTablesWithTx` by a separate route and are not covered.
+  const addInvolved = (address: string | undefined | null): void => {
+    if (!address) return;
+    if (address.length > ADDRESS_COLUMN_MAX_CHARS) {
+      logger.error('dropping an over-cap address from the involvement set', {
+        txId,
+        length: address.length,
+        max: ADDRESS_COLUMN_MAX_CHARS,
+      });
+      return;
+    }
+    involved.add(address);
+  };
 
   for (const input of inputs) {
     const spent = input?.spent_output;
@@ -221,23 +246,22 @@ export const getInvolvedAddresses = (
     // decode failed upstream; skip empty/unknown values.
     const decoded = (spent as { decoded?: { address?: string } | null }).decoded;
     const address = decoded && (decoded as { address?: string }).address;
-    if (address) involved.add(address);
+    addInvolved(address);
   }
 
   for (const output of outputs) {
     if (!isDecodedValid(output.decoded, ['address'])) continue;
     const address = (output.decoded as { address?: string }).address;
-    if (address) involved.add(address);
+    addInvolved(address);
   }
 
   for (const so of shieldedOutputs) {
-    const address = so.decoded?.address;
-    if (address) involved.add(address);
+    addInvolved(so.decoded?.address);
   }
 
   for (const header of headers) {
     if (!isNanoHeader(header)) continue;
-    if (header.nc_address) involved.add(header.nc_address);
+    addInvolved(header.nc_address);
   }
 
   return involved;
@@ -255,6 +279,59 @@ export interface ShieldedRecoveryResult {
   value: bigint;
   locked: boolean;
 }
+
+/**
+ * A shielded input whose stored row contradicts the mode declared on the wire.
+ * Collected so the caller can alert after the ingest transaction commits.
+ */
+export interface ShieldedInputAnomaly {
+  txId: string;
+  index: number;
+  storedMode: number;
+}
+
+/**
+ * Split the event inputs into those safe to act on and those whose stored row
+ * contradicts the mode declared on the wire.
+ *
+ * Shielded outputs are assumed to occupy the concatenated index space after the
+ * transparent ones. If that is ever wrong, `(tx_id, index)` for a shielded
+ * input resolves to the funding vertex's *transparent* output at that index,
+ * and acting on it writes against a real user UTXO: the unlock moves value
+ * between the locked and unlocked balance columns (there is no re-lock path) and
+ * `updateTxOutputSpentBy` marks the row spent. Ingestion therefore runs this
+ * before either, and excludes the offenders, rather than detecting the
+ * mismatch once the writes are already in the transaction.
+ *
+ * Mismatches are logged here and pushed to `anomalies` for the caller to alert
+ * on after the transaction commits — an SQS round-trip must not hold row locks.
+ */
+export const partitionShieldedInputs = async (
+  mysql: MysqlConnection,
+  eventInputs: EventTxInput[],
+  anomalies: ShieldedInputAnomaly[],
+): Promise<EventTxInput[]> => {
+  const safe: EventTxInput[] = [];
+  for (const ei of eventInputs) {
+    if (!ei?.spent_output || !isShieldedMode(ei.spent_output.mode)) {
+      safe.push(ei);
+      continue;
+    }
+    const row = await getTxOutput(mysql, ei.tx_id, ei.index, false);
+    if (row && !isShieldedMode(row.mode)) {
+      logger.error('shielded input resolved to a non-shielded tx_output', {
+        txId: ei.tx_id,
+        index: ei.index,
+        wireMode: ei.spent_output.mode,
+        storedMode: row.mode,
+      });
+      anomalies.push({ txId: ei.tx_id, index: ei.index, storedMode: row.mode });
+      continue;
+    }
+    safe.push(ei);
+  }
+  return safe;
+};
 
 /**
  * Build the unified per-(address, token) balance map for a vertex.
@@ -335,6 +412,16 @@ export const getUnifiedBalanceMap = async (
     if (!ei?.spent_output || !isShieldedMode(ei.spent_output.mode)) continue;
     const row = await getTxOutput(mysql, ei.tx_id, ei.index, false);
     if (!row) continue;
+    // The wire says this input spends a shielded output. If the row stored at
+    // that (tx_id, index) is transparent, the concatenated-index assumption
+    // (shielded outputs numbered after the transparent ones) does not hold and
+    // deriving a debit from the wrong row would overstate the
+    // balance. Ingestion never reaches this branch — `partitionShieldedInputs`
+    // removes those inputs first, which is also what reports them — so this is
+    // the void path's safety net, where the raw inputs are passed. The next
+    // guard would skip a transparent row anyway (its `recovery_state` is NULL);
+    // this makes the reason explicit rather than incidental.
+    if (!isShieldedMode(row.mode)) continue;
     if (row.recoveryState !== RecoveryState.Recovered) continue;
     if (row.value === null || row.tokenId === null) continue;
     const owned = await findShieldedAddressOwnership(mysql, row.address);

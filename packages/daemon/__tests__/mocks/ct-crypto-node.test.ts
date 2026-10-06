@@ -22,7 +22,7 @@ describe('ctRewind mock', () => {
       ephemeralPubkey: ephem,
       commitment,
       rangeProof: Buffer.alloc(64),
-      tokenUid,
+      tokenId: tokenUid.toString('hex'),
     });
     expect(r.value).toBe(1500n);
   });
@@ -34,7 +34,7 @@ describe('ctRewind mock', () => {
         ephemeralPubkey: Buffer.alloc(33),
         commitment: Buffer.alloc(33),
         rangeProof: Buffer.alloc(64),
-        tokenUid: Buffer.alloc(32),
+        tokenId: '00', // canonical native token, expanded by rewindAmount
       }),
     ).rejects.toThrow();
   });
