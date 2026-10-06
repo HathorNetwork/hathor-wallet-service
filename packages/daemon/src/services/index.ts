@@ -16,6 +16,7 @@ import {
   RecoveryState,
   isShieldedMode,
   checkShieldedOutputStorable,
+  ShieldedStorageCheck,
 } from '@wallet-service/common';
 import {
   StringMap,
@@ -470,10 +471,11 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
         // Validate the shielded inputs before anything acts on them. A
         // wire-shielded input whose stored row is transparent means the
-        // concatenated-index assumption does not hold for this vertex, and
-        // every path below would otherwise mutate the wrong row: the unlock
-        // moves value between the locked and unlocked columns (with no re-lock
-        // path), and updateTxOutputSpentBy marks a real transparent UTXO spent.
+        // concatenated-index assumption does not hold for the vertex that
+        // created that output, and every path below would otherwise mutate the
+        // wrong row: the unlock moves value between the locked and unlocked
+        // columns (with no re-lock path), and updateTxOutputSpentBy marks a
+        // real transparent UTXO spent.
         // Both are committed in this transaction, so the exclusion has to come
         // first — detecting it afterwards would only describe the damage.
         //
@@ -518,6 +520,12 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         const shieldedOutputs = fullNodeEvent.event.data.shielded_outputs ?? [];
         const transparentCount = outputs.length;
         const resolveShieldedTokenId = (tokenData: number): string | null => {
+          // Out of range for the TINYINT column: the index mask below would
+          // otherwise fold it onto a real token and record a false token_id
+          // on the parked row.
+          if (tokenData < 0 || tokenData > 0xFF) {
+            return null;
+          }
           const idx = hathorLib.tokensUtils.getTokenIndexFromData(tokenData) - 1;
           if (idx < 0) {
             return hathorLib.constants.NATIVE_TOKEN_UID;
@@ -542,7 +550,8 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         // registered at any time, and a stale `false` would hide real failures.
         const canRewind = isShieldedCryptoProviderRegistered();
         let missingProviderAlertPending = false;
-        const shieldedStorageViolations: { index: number; scope: string; reason: string }[] = [];
+        const shieldedStorageViolations: ({ index: number }
+          & Pick<Extract<ShieldedStorageCheck, { storable: false }>, 'scope' | 'reason'>)[] = [];
 
         // Walk shielded_outputs[] with concatenated index = transparentCount + i.
         // A storable output produces three rows: the `tx_output` row, the
@@ -588,6 +597,11 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             shieldedStorageViolations.push({
               index: idx, scope: storage.scope, reason: storage.reason,
             });
+            // Logged here as well as alerted: the alert is only sent after
+            // commit, and an output-scope park leaves no row behind.
+            logger.error('Shielded output parked: it does not fit its storage columns', {
+              txId: hash, index: idx, scope: storage.scope, reason: storage.reason,
+            });
             if (storage.scope === 'output') {
               // The violation is on tx_output itself; no row can be written.
               continue;
@@ -619,9 +633,11 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
           });
 
           if (!storage.storable) {
-            // Terminal by construction: the crypto payload is never stored, so
-            // nothing in this system can ever rewind this output. `unowned`
-            // would falsely advertise it as promotable to a catch-up sweep.
+            // `recovery_failed` because that is the true state: the crypto
+            // payload is never stored, so nothing in this system can rewind
+            // this output. The recovery sweep cannot reach it in either state —
+            // it inner-joins on `shielded_tx_output_data`, which this output
+            // never gets.
             await upsertShieldedAddressObservation(mysql, so.decoded.address);
             continue;
           }
@@ -963,13 +979,15 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             'Shielded input resolved to a non-shielded output',
             `${shieldedInputAnomalies.length} input(s) of ${hash} are declared shielded on the `
             + `wire while the stored row is transparent, so the concatenated-index assumption `
-            + `does not hold for this vertex. They were excluded before anything read or wrote `
+            + `does not hold for the transaction(s) that created those outputs (first: `
+            + `${first.txId}). They were excluded before anything read or wrote `
             + `them, so no UTXO was unlocked or marked spent and no balance moved. Their `
             + `addresses do still count toward address.transactions, which the void path `
             + `reverses. First: ${first.txId}:${first.index}, stored mode ${first.storedMode}.`,
             Severity.MAJOR,
             {
-              // The vertex doing the spending, so the alert names the offender.
+              // The spending vertex, whose inputs were excluded. The funding
+              // tx whose layout is wrong is in first_input / inputs.
               tx_id: hash,
               count: shieldedInputAnomalies.length,
               first_input: { tx_id: first.txId, index: first.index, stored_mode: first.storedMode },

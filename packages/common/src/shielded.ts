@@ -131,7 +131,9 @@ export const checkShieldedOutputStorable = (output: {
     return {
       storable: false,
       scope: 'output',
-      reason: `decoded.address is ${address?.length ?? 0} chars, column holds ${ADDRESS_COLUMN_MAX_CHARS}`,
+      reason: typeof address !== 'string'
+        ? 'decoded.address is missing or not a string'
+        : `decoded.address is ${address.length} chars, column holds ${ADDRESS_COLUMN_MAX_CHARS}`,
     };
   }
 

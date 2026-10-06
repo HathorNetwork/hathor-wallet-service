@@ -1,5 +1,4 @@
 // Anomalous shielded inputs: a wire-shielded input whose stored row is transparent.
-// Place in packages/daemon/__tests__/services/ and run with the DB test env.
 const mockAddAlert = jest.fn();
 jest.mock('@wallet-service/common', () => ({
   ...jest.requireActual('@wallet-service/common'),

@@ -63,7 +63,7 @@ const seedShieldedOutputAt = async (index: number, txId: string, marker: number,
     commitment: Buffer.alloc(33, marker),
     ephemeralPubkey: Buffer.alloc(33, marker),
     value,
-    tokenUid: Buffer.from('00', 'hex'),
+    tokenUid: Buffer.alloc(32, 0),
   });
 };
 

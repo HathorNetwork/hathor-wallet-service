@@ -117,4 +117,13 @@ describe('checkShieldedOutputStorable', () => {
     expect(checkShieldedOutputStorable(amountOutput({ decoded: { address: 'W'.repeat(35) } })))
       .toMatchObject({ storable: false, scope: 'output' });
   });
+
+  it('names a missing address as such rather than as a zero-length one', () => {
+    expect(checkShieldedOutputStorable(amountOutput({ decoded: {} })))
+      .toStrictEqual({
+        storable: false,
+        scope: 'output',
+        reason: 'decoded.address is missing or not a string',
+      });
+  });
 });

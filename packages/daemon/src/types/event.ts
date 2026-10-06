@@ -136,6 +136,9 @@ const ShieldedDecodedSchema = z.object({
   timelock: z.number().int().nullish(),
 }).passthrough();
 
+// `.length(66)` pins commitment, ephemeral_pubkey and asset_commitment to 33
+// bytes, the width of their VARBINARY(33) columns. checkShieldedOutputStorable
+// relies on this and does not re-check them.
 const BaseShieldedFieldsSchema = z.object({
   commitment: HexStringSchema.length(66),
   range_proof: Base64StringSchema,

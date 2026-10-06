@@ -98,8 +98,8 @@ describe('findAndRewindShielded', () => {
       await insertSatellite(tx, Buffer.alloc(33, byte), Buffer.alloc(33, byte));
     }
     // prime o1 + o2, leave o3 unprimed (rewind throws → recovery_failed + alert)
-    primeAmountRewind({ commitment: Buffer.alloc(33, 0xa1), ephemeralPubkey: Buffer.alloc(33, 0xa1), value: 100n, tokenUid: Buffer.from('00', 'hex') });
-    primeAmountRewind({ commitment: Buffer.alloc(33, 0xa2), ephemeralPubkey: Buffer.alloc(33, 0xa2), value: 250n, tokenUid: Buffer.from('00', 'hex') });
+    primeAmountRewind({ commitment: Buffer.alloc(33, 0xa1), ephemeralPubkey: Buffer.alloc(33, 0xa1), value: 100n, tokenUid: Buffer.alloc(32, 0) });
+    primeAmountRewind({ commitment: Buffer.alloc(33, 0xa2), ephemeralPubkey: Buffer.alloc(33, 0xa2), value: 250n, tokenUid: Buffer.alloc(32, 0) });
 
     const result = await findAndRewindShielded(mysql, 'w1', logger, 2); // pageSize 2 → forces >1 page
 
@@ -127,7 +127,7 @@ describe('findAndRewindShielded', () => {
        VALUES ('f1', 0, 'ca', NULL, '00', 0, NULL, NULL, FALSE, FALSE, 1, 'recovery_failed')`,
     );
     await insertSatellite('f1', Buffer.alloc(33, 0xf1), Buffer.alloc(33, 0xf1));
-    primeAmountRewind({ commitment: Buffer.alloc(33, 0xf1), ephemeralPubkey: Buffer.alloc(33, 0xf1), value: 500n, tokenUid: Buffer.from('00', 'hex') });
+    primeAmountRewind({ commitment: Buffer.alloc(33, 0xf1), ephemeralPubkey: Buffer.alloc(33, 0xf1), value: 500n, tokenUid: Buffer.alloc(32, 0) });
 
     const result = await findAndRewindShielded(mysql, 'w1', logger);
 
@@ -149,8 +149,8 @@ describe('reconstructWallet', () => {
       await insertUnownedOutput(tx, 'ca', '00');
       await insertSatellite(tx, Buffer.alloc(33, byte), Buffer.alloc(33, byte));
     }
-    primeAmountRewind({ commitment: Buffer.alloc(33, 0xb1), ephemeralPubkey: Buffer.alloc(33, 0xb1), value: 100n, tokenUid: Buffer.from('00', 'hex') });
-    primeAmountRewind({ commitment: Buffer.alloc(33, 0xb2), ephemeralPubkey: Buffer.alloc(33, 0xb2), value: 250n, tokenUid: Buffer.from('00', 'hex') });
+    primeAmountRewind({ commitment: Buffer.alloc(33, 0xb1), ephemeralPubkey: Buffer.alloc(33, 0xb1), value: 100n, tokenUid: Buffer.alloc(32, 0) });
+    primeAmountRewind({ commitment: Buffer.alloc(33, 0xb2), ephemeralPubkey: Buffer.alloc(33, 0xb2), value: 250n, tokenUid: Buffer.alloc(32, 0) });
 
     await reconstructWallet(mysql, 'w1', ['ta'], ['ca'], logger);
 
@@ -188,8 +188,8 @@ describe('reconstructWallet', () => {
       await insertUnownedOutput(tx, 'ca', '00');
       await insertSatellite(tx, Buffer.alloc(33, byte), Buffer.alloc(33, byte));
     }
-    primeAmountRewind({ commitment: Buffer.alloc(33, 0xb1), ephemeralPubkey: Buffer.alloc(33, 0xb1), value: 100n, tokenUid: Buffer.from('00', 'hex') });
-    primeAmountRewind({ commitment: Buffer.alloc(33, 0xb2), ephemeralPubkey: Buffer.alloc(33, 0xb2), value: 250n, tokenUid: Buffer.from('00', 'hex') });
+    primeAmountRewind({ commitment: Buffer.alloc(33, 0xb1), ephemeralPubkey: Buffer.alloc(33, 0xb1), value: 100n, tokenUid: Buffer.alloc(32, 0) });
+    primeAmountRewind({ commitment: Buffer.alloc(33, 0xb2), ephemeralPubkey: Buffer.alloc(33, 0xb2), value: 250n, tokenUid: Buffer.alloc(32, 0) });
 
     const first = await reconstructWallet(mysql, 'w1', ['ta'], ['ca'], logger);
     expect(first).toEqual({ recovered: 2, failed: 0, skipped: false });
@@ -214,7 +214,7 @@ describe('reconstructWallet', () => {
     await insertSatellite('m1', Buffer.alloc(33, 0xc1), Buffer.alloc(33, 0xc1));
     await insertUnownedOutput('m2', 'ca', null, 2); // mode-2, token comes from the rewind
     await insertSatellite('m2', Buffer.alloc(33, 0xc2), Buffer.alloc(33, 0xc2), Buffer.alloc(33, 0xd2));
-    primeAmountRewind({ commitment: Buffer.alloc(33, 0xc1), ephemeralPubkey: Buffer.alloc(33, 0xc1), value: 100n, tokenUid: Buffer.from('00', 'hex') });
+    primeAmountRewind({ commitment: Buffer.alloc(33, 0xc1), ephemeralPubkey: Buffer.alloc(33, 0xc1), value: 100n, tokenUid: Buffer.alloc(32, 0) });
     primeFullyRewind({ commitment: Buffer.alloc(33, 0xc2), ephemeralPubkey: Buffer.alloc(33, 0xc2), value: 42n, tokenUid: Buffer.from(tokenB, 'hex'), assetCommitment: Buffer.alloc(33, 0xd2) });
 
     expect(await reconstructWallet(mysql, 'w1', [], ['ca'], logger)).toEqual({ recovered: 2, failed: 0, skipped: false });
@@ -237,7 +237,7 @@ describe('reconstructWallet', () => {
     await insertSatellite('h1', Buffer.alloc(33, 0xe1), Buffer.alloc(33, 0xe1));
     await insertUnownedOutput('h2', 'ca', null, 2); // mode-2 HTR — token from the rewind
     await insertSatellite('h2', Buffer.alloc(33, 0xe2), Buffer.alloc(33, 0xe2), Buffer.alloc(33, 0xf2));
-    primeAmountRewind({ commitment: Buffer.alloc(33, 0xe1), ephemeralPubkey: Buffer.alloc(33, 0xe1), value: 100n, tokenUid: Buffer.from('00', 'hex') });
+    primeAmountRewind({ commitment: Buffer.alloc(33, 0xe1), ephemeralPubkey: Buffer.alloc(33, 0xe1), value: 100n, tokenUid: Buffer.alloc(32, 0) });
     // The native token's raw on-chain uid is 32 zero bytes.
     primeFullyRewind({ commitment: Buffer.alloc(33, 0xe2), ephemeralPubkey: Buffer.alloc(33, 0xe2), value: 42n, tokenUid: Buffer.alloc(32, 0), assetCommitment: Buffer.alloc(33, 0xf2) });
 

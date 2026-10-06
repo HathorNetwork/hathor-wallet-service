@@ -310,6 +310,23 @@ describe('getInvolvedAddresses', () => {
 
     expect([...getInvolvedAddresses(inputs, outputs, shielded, [])]).toEqual([addr]);
   });
+
+  it('drops a spent shielded output address wider than its column', () => {
+    // The output loop never sees a shielded input's address, so this filter
+    // is the only thing keeping it out of bumpAddressInvolvement.
+    const inputs = [{
+      tx_id: 't',
+      index: 0,
+      spent_output: { mode: 1, decoded: { address: 'W'.repeat(35) } },
+    }, {
+      tx_id: 't',
+      index: 1,
+      spent_output: { mode: 1, decoded: { address: 'W'.repeat(34) } },
+    }] as unknown as EventTxInput[];
+
+    expect([...getInvolvedAddresses(inputs, [], [], [nanoHeader('N'.repeat(35))])])
+      .toEqual(['W'.repeat(34)]);
+  });
 });
 
 describe('prepareInputs', () => {

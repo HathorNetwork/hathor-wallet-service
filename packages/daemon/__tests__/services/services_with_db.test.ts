@@ -2434,8 +2434,9 @@ describe('handleVertexAccepted with shielded outputs', () => {
 
     const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
     fixture.event.data.shielded_outputs[0].token_data = 0;
-    // One byte past the VARBINARY(1024) script column: this used to raise
-    // ER_DATA_TOO_LONG inside the ingest transaction and halt sync for good.
+    // One byte past the VARBINARY(1024) script column: under strict mode the
+    // INSERT raises ER_DATA_TOO_LONG inside the ingest transaction, which
+    // would halt sync.
     fixture.event.data.shielded_outputs[0].script = Buffer.alloc(1025, 0xab).toString('base64');
     const txHash = fixture.event.data.hash;
 
@@ -2474,6 +2475,33 @@ describe('handleVertexAccepted with shielded outputs', () => {
     expect(violations[0][3]).toMatchObject({ tx_id: txHash, index: 1, scope: 'satellite' });
     // Sized from the decoded bytes, not from the length of the base64 string.
     expect(violations[0][3].reason).toBe('script is 1025 bytes, column holds 1024');
+  });
+
+  it('parks an out-of-range token_data without recording a token for it', async () => {
+    expect.hasAssertions();
+
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    // One past the TINYINT UNSIGNED column. The token-index mask would fold
+    // 256 onto HTR, so the parked row must not claim a token at all.
+    fixture.event.data.shielded_outputs[0].token_data = 256;
+    const txHash = fixture.event.data.hash;
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+
+    await expect(handleVertexAccepted({
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    } as any, undefined as any)).resolves.not.toThrow();
+
+    const txOutput = await getTxOutput(mysql, txHash, 1, false);
+    expect(txOutput!.recoveryState).toBe('recovery_failed');
+    expect(txOutput!.tokenId).toBeNull();
   });
 
   it('hands the provider a 32-byte token uid for a native-token shielded output', async () => {
@@ -3746,16 +3774,14 @@ describe('handleVertexAccepted with shielded spends', () => {
       .filter(([title]) => title === 'Shielded input resolved to a non-shielded output');
     expect(anomalyAlerts).toHaveLength(1);
     expect(anomalyAlerts[0][2]).toBe(Severity.MAJOR);
-    // tx_id is the SPENDING vertex, so the alert names the offender; the
-    // offending input is carried separately.
+    // tx_id is the spending vertex, whose inputs were excluded; the funding
+    // tx whose layout is wrong is carried in first_input.
     expect(anomalyAlerts[0][3]).toMatchObject({
       tx_id: SPEND_TX_ID,
       count: 1,
       first_input: { tx_id: PREV_TX_ID, index: PREV_INDEX, stored_mode: 0 },
     });
-    // The old message claimed a transparent output "may have been marked
-    // spent"; the pre-spend partition makes that impossible.
-    expect(anomalyAlerts[0][1]).not.toContain('may have been marked spent');
+    expect(anomalyAlerts[0][1]).toContain('no UTXO was unlocked or marked spent');
 
     logSpy.mockRestore();
   });

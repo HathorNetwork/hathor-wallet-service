@@ -296,9 +296,9 @@ export interface ShieldedInputAnomaly {
  *
  * Shielded outputs are assumed to occupy the concatenated index space after the
  * transparent ones. If that is ever wrong, `(tx_id, index)` for a shielded
- * input resolves to the vertex's *transparent* output at that index, and acting
- * on it writes against a real user UTXO: the unlock moves value between the
- * locked and unlocked balance columns (there is no re-lock path) and
+ * input resolves to the funding vertex's *transparent* output at that index,
+ * and acting on it writes against a real user UTXO: the unlock moves value
+ * between the locked and unlocked balance columns (there is no re-lock path) and
  * `updateTxOutputSpentBy` marks the row spent. Ingestion therefore runs this
  * before either, and excludes the offenders, rather than detecting the
  * mismatch once the writes are already in the transaction.

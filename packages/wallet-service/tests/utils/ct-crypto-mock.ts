@@ -74,6 +74,11 @@ const mockProvider = {
     if (!p) {
       throw new Error('mock: no AmountShielded priming for (commitment, ephemeralPubkey)');
     }
+    // The asset generator is derived from this uid, so a real provider fails
+    // on a mismatch too.
+    if (!tokenUid.equals(p.tokenUid)) {
+      throw new Error('mock: AmountShielded tokenUid does not match the priming');
+    }
     return { value: p.value, blindingFactor: Buffer.alloc(32) };
   },
 
