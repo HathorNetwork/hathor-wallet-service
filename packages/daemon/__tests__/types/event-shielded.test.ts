@@ -12,6 +12,7 @@ import {
   TxEventDataWithoutMetaSchema,
 } from '../../src/types/event';
 import alphaV4ShieldedVertexEvent from '../__fixtures__/alpha-v4-shielded-vertex-event';
+import alphaV4FullyShieldedSpendEvent from '../__fixtures__/alpha-v4-fully-shielded-spend-event';
 
 describe('shielded event schemas', () => {
   describe('ShieldedOutputSchema', () => {
@@ -60,6 +61,53 @@ describe('shielded event schemas', () => {
           decoded: { address: 'WT4n' },
         })
       ).toThrow();
+    });
+  });
+
+  describe('ShieldedOutputSchema blob encoding', () => {
+    const valid = {
+      amount: {
+        mode: 1,
+        commitment: 'aa'.repeat(33),
+        range_proof: Buffer.alloc(64, 0xbb).toString('base64'),
+        script: Buffer.alloc(25, 0xcc).toString('base64'),
+        ephemeral_pubkey: 'dd'.repeat(33),
+        token_data: 0,
+        decoded: { address: 'WT4n' },
+      },
+      fully: {
+        mode: 2,
+        commitment: 'aa'.repeat(33),
+        range_proof: Buffer.alloc(64, 0xbb).toString('base64'),
+        script: Buffer.alloc(25, 0xcc).toString('base64'),
+        ephemeral_pubkey: 'dd'.repeat(33),
+        asset_commitment: 'ee'.repeat(33),
+        surjection_proof: Buffer.alloc(64, 0xff).toString('base64'),
+        decoded: { address: 'WT4n' },
+      },
+    };
+    const fields = [
+      ['range_proof', valid.amount],
+      ['script', valid.amount],
+      ['surjection_proof', valid.fully],
+    ] as const;
+
+    it.each(fields)('accepts a base64 %s', (_field, output) => {
+      expect(ShieldedOutputSchema.safeParse(output).success).toBe(true);
+    });
+
+    // hathor-core sends standard, padded base64. Hex that happens to be valid
+    // base64 (any length that is a multiple of 4) cannot be told apart by syntax.
+    const badValues = [
+      ['empty', ''],
+      ['a character outside the alphabet', 'dqkU!'],
+      ['bad padding', 'dqkU='],
+      ['the base64url alphabet', 'ab-_'],
+    ];
+    it.each(fields.flatMap(([field, output]) => badValues.map(
+      ([label, value]) => [field, label, output, value] as const,
+    )))('rejects a %s with %s', (field, _label, output, value) => {
+      expect(ShieldedOutputSchema.safeParse({ ...output, [field]: value }).success).toBe(false);
     });
   });
 
@@ -174,17 +222,17 @@ describe('shielded event schemas', () => {
     // Event 47541 of testnet-shielded-outputs, as an experimental-shielded-outputs-alpha-v4
     // fullnode sends it: the first vertex with shielded outputs on that chain. hathor-core
     // base64-encodes range_proof and script, and hex-encodes commitment and ephemeral_pubkey.
+    // services_with_db.test.ts ingests it and checks the stored bytes.
     it('parses a vertex with shielded outputs', () => {
       const result = FullNodeEventSchema.safeParse(alphaV4ShieldedVertexEvent);
       expect(result.success).toBe(true);
     });
 
-    it('decodes the base64 blobs to their raw sizes', () => {
-      const [first] = alphaV4ShieldedVertexEvent.event.data.shielded_outputs;
-      // A P2PKH script is 25 bytes.
-      expect(Buffer.from(first.script, 'base64')).toHaveLength(25);
-      expect(Buffer.from(first.range_proof, 'base64').toString('base64')).toBe(first.range_proof);
-      expect(Buffer.from(first.commitment, 'hex')).toHaveLength(33);
+    // Event 70473: FullyShielded outputs, with base64 surjection proofs, and an
+    // input that spends a shielded output.
+    it('parses a vertex with FullyShielded outputs that spends a shielded output', () => {
+      const result = FullNodeEventSchema.safeParse(alphaV4FullyShieldedSpendEvent);
+      expect(result.success).toBe(true);
     });
   });
 });

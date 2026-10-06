@@ -124,8 +124,8 @@ const HexStringSchema = z.string().regex(/^([0-9a-fA-F]{2})+$/);
 // hathor-core's `_shielded_output_to_json` hex-encodes the fixed-size points
 // (commitment, ephemeral_pubkey, asset_commitment) but base64-encodes the
 // variable-size blobs (range_proof, script, surjection_proof), like the
-// transparent `script`.
-const Base64StringSchema = z.string().base64();
+// transparent `script`. `base64()` alone accepts an empty string.
+const Base64StringSchema = z.string().min(1).base64();
 
 const ShieldedDecodedSchema = z.object({
   address: z.string(),

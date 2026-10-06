@@ -53,7 +53,15 @@ import {
 import { DbTxOutput, EventTxInput } from '../../src/types';
 import { Connection } from 'mysql2/promise';
 import eventsFixture from '../__fixtures__/events';
-import { primeAmountRewind, primeFullyRewind, resetCtCryptoMock } from '../mocks/ct-crypto-node';
+import alphaV4ShieldedVertexEvent from '../__fixtures__/alpha-v4-shielded-vertex-event';
+import alphaV4FullyShieldedSpendEvent from '../__fixtures__/alpha-v4-fully-shielded-spend-event';
+import { FullNodeEventSchema } from '../../src/types/event';
+import {
+  primeAmountRewind,
+  primeFullyRewind,
+  receivedRangeProofs,
+  resetCtCryptoMock,
+} from '../mocks/ct-crypto-node';
 import { Severity, clearShieldedCryptoProvider } from '@wallet-service/common';
 
 /**
@@ -2150,6 +2158,75 @@ describe('handleVertexAccepted with shielded outputs', () => {
     await mysql.query('DELETE FROM shielded_tx_output_data');
   });
 
+  it('ingests a real alpha-v4 shielded vertex, storing its base64 blobs as raw bytes', async () => {
+    expect.hasAssertions();
+
+    // Event 47541 of testnet-shielded-outputs, as the fullnode sends it. Parse it
+    // the way WebSocketActor does, then ingest it.
+    const event = FullNodeEventSchema.parse(JSON.parse(JSON.stringify(alphaV4ShieldedVertexEvent)));
+    const wire = alphaV4ShieldedVertexEvent.event.data;
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    // No transparent outputs, so the shielded outputs take indexes 0 and 1.
+    const [satelliteRows] = await mysql.query<any[]>(
+      'SELECT * FROM `shielded_tx_output_data` WHERE `tx_id` = ? ORDER BY `index`',
+      [wire.hash],
+    );
+    expect(satelliteRows).toHaveLength(wire.shielded_outputs.length);
+    wire.shielded_outputs.forEach((so, i) => {
+      expect(satelliteRows[i].script).toEqual(Buffer.from(so.script, 'base64'));
+      expect(satelliteRows[i].range_proof).toEqual(Buffer.from(so.range_proof, 'base64'));
+      expect(satelliteRows[i].commitment).toEqual(Buffer.from(so.commitment, 'hex'));
+      expect(satelliteRows[i].ephemeral_pubkey).toEqual(Buffer.from(so.ephemeral_pubkey, 'hex'));
+    });
+    // A P2PKH script is 25 bytes; hex decoding of the base64 text would not give that.
+    expect(satelliteRows[0].script).toHaveLength(25);
+  });
+
+  it('ingests a real alpha-v4 FullyShielded vertex, storing its base64 surjection proofs as raw bytes', async () => {
+    expect.hasAssertions();
+
+    // Event 70473 of testnet-shielded-outputs: two FullyShielded outputs, and an
+    // input that spends a shielded output this database never saw.
+    const event = FullNodeEventSchema.parse(JSON.parse(JSON.stringify(alphaV4FullyShieldedSpendEvent)));
+    const wire = alphaV4FullyShieldedSpendEvent.event.data;
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    const [satelliteRows] = await mysql.query<any[]>(
+      'SELECT * FROM `shielded_tx_output_data` WHERE `tx_id` = ? ORDER BY `index`',
+      [wire.hash],
+    );
+    expect(satelliteRows).toHaveLength(wire.shielded_outputs.length);
+    for (const [i, so] of wire.shielded_outputs.entries()) {
+      const txOutput = await getTxOutput(mysql, wire.hash, satelliteRows[i].index, false);
+      expect(txOutput!.mode).toBe(2);
+      expect(satelliteRows[i].surjection_proof).toEqual(Buffer.from(so.surjection_proof!, 'base64'));
+      expect(satelliteRows[i].asset_commitment).toEqual(Buffer.from(so.asset_commitment!, 'hex'));
+      expect(satelliteRows[i].range_proof).toEqual(Buffer.from(so.range_proof, 'base64'));
+      expect(satelliteRows[i].script).toEqual(Buffer.from(so.script, 'base64'));
+    }
+  });
+
   it('writes the shielded tx_output, satellite, and unified address observation row', async () => {
     expect.hasAssertions();
 
@@ -2264,6 +2341,8 @@ describe('handleVertexAccepted with shielded outputs', () => {
     expect(txOutput!.value).toBe(150n);
     expect(txOutput!.tokenId).toBe('00');
     expect(mockAddAlert).not.toHaveBeenCalled();
+    // The rewind gets the range proof decoded from base64, as hathor-core sends it.
+    expect(receivedRangeProofs).toEqual([Buffer.alloc(64, 0x03)]);
   });
 
   it('recovers a matched FullyShielded output, taking token_id from the rewind result', async () => {
@@ -2330,6 +2409,17 @@ describe('handleVertexAccepted with shielded outputs', () => {
     expect(txOutput!.value).toBe(4242n);
     expect(txOutput!.tokenId).toBe('ab'.repeat(32));
     expect(mockAddAlert).not.toHaveBeenCalled();
+    expect(receivedRangeProofs).toEqual([Buffer.alloc(64, 0x03)]);
+
+    // The blobs arrive base64-encoded and the points hex-encoded; all are stored as raw bytes.
+    const [satelliteRows] = await mysql.query<any[]>(
+      'SELECT * FROM `shielded_tx_output_data` WHERE `tx_id` = ? AND `index` = ?',
+      [txHash, 1],
+    );
+    expect(satelliteRows).toHaveLength(1);
+    expect(satelliteRows[0].surjection_proof).toEqual(Buffer.alloc(64, 0x07));
+    expect(satelliteRows[0].asset_commitment).toEqual(Buffer.alloc(33, 0x06));
+    expect(satelliteRows[0].range_proof).toEqual(Buffer.alloc(64, 0x03));
   });
 
   it('marks a matched FullyShielded output recovery_failed and alerts when the rewind throws', async () => {
