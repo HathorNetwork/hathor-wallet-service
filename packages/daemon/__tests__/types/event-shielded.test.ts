@@ -6,10 +6,13 @@
  */
 
 import {
+  FullNodeEventSchema,
   ShieldedOutputSchema,
   SpentOutputSchema,
   TxEventDataWithoutMetaSchema,
 } from '../../src/types/event';
+import alphaV4ShieldedVertexEvent from '../__fixtures__/alpha-v4-shielded-vertex-event';
+import alphaV4FullyShieldedSpendEvent from '../__fixtures__/alpha-v4-fully-shielded-spend-event';
 
 describe('shielded event schemas', () => {
   describe('ShieldedOutputSchema', () => {
@@ -17,8 +20,8 @@ describe('shielded event schemas', () => {
       const v = ShieldedOutputSchema.parse({
         mode: 1,
         commitment: 'aa'.repeat(33),
-        range_proof: 'bb'.repeat(64),
-        script: 'cc'.repeat(20),
+        range_proof: Buffer.alloc(64, 0xbb).toString('base64'),
+        script: Buffer.alloc(20, 0xcc).toString('base64'),
         ephemeral_pubkey: 'dd'.repeat(33),
         token_data: 1,
         decoded: { address: 'WT4nABC' },
@@ -33,17 +36,17 @@ describe('shielded event schemas', () => {
       const v = ShieldedOutputSchema.parse({
         mode: 2,
         commitment: 'aa'.repeat(33),
-        range_proof: 'bb'.repeat(64),
-        script: 'cc'.repeat(20),
+        range_proof: Buffer.alloc(64, 0xbb).toString('base64'),
+        script: Buffer.alloc(20, 0xcc).toString('base64'),
         ephemeral_pubkey: 'dd'.repeat(33),
         asset_commitment: 'ee'.repeat(33),
-        surjection_proof: 'ff'.repeat(64),
+        surjection_proof: Buffer.alloc(64, 0xff).toString('base64'),
         decoded: { address: 'WT4nXYZ' },
       });
       expect(v.mode).toBe(2);
       if (v.mode === 2) {
         expect(v.asset_commitment).toBe('ee'.repeat(33));
-        expect(v.surjection_proof).toBe('ff'.repeat(64));
+        expect(v.surjection_proof).toBe(Buffer.alloc(64, 0xff).toString('base64'));
       }
     });
 
@@ -52,12 +55,59 @@ describe('shielded event schemas', () => {
         ShieldedOutputSchema.parse({
           mode: 9,
           commitment: 'aa'.repeat(33),
-          range_proof: 'bb'.repeat(64),
-          script: 'cc'.repeat(20),
+          range_proof: Buffer.alloc(64, 0xbb).toString('base64'),
+          script: Buffer.alloc(20, 0xcc).toString('base64'),
           ephemeral_pubkey: 'dd'.repeat(33),
           decoded: { address: 'WT4n' },
         })
       ).toThrow();
+    });
+  });
+
+  describe('ShieldedOutputSchema blob encoding', () => {
+    const valid = {
+      amount: {
+        mode: 1,
+        commitment: 'aa'.repeat(33),
+        range_proof: Buffer.alloc(64, 0xbb).toString('base64'),
+        script: Buffer.alloc(25, 0xcc).toString('base64'),
+        ephemeral_pubkey: 'dd'.repeat(33),
+        token_data: 0,
+        decoded: { address: 'WT4n' },
+      },
+      fully: {
+        mode: 2,
+        commitment: 'aa'.repeat(33),
+        range_proof: Buffer.alloc(64, 0xbb).toString('base64'),
+        script: Buffer.alloc(25, 0xcc).toString('base64'),
+        ephemeral_pubkey: 'dd'.repeat(33),
+        asset_commitment: 'ee'.repeat(33),
+        surjection_proof: Buffer.alloc(64, 0xff).toString('base64'),
+        decoded: { address: 'WT4n' },
+      },
+    };
+    const fields = [
+      ['range_proof', valid.amount],
+      ['script', valid.amount],
+      ['surjection_proof', valid.fully],
+    ] as const;
+
+    it.each(fields)('accepts a base64 %s', (_field, output) => {
+      expect(ShieldedOutputSchema.safeParse(output).success).toBe(true);
+    });
+
+    // hathor-core sends standard, padded base64. Hex that happens to be valid
+    // base64 (any length that is a multiple of 4) cannot be told apart by syntax.
+    const badValues = [
+      ['empty', ''],
+      ['a character outside the alphabet', 'dqkU!'],
+      ['bad padding', 'dqkU='],
+      ['the base64url alphabet', 'ab-_'],
+    ];
+    it.each(fields.flatMap(([field, output]) => badValues.map(
+      ([label, value]) => [field, label, output, value] as const,
+    )))('rejects a %s with %s', (field, _label, output, value) => {
+      expect(ShieldedOutputSchema.safeParse({ ...output, [field]: value }).success).toBe(false);
     });
   });
 
@@ -93,8 +143,8 @@ describe('shielded event schemas', () => {
       const s = SpentOutputSchema.parse({
         mode: 1,
         commitment: 'aa'.repeat(33),
-        range_proof: 'bb'.repeat(64),
-        script: 'cc'.repeat(20),
+        range_proof: Buffer.alloc(64, 0xbb).toString('base64'),
+        script: Buffer.alloc(20, 0xcc).toString('base64'),
         ephemeral_pubkey: 'dd'.repeat(33),
         token_data: 1,
         decoded: { address: 'WT4n' },
@@ -144,8 +194,8 @@ describe('shielded event schemas', () => {
           {
             mode: 1,
             commitment: 'aa'.repeat(33),
-            range_proof: 'bb'.repeat(64),
-            script: 'cc'.repeat(20),
+            range_proof: Buffer.alloc(64, 0xbb).toString('base64'),
+            script: Buffer.alloc(20, 0xcc).toString('base64'),
             ephemeral_pubkey: 'dd'.repeat(33),
             token_data: 1,
             decoded: { address: 'WT4n' },
@@ -153,11 +203,11 @@ describe('shielded event schemas', () => {
           {
             mode: 2,
             commitment: 'aa'.repeat(33),
-            range_proof: 'bb'.repeat(64),
-            script: 'cc'.repeat(20),
+            range_proof: Buffer.alloc(64, 0xbb).toString('base64'),
+            script: Buffer.alloc(20, 0xcc).toString('base64'),
             ephemeral_pubkey: 'dd'.repeat(33),
             asset_commitment: 'ee'.repeat(33),
-            surjection_proof: 'ff'.repeat(64),
+            surjection_proof: Buffer.alloc(64, 0xff).toString('base64'),
             decoded: { address: 'WT4n' },
           },
         ],
@@ -165,6 +215,24 @@ describe('shielded event schemas', () => {
       expect(v.shielded_outputs).toHaveLength(2);
       expect(v.shielded_outputs[0].mode).toBe(1);
       expect(v.shielded_outputs[1].mode).toBe(2);
+    });
+  });
+
+  describe('real fullnode event', () => {
+    // Event 47541 of testnet-shielded-outputs, as an experimental-shielded-outputs-alpha-v4
+    // fullnode sends it: the first vertex with shielded outputs on that chain. hathor-core
+    // base64-encodes range_proof and script, and hex-encodes commitment and ephemeral_pubkey.
+    // services_with_db.test.ts ingests it and checks the stored bytes.
+    it('parses a vertex with shielded outputs', () => {
+      const result = FullNodeEventSchema.safeParse(alphaV4ShieldedVertexEvent);
+      expect(result.success).toBe(true);
+    });
+
+    // Event 70473: FullyShielded outputs, with base64 surjection proofs, and an
+    // input that spends a shielded output.
+    it('parses a vertex with FullyShielded outputs that spends a shielded output', () => {
+      const result = FullNodeEventSchema.safeParse(alphaV4FullyShieldedSpendEvent);
+      expect(result.success).toBe(true);
     });
   });
 });

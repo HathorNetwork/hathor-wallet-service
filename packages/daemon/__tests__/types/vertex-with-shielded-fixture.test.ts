@@ -22,8 +22,8 @@ describe('VERTEX_WITH_SHIELDED fixture', () => {
     if (shielded.mode === 1) {
       expect(shielded.token_data).toBe(1);
       expect(shielded.commitment).toBe('02'.repeat(33));
-      expect(shielded.range_proof).toBe('03'.repeat(64));
-      expect(shielded.script).toBe('04'.repeat(20));
+      expect(shielded.range_proof).toBe(Buffer.alloc(64, 0x03).toString('base64'));
+      expect(shielded.script).toBe(Buffer.alloc(20, 0x04).toString('base64'));
       expect(shielded.ephemeral_pubkey).toBe('05'.repeat(33));
       expect(shielded.decoded.address).toBe('WShieldedAddress1');
     }

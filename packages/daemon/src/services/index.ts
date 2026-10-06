@@ -550,12 +550,12 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             index: idx,
             mode: so.mode,
             commitment: Buffer.from(so.commitment, 'hex'),
-            range_proof: Buffer.from(so.range_proof, 'hex'),
-            script: Buffer.from(so.script, 'hex'),
+            range_proof: Buffer.from(so.range_proof, 'base64'),
+            script: Buffer.from(so.script, 'base64'),
             ephemeral_pubkey: Buffer.from(so.ephemeral_pubkey, 'hex'),
             token_data: isAmount ? so.token_data : null,
             asset_commitment: !isAmount ? Buffer.from(so.asset_commitment, 'hex') : null,
-            surjection_proof: !isAmount ? Buffer.from(so.surjection_proof, 'hex') : null,
+            surjection_proof: !isAmount ? Buffer.from(so.surjection_proof, 'base64') : null,
           });
 
           await upsertShieldedAddressObservation(mysql, so.decoded.address);
@@ -575,7 +575,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             try {
               const ephem = Buffer.from(so.ephemeral_pubkey, 'hex');
               const commit = Buffer.from(so.commitment, 'hex');
-              const range = Buffer.from(so.range_proof, 'hex');
+              const range = Buffer.from(so.range_proof, 'base64');
 
               if (isAmount) {
                 const tokenIdHex = resolveShieldedTokenId(so.token_data);

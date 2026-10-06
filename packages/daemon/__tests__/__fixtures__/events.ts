@@ -154,8 +154,8 @@ export default {
         shielded_outputs: [{
           mode: 1,
           commitment: '02'.repeat(33),
-          range_proof: '03'.repeat(64),
-          script: '04'.repeat(20),
+          range_proof: Buffer.alloc(64, 0x03).toString('base64'),
+          script: Buffer.alloc(20, 0x04).toString('base64'),
           ephemeral_pubkey: '05'.repeat(33),
           token_data: 1,
           decoded: {

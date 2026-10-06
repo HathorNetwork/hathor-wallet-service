@@ -37,6 +37,13 @@ interface FullyPriming extends AmountPriming {
 const amountMap = new Map<string, AmountPriming>();
 const fullyMap = new Map<string, FullyPriming>();
 
+/**
+ * Every rangeProof the rewinds received, in call order. Rewinds resolve from
+ * (commitment, ephemeralPubkey) only, so tests read this to check the proof
+ * bytes the daemon decoded from the wire.
+ */
+export const receivedRangeProofs: Buffer[] = [];
+
 function key(commitment: Buffer, ephem: Buffer): string {
   return commitment.toString('hex') + ':' + ephem.toString('hex');
 }
@@ -59,7 +66,9 @@ const mockProvider = {
     _privateKey: Buffer,
     ephemeralPubkey: Buffer,
     commitment: Buffer,
+    rangeProof: Buffer,
   ) {
+    receivedRangeProofs.push(rangeProof);
     const p = amountMap.get(key(commitment, ephemeralPubkey));
     if (!p) {
       throw new Error('mock: no AmountShielded priming for (commitment, ephemeralPubkey)');
@@ -71,7 +80,9 @@ const mockProvider = {
     _privateKey: Buffer,
     ephemeralPubkey: Buffer,
     commitment: Buffer,
+    rangeProof: Buffer,
   ) {
+    receivedRangeProofs.push(rangeProof);
     const p = fullyMap.get(key(commitment, ephemeralPubkey));
     if (!p) {
       throw new Error('mock: no FullyShielded priming for (commitment, ephemeralPubkey)');
@@ -89,5 +100,6 @@ const mockProvider = {
 export function resetCtCryptoMock(): void {
   amountMap.clear();
   fullyMap.clear();
+  receivedRangeProofs.length = 0;
   setShieldedCryptoProvider(mockProvider);
 }
