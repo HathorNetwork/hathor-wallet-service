@@ -120,15 +120,6 @@ export const EventTxOutputSchema = z.object({
 });
 export type EventTxOutput = z.infer<typeof EventTxOutputSchema>;
 
-/**
- * Hex-encoded bytes on the wire.
- *
- * `checkShieldedOutputStorable` in `@wallet-service/common` sizes these fields
- * by halving the string length, and parks any field it cannot read as hex. So
- * the two must change together: widening this to another encoding (base64, for
- * instance, which is what hathor-core emits — see issue #501) without switching
- * that guard to decoded byte lengths would park every shielded output.
- */
 const HexStringSchema = z.string().regex(/^([0-9a-fA-F]{2})+$/);
 // hathor-core's `_shielded_output_to_json` hex-encodes the fixed-size points
 // (commitment, ephemeral_pubkey, asset_commitment) but base64-encodes the

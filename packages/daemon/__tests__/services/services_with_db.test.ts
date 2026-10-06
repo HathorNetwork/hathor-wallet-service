@@ -2355,8 +2355,8 @@ describe('handleVertexAccepted with shielded outputs', () => {
     const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
     const template = fixture.event.data.shielded_outputs[0];
     fixture.event.data.shielded_outputs = [
-      { ...JSON.parse(JSON.stringify(template)), token_data: 0, script: 'ab'.repeat(1025) },
-      { ...JSON.parse(JSON.stringify(template)), token_data: 0, script: 'cd'.repeat(1025) },
+      { ...JSON.parse(JSON.stringify(template)), token_data: 0, script: Buffer.alloc(1025, 0xab).toString('base64') },
+      { ...JSON.parse(JSON.stringify(template)), token_data: 0, script: Buffer.alloc(1025, 0xcd).toString('base64') },
     ];
     fixture.event.data.hash = 'ba'.repeat(32);
     const txHash = fixture.event.data.hash;
@@ -2436,7 +2436,7 @@ describe('handleVertexAccepted with shielded outputs', () => {
     fixture.event.data.shielded_outputs[0].token_data = 0;
     // One byte past the VARBINARY(1024) script column: this used to raise
     // ER_DATA_TOO_LONG inside the ingest transaction and halt sync for good.
-    fixture.event.data.shielded_outputs[0].script = 'ab'.repeat(1025);
+    fixture.event.data.shielded_outputs[0].script = Buffer.alloc(1025, 0xab).toString('base64');
     const txHash = fixture.event.data.hash;
 
     resetCtCryptoMock();
@@ -2472,6 +2472,8 @@ describe('handleVertexAccepted with shielded outputs', () => {
     expect(violations).toHaveLength(1);
     expect(violations[0][2]).toBe(Severity.MAJOR);
     expect(violations[0][3]).toMatchObject({ tx_id: txHash, index: 1, scope: 'satellite' });
+    // Sized from the decoded bytes, not from the length of the base64 string.
+    expect(violations[0][3].reason).toBe('script is 1025 bytes, column holds 1024');
   });
 
   it('hands the provider a 32-byte token uid for a native-token shielded output', async () => {

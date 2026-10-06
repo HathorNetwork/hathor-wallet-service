@@ -88,37 +88,12 @@ export type ShieldedStorageCheck =
    */
   | { storable: false; scope: 'output' | 'satellite'; reason: string };
 
-/** Matches a hex-encoded byte string: pairs of hex digits, nothing else. */
-const HEX_FIELD = /^(?:[0-9a-fA-F]{2})*$/;
-
-/**
- * Decoded byte length of a hex-encoded wire field, or `null` if the value is
- * not hex.
- *
- * The caller measures the wire string rather than a decoded Buffer, so it is
- * coupled to the encoding the event schema accepts. That coupling is made to
- * fail closed: if a field ever arrives in another encoding (base64, say, which
- * is what hathor-core emits for these fields), `length / 2` would under-count
- * by a third and wave through a value the column cannot hold — the exact halt
- * this guard exists to prevent. Returning `null` instead parks the output with
- * an alert, which keeps sync running; a halt does not. The parked row is
- * terminal — see `getShieldedOutputsToRecover` — so this buys the daemon
- * staying up, not a later retry.
- */
-const hexBytes = (hexString: string): number | null => (
-  HEX_FIELD.test(hexString) ? hexString.length / 2 : null
-);
-
-/** A field that is over its column, or not in the encoding we can measure. */
+/** A field whose decoded bytes exceed its column. */
 const overSized = (
-  field: string, value: string, max: number,
-): { reason: string } | null => {
-  const bytes = hexBytes(value);
-  if (bytes === null) {
-    return { reason: `${field} is not hex-encoded, so its stored size cannot be checked` };
-  }
-  return bytes > max ? { reason: `${field} is ${bytes} bytes, column holds ${max}` } : null;
-};
+  field: string, value: Buffer, max: number,
+): { reason: string } | null => (
+  value.length > max ? { reason: `${field} is ${value.length} bytes, column holds ${max}` } : null
+);
 
 /**
  * Whether a shielded output from the wire fits the columns it is stored in.
@@ -134,6 +109,9 @@ const overSized = (
  * `asset_commitment` are pinned to exactly 33 bytes by the Zod schema, so they
  * cannot overflow their VARBINARY(33) columns and are not re-checked here.
  *
+ * The byte fields are taken already decoded, so the sizes measured are the
+ * sizes stored, whatever encoding the wire uses.
+ *
  * Every limit here is a *column* width, not a protocol cap. The protocol caps
  * (`MAX_RANGE_PROOF_SIZE`, `MAX_SURJECTION_PROOF_SIZE`) sit far below the BLOB
  * columns, so checking them would park consensus-valid outputs permanently
@@ -142,9 +120,9 @@ const overSized = (
  */
 export const checkShieldedOutputStorable = (output: {
   mode: number;
-  script: string;
-  range_proof: string;
-  surjection_proof?: string | null;
+  script: Buffer;
+  range_proof: Buffer;
+  surjection_proof?: Buffer | null;
   token_data?: number | null;
   decoded: { address: string; timelock?: number | null };
 }): ShieldedStorageCheck => {

@@ -563,11 +563,27 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
           const idx = transparentCount + i;
           const isAmount = so.mode === ShieldedOutputMode.AmountShielded;
 
+          // Decoded once: the storage guard sizes these exact bytes, and the
+          // satellite insert and the rewind consume them unchanged.
+          const commitment = Buffer.from(so.commitment, 'hex');
+          const ephemeralPubkey = Buffer.from(so.ephemeral_pubkey, 'hex');
+          const rangeProof = Buffer.from(so.range_proof, 'base64');
+          const script = Buffer.from(so.script, 'base64');
+          const assetCommitment = !isAmount ? Buffer.from(so.asset_commitment, 'hex') : null;
+          const surjectionProof = !isAmount ? Buffer.from(so.surjection_proof, 'base64') : null;
+
           // Reject before any INSERT: an over-cap field raises an error inside
           // this transaction, which reaches the sync machine's terminal state
           // and halts sync for good. Parking the single output keeps the rest
           // of the vertex ingesting.
-          const storage = checkShieldedOutputStorable(so);
+          const storage = checkShieldedOutputStorable({
+            mode: so.mode,
+            script,
+            range_proof: rangeProof,
+            surjection_proof: surjectionProof,
+            token_data: isAmount ? so.token_data : null,
+            decoded: so.decoded,
+          });
           if (!storage.storable) {
             shieldedStorageViolations.push({
               index: idx, scope: storage.scope, reason: storage.reason,
@@ -614,13 +630,13 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             tx_id: hash,
             index: idx,
             mode: so.mode,
-            commitment: Buffer.from(so.commitment, 'hex'),
-            range_proof: Buffer.from(so.range_proof, 'base64'),
-            script: Buffer.from(so.script, 'base64'),
-            ephemeral_pubkey: Buffer.from(so.ephemeral_pubkey, 'hex'),
+            commitment,
+            range_proof: rangeProof,
+            script,
+            ephemeral_pubkey: ephemeralPubkey,
             token_data: isAmount ? so.token_data : null,
-            asset_commitment: !isAmount ? Buffer.from(so.asset_commitment, 'hex') : null,
-            surjection_proof: !isAmount ? Buffer.from(so.surjection_proof, 'base64') : null,
+            asset_commitment: assetCommitment,
+            surjection_proof: surjectionProof,
           });
 
           await upsertShieldedAddressObservation(mysql, so.decoded.address);
@@ -638,10 +654,6 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             : null;
           if (owned) {
             try {
-              const ephem = Buffer.from(so.ephemeral_pubkey, 'hex');
-              const commit = Buffer.from(so.commitment, 'hex');
-              const range = Buffer.from(so.range_proof, 'base64');
-
               if (isAmount) {
                 const tokenIdHex = resolveShieldedTokenId(so.token_data);
                 if (tokenIdHex === null) {
@@ -649,9 +661,9 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
                 }
                 const r = await rewindAmount({
                   scanPrivkey: owned.scan_privkey,
-                  ephemeralPubkey: ephem,
-                  commitment: commit,
-                  rangeProof: range,
+                  ephemeralPubkey,
+                  commitment,
+                  rangeProof,
                   tokenId: tokenIdHex,
                 });
                 await markTxOutputRecovered(mysql, hash, idx, {
@@ -665,13 +677,13 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
                   locked: shieldedLocked,
                 });
               } else {
-                const assetCommit = Buffer.from(so.asset_commitment, 'hex');
                 const r = await rewindFully({
                   scanPrivkey: owned.scan_privkey,
-                  ephemeralPubkey: ephem,
-                  commitment: commit,
-                  rangeProof: range,
-                  assetCommitment: assetCommit,
+                  ephemeralPubkey,
+                  commitment,
+                  rangeProof,
+                  // Non-null on this branch: decoded above for every non-amount output.
+                  assetCommitment: assetCommitment!,
                 });
                 const tokenIdHexFull = r.tokenUid; // canonicalized by rewindFully
                 await markTxOutputRecovered(mysql, hash, idx, {

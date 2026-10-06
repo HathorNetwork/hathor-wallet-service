@@ -33,12 +33,12 @@ describe('ShieldedOutputMode', () => {
   });
 });
 
-const hex = (bytes: number, fill = 'ab') => fill.repeat(bytes);
+const bytes = (length: number) => Buffer.alloc(length, 0xab);
 
 const amountOutput = (over: Record<string, unknown> = {}) => ({
   mode: ShieldedOutputMode.AmountShielded,
-  script: hex(100),
-  range_proof: hex(200),
+  script: bytes(100),
+  range_proof: bytes(200),
   token_data: 1,
   decoded: { address: 'W'.repeat(34) },
   ...over,
@@ -50,28 +50,33 @@ describe('checkShieldedOutputStorable', () => {
   });
 
   it('rejects the satellite when the script exceeds its column', () => {
-    const result = checkShieldedOutputStorable(amountOutput({ script: hex(1025) }));
+    const result = checkShieldedOutputStorable(amountOutput({ script: bytes(1025) }));
 
     expect(result.storable).toBe(false);
     expect(result).toMatchObject({ scope: 'satellite' });
     expect((result as { reason: string }).reason).toContain('script');
   });
 
+  it('accepts a script that exactly fills its column', () => {
+    expect(checkShieldedOutputStorable(amountOutput({ script: bytes(1024) })))
+      .toStrictEqual({ storable: true });
+  });
+
   it('accepts a proof larger than the protocol cap but within its column', () => {
     // Consensus-invalid but storable: parking it would lose a valid output
     // whenever hathor-core and the pinned wallet-lib disagree on the cap.
-    expect(checkShieldedOutputStorable(amountOutput({ range_proof: hex(5000) })))
+    expect(checkShieldedOutputStorable(amountOutput({ range_proof: bytes(5000) })))
       .toStrictEqual({ storable: true });
   });
 
   it('rejects the satellite when a proof exceeds its BLOB column', () => {
-    expect(checkShieldedOutputStorable(amountOutput({ range_proof: hex(65536) })))
+    expect(checkShieldedOutputStorable(amountOutput({ range_proof: bytes(65536) })))
       .toMatchObject({ storable: false, scope: 'satellite' });
     expect(checkShieldedOutputStorable({
       mode: ShieldedOutputMode.FullyShielded,
-      script: hex(100),
-      range_proof: hex(200),
-      surjection_proof: hex(65536),
+      script: bytes(100),
+      range_proof: bytes(200),
+      surjection_proof: bytes(65536),
       decoded: { address: 'W'.repeat(34) },
     })).toMatchObject({ storable: false, scope: 'satellite' });
   });
@@ -83,14 +88,9 @@ describe('checkShieldedOutputStorable', () => {
       .toMatchObject({ storable: false, scope: 'satellite' });
   });
 
-  it('parks a field it cannot measure rather than waving it through', () => {
-    // base64 is what hathor-core actually emits for these fields; measuring it
-    // as hex would under-count by a third and let an over-column value reach
-    // the INSERT, which is the halt this guard exists to prevent.
-    const result = checkShieldedOutputStorable(amountOutput({ script: 'AAAA++//' }));
-
-    expect(result).toMatchObject({ storable: false, scope: 'satellite' });
-    expect((result as { reason: string }).reason).toContain('not hex-encoded');
+  it('accepts the largest token_data the column holds', () => {
+    expect(checkShieldedOutputStorable(amountOutput({ token_data: 255 })))
+      .toStrictEqual({ storable: true });
   });
 
   it('rejects the whole output when the timelock does not fit its column', () => {
