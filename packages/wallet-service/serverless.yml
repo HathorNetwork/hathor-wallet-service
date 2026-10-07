@@ -784,6 +784,7 @@ functions:
     # before the next is scheduled.
     handler: src/shieldedSweep.handler
     timeout: 240 # 4 minutes
+    memorySize: 1024 # CPU-bound rewinds, as in loadWalletAsync
     reservedConcurrency: 1
     maximumRetryAttempts: 0
     events:

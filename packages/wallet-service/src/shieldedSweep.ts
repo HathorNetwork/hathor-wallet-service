@@ -13,8 +13,10 @@ import { ServerlessMysql } from 'serverless-mysql';
 import {
   addAlert,
   isShieldedCryptoProviderRegistered,
+  MISSING_SHIELDED_PROVIDER_ALERT,
   Severity,
 } from '@wallet-service/common';
+import { shieldedCryptoLoadError } from '@src/shieldedCrypto';
 import { getWalletsNeedingSweep, markWalletSweepRunning } from '@src/db/shielded';
 import {
   commitShieldedRecoveries,
@@ -31,6 +33,17 @@ const WALLET_PAGE = 50;
 
 /** Stop starting new wallets with less than this left on the invocation. */
 const STOP_MARGIN_MS = 60_000;
+
+/** Stop rewinding a wallet with less than this left, keeping time to commit what opened. */
+const REWIND_STOP_MARGIN_MS = 30_000;
+
+/** Set once this container has reported a missing provider. */
+let missingProviderAlerted = false;
+
+/** Clear the missing-provider report guard — for test isolation. */
+export const resetSweepMissingProviderAlert = (): void => {
+  missingProviderAlerted = false;
+};
 
 /** Most failed outputs listed in the run's alert; `count` carries the total. */
 const ALERT_LIST_CAP = 10;
@@ -49,10 +62,22 @@ export interface SweepRunOutcome {
  * then commit what opened and mark the catch-up done, in one transaction.
  * Each output is tried once per flag: a miss or a failure is not retried
  * until something flags its address again.
+ *
+ * A wallet with more to rewind than the invocation has time for commits what
+ * it reached and stays `running`; promoted outputs drop out of the next run's
+ * query, so each run gets further.
  */
-const sweepWallet = async (mysql: ServerlessMysql, walletId: string, logger: Logger) => {
+const sweepWallet = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+  logger: Logger,
+  timeLeftMs: () => number,
+) => {
   await markWalletSweepRunning(mysql, walletId);
-  const sweep = await findAndRewindShielded(mysql, walletId, logger, undefined, { onlyFlagged: true });
+  const sweep = await findAndRewindShielded(mysql, walletId, logger, undefined, {
+    onlyFlagged: true,
+    shouldStop: () => timeLeftMs() < REWIND_STOP_MARGIN_MS,
+  });
   if (sweep.skipped) {
     // The provider went away mid-run. The rows stay `running`, so the next
     // run takes the wallet again.
@@ -60,8 +85,11 @@ const sweepWallet = async (mysql: ServerlessMysql, walletId: string, logger: Log
   }
   await runRecoveryTransaction(mysql, logger, (tx) => commitShieldedRecoveries(tx, walletId, sweep.recoveries, {
     onlyPromoted: true,
-    finishSweep: true,
+    finishSweep: !sweep.truncated,
   }));
+  if (sweep.truncated) {
+    logger.info('Shielded catch-up of a wallet ran out of time; the next run continues it', { walletId });
+  }
   return sweep;
 };
 
@@ -86,13 +114,28 @@ export const runShieldedSweep = async (
   const outcome: SweepRunOutcome = { wallets: 0, recovered: 0, failed: 0, missed: 0, errored: 0 };
   await ensureShieldedCryptoProvider(logger);
   if (!isShieldedCryptoProviderRegistered()) {
-    // The load and the daemon already page on a missing provider; once per
-    // container here would only repeat them.
+    // This function is packaged on its own, so its binary can be missing even
+    // where the load's is not. Once per container.
     logger.error('Shielded catch-up sweep skipped: no shielded crypto provider is registered');
+    if (!missingProviderAlerted) {
+      missingProviderAlerted = true;
+      try {
+        await addAlert(
+          MISSING_SHIELDED_PROVIDER_ALERT.title,
+          MISSING_SHIELDED_PROVIDER_ALERT.message,
+          MISSING_SHIELDED_PROVIDER_ALERT.severity,
+          { load_error: shieldedCryptoLoadError(), source: 'wallet-service-sweep' },
+          logger,
+        );
+      } catch (e) {
+        logger.error('Failed to report the missing shielded crypto provider', { error: String(e) });
+      }
+    }
     return outcome;
   }
 
   const failures: (ShieldedRecoveryFailure & { walletId: string })[] = [];
+  const errored: { walletId: string; error: string }[] = [];
   const seen = new Set<string>();
   let cursor = startAfter;
   let wrapped = false;
@@ -108,7 +151,8 @@ export const runShieldedSweep = async (
       if (seen.has(walletId) || timeLeftMs() < STOP_MARGIN_MS) break sweep;
       seen.add(walletId);
       try {
-        const result = await sweepWallet(mysql, walletId, logger);
+        const result = await sweepWallet(mysql, walletId, logger, timeLeftMs);
+        if (result.skipped) break sweep;
         outcome.wallets += 1;
         outcome.recovered += result.recovered;
         outcome.failed += result.failed;
@@ -116,6 +160,7 @@ export const runShieldedSweep = async (
         failures.push(...result.failures.map((f) => ({ ...f, walletId })));
       } catch (e) {
         outcome.errored += 1;
+        errored.push({ walletId, error: String(e) });
         logger.error('Shielded catch-up of a wallet failed; it stays flagged', { walletId, error: String(e) });
       }
     }
@@ -123,6 +168,22 @@ export const runShieldedSweep = async (
   }
 
   logger.info('Shielded catch-up sweep finished', { ...outcome });
+  if (errored.length > 0) {
+    // A wallet that fails every run would otherwise only show in the logs,
+    // while its shielded balance never catches up.
+    try {
+      await addAlert(
+        'Shielded catch-up sweep could not finish wallets',
+        `The catch-up of ${errored.length} wallet(s) failed and was left for the next run. `
+        + `First: ${errored[0].walletId} — ${errored[0].error}`,
+        Severity.MAJOR,
+        { count: errored.length, wallets: errored.slice(0, ALERT_LIST_CAP), source: 'wallet-service' },
+        logger,
+      );
+    } catch (e) {
+      logger.error('Failed to send the catch-up sweep alert', { error: String(e) });
+    }
+  }
   if (failures.length > 0) {
     // A sender alone can cause an asset mismatch, so a run whose failures are
     // all of that kind does not page.

@@ -13,7 +13,7 @@ import { cleanDatabase } from '@tests/utils';
 import {
   resetCtCryptoMock, primeAmountRewind, primeScanMiss, lastAmountRewindArgs,
 } from '@tests/utils/ct-crypto-mock';
-import { runShieldedSweep } from '@src/shieldedSweep';
+import { runShieldedSweep, resetSweepMissingProviderAlert } from '@src/shieldedSweep';
 import * as Recovery from '@src/shieldedRecovery';
 import * as ShieldedDb from '@src/db/shielded';
 
@@ -83,6 +83,7 @@ const walletShielded = async (walletId: string) => {
 beforeEach(async () => {
   await cleanDatabase(mysql);
   resetCtCryptoMock();
+  resetSweepMissingProviderAlert();
   mockedAddAlert.mockClear();
 });
 
@@ -138,17 +139,44 @@ describe('runShieldedSweep', () => {
     expect(await stateOf('t2')).toBe('unowned');
   });
 
-  it('changes nothing without a provider', async () => {
+  it('changes nothing without a provider, and reports that once per container', async () => {
     await seedWallet('w1');
     await seedCtSpendAddress('a1', 'w1', 'pending');
     await seedOutput('t1', 'a1', 0xa1, 100n);
     clearShieldedCryptoProvider();
 
     const outcome = await runShieldedSweep(mysql, logger, plentyOfTime, '');
+    await runShieldedSweep(mysql, logger, plentyOfTime, '');
 
     expect(outcome.wallets).toBe(0);
     expect(await catchupOf('a1')).toBe('pending');
-    expect(mockedAddAlert).not.toHaveBeenCalled();
+    // This function is packaged on its own: its binary can be missing alone.
+    expect(mockedAddAlert).toHaveBeenCalledTimes(1);
+    expect(mockedAddAlert.mock.calls[0][0]).toBe('Shielded crypto provider not registered');
+  });
+
+  it('commits what it reached when a wallet outruns the invocation, and continues next run', async () => {
+    await seedWallet('w1');
+    await seedCtSpendAddress('a1', 'w1', 'pending');
+    await seedOutput('t1', 'a1', 0xa1, 1n);
+    await seedOutput('t2', 'a1', 0xa2, 2n);
+    // Time to start the wallet, then short after its first rewind.
+    let calls = 0;
+    const runningOut = () => (calls++ === 0 ? 200_000 : 10_000);
+
+    const first = await runShieldedSweep(mysql, logger, runningOut, '');
+
+    expect(first.recovered).toBe(1);
+    expect(await stateOf('t1')).toBe('recovered');
+    expect(await stateOf('t2')).toBe('unowned');
+    // Not finished, so still taken for the next run.
+    expect(await catchupOf('a1')).toBe('running');
+
+    await runShieldedSweep(mysql, logger, plentyOfTime, '');
+
+    expect(await stateOf('t2')).toBe('recovered');
+    expect(await catchupOf('a1')).toBe('done');
+    expect(await walletShielded('w1')).toBe(3n);
   });
 
   it('picks up a wallet a dead sweep left running', async () => {
@@ -259,5 +287,10 @@ describe('runShieldedSweep', () => {
     expect(await stateOf('t-wa')).toBe('unowned');
     expect(await catchupOf('a-wa')).toBe('running');
     expect(await stateOf('t-wb')).toBe('recovered');
+    // Named in an alert: a wallet that fails every run would otherwise only
+    // show in the logs.
+    const alerts = mockedAddAlert.mock.calls.filter(([title]) => title === 'Shielded catch-up sweep could not finish wallets');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0][3]).toMatchObject({ count: 1, wallets: [expect.objectContaining({ walletId: 'wa' })] });
   });
 });

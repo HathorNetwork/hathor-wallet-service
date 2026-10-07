@@ -207,10 +207,15 @@ export interface SweepOutcome {
    * does not record the catch-up as complete.
    */
   skipped: boolean;
+  /**
+   * True when `shouldStop` cut the sweep short: outputs it never reached are
+   * still unrecovered, so the catch-up is not finished.
+   */
+  truncated: boolean;
 }
 
 const emptySweep = (): SweepOutcome => ({
-  recovered: 0, recoveries: [], failed: 0, missed: 0, misses: [], failures: [], skipped: false,
+  recovered: 0, recoveries: [], failed: 0, missed: 0, misses: [], failures: [], skipped: false, truncated: false,
 });
 
 /** `txId:index`, the key `exclude` and the de-duplication use. */
@@ -231,11 +236,14 @@ export const findAndRewindShielded = async (
   {
     exclude = new Set(),
     onlyFlagged = false,
+    shouldStop = () => false,
   }: {
     /** Outputs to skip, by `txId:index`: ones an earlier sweep of the same load handled. */
     exclude?: ReadonlySet<string>;
     /** Only outputs on addresses flagged for a catch-up (see `getShieldedOutputsToRecover`). */
     onlyFlagged?: boolean;
+    /** Checked after each output; returning true ends the sweep early (`truncated`). */
+    shouldStop?: () => boolean;
   } = {},
 ): Promise<SweepOutcome> => {
   // With no provider every rewind throws, and recording the outputs as
@@ -252,11 +260,18 @@ export const findAndRewindShielded = async (
   const misses: ShieldedOutputRef[] = [];
   const failures: ShieldedRecoveryFailure[] = [];
   let after: { txId: string; index: number } | undefined;
-  for (;;) {
+  let truncated = false;
+  let stopRequested = false;
+  sweep: for (;;) {
     const page = await getShieldedOutputsToRecover(mysql, walletId, pageSize, after, onlyFlagged);
     if (page.length === 0) break;
     for (const output of page) {
       if (exclude.has(outputKey(output))) continue;
+      if (stopRequested) {
+        // An output is left that this sweep won't reach.
+        truncated = true;
+        break sweep;
+      }
       const outcome = await rewindShieldedOutput(mysql, walletId, output, logger);
       if (outcome.recovered) {
         recoveries.push({
@@ -265,6 +280,7 @@ export const findAndRewindShielded = async (
       } else if (outcome.missed) {
         misses.push({ txId: output.txId, index: output.index, mode: output.mode, tokenId: output.tokenId });
       } else if (outcome.failure) failures.push(outcome.failure);
+      stopRequested = shouldStop();
     }
     const last = page[page.length - 1];
     after = { txId: last.txId, index: last.index };
@@ -277,6 +293,7 @@ export const findAndRewindShielded = async (
     misses,
     failures,
     skipped: false,
+    truncated,
   };
 };
 

@@ -212,8 +212,8 @@ describe('findAndRewindShielded with no crypto provider', () => {
     const first = await findAndRewindShielded(mysql, 'w1', logger);
     const second = await findAndRewindShielded(mysql, 'w1', logger);
 
-    expect(first).toStrictEqual({ recovered: 0, recoveries: [], failed: 0, missed: 0, misses: [], failures: [], skipped: true });
-    expect(second).toStrictEqual({ recovered: 0, recoveries: [], failed: 0, missed: 0, misses: [], failures: [], skipped: true });
+    expect(first).toStrictEqual({ recovered: 0, recoveries: [], failed: 0, missed: 0, misses: [], failures: [], skipped: true, truncated: false });
+    expect(second).toStrictEqual({ recovered: 0, recoveries: [], failed: 0, missed: 0, misses: [], failures: [], skipped: true, truncated: false });
     expect(getSpy).not.toHaveBeenCalled();
     expect(failSpy).not.toHaveBeenCalled();
 
@@ -239,14 +239,14 @@ describe('findAndRewindShielded with no crypto provider', () => {
 
     // `skipped` is what distinguishes "could not even look" from "nothing to
     // do" — without it the load marks catch-up done and no later sweep retries.
-    expect(outcome).toStrictEqual({ recovered: 0, recoveries: [], failed: 0, missed: 0, misses: [], failures: [], skipped: true });
+    expect(outcome).toStrictEqual({ recovered: 0, recoveries: [], failed: 0, missed: 0, misses: [], failures: [], skipped: true, truncated: false });
   });
 
   it('reports a completed sweep as not skipped', async () => {
     // beforeEach leaves the mock provider registered.
     const outcome = await findAndRewindShielded(mysql, 'w1', logger);
 
-    expect(outcome).toStrictEqual({ recovered: 0, recoveries: [], failed: 0, missed: 0, misses: [], failures: [], skipped: false });
+    expect(outcome).toStrictEqual({ recovered: 0, recoveries: [], failed: 0, missed: 0, misses: [], failures: [], skipped: false, truncated: false });
   });
 });
 
@@ -307,7 +307,7 @@ describe('scan misses', () => {
 
 describe('reportShieldedSweeps', () => {
   const sweep = (over: Partial<SweepOutcome> = {}): SweepOutcome => ({
-    recovered: 0, recoveries: [], failed: 0, missed: 0, misses: [], failures: [], skipped: false, ...over,
+    recovered: 0, recoveries: [], failed: 0, missed: 0, misses: [], failures: [], skipped: false, truncated: false, ...over,
   });
   const ref = (txId: string, index = 0) => ({ txId, index, mode: 1 as const, tokenId: '00' });
   const failure = (txId: string, assetMismatch = false) => ({ ...ref(txId), assetMismatch, error: 'boom' });
