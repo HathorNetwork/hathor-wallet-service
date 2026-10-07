@@ -8,36 +8,6 @@
 // Must be imported before all other modules to patch libraries for auto-instrumentation
 import './tracing';
 
-import { interpret } from 'xstate';
-import { SyncMachine } from './machines';
-import logger from './logger';
-import { checkEnvVariables } from './config';
-import { bigIntUtils } from '@hathor/wallet-lib';
-import { registerShieldedCryptoProvider } from './shieldedCrypto';
-
-const main = async () => {
-  checkEnvVariables();
-  // Before the first event, so no vertex is ingested without a provider that
-  // could have had one.
-  await registerShieldedCryptoProvider();
-  // Interpret the machine (start it and listen to its state changes)
-  const machine = interpret(SyncMachine);
-
-  machine.onTransition((state) => {
-    const stateValue = bigIntUtils.JSONBigInt.stringify(state.value);
-    logger.info(`Transitioned to ${stateValue}`);
-  });
-
-  machine.onDone(() => {
-    logger.error('Sync machine reached a final state — terminating process for Kubernetes restart');
-    process.exit(1);
-  });
-
-  machine.onEvent((event) => {
-    logger.info(`Processing event: ${bigIntUtils.JSONBigInt.stringify(event.type)}`);
-  });
-
-  machine.start();
-};
+import { main } from './main';
 
 main();

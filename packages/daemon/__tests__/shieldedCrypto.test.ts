@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { createECDH } from 'crypto';
+import { randomBytes } from 'crypto';
 
 const mockAddAlert = jest.fn();
 jest.mock('@wallet-service/common', () => ({
@@ -20,14 +20,23 @@ import {
   isShieldedCryptoProviderRegistered,
   rewindAmount,
   rewindFully,
+  RewindError,
+  ShieldedAssetMismatchError,
 } from '@wallet-service/common';
 import { loadNodeShieldedCryptoProvider, registerShieldedCryptoProvider } from '../src/shieldedCrypto';
 
-/** A secp256k1 keypair: 32-byte private key, 33-byte compressed public key. */
+// The raw binding, for the primitives the provider does not expose.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const ct: typeof import('@hathor/ct-crypto-node') = require('@hathor/ct-crypto-node');
+
+/**
+ * A secp256k1 keypair from the binding: always a 32-byte private key and a
+ * 33-byte compressed public key. (Node's ECDH drops leading zero bytes, so
+ * about 1 key in 256 comes out shorter, and the binding rejects it.)
+ */
 const keypair = () => {
-  const ecdh = createECDH('secp256k1');
-  ecdh.generateKeys();
-  return { priv: ecdh.getPrivateKey(), pub: Buffer.from(ecdh.getPublicKey('hex', 'compressed'), 'hex') };
+  const k = ct.generateEphemeralKeypair();
+  return { priv: k.privateKey, pub: k.publicKey };
 };
 
 const HTR_UID = Buffer.alloc(32);
@@ -119,6 +128,64 @@ describe('the native provider behind the common rewind wrapper', () => {
 
     expect(rewound.value).toBe(77n);
     expect(rewound.tokenUid).toBe('00');
+  });
+
+  it('reports an output whose token id is wrong as a failed recovery, not a scan miss', async () => {
+    // The class of the 1-byte HTR uid bug: the output is ours, the data is not.
+    const scan = keypair();
+    const output = await createHtrOutput(1234n, scan.pub);
+
+    const err = await rewindAmount({
+      scanPrivkey: scan.priv,
+      ephemeralPubkey: output.ephemeralPubkey,
+      commitment: output.commitment,
+      rangeProof: output.rangeProof,
+      tokenId: 'ab'.repeat(32),
+    }).catch((e) => e);
+
+    expect(err).toBeInstanceOf(RewindError);
+    expect(err).not.toBeInstanceOf(ShieldedScanMissError);
+  });
+
+  it('reports a corrupted range proof as a failed recovery, not a scan miss', async () => {
+    const scan = keypair();
+    const output = await createHtrOutput(1234n, scan.pub);
+    const rangeProof = Buffer.from(output.rangeProof);
+    rangeProof[100] ^= 0xff;
+
+    const err = await rewindAmount({
+      scanPrivkey: scan.priv,
+      ephemeralPubkey: output.ephemeralPubkey,
+      commitment: output.commitment,
+      rangeProof,
+      tokenId: '00',
+    }).catch((e) => e);
+
+    expect(err).toBeInstanceOf(RewindError);
+    expect(err).not.toBeInstanceOf(ShieldedScanMissError);
+  });
+
+  it('reports a fully-shielded output carrying a false token as an asset mismatch', async () => {
+    // Built from primitives: a sender can encrypt to the real scan key and
+    // still put a token uid in the proof message that its asset commitment
+    // does not match. Consensus accepts it; it opens, then fails the check.
+    const scan = keypair();
+    const ephemeral = keypair();
+    const nonce = ct.deriveRewindNonce(ct.deriveEcdhSharedSecret(ephemeral.priv, scan.pub));
+    const assetBlinding = ct.generateRandomBlindingFactor();
+    const valueBlinding = ct.generateRandomBlindingFactor();
+    const assetCommitment = ct.createAssetCommitment(ct.deriveTag(HTR_UID), assetBlinding);
+    const commitment = ct.createCommitment(555n, valueBlinding, assetCommitment);
+    const falseMessage = Buffer.concat([randomBytes(32), assetBlinding]);
+    const rangeProof = ct.createRangeProof(555n, valueBlinding, commitment, assetCommitment, falseMessage, nonce);
+
+    await expect(rewindFully({
+      scanPrivkey: scan.priv,
+      ephemeralPubkey: ephemeral.pub,
+      commitment,
+      rangeProof,
+      assetCommitment,
+    })).rejects.toBeInstanceOf(ShieldedAssetMismatchError);
   });
 
   it('reports an output sent to another key as a scan miss', async () => {

@@ -16,9 +16,11 @@ import {
   isShieldedCryptoProviderRegistered,
   MISSING_SHIELDED_PROVIDER_ALERT,
   ShieldedScanMissError,
+  ShieldedAssetMismatchError,
 } from '@wallet-service/common';
 import { ensureShieldedCryptoProvider, shieldedCryptoLoadError } from '@src/shieldedCrypto';
 import {
+  countRecoveredShieldedOutputs,
   getShieldedOutputsToRecover,
   markShieldedTxOutputRecovered,
   markShieldedTxOutputRecoveryFailed,
@@ -29,6 +31,22 @@ import {
   ShieldedOutputToRecover,
 } from '@src/db/shielded';
 
+/** A shielded output, as the recovery alerts identify it. */
+export interface ShieldedOutputRef {
+  txId: string;
+  index: number;
+  mode: ShieldedOutputMode;
+  /** Known up front for AmountShielded; null for FullyShielded. */
+  tokenId: string | null;
+}
+
+/** An owned output that could not be recovered and was marked `recovery_failed`. */
+export interface ShieldedRecoveryFailure extends ShieldedOutputRef {
+  /** Its token does not match its asset commitment: the sender's doing alone. */
+  assetMismatch: boolean;
+  error: string;
+}
+
 export interface RecoverOutcome {
   txId: string;
   index: number;
@@ -36,9 +54,11 @@ export interface RecoverOutcome {
   recovered: boolean;
   /**
    * True when the wallet's scan key did not open the output. Not a failure:
-   * the output was left `unowned` rather than marked `recovery_failed`.
+   * the output was left as it was rather than marked `recovery_failed`.
    */
   missed: boolean;
+  /** Set when the output was marked `recovery_failed`. */
+  failure?: ShieldedRecoveryFailure;
   /** Revealed token + value, set only when `recovered` is true. */
   tokenId?: string;
   value?: bigint;
@@ -47,13 +67,12 @@ export interface RecoverOutcome {
 /**
  * Recover a single owned shielded output: rewind the commitment with the
  * wallet's scan key, then mark the `tx_output` recovered (revealing value +
- * token). On any rewind failure the output is marked `recovery_failed` and an
- * alert is emitted for the on-call retry helper — recovery is never allowed to
- * throw, so a bad output can't abort a whole catch-up batch.
+ * token). On any rewind failure the output is marked `recovery_failed` and the
+ * failure is returned for the caller to report once per load — recovery is
+ * never allowed to throw, so a bad output can't abort a whole catch-up batch.
  *
- * A scan miss is the exception: the output is not addressed to this wallet's
- * scan key, which is not a failure to retry. It is left as it was and reported
- * as `missed`, for the sweep to alert on once.
+ * A scan miss is the exception: nothing shows the output is the wallet's (see
+ * `ShieldedScanMissError`). It is left as it was and returned as `missed`.
  *
  * AmountShielded (mode 1) already knows its token from `token_data`; FullyShielded
  * (mode 2) recovers the token from the rewind itself.
@@ -100,44 +119,34 @@ export const recoverShieldedOutput = async (
     await markShieldedTxOutputRecovered(mysql, output.txId, output.index, { value, tokenId });
     return { ...base, recovered: true, missed: false, tokenId, value };
   } catch (e) {
+    const ref = { txId: output.txId, index: output.index, mode: output.mode, tokenId: output.tokenId };
     if (e instanceof ShieldedScanMissError) {
-      logger.warn('Shielded output not addressed to its owner\'s scan key', {
-        txId: output.txId, index: output.index, walletId,
-      });
+      logger.warn('Shielded output did not open with its wallet\'s scan key', { ...ref, walletId });
       return { ...base, recovered: false, missed: true };
     }
-    // The failure-reporting path must not throw either: a transient DB/SQS blip here
-    // would otherwise escape the catch-up loop and abort the whole batch. A swallowed
-    // mark just leaves the output non-recovered, so the next catch-up re-drives it.
+    // The mark must not throw either: a transient DB blip here would otherwise
+    // escape the catch-up loop and abort the whole batch. A swallowed mark just
+    // leaves the output non-recovered, so the next catch-up re-drives it.
     try {
       await markShieldedTxOutputRecoveryFailed(mysql, output.txId, output.index);
-      await addAlert(
-        'Shielded recovery failed',
-        `Failed to rewind shielded output ${output.txId}:${output.index} for wallet ${walletId}`,
-        Severity.MAJOR,
-        {
-          tx_id: output.txId,
-          index: output.index,
-          wallet_id: walletId,
-          error: String(e),
-          source: 'wallet-service',
-        },
-        logger,
-      );
-    } catch (reportErr) {
-      logger.error('Shielded recovery failure-reporting threw; leaving output for re-drive', {
-        txId: output.txId,
-        index: output.index,
+    } catch (markErr) {
+      logger.error('Marking a shielded output recovery_failed threw; leaving it for re-drive', {
+        ...ref,
         walletId,
-        error: String(reportErr),
+        error: String(markErr),
       });
     }
-    return { ...base, recovered: false, missed: false };
+    return {
+      ...base,
+      recovered: false,
+      missed: false,
+      failure: { ...ref, assetMismatch: e instanceof ShieldedAssetMismatchError, error: String(e) },
+    };
   }
 };
 
-/** Most outputs listed in one scan-miss alert; `count` carries the total. */
-const MISSED_ALERT_LIST_CAP = 10;
+/** Most outputs listed in one alert; `count` carries the total. */
+const ALERT_LIST_CAP = 10;
 
 /** Set once this process has reported the missing provider. */
 let missingProviderAlerted = false;
@@ -178,6 +187,10 @@ export interface SweepOutcome {
   failed: number;
   /** Outputs the wallet's scan key did not open; left as they were. */
   missed: number;
+  /** The outputs behind `missed`. */
+  misses: ShieldedOutputRef[];
+  /** The outputs behind `failed`. */
+  failures: ShieldedRecoveryFailure[];
   /**
    * True when the sweep never ran because no crypto provider is registered.
    * Distinguishes "nothing to do" from "could not even look", so the caller
@@ -185,6 +198,10 @@ export interface SweepOutcome {
    */
   skipped: boolean;
 }
+
+const emptySweep = (): SweepOutcome => ({
+  recovered: 0, failed: 0, missed: 0, misses: [], failures: [], skipped: false,
+});
 
 export const findAndRewindShielded = async (
   mysql: ServerlessMysql,
@@ -199,12 +216,12 @@ export const findAndRewindShielded = async (
   await ensureShieldedCryptoProvider(logger);
   if (!isShieldedCryptoProviderRegistered()) {
     await reportMissingProvider(walletId, logger);
-    return { recovered: 0, failed: 0, missed: 0, skipped: true };
+    return { ...emptySweep(), skipped: true };
   }
 
   let recovered = 0;
-  let failed = 0;
-  const missed: { txId: string; index: number }[] = [];
+  const misses: ShieldedOutputRef[] = [];
+  const failures: ShieldedRecoveryFailure[] = [];
   let after: { txId: string; index: number } | undefined;
   for (;;) {
     const page = await getShieldedOutputsToRecover(mysql, walletId, pageSize, after);
@@ -212,36 +229,16 @@ export const findAndRewindShielded = async (
     for (const output of page) {
       const outcome = await recoverShieldedOutput(mysql, walletId, output, logger);
       if (outcome.recovered) recovered += 1;
-      else if (outcome.missed) missed.push({ txId: output.txId, index: output.index });
-      else failed += 1;
+      else if (outcome.missed) {
+        misses.push({ txId: output.txId, index: output.index, mode: output.mode, tokenId: output.tokenId });
+      } else if (outcome.failure) failures.push(outcome.failure);
     }
     const last = page[page.length - 1];
     after = { txId: last.txId, index: last.index };
   }
-
-  // One alert per sweep. A sender that did not encrypt to the wallet's scan
-  // key explains one miss; misses across a wallet's outputs point at a scan
-  // key here that does not match the one the client derived.
-  if (missed.length > 0) {
-    try {
-      await addAlert(
-        'Shielded output not addressed to its owner\'s scan key',
-        `${missed.length} shielded output(s) of wallet ${walletId} did not open with its scan key; `
-        + 'they were left as they were.',
-        Severity.MAJOR,
-        {
-          wallet_id: walletId,
-          count: missed.length,
-          outputs: missed.slice(0, MISSED_ALERT_LIST_CAP),
-          source: 'wallet-service',
-        },
-        logger,
-      );
-    } catch (e) {
-      logger.error('Failed to report shielded scan misses', { walletId, error: String(e) });
-    }
-  }
-  return { recovered, failed, missed: missed.length, skipped: false };
+  return {
+    recovered, failed: failures.length, missed: misses.length, misses, failures, skipped: false,
+  };
 };
 
 /**
@@ -261,15 +258,118 @@ export const reconstructWallet = async (
   ctSpendAddresses: string[],
   logger: Logger,
 ): Promise<SweepOutcome> => {
-  let rewind: SweepOutcome = { recovered: 0, failed: 0, missed: 0, skipped: false };
+  let rewind: SweepOutcome = emptySweep();
   if (ctSpendAddresses.length > 0) {
     rewind = await findAndRewindShielded(mysql, walletId, logger);
-    await rebuildShieldedAddressBalances(mysql, ctSpendAddresses);
+    // History first: the balance rebuild sets each pair's `transactions`
+    // from its history rows.
     await rebuildShieldedAddressTxHistory(mysql, ctSpendAddresses);
+    await rebuildShieldedAddressBalances(mysql, ctSpendAddresses);
   }
 
   const allAddresses = [...legacyAddresses, ...ctSpendAddresses];
   await rebuildWalletBalance(mysql, walletId, allAddresses);
   await rebuildWalletTxHistory(mysql, walletId, allAddresses);
   return rewind;
+};
+
+const dedupeByOutput = <T extends ShieldedOutputRef>(items: T[]): T[] => {
+  const seen = new Map<string, T>();
+  for (const item of items) seen.set(`${item.txId}:${item.index}`, item);
+  return [...seen.values()];
+};
+
+const toAlertOutputs = (items: (ShieldedOutputRef & { error?: string })[]) => (
+  items.slice(0, ALERT_LIST_CAP).map((o) => ({
+    tx_id: o.txId,
+    index: o.index,
+    mode: o.mode,
+    token_id: o.tokenId,
+    ...(o.error === undefined ? {} : { error: o.error }),
+  }))
+);
+
+const sendAlert = async (
+  logger: Logger,
+  title: string,
+  message: string,
+  severity: Severity,
+  metadata: Record<string, unknown>,
+): Promise<void> => {
+  try {
+    await addAlert(title, message, severity, metadata, logger);
+  } catch (e) {
+    logger.error('Failed to send a shielded recovery alert', { title, error: String(e) });
+  }
+};
+
+/**
+ * Report what a load's sweeps could not recover, once for the whole load.
+ *
+ * The sweeps overlap — a load runs one, then a settle sweep that re-drives
+ * the same rows — so outputs are counted once each. Never throws.
+ *
+ * - Failures send one alert. It pages unless every failure is an asset
+ *   mismatch, which a sender alone can cause.
+ * - Misses page only on the pattern of a scan key that does not match the
+ *   client's: misses and not a single recovered output for the wallet. A
+ *   miss alone cannot be told from a foreign sender, which anyone can be;
+ *   a load, by contrast, is triggered by the wallet's owner only.
+ */
+export const reportShieldedSweeps = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+  sweeps: SweepOutcome[],
+  logger: Logger,
+): Promise<void> => {
+  const failures = dedupeByOutput(sweeps.flatMap((s) => s.failures));
+  const misses = dedupeByOutput(sweeps.flatMap((s) => s.misses));
+
+  if (failures.length > 0) {
+    logger.error('Shielded outputs failed to recover during load', { walletId, failed: failures.length });
+    const senderMade = failures.every((f) => f.assetMismatch);
+    await sendAlert(
+      logger,
+      'Shielded recovery failed',
+      `${failures.length} shielded output(s) of wallet ${walletId} could not be recovered and were `
+      + `marked recovery_failed. First: ${failures[0].txId}:${failures[0].index} — ${failures[0].error}`,
+      senderMade ? Severity.MINOR : Severity.MAJOR,
+      {
+        wallet_id: walletId,
+        count: failures.length,
+        outputs: toAlertOutputs(failures),
+        source: 'wallet-service',
+      },
+    );
+  }
+
+  if (misses.length === 0) return;
+  let recovered: number;
+  try {
+    recovered = await countRecoveredShieldedOutputs(mysql, walletId);
+  } catch (e) {
+    logger.error('Could not count recovered shielded outputs; not paging on misses', {
+      walletId, error: String(e),
+    });
+    return;
+  }
+  logger.warn('Shielded outputs did not open with their wallet\'s scan key during load', {
+    walletId, missed: misses.length, recovered,
+  });
+  if (recovered > 0) return;
+  await sendAlert(
+    logger,
+    'Shielded outputs did not open with their wallet\'s scan key',
+    `${misses.length} shielded output(s) paid to wallet ${walletId} did not open with its scan key, `
+    + 'and none of its shielded outputs has. The scan key stored for it may not match the one its '
+    + 'client derived.',
+    Severity.MAJOR,
+    {
+      wallet_id: walletId,
+      missed: misses.length,
+      recovered,
+      outputs: toAlertOutputs(misses),
+      source: 'wallet-service',
+    },
+  );
 };

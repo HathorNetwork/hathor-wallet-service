@@ -40,7 +40,7 @@ import {
   rebuildWalletBalance,
   rebuildWalletTxHistory,
 } from '@src/db/shielded';
-import { findAndRewindShielded } from '@src/shieldedRecovery';
+import { findAndRewindShielded, reportShieldedSweeps } from '@src/shieldedRecovery';
 import {
   beginTransaction,
   commitTransaction,
@@ -833,12 +833,8 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
       const settleSweep = await findAndRewindShielded(mysql, walletId, logger);
       // A rewind that fails is recorded as `recovery_failed` and re-driven by a
       // later catch-up, so the load still completes — but the balance is
-      // incomplete until then, so make the count greppable next to the
-      // per-output alerts rather than letting it pass silently.
-      const failedRewinds = firstSweep.failed + settleSweep.failed;
-      if (failedRewinds > 0) {
-        logger.error('Shielded outputs failed to recover during load', { walletId, failed: failedRewinds });
-      }
+      // incomplete until then. Reported once for both sweeps.
+      await reportShieldedSweeps(mysql, walletId, [firstSweep, settleSweep], logger);
       // A sweep that never ran (no crypto provider) must not be mistaken for a
       // completed one: recording the catch-up as done would tell a later sweep
       // there is nothing left to pick up, and the wallet's shielded balance
@@ -848,8 +844,10 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
       if (catchupSkipped) {
         logger.warn('Shielded catch-up left pending: the sweep could not run', { walletId });
       }
-      await rebuildShieldedAddressBalances(mysql, ctSpendAddresses);
+      // History first: the balance rebuild sets each pair's `transactions`
+      // from its history rows.
       await rebuildShieldedAddressTxHistory(mysql, ctSpendAddresses);
+      await rebuildShieldedAddressBalances(mysql, ctSpendAddresses);
     }
     // 4. Settle: recompute the wallet totals and flip it ready as one atomic
     //    step, holding locks on the address rows the totals are summed from.

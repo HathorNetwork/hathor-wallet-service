@@ -19482,6 +19482,7 @@ __metadata:
     "@aws-sdk/client-lambda": "npm:3.540.0"
     "@aws-sdk/client-sqs": "npm:3.540.0"
     "@hathor/ct-crypto-node": "npm:0.5.0"
+    "@hathor/ct-crypto-provider": "npm:0.5.0"
     "@hathor/healthcheck-lib": "npm:0.1.0"
     "@middy/core": "npm:2.5.7"
     "@middy/http-cors": "npm:2.5.7"

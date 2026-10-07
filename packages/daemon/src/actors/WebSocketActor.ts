@@ -13,6 +13,7 @@ import { getFullnodeWsUrl } from '../utils';
 import { bigIntUtils } from '@hathor/wallet-lib';
 import { addAlert, Severity } from '@wallet-service/common';
 import { ZodError } from 'zod';
+import { settleWithin } from '../utils/settleWithin';
 
 const PING_TIMEOUT = 30000; // 30s timeout
 const PING_INTERVAL = 5000; // Will ping every 5s
@@ -27,16 +28,6 @@ const ALERT_ISSUE_CAP = 10;
  */
 export const SCHEMA_FAILURE_ALERT_TIMEOUT_MS = 5000;
 
-/** Resolve when `promise` settles or `ms` elapses, whichever comes first. */
-export const settleWithin = (promise: Promise<unknown>, ms: number): Promise<void> => (
-  new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    promise.finally(() => {
-      clearTimeout(timer);
-      resolve();
-    }).catch(() => {});
-  })
-);
 
 /**
  * Page on an event the schema rejects. A crash loop on its own only shows in

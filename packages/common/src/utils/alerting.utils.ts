@@ -76,9 +76,9 @@ export const addAlert = async (
  */
 export const MISSING_SHIELDED_PROVIDER_ALERT = {
   title: 'Shielded crypto provider not registered',
-  message: 'Shielded outputs are being observed but cannot be recovered: no shielded crypto '
-    + 'provider is registered, so the native @hathor/ct-crypto-node binding did not load. Owned '
-    + 'outputs stay unowned and balances exclude them until it does.',
+  message: 'Shielded outputs are being observed but cannot be recovered: the native '
+    + '@hathor/ct-crypto-node binding did not load, so no shielded crypto provider is registered. '
+    + 'Owned outputs stay unowned and balances exclude them until it does.',
   // A provider ships with every deploy, so its absence is a broken deploy.
   severity: Severity.MAJOR,
 } as const;

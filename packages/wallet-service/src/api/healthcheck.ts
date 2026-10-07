@@ -111,7 +111,7 @@ const checkFullnodeHealth: HealthcheckCallbackResponse = async () => {
  * same way the recovery sweep does, so a binary missing from the package, or
  * built for another platform, fails here rather than silently per output.
  */
-const checkShieldedCryptoProvider: HealthcheckCallbackResponse = async () => {
+export const checkShieldedCryptoProvider: HealthcheckCallbackResponse = async () => {
   await ensureShieldedCryptoProvider(createDefaultLogger());
   if (isShieldedCryptoProviderRegistered()) {
     return new HealthcheckCallbackResponse({

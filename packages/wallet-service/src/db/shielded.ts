@@ -219,12 +219,38 @@ export const getShieldedOutputsToRecover = async (
 };
 
 /**
+ * How many of the wallet's shielded outputs are recovered (non-voided). Tells a
+ * scan key that never opens anything apart from one that only missed a few.
+ */
+export const countRecoveredShieldedOutputs = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+): Promise<number> => {
+  const results: DbSelectResult = await mysql.query(
+    `SELECT COUNT(*) AS \`count\`
+       FROM \`tx_output\` t
+       INNER JOIN \`address\` a ON a.\`address\` = t.\`address\`
+      WHERE a.\`wallet_id\` = ? AND t.\`mode\` IN (?, ?)
+        AND t.\`recovery_state\` = ? AND t.\`voided\` = FALSE`,
+    [walletId, ...SHIELDED_MODES, RecoveryState.Recovered],
+  );
+  return Number(results[0]?.count ?? 0);
+};
+
+/**
  * Recompute the shielded balance columns of `address_balance` for the given
  * addresses from their recovered `tx_output` rows (mode 1/2, `recovery_state =
  * 'recovered'`, non-voided). Snapshot semantics (replace, not add) → idempotent:
  * unlocked/locked come from the unspent utxos, `total_shielded_received` is the
  * lifetime (every recovered output, spent or not). Only the shielded columns are
  * written; a transparent balance already on the (address, token) row is preserved.
+ *
+ * `transactions` is set to the pair's number of `address_tx_history` rows,
+ * which is what the daemon's count amounts to (it writes a row and adds 1
+ * together) and what its void subtracts from. Run
+ * `rebuildShieldedAddressTxHistory` first, so the recovered receives are
+ * among the rows counted; a pair left at 0 here would underflow when the
+ * daemon voids one of them, halting sync.
  */
 export const rebuildShieldedAddressBalances = async (
   mysql: ServerlessMysql,
@@ -240,7 +266,10 @@ export const rebuildShieldedAddressBalances = async (
         COALESCE(SUM(CASE WHEN t.\`spent_by\` IS NULL AND t.\`locked\` = FALSE THEN t.\`value\` ELSE 0 END), 0),
         COALESCE(SUM(CASE WHEN t.\`spent_by\` IS NULL AND t.\`locked\` = TRUE  THEN t.\`value\` ELSE 0 END), 0),
         COALESCE(SUM(t.\`value\`), 0),
-        0, 0, 0
+        0, 0,
+        (SELECT COUNT(*) FROM \`address_tx_history\` h
+          WHERE h.\`address\` = t.\`address\` AND h.\`token_id\` = t.\`token_id\`
+            AND h.\`voided\` = FALSE)
        FROM \`tx_output\` t
       WHERE t.\`address\` IN (?) AND t.\`mode\` IN (?, ?)
         AND t.\`recovery_state\` = ? AND t.\`voided\` = FALSE
@@ -248,7 +277,8 @@ export const rebuildShieldedAddressBalances = async (
      ON DUPLICATE KEY UPDATE
         \`unlocked_shielded_balance\` = VALUES(\`unlocked_shielded_balance\`),
         \`locked_shielded_balance\` = VALUES(\`locked_shielded_balance\`),
-        \`total_shielded_received\` = VALUES(\`total_shielded_received\`)`,
+        \`total_shielded_received\` = VALUES(\`total_shielded_received\`),
+        \`transactions\` = VALUES(\`transactions\`)`,
     [addresses, ...SHIELDED_MODES, RecoveryState.Recovered],
   );
 };

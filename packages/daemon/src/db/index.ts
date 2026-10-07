@@ -822,6 +822,33 @@ export const getTxOutputsAtHeight = async (
 };
 
 /**
+ * The (owner, token) pairs that have a history row for `txId`, keyed
+ * `owner:token`. A pair's `transactions` count is its number of history rows:
+ * the daemon writes a row and adds 1 together, and the wallet-service's
+ * rebuild sets the count from the rows. So only these pairs were counted for
+ * the tx, and only these may be decremented when it is voided. A shielded
+ * output the wallet-service recovered after ingest is credited to its pair
+ * without a history row for a later spend, and decrementing that pair would
+ * take a count that was never added (an UNSIGNED underflow that halts sync).
+ */
+const pairsWithTxHistory = async (
+  mysql: any,
+  table: '`address_tx_history`' | '`wallet_tx_history`',
+  ownerColumn: '`address`' | '`wallet_id`',
+  txId: string,
+  pairKeys: [string, string][],
+): Promise<Set<string>> => {
+  if (pairKeys.length === 0) return new Set();
+  const [rows] = await mysql.query(
+    `SELECT ${ownerColumn} AS \`owner\`, \`token_id\`
+       FROM ${table}
+      WHERE \`tx_id\` = ? AND (${ownerColumn}, \`token_id\`) IN (?)`,
+    [txId, pairKeys],
+  );
+  return new Set((rows as { owner: string; token_id: string }[]).map((r) => `${r.owner}:${r.token_id}`));
+};
+
+/**
  * Void address-related information when voiding a transaction.
  *
  * @param mysql - The MySQL connection object
@@ -863,6 +890,9 @@ export const voidAddressTransaction = async (
   // Single batched UPDATE for all balance decrements (no-op if no row matches)
   type AddrPair = { address: string; token: string; balance: Balance };
   const getAddrKeys = (p: AddrPair): [string, string] => [p.address, p.token];
+  const counted = await pairsWithTxHistory(
+    mysql, '`address_tx_history`', '`address`', txId, pairs.map(getAddrKeys),
+  );
 
   const { sql: updateSql, params: updateParams } = buildBatchCaseUpdate<AddrPair>(
     '`address_balance`',
@@ -884,8 +914,12 @@ export const voidAddressTransaction = async (
       { column: '`unlocked_shielded_balance`', op: 'subtract', getValue: (p) => p.balance.unlockedShieldedAmount },
       { column: '`locked_shielded_balance`', op: 'subtract', getValue: (p) => p.balance.lockedShieldedAmount },
       { column: '`total_shielded_received`', op: 'subtract', getValue: (p) => p.balance.totalShieldedReceived },
-      // Decrement transactions by 1 for each voided (address, token) pair.
-      { column: '`transactions`', op: 'subtract', getValue: () => 1 },
+      // Decrement transactions only for the pairs this tx was counted for.
+      {
+        column: '`transactions`',
+        op: 'subtract',
+        getValue: (p) => (counted.has(`${p.address}:${p.token}`) ? 1 : 0),
+      },
     ],
   );
 
@@ -1032,6 +1066,9 @@ export const voidWalletTransaction = async (
   if (pairs.length > 0) {
     type WalletPair = { walletId: string; token: string; balance: Balance };
     const getWalletKeys = (p: WalletPair): [string, string] => [p.walletId, p.token];
+    const counted = await pairsWithTxHistory(
+      mysql, '`wallet_tx_history`', '`wallet_id`', txId, pairs.map(getWalletKeys),
+    );
 
     // Single batched UPDATE for all wallet balance decrements
     const { sql: updateSql, params: updateParams } = buildBatchCaseUpdate<WalletPair>(
@@ -1049,8 +1086,12 @@ export const voidWalletTransaction = async (
         { column: '`unlocked_shielded_balance`', op: 'subtract', getValue: (p) => p.balance.unlockedShieldedAmount },
         { column: '`locked_shielded_balance`', op: 'subtract', getValue: (p) => p.balance.lockedShieldedAmount },
         { column: '`total_shielded_received`', op: 'subtract', getValue: (p) => p.balance.totalShieldedReceived },
-        // Decrement transactions by 1 for each voided (wallet, token) pair.
-        { column: '`transactions`', op: 'subtract', getValue: () => 1 },
+        // Decrement transactions only for the pairs this tx was counted for.
+        {
+          column: '`transactions`',
+          op: 'subtract',
+          getValue: (p) => (counted.has(`${p.walletId}:${p.token}`) ? 1 : 0),
+        },
       ],
     );
 

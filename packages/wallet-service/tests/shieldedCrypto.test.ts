@@ -6,6 +6,11 @@
  */
 
 import { Logger } from 'winston';
+import { ServerlessMysql } from 'serverless-mysql';
+
+// The modules under test reach the provider through `@src/shieldedCrypto`,
+// which every other test maps to a stub. Here they get the real one.
+jest.mock('@src/shieldedCrypto', () => jest.requireActual('../src/shieldedCrypto'));
 import {
   clearShieldedCryptoProvider,
   isShieldedCryptoProviderRegistered,
@@ -17,6 +22,10 @@ import {
   resetShieldedCryptoProviderAttempt,
   shieldedCryptoLoadError,
 } from '../src/shieldedCrypto';
+import { findAndRewindShielded } from '@src/shieldedRecovery';
+import { checkShieldedCryptoProvider } from '@src/api/healthcheck';
+import { getDbConnection, closeDbConnection } from '@src/utils';
+import { cleanDatabase } from '@tests/utils';
 
 const logger = { debug: () => {}, error: () => {}, info: () => {}, warn: () => {} } as unknown as Logger;
 
@@ -25,7 +34,12 @@ beforeEach(() => {
   resetShieldedCryptoProviderAttempt();
 });
 
-afterAll(() => clearShieldedCryptoProvider());
+const mysql: ServerlessMysql = getDbConnection();
+
+afterAll(async () => {
+  clearShieldedCryptoProvider();
+  await closeDbConnection(mysql);
+});
 
 describe('ensureShieldedCryptoProvider', () => {
   it('registers the native provider on this platform', async () => {
@@ -56,5 +70,24 @@ describe('ensureShieldedCryptoProvider', () => {
     await ensureShieldedCryptoProvider(logger, load);
 
     expect(load).not.toHaveBeenCalled();
+  });
+});
+
+describe('what turns shielded recovery on', () => {
+  it('a sweep registers the native provider itself, and runs', async () => {
+    await cleanDatabase(mysql);
+
+    const outcome = await findAndRewindShielded(mysql, 'w1', logger);
+
+    // `skipped: true` is what a sweep reports when no provider got registered.
+    expect(outcome.skipped).toBe(false);
+    expect(isShieldedCryptoProviderRegistered()).toBe(true);
+  });
+
+  it('the healthcheck registers the native provider itself, and passes', async () => {
+    const response = await checkShieldedCryptoProvider();
+
+    expect(response).toMatchObject({ status: 'pass' });
+    expect(isShieldedCryptoProviderRegistered()).toBe(true);
   });
 });

@@ -125,6 +125,57 @@ describe('rebuildShieldedAddressBalances', () => {
     expect(String(ab.tu)).toBe('777'); // transparent unlocked_balance preserved
   });
 
+  // The daemon's void subtracts 1 from `transactions` for the voided tx, so a
+  // pair the sweep credits must already be counted for it, or the void
+  // underflows and halts sync.
+  const readTransactions = async (address: string, tokenId: string) => Number((await mysql.query(
+    'SELECT `transactions` FROM `address_balance` WHERE `address` = ? AND `token_id` = ?',
+    [address, tokenId],
+  ))[0].transactions);
+
+  it('counts a new pair once per history row', async () => {
+    await insertTx('rtx1', 1000);
+    await insertOutput('rtx1', 0, 'a1', { value: '100' });
+
+    await rebuildShieldedAddressTxHistory(mysql, ['a1']);
+    await rebuildShieldedAddressBalances(mysql, ['a1']);
+
+    expect(await readTransactions('a1', '00')).toBe(1);
+  });
+
+  it('adds the recovered receive to the count a transparent row already has, once', async () => {
+    // The daemon already counted a transparent tx for this pair.
+    await mysql.query(
+      `INSERT INTO \`address_balance\`
+         (\`address\`, \`token_id\`, \`unlocked_balance\`, \`locked_balance\`,
+          \`unlocked_authorities\`, \`locked_authorities\`, \`transactions\`)
+       VALUES ('a1', '00', 777, 0, 0, 0, 1)`,
+    );
+    await insertAddressHistoryRow('a1', 'ttx', '00', 777, 0);
+    await insertTx('rtx1', 1000);
+    await insertOutput('rtx1', 0, 'a1', { value: '100' });
+
+    await rebuildShieldedAddressTxHistory(mysql, ['a1']);
+    await rebuildShieldedAddressBalances(mysql, ['a1']);
+    expect(await readTransactions('a1', '00')).toBe(2);
+
+    // A re-run (a reload) counts nothing twice.
+    await rebuildShieldedAddressTxHistory(mysql, ['a1']);
+    await rebuildShieldedAddressBalances(mysql, ['a1']);
+    expect(await readTransactions('a1', '00')).toBe(2);
+  });
+
+  it('does not count voided history rows', async () => {
+    await insertTx('rtx1', 1000);
+    await insertOutput('rtx1', 0, 'a1', { value: '100' });
+    await insertAddressHistoryRow('a1', 'gone', '00', 5, 0, true);
+
+    await rebuildShieldedAddressTxHistory(mysql, ['a1']);
+    await rebuildShieldedAddressBalances(mysql, ['a1']);
+
+    expect(await readTransactions('a1', '00')).toBe(1);
+  });
+
   it('is a no-op for an empty address list', async () => {
     await rebuildShieldedAddressBalances(mysql, []);
     expect(Number((await mysql.query('SELECT COUNT(*) AS c FROM `address_balance`'))[0].c)).toBe(0);

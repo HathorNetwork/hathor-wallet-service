@@ -19,6 +19,7 @@ import {
   ShieldedStorageCheck,
   EPHEMERAL_PUBKEY_BYTES,
   ShieldedScanMissError,
+  ShieldedAssetMismatchError,
 } from '@wallet-service/common';
 import {
   StringMap,
@@ -136,6 +137,15 @@ let missingProviderAlerted = false;
 /** Clear the missing-provider report guard — for test isolation. */
 export const resetMissingProviderAlert = (): void => {
   missingProviderAlerted = false;
+};
+
+/**
+ * Record that the missing provider was already reported — by the startup
+ * alert, which carries the load error — so the first shielded vertex does
+ * not page for it a second time.
+ */
+export const markMissingProviderReported = (): void => {
+  missingProviderAlerted = true;
 };
 
 /**
@@ -542,14 +552,17 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         // already covered by bumpAddressInvolvement).
         const shieldedRecoveryResults: ShieldedRecoveryResult[] = [];
 
-        // Shielded-recovery-failure alerts are collected here and emitted AFTER
-        // the transaction commits. addAlert performs an SQS round-trip, which
-        // must not run while the ingest transaction holds tx_output/address
-        // row locks.
-        const failedShieldedRecoveries: { txId: string; index: number; error: string }[] = [];
-        // Owned outputs the wallet's scan key did not open. Alerted after commit
-        // too, once per vertex.
-        const shieldedScanMisses: { index: number; address: string }[] = [];
+        // Shielded-recovery failures are collected here and alerted on AFTER
+        // the transaction commits, once per vertex. addAlert performs an SQS
+        // round-trip, which must not run while the ingest transaction holds
+        // tx_output/address row locks.
+        const failedShieldedRecoveries: {
+          index: number;
+          mode: number;
+          tokenId: string | null;
+          assetMismatch: boolean;
+          error: string;
+        }[] = [];
 
         // Read once per vertex, not cached across vertices: a provider can be
         // registered at any time, and a stale `false` would hide real failures.
@@ -749,19 +762,34 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
                 });
               }
             } catch (e) {
+              const tokenId = isAmount ? resolveShieldedTokenId(so.token_data) : null;
               if (e instanceof ShieldedScanMissError) {
-                // Not a failed recovery: the output is not addressed to the key
-                // we hold for this address. Left `unowned`, which a recovery
-                // with the right key can still promote; `recovery_failed`
-                // would strand it.
-                logger.warn('Shielded output not addressed to its owner\'s scan key', {
-                  txId: hash, index: idx, address: so.decoded.address,
+                // Not a failed recovery: nothing shows the output belongs to
+                // this wallet, and anyone can send such an output to a claimed
+                // address. It stays `unowned`, the state for outputs that
+                // cannot be attributed to the wallet, which keeps
+                // `recovery_failed` for outputs that are the wallet's. No alert
+                // here, for the same reason: a single miss cannot tell a
+                // foreign sender from a scan-key mismatch, so the wallet-service
+                // pages on the wallet-level pattern instead.
+                logger.warn('Shielded output did not open with its wallet\'s scan key', {
+                  txId: hash,
+                  index: idx,
+                  address: so.decoded.address,
+                  walletId: owned.wallet_id,
+                  mode: so.mode,
+                  tokenId,
                 });
-                shieldedScanMisses.push({ index: idx, address: so.decoded.address });
               } else {
                 await markTxOutputRecoveryFailed(mysql, hash, idx);
                 // Defer the alert until after commit — see failedShieldedRecoveries.
-                failedShieldedRecoveries.push({ txId: hash, index: idx, error: String(e) });
+                failedShieldedRecoveries.push({
+                  index: idx,
+                  mode: so.mode,
+                  tokenId,
+                  assetMismatch: e instanceof ShieldedAssetMismatchError,
+                  error: String(e),
+                });
               }
             }
           }
@@ -983,37 +1011,29 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
         await mysql.commit();
 
-        // Transaction committed and its row locks released: now emit any
-        // deferred shielded-recovery-failure alerts. Routed through
+        // Transaction committed and its row locks released: now emit the
+        // deferred recovery-failure alert, one per vertex. Routed through
         // emitDeferredAlert so an alerting failure cannot be mistaken for an
-        // ingest failure.
-        for (const failure of failedShieldedRecoveries) {
+        // ingest failure. A sender alone can produce an asset mismatch, so a
+        // vertex whose failures are all of that kind does not page.
+        if (failedShieldedRecoveries.length > 0) {
+          const first = failedShieldedRecoveries[0];
+          const senderMade = failedShieldedRecoveries.every((f) => f.assetMismatch);
           await emitDeferredAlert(
             'Shielded recovery failed',
-            `Failed to rewind shielded output ${failure.txId}:${failure.index} for owned address`,
-            Severity.MAJOR,
-            { tx_id: failure.txId, index: failure.index, error: failure.error },
-          );
-        }
-
-        // A scan miss on a claimed address is either a sender that did not
-        // encrypt to the wallet's scan key, or a scan key here that does not
-        // match the one the client derived. The second affects every output
-        // of every such wallet, which is why it pages.
-        if (shieldedScanMisses.length > 0) {
-          const first = shieldedScanMisses[0];
-          await emitDeferredAlert(
-            'Shielded output not addressed to its owner\'s scan key',
-            `${shieldedScanMisses.length} shielded output(s) of ${hash} pay a claimed address `
-            + `but did not open with that wallet's scan key; they were left unowned. First: index `
-            + `${first.index}, address ${first.address}`,
-            Severity.MAJOR,
+            `${failedShieldedRecoveries.length} shielded output(s) of ${hash} paid to a claimed `
+            + `address could not be recovered and were marked recovery_failed. First: index `
+            + `${first.index} — ${first.error}`,
+            senderMade ? Severity.MINOR : Severity.MAJOR,
             {
               tx_id: hash,
-              count: shieldedScanMisses.length,
-              index: first.index,
-              address: first.address,
-              outputs: shieldedScanMisses.slice(0, ALERT_LIST_CAP),
+              count: failedShieldedRecoveries.length,
+              outputs: failedShieldedRecoveries.slice(0, ALERT_LIST_CAP).map((f) => ({
+                index: f.index,
+                mode: f.mode,
+                token_id: f.tokenId,
+                error: f.error,
+              })),
               source: 'daemon',
             },
           );

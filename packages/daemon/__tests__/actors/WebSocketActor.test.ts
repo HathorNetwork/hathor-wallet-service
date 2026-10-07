@@ -5,7 +5,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import WebSocketActor, { settleWithin, SCHEMA_FAILURE_ALERT_TIMEOUT_MS } from '../../src/actors/WebSocketActor';
+import WebSocketActor, { SCHEMA_FAILURE_ALERT_TIMEOUT_MS } from '../../src/actors/WebSocketActor';
+import { settleWithin } from '../../src/utils/settleWithin';
 import logger from '../../src/logger';
 import alphaV4ShieldedVertexEvent from '../__fixtures__/alpha-v4-shielded-vertex-event';
 

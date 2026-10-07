@@ -12,6 +12,23 @@ import {
   Severity,
 } from '@wallet-service/common';
 import logger from './logger';
+import { markMissingProviderReported } from './services';
+import { settleWithin } from './utils/settleWithin';
+
+/** Longest startup waits on the load-failure alert before sync starts. */
+const LOAD_FAILURE_ALERT_TIMEOUT_MS = 5000;
+
+/**
+ * The platform the binding was looked up for, libc included: a glibc binary
+ * on a musl system fails the same way as a missing package, and only the
+ * libc tells the two apart.
+ */
+const describePlatform = (): string => {
+  const report = process.report?.getReport() as { header?: { glibcVersionRuntime?: string } } | undefined;
+  const glibc = report?.header?.glibcVersionRuntime;
+  const libc = process.platform !== 'linux' ? '' : `-${glibc ? `glibc${glibc}` : 'musl'}`;
+  return `${process.platform}-${process.arch}${libc}`;
+};
 
 /**
  * Build the native shielded crypto provider.
@@ -31,7 +48,9 @@ export const loadNodeShieldedCryptoProvider = (): IShieldedCryptoProvider => {
  *
  * A failure is reported once, loudly, and sync starts anyway: transparent
  * ingestion does not depend on it, and shielded outputs are still stored —
- * `unowned`, for a later recovery to pick up.
+ * `unowned`, for a later recovery to pick up. The report is the only page for
+ * it: it carries the load error, so the per-process missing-provider alert a
+ * shielded vertex would send is suppressed.
  */
 export const registerShieldedCryptoProvider = async (
   load: () => IShieldedCryptoProvider = loadNodeShieldedCryptoProvider,
@@ -41,20 +60,27 @@ export const registerShieldedCryptoProvider = async (
     logger.info('Shielded crypto provider registered');
     return true;
   }
+  const platform = describePlatform();
   logger.error('Shielded crypto provider failed to load; shielded outputs will not be recovered', {
     error: result.error,
+    platform,
   });
-  try {
-    await addAlert(
-      'Shielded crypto provider failed to load',
-      'The daemon started without a shielded crypto provider, so it stores shielded outputs '
-      + 'but recovers none of them. Check the @hathor/ct-crypto-node binary for this platform.',
-      Severity.MAJOR,
-      { error: result.error, platform: `${process.platform}-${process.arch}`, source: 'daemon' },
-      logger,
-    );
-  } catch (e) {
-    logger.error('Failed to report the missing shielded crypto provider', { error: String(e) });
-  }
+  markMissingProviderReported();
+  const report = (async () => {
+    try {
+      await addAlert(
+        'Shielded crypto provider failed to load',
+        'The daemon started without a shielded crypto provider, so it stores shielded outputs '
+        + 'but recovers none of them. Check the @hathor/ct-crypto-node binary for this platform.',
+        Severity.MAJOR,
+        { error: result.error, platform, source: 'daemon' },
+        logger,
+      );
+    } catch (e) {
+      logger.error('Failed to report the missing shielded crypto provider', { error: String(e) });
+    }
+  })();
+  // Sync must not wait on SQS to start.
+  await settleWithin(report, LOAD_FAILURE_ALERT_TIMEOUT_MS);
   return false;
 };
