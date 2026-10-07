@@ -22,7 +22,9 @@ import {
   getShieldedOutputsToRecover,
   upsertShieldedAddressOwnership,
   getWalletCtSpendAddresses,
-  markShieldedCatchupDone,
+  markWalletSweepRunning,
+  finishWalletSweep,
+  getWalletsNeedingSweep,
   generateShieldedAddresses,
   getShieldedTxOutputDataByIds,
   getShieldedAddressInfoByAddresses,
@@ -139,7 +141,7 @@ describe('shielded db: ownership resolution', () => {
 describe('shielded db: recovery-state transitions', () => {
   it('promoteShieldedTxOutputs promotes an unowned output and is idempotent', async () => {
     await insertShieldedOutput('tx1', 0, 'a1', 1, 'unowned', null, null);
-    const recovery = { txId: 'tx1', index: 0, value: 1500n, tokenId: '00' };
+    const recovery = { txId: 'tx1', index: 0, address: 'a1', value: 1500n, tokenId: '00' };
 
     expect(await promoteShieldedTxOutputs(mysql, [recovery])).toBe(1);
     const row = await readOutput('tx1', 0);
@@ -153,7 +155,7 @@ describe('shielded db: recovery-state transitions', () => {
   it('promoteShieldedTxOutputs can re-drive a recovery_failed output', async () => {
     await insertShieldedOutput('tx2', 0, 'a1', 2, 'recovery_failed', null, null);
 
-    expect(await promoteShieldedTxOutputs(mysql, [{ txId: 'tx2', index: 0, value: 42n, tokenId: 'ab' }])).toBe(1);
+    expect(await promoteShieldedTxOutputs(mysql, [{ txId: 'tx2', index: 0, address: 'a1', value: 42n, tokenId: 'ab' }])).toBe(1);
     expect((await readOutput('tx2', 0)).recovery_state).toBe('recovered');
   });
 
@@ -322,16 +324,47 @@ describe('getWalletCtSpendAddresses', () => {
   });
 });
 
-describe('markShieldedCatchupDone', () => {
-  it('marks only the wallet CTSpend rows up to maxIndex', async () => {
-    await upsertShieldedAddressOwnership(mysql, 'w1', [
-      { index: 0, spendAddress: 'WSpend0', ctAddress: 'ct0', scanPrivkey: Buffer.alloc(32, 1) },
-      { index: 1, spendAddress: 'WSpend1', ctAddress: 'ct1', scanPrivkey: Buffer.alloc(32, 2) },
-      { index: 2, spendAddress: 'WSpend2', ctAddress: 'ct2', scanPrivkey: Buffer.alloc(32, 3) },
-    ]);
-    await markShieldedCatchupDone(mysql, 'w1', 1);
-    const res: DbSelectResult = await mysql.query('SELECT `index`, `catchup_state` FROM `address` ORDER BY `index`');
-    expect(res.map((r) => r.catchup_state)).toStrictEqual(['done', 'done', 'pending']);
+describe('the catch-up flag lifecycle', () => {
+  const claimThree = () => upsertShieldedAddressOwnership(mysql, 'w1', [
+    { index: 0, spendAddress: 'WSpend0', ctAddress: 'ct0', scanPrivkey: Buffer.alloc(32, 1) },
+    { index: 1, spendAddress: 'WSpend1', ctAddress: 'ct1', scanPrivkey: Buffer.alloc(32, 2) },
+    { index: 2, spendAddress: 'WSpend2', ctAddress: 'ct2', scanPrivkey: Buffer.alloc(32, 3) },
+  ]);
+  const states = async () => ((await mysql.query(
+    'SELECT `catchup_state` FROM `address` WHERE `wallet_id` = ? ORDER BY `index`', ['w1'],
+  )) as DbSelectResult).map((r) => r.catchup_state);
+
+  it('takes the flagged rows, then finishes only those it took', async () => {
+    await claimThree(); // claimed rows arrive pending
+    await markWalletSweepRunning(mysql, 'w1');
+    // The daemon flags one again while the catch-up runs.
+    await mysql.query("UPDATE `address` SET `catchup_state` = 'pending' WHERE `address` = 'WSpend2'");
+
+    await finishWalletSweep(mysql, 'w1');
+
+    expect(await states()).toStrictEqual(['done', 'done', 'pending']);
+  });
+
+  it('selects ready wallets with flagged rows, in id order after the cursor', async () => {
+    for (const id of ['wa', 'wb', 'wc', 'wd']) {
+      await seedWallet(id);
+    }
+    await mysql.query("UPDATE `wallet` SET `ct_status` = 'ready' WHERE `id` IN ('wa', 'wb', 'wc', 'wd')");
+    // wd is still loading its shielded side.
+    await mysql.query("UPDATE `wallet` SET `ct_status` = 'creating' WHERE `id` = 'wd'");
+    const flag = (address: string, walletId: string, state: string) => mysql.query(
+      `INSERT INTO \`address\` (\`address\`, \`index\`, \`wallet_id\`, \`transactions\`, \`bip32_account\`, \`catchup_state\`)
+       VALUES (?, 0, ?, 0, ?, ?)`,
+      [address, walletId, Bip32Account.CTSpend, state],
+    );
+    await flag('Wa', 'wa', 'pending');
+    await flag('Wb', 'wb', 'done');
+    await flag('Wc', 'wc', 'running'); // a sweep that died
+    await flag('Wd', 'wd', 'pending');
+
+    expect(await getWalletsNeedingSweep(mysql, '', 10)).toStrictEqual(['wa', 'wc']);
+    expect(await getWalletsNeedingSweep(mysql, 'wa', 10)).toStrictEqual(['wc']);
+    expect(await getWalletsNeedingSweep(mysql, '', 1)).toStrictEqual(['wa']);
   });
 });
 

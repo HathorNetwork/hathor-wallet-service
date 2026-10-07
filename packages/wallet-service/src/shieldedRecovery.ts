@@ -24,6 +24,7 @@ import {
   countRecoveredShieldedOutputs,
   getShieldedOutputsToRecover,
   lockWalletAddresses,
+  finishWalletSweep,
   promoteShieldedTxOutputs,
   markShieldedTxOutputRecoveryFailed,
   rebuildShieldedAddressBalances,
@@ -227,8 +228,15 @@ export const findAndRewindShielded = async (
   walletId: string,
   logger: Logger,
   pageSize = 100,
-  /** Outputs to skip, by `txId:index`: ones an earlier sweep of the same load handled. */
-  exclude: ReadonlySet<string> = new Set(),
+  {
+    exclude = new Set(),
+    onlyFlagged = false,
+  }: {
+    /** Outputs to skip, by `txId:index`: ones an earlier sweep of the same load handled. */
+    exclude?: ReadonlySet<string>;
+    /** Only outputs on addresses flagged for a catch-up (see `getShieldedOutputsToRecover`). */
+    onlyFlagged?: boolean;
+  } = {},
 ): Promise<SweepOutcome> => {
   // With no provider every rewind throws, and recording the outputs as
   // recovery_failed would strand them: the daemon's promote helper only
@@ -245,13 +253,15 @@ export const findAndRewindShielded = async (
   const failures: ShieldedRecoveryFailure[] = [];
   let after: { txId: string; index: number } | undefined;
   for (;;) {
-    const page = await getShieldedOutputsToRecover(mysql, walletId, pageSize, after);
+    const page = await getShieldedOutputsToRecover(mysql, walletId, pageSize, after, onlyFlagged);
     if (page.length === 0) break;
     for (const output of page) {
       if (exclude.has(outputKey(output))) continue;
       const outcome = await rewindShieldedOutput(mysql, walletId, output, logger);
       if (outcome.recovered) {
-        recoveries.push({ txId: output.txId, index: output.index, value: outcome.value!, tokenId: outcome.tokenId! });
+        recoveries.push({
+          txId: output.txId, index: output.index, address: output.address, value: outcome.value!, tokenId: outcome.tokenId!,
+        });
       } else if (outcome.missed) {
         misses.push({ txId: output.txId, index: output.index, mode: output.mode, tokenId: output.tokenId });
       } else if (outcome.failure) failures.push(outcome.failure);
@@ -358,20 +368,35 @@ export const runRecoveryTransaction = async <T>(
  *     balance rebuild counts its rows) and balances, then the wallet's totals
  *     and history over every one of its addresses.
  *
+ * A catch-up of a ready wallet (`onlyPromoted`) rebuilds just the addresses
+ * whose outputs it promoted, and nothing when it promoted none: the daemon
+ * keeps the rest current, and a full rebuild would hold the wallet's rows
+ * locked for longer than the change needs. `finishSweep` marks the catch-up
+ * done in the same commit (step 1b, while the address rows are held).
+ *
  * Returns how many outputs were actually promoted.
  */
 export const commitShieldedRecoveries = async (
   mysql: ServerlessMysql,
   walletId: string,
   recoveries: ShieldedRecovery[],
+  { onlyPromoted = false, finishSweep = false }: { onlyPromoted?: boolean; finishSweep?: boolean } = {},
 ): Promise<number> => {
   const owned = await lockWalletAddresses(mysql, walletId);
+  if (finishSweep) {
+    await finishWalletSweep(mysql, walletId);
+  }
   const promoted = await promoteShieldedTxOutputs(mysql, recoveries);
+  if (onlyPromoted && promoted === 0) {
+    return promoted;
+  }
   const addresses = owned.map((a) => a.address);
   await lockAddressBalancesForUpdate(mysql, addresses);
+  const promotedAddresses = new Set(recoveries.map((r) => r.address));
   const ctSpendAddresses = owned
     .filter((a) => a.bip32Account === Bip32Account.CTSpend)
-    .map((a) => a.address);
+    .map((a) => a.address)
+    .filter((address) => !onlyPromoted || promotedAddresses.has(address));
   await rebuildShieldedAddressTxHistory(mysql, ctSpendAddresses);
   await rebuildShieldedAddressBalances(mysql, ctSpendAddresses);
   await rebuildWalletBalance(mysql, walletId, addresses);
