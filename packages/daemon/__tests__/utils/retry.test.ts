@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { retryWithBackoff } from '../../src/utils/retry';
+import { retryWithBackoff, retryOnLockConflict, isLockConflict } from '../../src/utils/retry';
 import logger from '../../src/logger';
 
 jest.mock('../../src/logger', () => ({
@@ -189,5 +189,52 @@ describe('retryWithBackoff', () => {
     ).rejects.toThrow('Custom non-retryable error');
 
     expect(mockFn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('retryOnLockConflict', () => {
+  const lockError = (errno: number) => Object.assign(new Error(`lock error ${errno}`), { errno });
+
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it.each([1213, 1205])('re-runs a transaction that lost a lock conflict (errno %i)', async (errno) => {
+    const fn = jest.fn()
+      .mockRejectedValueOnce(lockError(errno))
+      .mockResolvedValueOnce('done');
+
+    const result = retryOnLockConflict(fn);
+    await jest.runAllTimersAsync();
+
+    await expect(result).resolves.toBe('done');
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives up after its retries, with the last error', async () => {
+    const fn = jest.fn().mockRejectedValue(lockError(1213));
+
+    const result = retryOnLockConflict(fn);
+    result.catch(() => {});
+    await jest.runAllTimersAsync();
+
+    await expect(result).rejects.toMatchObject({ errno: 1213 });
+    expect(fn).toHaveBeenCalledTimes(4);
+  });
+
+  it('does not retry any other error', async () => {
+    const fn = jest.fn().mockRejectedValue(Object.assign(new Error('out of range'), { errno: 1690 }));
+
+    await expect(retryOnLockConflict(fn)).rejects.toMatchObject({ errno: 1690 });
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('isLockConflict', () => {
+  it('recognises deadlocks and lock wait timeouts only', () => {
+    expect(isLockConflict({ errno: 1213 })).toBe(true);
+    expect(isLockConflict({ errno: 1205 })).toBe(true);
+    expect(isLockConflict({ errno: 1062 })).toBe(false);
+    expect(isLockConflict(new Error('no errno'))).toBe(false);
+    expect(isLockConflict(null)).toBe(false);
   });
 });

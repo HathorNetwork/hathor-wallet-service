@@ -4,7 +4,9 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
 */
-import mysql, { Connection as MysqlConnection, Pool, PoolConnection, ResultSetHeader } from 'mysql2/promise';
+import mysql, {
+  Connection as MysqlConnection, Pool, PoolConnection, ResultSetHeader, RowDataPacket,
+} from 'mysql2/promise';
 import {
   DbTxOutput,
   StringMap,
@@ -22,6 +24,7 @@ import {
   MaxAddressIndexRow,
   AddressesWalletsRow,
   AddressRow,
+  isWalletAttributable,
 } from '../types';
 import {
   TxInput,
@@ -1041,6 +1044,7 @@ export const voidWalletTransaction = async (
 ): Promise<void> => {
   // Get wallet information for all affected addresses
   const addressWalletMap: StringMap<Wallet> = await getAddressWalletInfo(mysql, Object.keys(addressBalanceMap));
+  await refreshWalletLifecycles(mysql, addressWalletMap);
 
   if (Object.keys(addressWalletMap).length === 0) {
     // No wallets to update
@@ -1379,6 +1383,45 @@ export const unlockUtxos = async (mysql: MysqlConnection, utxos: TxInput[]): Pro
   );
 };
 
+/** A shielded output's recovery as currently stored. */
+export interface CurrentShieldedRecovery {
+  recoveryState: string | null;
+  value: bigint | null;
+  tokenId: string | null;
+}
+
+/**
+ * The current recovery of the given shielded outputs, keyed `txId:index`.
+ *
+ * A locking read, so it sees the latest committed row rather than the
+ * transaction's snapshot: the wallet-service can promote an output to
+ * `recovered`, and credit it, between an earlier plain read and now. Read it
+ * after the caller's own UPDATE of the same rows, which already holds their
+ * locks, so this adds no lock-ordering edge.
+ */
+export const getCurrentShieldedRecovery = async (
+  mysql: MysqlConnection,
+  outputs: { txId: string; index: number }[],
+): Promise<Map<string, CurrentShieldedRecovery>> => {
+  const current = new Map<string, CurrentShieldedRecovery>();
+  if (outputs.length === 0) return current;
+  const [rows] = await mysql.query<RowDataPacket[]>(
+    `SELECT \`tx_id\`, \`index\`, \`recovery_state\`, \`value\`, \`token_id\`
+       FROM \`tx_output\`
+      WHERE (\`tx_id\`, \`index\`) IN (?)
+        FOR UPDATE`,
+    [outputs.map((o) => [o.txId, o.index])],
+  );
+  for (const row of rows) {
+    current.set(`${row.tx_id}:${row.index}`, {
+      recoveryState: row.recovery_state,
+      value: parseNullableBigInt(row.value),
+      tokenId: row.token_id,
+    });
+  }
+  return current;
+};
+
 /**
  * Update the unlocked and locked balances for addresses.
  *
@@ -1515,6 +1558,40 @@ export const getAddressWalletInfo = async (mysql: MysqlConnection, addresses: st
     addressWalletMap[entry.address] = walletInfo;
   }
   return addressWalletMap;
+};
+
+/**
+ * Re-read the lifecycle of the wallets `addressWalletMap` reports as not
+ * attributable, and update the map in place.
+ *
+ * `getAddressWalletInfo` is a plain read, which under REPEATABLE READ returns
+ * the snapshot taken at the transaction's first read. A transaction that then
+ * waited on a wallet load's commit would still see the wallet loading after
+ * the load flipped it ready, skip `wallet_balance`, and leave the wallet's
+ * total short for good. A locking read sees the latest committed row. Call it
+ * after the transaction's `address_balance` writes, which is where such a wait
+ * happens; only wallets the snapshot calls non-attributable are re-read, so a
+ * steady-state ingest takes no extra locks.
+ */
+export const refreshWalletLifecycles = async (
+  mysql: MysqlConnection,
+  addressWalletMap: StringMap<Wallet>,
+): Promise<void> => {
+  const stale = [...new Set(Object.values(addressWalletMap)
+    .filter((wallet) => !isWalletAttributable(wallet))
+    .map((wallet) => wallet.walletId))];
+  if (stale.length === 0) return;
+  const [rows] = await mysql.query<RowDataPacket[]>(
+    'SELECT `id`, `status`, `ct_status` FROM `wallet` WHERE `id` IN (?) FOR SHARE',
+    [stale],
+  );
+  const current = new Map(rows.map((row) => [row.id as string, row]));
+  for (const wallet of Object.values(addressWalletMap)) {
+    const row = current.get(wallet.walletId);
+    if (!row) continue;
+    wallet.status = row.status as WalletStatus;
+    wallet.ctStatus = row.ct_status as WalletStatus | 'none';
+  }
 };
 
 /**
