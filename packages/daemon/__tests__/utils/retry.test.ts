@@ -218,7 +218,7 @@ describe('retryOnLockConflict', () => {
     await jest.runAllTimersAsync();
 
     await expect(result).rejects.toMatchObject({ errno: 1213 });
-    expect(fn).toHaveBeenCalledTimes(4);
+    expect(fn).toHaveBeenCalledTimes(3);
   });
 
   it('does not retry any other error', async () => {

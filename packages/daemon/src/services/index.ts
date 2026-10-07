@@ -435,6 +435,10 @@ const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
       }
 
       await mysql.beginTransaction();
+      // Notifications that leave the database, sent only once the transaction
+      // has committed: a transaction re-run after a lock conflict must not
+      // send them twice, nor send them for a vertex that was never stored.
+      const afterCommit: (() => Promise<void>)[] = [];
       try {
         let height: number | null = metadata.height;
 
@@ -837,6 +841,9 @@ const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
           //   - shielded spend reversals sourced from local tx_output rows
           //     (only for `recovery_state = 'recovered'` rows owned by us),
           //   - header-only addresses seeded with an empty HTR entry.
+          // The spent rows were already updated above (spent_by), so they hold
+          // their locks; reading them as locking reads keeps that from being
+          // the only thing that makes these reads current.
           const addressBalanceMap: StringMap<TokenBalanceMap> = await getUnifiedBalanceMap(
             mysql,
             txInputs,
@@ -844,6 +851,7 @@ const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
             shieldedRecoveryResults,
             spendableInputs,
             headers,
+            { lockRows: true },
           );
 
           // update address tables (address, address_balance, address_tx_history)
@@ -954,31 +962,35 @@ const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
             addresses: Array.from(involvedAddresses),
           };
 
-          try {
-            if (seenWallets.length > 0) {
-              await sendRealtimeTx(
-                Array.from(seenWallets),
-                txData,
-              );
-            }
-          } catch (e) {
-            logger.error('Failed to send transaction to SQS queue');
-            logger.error(e);
-          }
-
-          try {
-            if (PUSH_NOTIFICATION_ENABLED) {
-              const walletBalanceMap = await getWalletBalancesForTx(mysql, txData, addressBalanceMap);
-              const { length: hasAffectWallets } = Object.keys(walletBalanceMap);
-              if (hasAffectWallets) {
-                invokeOnTxPushNotificationRequestedLambda(walletBalanceMap)
-                  .catch((err: Error) => logger.error('Error on invokeOnTxPushNotificationRequestedLambda invocation', err));
+          afterCommit.push(async () => {
+            try {
+              if (seenWallets.length > 0) {
+                await sendRealtimeTx(
+                  Array.from(seenWallets),
+                  txData,
+                );
               }
+            } catch (e) {
+              logger.error('Failed to send transaction to SQS queue');
+              logger.error(e);
             }
-          } catch (e) {
-            logger.error('Failed to send push notification to wallet-service lambda');
-            logger.error(e);
-          }
+          });
+
+          afterCommit.push(async () => {
+            try {
+              if (PUSH_NOTIFICATION_ENABLED) {
+                const walletBalanceMap = await getWalletBalancesForTx(mysql!, txData, addressBalanceMap);
+                const { length: hasAffectWallets } = Object.keys(walletBalanceMap);
+                if (hasAffectWallets) {
+                  invokeOnTxPushNotificationRequestedLambda(walletBalanceMap)
+                    .catch((err: Error) => logger.error('Error on invokeOnTxPushNotificationRequestedLambda invocation', err));
+                }
+              }
+            } catch (e) {
+              logger.error('Failed to send push notification to wallet-service lambda');
+              logger.error(e);
+            }
+          });
 
           // NFT detection on transactions that touch shielded data is deferred —
           // shielded NFT detection is technical debt, so skip the handler when the
@@ -991,9 +1003,11 @@ const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
 
             // Call to process the data for NFT handling (if applicable)
             // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
-            // @ts-ignore - wallet-lib's FullNodeTransaction will be updated to know about the new spent_output union in the next release
-            NftUtils.processNftEvent(fullNodeData, STAGE, SERVERLESS_DEPLOY_PREFIX, network, logger)
-              .catch((err: unknown) => logger.error('[ALERT] Error processing NFT event', err));
+            afterCommit.push(async () => {
+              // @ts-ignore - wallet-lib's FullNodeTransaction will be updated to know about the new spent_output union in the next release
+              NftUtils.processNftEvent(fullNodeData, STAGE, SERVERLESS_DEPLOY_PREFIX, network, logger)
+                .catch((err: unknown) => logger.error('[ALERT] Error processing NFT event', err));
+            });
           }
         }
 
@@ -1012,6 +1026,10 @@ const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
         await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
 
         await mysql.commit();
+
+        for (const send of afterCommit) {
+          await send();
+        }
 
         // Transaction committed and its row locks released: now emit the
         // deferred recovery-failure alert, one per vertex. Routed through
@@ -1262,7 +1280,10 @@ export const voidTx = async (
   headers: EventTxHeader[],
   version: number,
 ) => {
-  const dbTxOutputs: DbTxOutput[] = await withSpan('getTxOutputsFromTx', () => getTxOutputsFromTx(mysql, hash));
+  // Locking reads, here and for the spent outputs below: what gets reversed is
+  // decided from these rows, and the wallet-service may have promoted and
+  // credited one of them after this transaction's snapshot was taken.
+  const dbTxOutputs: DbTxOutput[] = await withSpan('getTxOutputsFromTx', () => getTxOutputsFromTx(mysql, hash, true));
   const txOutputs: TxOutputWithIndex[] = prepareOutputs(outputs, tokens);
   const txInputs: TxInput[] = prepareInputs(inputs, tokens);
 
@@ -1309,6 +1330,7 @@ export const voidTx = async (
     shieldedRecoveryResults,
     inputs,
     headers,
+    { lockRows: true },
   );
 
   await withSpan('voidTransaction', () => voidTransaction(mysql, hash));

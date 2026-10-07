@@ -127,10 +127,15 @@ export const isLockConflict = (error: unknown): boolean => {
  *
  * Safe for the transactional handlers because each one rolls back fully on
  * error, reads what it needs again from the start, and sends nothing outside
- * the database until after it commits.
+ * the database until after it commits (ingest queues its notifications for
+ * then).
+ *
+ * Two retries at most: a lock wait timeout takes `innodb_lock_wait_timeout`
+ * (50 s by default) per attempt, and time spent in a handler counts toward
+ * the monitor's idle timeout (5 minutes), past which it stops sync anyway.
  */
 export const retryOnLockConflict = <T>(fn: () => Promise<T>): Promise<T> => retryWithBackoff(fn, {
-  maxRetries: 3,
+  maxRetries: 2,
   initialDelayMs: 100,
   maxDelayMs: 1000,
   backoffMultiplier: 2,

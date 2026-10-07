@@ -5536,3 +5536,142 @@ describe('ingest under lock contention', () => {
       .toStrictEqual({ locked: 0n, unlocked: 100n });
   });
 });
+
+describe('void under lock contention', () => {
+  // The wallet-service promotes a stored shielded output and credits it in one
+  // transaction. A void that waits on that transaction must decide what to
+  // reverse from the committed row, not from its own earlier snapshot.
+  const ingest = (event: unknown) => handleVertexAccepted({
+    socket: expect.any(Object),
+    healthcheck: expect.any(Object),
+    retryAttempt: 0,
+    initialEventId: null,
+    txCache: new LRU(100),
+    rewardMinBlocks: 300,
+    event,
+  } as any, undefined as any);
+  const voidTxOf = (f: any) => handleVoidedTx({
+    event: {
+      stream_id: 's', peer_id: 'p', network: 'mainnet', type: 'FULLNODE_EVENT', latest_event_id: 99999,
+      event: {
+        id: 99000 + f.event.id,
+        data: { ...f.event.data, metadata: { ...f.event.data.metadata, voided_by: [f.event.data.hash] } },
+      },
+    },
+  } as any);
+  const receive = () => {
+    const f = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    f.event.data.shielded_outputs[0].token_data = 0;
+    return f;
+  };
+  const spend = (t: any) => {
+    const f = JSON.parse(JSON.stringify(t));
+    const hash = 'c3'.repeat(32);
+    f.event.id = 103;
+    f.event.data.hash = hash;
+    f.event.data.metadata.hash = hash;
+    f.event.data.inputs = [{
+      tx_id: t.event.data.hash,
+      index: t.event.data.outputs.length,
+      spent_output: { ...t.event.data.shielded_outputs[0], mode: 1, token_data: 0 },
+    }];
+    f.event.data.outputs = [{
+      value: 90, script: 'dqkU91U6sMdzgT3zxOtdIVGbqobP0FmIrA==', token_data: 0,
+      decoded: { type: 'P2PKH', address: 'WTransparentAddress2', timelock: null },
+    }];
+    f.event.data.shielded_outputs = [];
+    return f;
+  };
+  const SHIELDED_ADDRESS = 'WShieldedAddress1';
+
+  /**
+   * On a second connection, do what the wallet-service's recovery commit does
+   * for the receive's output, and leave it uncommitted. Returns the connection.
+   */
+  const recoverUncommitted = async (t: any) => {
+    const recoverer = await db.getDbConnection();
+    await recoverer.beginTransaction();
+    await recoverer.query(
+      "UPDATE `address` SET wallet_id = 'wallet_alice', bip32_account = 2, scan_privkey = ? WHERE address = ?",
+      [Buffer.alloc(32, 0x42), SHIELDED_ADDRESS],
+    );
+    const [rows] = await recoverer.query<any[]>(
+      'SELECT `spent_by` FROM `tx_output` WHERE `tx_id` = ? AND `index` = ?',
+      [t.event.data.hash, t.event.data.outputs.length],
+    );
+    const spent = rows[0].spent_by !== null;
+    await recoverer.query(
+      "UPDATE `tx_output` SET recovery_state = 'recovered', value = 100, token_id = '00' WHERE tx_id = ? AND `index` = ?",
+      [t.event.data.hash, t.event.data.outputs.length],
+    );
+    await recoverer.query(
+      `INSERT INTO address_balance (address, token_id, unlocked_balance, locked_balance,
+          unlocked_shielded_balance, locked_shielded_balance, total_shielded_received,
+          unlocked_authorities, locked_authorities, transactions)
+       VALUES (?, '00', 0, 0, ?, 0, 100, 0, 0, 1)`,
+      [SHIELDED_ADDRESS, spent ? 0 : 100],
+    );
+    await recoverer.query(
+      `INSERT INTO address_tx_history (address, tx_id, token_id, balance, shielded_balance_delta, timestamp, voided)
+       VALUES (?, ?, '00', 0, 100, 0, FALSE)`,
+      [SHIELDED_ADDRESS, t.event.data.hash],
+    );
+    return recoverer;
+  };
+  const shieldedRow = async () => {
+    const [rows] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance AS unlocked, total_shielded_received AS total
+         FROM address_balance WHERE address = ? AND token_id = '00'`, [SHIELDED_ADDRESS],
+    );
+    return rows[0] ? { unlocked: BigInt(rows[0].unlocked), total: BigInt(rows[0].total) } : null;
+  };
+
+  /** Start `run`, let it reach the recoverer's locks, then commit the recovery. */
+  const raceRecovery = async (recoverer: any, run: () => Promise<unknown>) => {
+    try {
+      const pending = run();
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await recoverer.commit();
+      await pending;
+    } finally {
+      recoverer.release();
+    }
+  };
+
+  beforeEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+    clearShieldedCryptoProvider();
+  });
+
+  afterEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  it('reverses an output recovered while the void waited on it', async () => {
+    expect.hasAssertions();
+
+    const t = receive();
+    await ingest(t);
+    const recoverer = await recoverUncommitted(t);
+
+    await raceRecovery(recoverer, () => voidTxOf(t));
+
+    // The void reversed the credit the recovery committed, leaving no balance.
+    expect(await shieldedRow()).toBeNull();
+  });
+
+  it('re-credits an output recovered while the void of its spender waited on it', async () => {
+    expect.hasAssertions();
+
+    const t = receive();
+    const t2 = spend(t);
+    await ingest(t);
+    await ingest(t2);
+    const recoverer = await recoverUncommitted(t);
+
+    await raceRecovery(recoverer, () => voidTxOf(t2));
+
+    // Unspent again: its value is back in the unlocked balance.
+    expect(await shieldedRow()).toStrictEqual({ unlocked: 100n, total: 100n });
+  });
+});

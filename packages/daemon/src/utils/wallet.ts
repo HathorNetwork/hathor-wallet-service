@@ -380,6 +380,13 @@ export const getUnifiedBalanceMap = async (
   shieldedRecoveryResults: ShieldedRecoveryResult[],
   eventInputs: EventTxInput[],
   headers: EventTxHeader[],
+  /**
+   * Read the spent shielded outputs as currently committed (locking reads)
+   * rather than from the transaction's snapshot. A caller that hasn't already
+   * updated those rows itself must pass it: the wallet-service can promote and
+   * credit one after the snapshot was taken.
+   */
+  { lockRows = false }: { lockRows?: boolean } = {},
 ): Promise<StringMap<TokenBalanceMap>> => {
   const map: StringMap<TokenBalanceMap> = {};
 
@@ -412,7 +419,7 @@ export const getUnifiedBalanceMap = async (
   // originally; unowned and recovery_failed are skipped.
   for (const ei of eventInputs) {
     if (!ei?.spent_output || !isShieldedMode(ei.spent_output.mode)) continue;
-    const row = await getTxOutput(mysql, ei.tx_id, ei.index, false);
+    const row = await getTxOutput(mysql, ei.tx_id, ei.index, false, lockRows);
     if (!row) continue;
     // The wire says this input spends a shielded output. If the row stored at
     // that (tx_id, index) is transparent, the concatenated-index assumption

@@ -661,11 +661,18 @@ export const updateTxOutputSpentBy = async (
 export const getTxOutputsFromTx = async (
   mysql: any,
   txId: string,
+  /**
+   * Read the rows as currently committed, locking them, instead of from the
+   * transaction's snapshot. For a caller that decides balances from them: the
+   * wallet-service can promote a row to `recovered`, and credit it, after the
+   * snapshot was taken.
+   */
+  lockRows = false,
 ): Promise<DbTxOutput[]> => {
   const [results] = await mysql.execute(
     `SELECT *
        FROM \`tx_output\`
-      WHERE \`tx_id\` = ?`,
+      WHERE \`tx_id\` = ?${lockRows ? '\n        FOR UPDATE' : ''}`,
     [txId],
   );
 
@@ -753,6 +760,8 @@ export const getTxOutput = async (
   txId: string,
   index: number,
   skipSpent: boolean,
+  /** As in `getTxOutputsFromTx`: a current, locking read. */
+  lockRow = false,
 ): Promise<DbTxOutput | null> => {
   const [results] = await mysql.execute<TxOutputRow[]>(
     `SELECT *
@@ -760,7 +769,7 @@ export const getTxOutput = async (
       WHERE \`tx_id\` = ?
         AND \`index\` = ?
         ${skipSpent ? 'AND `spent_by` IS NULL' : ''}
-        AND \`voided\` = FALSE`,
+        AND \`voided\` = FALSE${lockRow ? '\n        FOR UPDATE' : ''}`,
     [txId, index],
   );
 
