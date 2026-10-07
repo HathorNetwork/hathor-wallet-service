@@ -557,15 +557,15 @@ const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
         // failures contribute nothing to the balance map (involvement is
         // already covered by bumpAddressInvolvement).
         const shieldedRecoveryResults: ShieldedRecoveryResult[] = [];
-        // Credit a recovery only if the promote changed the row. A row already
-        // recovered here was credited when that happened; crediting it again
-        // would count its value twice.
+        // Credit a recovery only if the promote changed the row. A row that was
+        // no longer unowned was not promoted here, and one already recovered
+        // was credited when that happened; crediting it would count it twice.
         const creditIfPromoted = (affectedRows: number, index: number, result: ShieldedRecoveryResult): void => {
           if (affectedRows === 1) {
             shieldedRecoveryResults.push(result);
             return;
           }
-          logger.error('Shielded output was already recovered; not crediting it again', { txId: hash, index });
+          logger.error('Shielded output was no longer unowned when promoted; not crediting it', { txId: hash, index });
         };
 
         // Shielded-recovery failures are collected here and alerted on AFTER

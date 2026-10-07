@@ -427,6 +427,10 @@ export interface ShieldedAddressOwnership {
  *
  * Returns an empty map when `addresses` is empty.
  */
+// Both ownership lookups are locking reads (FOR SHARE): an address a wallet
+// load claims after this transaction's snapshot would otherwise read as
+// unclaimed, leaving its output unowned and unflagged for a sweep, or a void
+// not reversing a credit made under that claim.
 export async function findShieldedAddressOwnershipBatch(
   conn: any,
   addresses: string[],
@@ -438,7 +442,8 @@ export async function findShieldedAddressOwnershipBatch(
       WHERE address IN (?)
         AND bip32_account = ?
         AND wallet_id IS NOT NULL
-        AND scan_privkey IS NOT NULL`,
+        AND scan_privkey IS NOT NULL
+        FOR SHARE`,
     [addresses, Bip32Account.CTSpend],
   );
   const result = new Map<string, ShieldedAddressOwnership>();
@@ -480,7 +485,8 @@ export async function findShieldedAddressOwnership(
       WHERE address = ?
         AND bip32_account = ?
         AND wallet_id IS NOT NULL
-        AND scan_privkey IS NOT NULL`,
+        AND scan_privkey IS NOT NULL
+        FOR SHARE`,
     [address, Bip32Account.CTSpend],
   );
   if (!rows || rows.length === 0) return null;
@@ -518,7 +524,9 @@ export async function markTxOutputRecovered(
 /**
  * Mark the given addresses' wallets as needing a shielded catch-up sweep, by
  * setting the claimed CTSpend rows' `catchup_state` to `pending`. Unclaimed
- * addresses are left alone: nothing could recover their outputs yet.
+ * addresses (observation rows, which have no account) are left alone: nothing
+ * could recover their outputs yet. Filtered on the primary key and the account
+ * only, so the statement locks just these rows.
  */
 export const flagAddressesForSweep = async (
   mysql: MysqlConnection,
@@ -529,8 +537,7 @@ export const flagAddressesForSweep = async (
     `UPDATE \`address\`
         SET \`catchup_state\` = 'pending'
       WHERE \`address\` IN (?)
-        AND \`bip32_account\` = ?
-        AND \`wallet_id\` IS NOT NULL`,
+        AND \`bip32_account\` = ?`,
     [addresses, Bip32Account.CTSpend],
   );
 };
@@ -545,9 +552,9 @@ export const flagAddressesForSweep = async (
  * `markTxOutputRecovered` below is guarded `recovery_state = 'unowned'` (so that
  * a re-delivered vertex is a no-op) and therefore cannot promote a
  * `recovery_failed` row. The wallet-service's equivalent guards on
- * `<> 'recovered'` and can. A catch-up sweep must use the latter form, and must
- * select on `tx_output.recovery_state` rather than on `address.catchup_state`,
- * which is marked done regardless of how many outputs were recovered.
+ * `<> 'recovered'` and can, which is what the catch-up sweep uses. Ingestion
+ * flags the address for that sweep (`flagAddressesForSweep`) when the failure
+ * is worth retrying.
  */
 export async function markTxOutputRecoveryFailed(
   conn: any,
