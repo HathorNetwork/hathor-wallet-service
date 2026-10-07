@@ -85,6 +85,7 @@ import {
   incrementTokensTxCount,
   getAddressWalletInfo,
   refreshWalletLifecycles,
+  flagAddressesForSweep,
   addNewAddresses,
   updateWalletTablesWithTx,
   voidTransaction,
@@ -556,6 +557,16 @@ const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
         // failures contribute nothing to the balance map (involvement is
         // already covered by bumpAddressInvolvement).
         const shieldedRecoveryResults: ShieldedRecoveryResult[] = [];
+        // Credit a recovery only if the promote changed the row. A row already
+        // recovered here was credited when that happened; crediting it again
+        // would count its value twice.
+        const creditIfPromoted = (affectedRows: number, index: number, result: ShieldedRecoveryResult): void => {
+          if (affectedRows === 1) {
+            shieldedRecoveryResults.push(result);
+            return;
+          }
+          logger.error('Shielded output was already recovered; not crediting it again', { txId: hash, index });
+        };
 
         // Shielded-recovery failures are collected here and alerted on AFTER
         // the transaction commits, once per vertex. addAlert performs an SQS
@@ -568,6 +579,11 @@ const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
           assetMismatch: boolean;
           error: string;
         }[] = [];
+        // Addresses whose stored outputs a later sweep should recover: stored
+        // without a rewind (no provider), or whose rewind failed in a way a
+        // retry can fix. Flagged in this transaction, so the flag rolls back
+        // with the ingest.
+        const needsSweep = new Set<string>();
 
         // Read once per vertex, not cached across vertices: a provider can be
         // registered at any time, and a stale `false` would hide real failures.
@@ -701,6 +717,10 @@ const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
 
           await upsertShieldedAddressObservation(mysql, so.decoded.address);
 
+          if (!canRewind && hasEphemeralPubkey) {
+            needsSweep.add(so.decoded.address);
+          }
+
           // If a wallet has claimed this shielded address, attempt the rewind
           // in line. Success → mark the output recovered with the revealed
           // value/token; failure → mark it recovery_failed and emit an alert.
@@ -735,11 +755,11 @@ const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
                   rangeProof,
                   tokenId: tokenIdHex,
                 });
-                await markTxOutputRecovered(mysql, hash, idx, {
+                const { affectedRows } = await markTxOutputRecovered(mysql, hash, idx, {
                   value: r.value,
                   token_id: tokenIdHex,
                 });
-                shieldedRecoveryResults.push({
+                creditIfPromoted(affectedRows, idx, {
                   address: so.decoded.address,
                   tokenId: tokenIdHex,
                   value: r.value,
@@ -755,11 +775,11 @@ const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
                   assetCommitment: assetCommitment!,
                 });
                 const tokenIdHexFull = r.tokenUid; // canonicalized by rewindFully
-                await markTxOutputRecovered(mysql, hash, idx, {
+                const { affectedRows } = await markTxOutputRecovered(mysql, hash, idx, {
                   value: r.value,
                   token_id: tokenIdHexFull,
                 });
-                shieldedRecoveryResults.push({
+                creditIfPromoted(affectedRows, idx, {
                   address: so.decoded.address,
                   tokenId: tokenIdHexFull,
                   value: r.value,
@@ -787,6 +807,11 @@ const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
                 });
               } else {
                 await markTxOutputRecoveryFailed(mysql, hash, idx);
+                // A sender-made asset mismatch fails the same way every time,
+                // so only other failures are worth a sweep's retry.
+                if (!(e instanceof ShieldedAssetMismatchError)) {
+                  needsSweep.add(so.decoded.address);
+                }
                 // Defer the alert until after commit — see failedShieldedRecoveries.
                 failedShieldedRecoveries.push({
                   index: idx,
@@ -816,6 +841,10 @@ const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
         // address row directly; it only writes per-token rows.
         const involvedAddresses = getInvolvedAddresses(inputs, outputs, shieldedOutputs, headers, hash);
         await withSpan('bumpAddressInvolvement', () => bumpAddressInvolvement(mysql, involvedAddresses));
+        // Rows this transaction already holds (the bump above), so this adds no
+        // lock-order edge. Not a balance value: a void leaves it alone, and a
+        // sweep of an address with nothing left to recover is a no-op.
+        await flagAddressesForSweep(mysql, [...needsSweep]);
 
         // Mark tx utxos as spent. Kind-agnostic: only uses tx_id+index, so it
         // takes the event inputs — transparent and shielded alike — even though

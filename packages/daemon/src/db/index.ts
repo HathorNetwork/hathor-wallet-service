@@ -516,6 +516,26 @@ export async function markTxOutputRecovered(
 }
 
 /**
+ * Mark the given addresses' wallets as needing a shielded catch-up sweep, by
+ * setting the claimed CTSpend rows' `catchup_state` to `pending`. Unclaimed
+ * addresses are left alone: nothing could recover their outputs yet.
+ */
+export const flagAddressesForSweep = async (
+  mysql: MysqlConnection,
+  addresses: string[],
+): Promise<void> => {
+  if (addresses.length === 0) return;
+  await mysql.query(
+    `UPDATE \`address\`
+        SET \`catchup_state\` = 'pending'
+      WHERE \`address\` IN (?)
+        AND \`bip32_account\` = ?
+        AND \`wallet_id\` IS NOT NULL`,
+    [addresses, Bip32Account.CTSpend],
+  );
+};
+
+/**
  * Record that the rewind threw for an output we believed we owned.
  *
  * Reached only when a provider is registered and the rewind itself failed —
