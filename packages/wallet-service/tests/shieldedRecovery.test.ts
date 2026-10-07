@@ -19,7 +19,7 @@ import {
   resetCtCryptoMock, primeAmountRewind, primeFullyRewind, primeScanMiss, lastAmountRewindArgs,
 } from '@tests/utils/ct-crypto-mock';
 import {
-  recoverShieldedOutput, findAndRewindShielded, resetMissingProviderAlert, reportShieldedSweeps, SweepOutcome,
+  rewindShieldedOutput, findAndRewindShielded, resetMissingProviderAlert, reportShieldedSweeps, SweepOutcome,
 } from '@src/shieldedRecovery';
 import * as ShieldedDb from '@src/db/shielded';
 import { ShieldedOutputToRecover } from '@src/db/shielded';
@@ -70,21 +70,19 @@ afterAll(async () => {
   await closeDbConnection(mysql);
 });
 
-describe('recoverShieldedOutput', () => {
-  it('recovers an amount-shielded output and marks it recovered', async () => {
+describe('rewindShieldedOutput', () => {
+  it('opens an amount-shielded output without promoting it', async () => {
     await insertShieldedOutput('tx1', 0, 'a1', 1, 'unowned');
     const out = amountOutput();
     primeAmountRewind({
       commitment: out.commitment, ephemeralPubkey: out.ephemeralPubkey, value: 1500n, tokenUid: Buffer.alloc(32, 0),
     });
 
-    const outcome = await recoverShieldedOutput(mysql, 'w1', out, logger);
+    const outcome = await rewindShieldedOutput(mysql, 'w1', out, logger);
 
     expect(outcome).toEqual({ txId: 'tx1', index: 0, address: 'a1', recovered: true, missed: false, tokenId: '00', value: 1500n });
-    const row = await readOutput('tx1', 0);
-    expect(row.recovery_state).toBe('recovered');
-    expect(String(row.value)).toBe('1500');
-    expect(row.token_id).toBe('00');
+    // Promotion is the commit's job, together with the balance rebuilds.
+    expect((await readOutput('tx1', 0)).recovery_state).toBe('unowned');
     expect(mockedAddAlert).not.toHaveBeenCalled();
   });
 
@@ -98,7 +96,7 @@ describe('recoverShieldedOutput', () => {
       tokenUid: Buffer.alloc(32, 0),
     });
 
-    await recoverShieldedOutput(mysql, 'w1', out, logger);
+    await rewindShieldedOutput(mysql, 'w1', out, logger);
 
     // tx_output.token_id holds the canonical '00'; the asset generator needs 32 bytes.
     const args = lastAmountRewindArgs();
@@ -107,7 +105,7 @@ describe('recoverShieldedOutput', () => {
     expect(args!.tokenUid.equals(Buffer.alloc(32, 0))).toBe(true);
   });
 
-  it('recovers a fully-shielded output, taking the token from the rewind', async () => {
+  it('opens a fully-shielded output, taking the token from the rewind', async () => {
     await insertShieldedOutput('tx2', 0, 'a1', 2, 'unowned');
     const out = amountOutput({
       txId: 'tx2', mode: 2, tokenId: null, assetCommitment: Buffer.alloc(33, 0xd2),
@@ -118,19 +116,17 @@ describe('recoverShieldedOutput', () => {
       tokenUid: Buffer.from('ab'.repeat(32), 'hex'), assetCommitment: out.assetCommitment!,
     });
 
-    const outcome = await recoverShieldedOutput(mysql, 'w1', out, logger);
+    const outcome = await rewindShieldedOutput(mysql, 'w1', out, logger);
 
-    expect(outcome.recovered).toBe(true);
-    const row = await readOutput('tx2', 0);
-    expect(row.recovery_state).toBe('recovered');
-    expect(row.token_id).toBe('ab'.repeat(32));
+    expect(outcome).toMatchObject({ recovered: true, tokenId: 'ab'.repeat(32), value: 42n });
+    expect((await readOutput('tx2', 0)).recovery_state).toBe('unowned');
   });
 
   it('marks recovery_failed and returns the failure when the rewind throws (unprimed)', async () => {
     await insertShieldedOutput('tx3', 0, 'a1', 1, 'unowned');
     const out = amountOutput({ txId: 'tx3' }); // not primed -> mock provider throws
 
-    const outcome = await recoverShieldedOutput(mysql, 'w1', out, logger);
+    const outcome = await rewindShieldedOutput(mysql, 'w1', out, logger);
 
     expect(outcome.recovered).toBe(false);
     expect(outcome.failure).toMatchObject({
@@ -145,7 +141,7 @@ describe('recoverShieldedOutput', () => {
     await insertShieldedOutput('tx4', 0, 'a1', 1, 'unowned');
     const out = amountOutput({ txId: 'tx4', tokenId: null }); // mode 1 must carry its token
 
-    const outcome = await recoverShieldedOutput(mysql, 'w1', out, logger);
+    const outcome = await rewindShieldedOutput(mysql, 'w1', out, logger);
 
     expect(outcome.recovered).toBe(false);
     expect((await readOutput('tx4', 0)).recovery_state).toBe('recovery_failed');
@@ -156,7 +152,7 @@ describe('recoverShieldedOutput', () => {
     await insertShieldedOutput('tx5', 0, 'a1', 2, 'unowned');
     const out = amountOutput({ txId: 'tx5', mode: 2, assetCommitment: null }); // mode 2 needs it
 
-    const outcome = await recoverShieldedOutput(mysql, 'w1', out, logger);
+    const outcome = await rewindShieldedOutput(mysql, 'w1', out, logger);
 
     expect(outcome.recovered).toBe(false);
     expect((await readOutput('tx5', 0)).recovery_state).toBe('recovery_failed');
@@ -170,7 +166,7 @@ describe('recoverShieldedOutput', () => {
       .mockRejectedValueOnce(new Error('connection lost'));
 
     // the mark throwing must not escape: resolves recovered:false, no rejection
-    await expect(recoverShieldedOutput(mysql, 'w1', out, logger)).resolves.toEqual(
+    await expect(rewindShieldedOutput(mysql, 'w1', out, logger)).resolves.toEqual(
       expect.objectContaining({ txId: 'tx6', index: 0, recovered: false }),
     );
     // the mark never landed, so the row is left as it was, for the next catch-up
@@ -216,8 +212,8 @@ describe('findAndRewindShielded with no crypto provider', () => {
     const first = await findAndRewindShielded(mysql, 'w1', logger);
     const second = await findAndRewindShielded(mysql, 'w1', logger);
 
-    expect(first).toStrictEqual({ recovered: 0, failed: 0, missed: 0, misses: [], failures: [], skipped: true });
-    expect(second).toStrictEqual({ recovered: 0, failed: 0, missed: 0, misses: [], failures: [], skipped: true });
+    expect(first).toStrictEqual({ recovered: 0, recoveries: [], failed: 0, missed: 0, misses: [], failures: [], skipped: true });
+    expect(second).toStrictEqual({ recovered: 0, recoveries: [], failed: 0, missed: 0, misses: [], failures: [], skipped: true });
     expect(getSpy).not.toHaveBeenCalled();
     expect(failSpy).not.toHaveBeenCalled();
 
@@ -243,14 +239,14 @@ describe('findAndRewindShielded with no crypto provider', () => {
 
     // `skipped` is what distinguishes "could not even look" from "nothing to
     // do" — without it the load marks catch-up done and no later sweep retries.
-    expect(outcome).toStrictEqual({ recovered: 0, failed: 0, missed: 0, misses: [], failures: [], skipped: true });
+    expect(outcome).toStrictEqual({ recovered: 0, recoveries: [], failed: 0, missed: 0, misses: [], failures: [], skipped: true });
   });
 
   it('reports a completed sweep as not skipped', async () => {
     // beforeEach leaves the mock provider registered.
     const outcome = await findAndRewindShielded(mysql, 'w1', logger);
 
-    expect(outcome).toStrictEqual({ recovered: 0, failed: 0, missed: 0, misses: [], failures: [], skipped: false });
+    expect(outcome).toStrictEqual({ recovered: 0, recoveries: [], failed: 0, missed: 0, misses: [], failures: [], skipped: false });
   });
 });
 
@@ -267,7 +263,7 @@ describe('scan misses', () => {
       const out = amountOutput();
       primeScanMiss({ commitment: out.commitment, ephemeralPubkey: out.ephemeralPubkey });
 
-      const outcome = await recoverShieldedOutput(mysql, 'w1', out, logger);
+      const outcome = await rewindShieldedOutput(mysql, 'w1', out, logger);
 
       expect(outcome).toStrictEqual({ txId: 'tx1', index: 0, address: 'a1', recovered: false, missed: true });
       expect((await readOutput('tx1', 0)).recovery_state).toBe(state);
@@ -311,7 +307,7 @@ describe('scan misses', () => {
 
 describe('reportShieldedSweeps', () => {
   const sweep = (over: Partial<SweepOutcome> = {}): SweepOutcome => ({
-    recovered: 0, failed: 0, missed: 0, misses: [], failures: [], skipped: false, ...over,
+    recovered: 0, recoveries: [], failed: 0, missed: 0, misses: [], failures: [], skipped: false, ...over,
   });
   const ref = (txId: string, index = 0) => ({ txId, index, mode: 1 as const, tokenId: '00' });
   const failure = (txId: string, assetMismatch = false) => ({ ...ref(txId), assetMismatch, error: 'boom' });
