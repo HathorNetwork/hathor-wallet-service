@@ -767,8 +767,9 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
  *
  * Idempotent end to end: derivations are recomputed, claims are upserts, rewinds
  * are guarded by tx_output.recovery_state, and the rebuilds recompute absolutes —
- * so AWS async retries and user-driven re-invocations converge. reconstructWallet
- * runs OUTSIDE any DB transaction (paged crypto must not hold row locks).
+ * so AWS async retries and user-driven re-invocations converge. The rewinds run
+ * outside any DB transaction (paged crypto must not hold row locks); what they
+ * open is promoted in the settle transaction, with the rebuilds that credit it.
  */
 export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
   const logger = createDefaultLogger();
@@ -850,19 +851,27 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
     //    The daemon skips a mid-load wallet's `wallet_balance` but still writes
     //    `address_balance`, so a write landing between the totals and the ready
     //    flip would be missed by both — the locks make it wait until we're ready.
-    await runRecoveryTransaction(mysql, logger, async () => {
-      await commitShieldedRecoveries(mysql, walletId, sweeps.flatMap((sweep) => sweep.recoveries));
+    const recoveries = sweeps.flatMap((sweep) => sweep.recoveries);
+    const promoted = await runRecoveryTransaction(mysql, logger, async (tx) => {
+      const count = await commitShieldedRecoveries(tx, walletId, recoveries);
       if (hasShieldedKeys) {
         if (!catchupSkipped) {
           const highestDerivedIndex = shielded.rows[shielded.rows.length - 1].index;
-          await markShieldedCatchupDone(mysql, walletId, highestDerivedIndex);
+          await markShieldedCatchupDone(tx, walletId, highestDerivedIndex);
         }
-        await markWalletLoadReady(mysql, walletId, !legacyWasReady);
+        await markWalletLoadReady(tx, walletId, !legacyWasReady);
       } else {
         // Defensive legacy-only path: no shielded lifecycle is fabricated.
-        await updateWalletStatus(mysql, walletId, WalletStatus.READY);
+        await updateWalletStatus(tx, walletId, WalletStatus.READY);
       }
+      return count;
     });
+    if (promoted < recoveries.length) {
+      // Voided, or promoted by another load, between the rewind and the commit.
+      logger.info('Some rewound shielded outputs were not promoted', {
+        walletId, rewound: recoveries.length, promoted,
+      });
+    }
 
     // After the commit: the miss-pattern page counts the wallet's recovered
     // outputs, which include this load's only once it has committed. A rewind

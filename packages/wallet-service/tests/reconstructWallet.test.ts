@@ -300,7 +300,7 @@ describe('commitShieldedRecoveries', () => {
   it('promotes and credits in the same commit', async () => {
     const sweep = await sweepOne();
 
-    const promoted = await runRecoveryTransaction(mysql, logger, () => commitShieldedRecoveries(mysql, 'w1', sweep.recoveries));
+    const promoted = await runRecoveryTransaction(mysql, logger, (tx) => commitShieldedRecoveries(tx, 'w1', sweep.recoveries));
 
     expect(promoted).toBe(1);
     expect((await readState('o1')).s).toBe('recovered');
@@ -312,7 +312,7 @@ describe('commitShieldedRecoveries', () => {
     const sweep = await sweepOne();
     const spy = jest.spyOn(ShieldedDb, 'rebuildWalletBalance').mockRejectedValueOnce(new Error('connection lost'));
 
-    await expect(runRecoveryTransaction(mysql, logger, () => commitShieldedRecoveries(mysql, 'w1', sweep.recoveries)))
+    await expect(runRecoveryTransaction(mysql, logger, (tx) => commitShieldedRecoveries(tx, 'w1', sweep.recoveries)))
       .rejects.toThrow('connection lost');
     spy.mockRestore();
 
@@ -324,9 +324,9 @@ describe('commitShieldedRecoveries', () => {
 
   it('credits an output once when its recovery is committed twice', async () => {
     const sweep = await sweepOne();
-    await runRecoveryTransaction(mysql, logger, () => commitShieldedRecoveries(mysql, 'w1', sweep.recoveries));
+    await runRecoveryTransaction(mysql, logger, (tx) => commitShieldedRecoveries(tx, 'w1', sweep.recoveries));
 
-    const second = await runRecoveryTransaction(mysql, logger, () => commitShieldedRecoveries(mysql, 'w1', sweep.recoveries));
+    const second = await runRecoveryTransaction(mysql, logger, (tx) => commitShieldedRecoveries(tx, 'w1', sweep.recoveries));
 
     expect(second).toBe(0);
     expect(await readAddressBalance()).toMatchObject({ usb: '100' });
@@ -337,7 +337,7 @@ describe('commitShieldedRecoveries', () => {
     const sweep = await sweepOne();
     await mysql.query("UPDATE `tx_output` SET `voided` = TRUE WHERE `tx_id` = 'o1'");
 
-    const promoted = await runRecoveryTransaction(mysql, logger, () => commitShieldedRecoveries(mysql, 'w1', sweep.recoveries));
+    const promoted = await runRecoveryTransaction(mysql, logger, (tx) => commitShieldedRecoveries(tx, 'w1', sweep.recoveries));
 
     expect(promoted).toBe(0);
     expect((await readState('o1')).s).toBe('unowned');
@@ -349,7 +349,7 @@ describe('commitShieldedRecoveries', () => {
     await seedTransparentAddress('ta', 'w1', 0);
     await seedTransparentBalance('ta', 'ttx');
 
-    await runRecoveryTransaction(mysql, logger, () => commitShieldedRecoveries(mysql, 'w1', sweep.recoveries));
+    await runRecoveryTransaction(mysql, logger, (tx) => commitShieldedRecoveries(tx, 'w1', sweep.recoveries));
 
     expect(await readWalletBalance('w1')).toMatchObject({ ub: '200', usb: '100' });
   });
@@ -362,9 +362,9 @@ describe('runRecoveryTransaction', () => {
     await seedWallet('w1');
     let attempts = 0;
 
-    const result = await runRecoveryTransaction(mysql, logger, async () => {
+    const result = await runRecoveryTransaction(mysql, logger, async (tx) => {
       attempts += 1;
-      await mysql.query("UPDATE `wallet` SET `max_gap` = `max_gap` + 1 WHERE `id` = 'w1'");
+      await tx.query("UPDATE `wallet` SET `max_gap` = `max_gap` + 1 WHERE `id` = 'w1'");
       if (attempts === 1) throw lockError(errno);
       return 'committed';
     });
@@ -376,6 +376,35 @@ describe('runRecoveryTransaction', () => {
     expect(Number(wallet.max_gap)).toBe(21);
   });
 
+  it('fails, leaving nothing behind, when its connection is lost midway', async () => {
+    // serverless-mysql would re-run the next statement on a new connection,
+    // outside the transaction, and commit it on its own; the pinned handle
+    // must fail instead.
+    await seedWallet('w1');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mysql2 = require('mysql2/promise');
+    const killer = await mysql2.createConnection({
+      host: process.env.DB_ENDPOINT,
+      port: Number(process.env.DB_PORT),
+      user: process.env.DB_USER,
+      password: process.env.DB_PASS,
+      database: process.env.DB_NAME,
+    });
+    try {
+      await expect(runRecoveryTransaction(mysql, logger, async (tx) => {
+        await tx.query("UPDATE `wallet` SET `max_gap` = 31 WHERE `id` = 'w1'");
+        const [{ id }] = await tx.query('SELECT CONNECTION_ID() AS id') as unknown as { id: number }[];
+        await killer.query(`KILL CONNECTION ${Number(id)}`);
+        await tx.query("UPDATE `wallet` SET `max_gap` = 32 WHERE `id` = 'w1'");
+      })).rejects.toBeDefined();
+    } finally {
+      await killer.end();
+    }
+
+    const [wallet] = await mysql.query("SELECT `max_gap` FROM `wallet` WHERE `id` = 'w1'") as unknown as { max_gap: number }[];
+    expect(Number(wallet.max_gap)).toBe(20);
+  });
+
   it('does not retry any other error', async () => {
     let attempts = 0;
 
@@ -385,5 +414,31 @@ describe('runRecoveryTransaction', () => {
     })).rejects.toThrow('out of range');
 
     expect(attempts).toBe(1);
+  });
+});
+
+describe('markShieldedTxOutputsRecovered', () => {
+  it('promotes across batches and counts only rows it changed', async () => {
+    await seedWallet('w1');
+    await seedCtSpendAddress('ca', 'w1', 0);
+    // More than one batch of 500, seeded in one statement.
+    const recoveries = Array.from({ length: 520 }, (_, i) => ({
+      txId: `b${i}`, index: 0, value: BigInt(i + 1), tokenId: '00',
+    }));
+    await mysql.query(
+      `INSERT INTO \`tx_output\`
+         (\`tx_id\`, \`index\`, \`address\`, \`value\`, \`token_id\`, \`authorities\`,
+          \`timelock\`, \`heightlock\`, \`locked\`, \`voided\`, \`mode\`, \`recovery_state\`)
+       VALUES ?`,
+      [recoveries.map((r) => [r.txId, 0, 'ca', null, '00', 0, null, null, false, false, 1, 'unowned'])],
+    );
+    await mysql.query("UPDATE `tx_output` SET `voided` = TRUE WHERE `tx_id` = 'b7'");
+    await mysql.query("UPDATE `tx_output` SET `recovery_state` = 'recovered', `value` = 8 WHERE `tx_id` = 'b8'");
+
+    const promoted = await ShieldedDb.markShieldedTxOutputsRecovered(mysql, recoveries);
+
+    expect(promoted).toBe(518);
+    expect(await readState('b519')).toMatchObject({ s: 'recovered', v: '520' });
+    expect((await readState('b7')).s).toBe('unowned');
   });
 });

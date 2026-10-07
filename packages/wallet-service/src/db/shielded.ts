@@ -102,6 +102,40 @@ export const markShieldedTxOutputRecovered = async (
   return { affectedRows: result.affectedRows };
 };
 
+/** Most outputs promoted by one statement. */
+const PROMOTE_BATCH = 500;
+
+/**
+ * Promote rewound outputs to `recovered`, revealing their value and token, in
+ * batches. Only rows not yet recovered and not voided change; returns how many
+ * did. One statement per batch rather than per output: the caller holds the
+ * wallet's rows locked against the daemon for as long as this takes.
+ */
+export const markShieldedTxOutputsRecovered = async (
+  mysql: ServerlessMysql,
+  recoveries: { txId: string; index: number; value: bigint; tokenId: string }[],
+): Promise<number> => {
+  let promoted = 0;
+  for (let start = 0; start < recoveries.length; start += PROMOTE_BATCH) {
+    const batch = recoveries.slice(start, start + PROMOTE_BATCH);
+    const rows = batch.map(() => 'ROW(?, ?, ?, ?)').join(', ');
+    const result = await mysql.query(
+      `UPDATE \`tx_output\` t
+         JOIN (VALUES ${rows}) AS v (\`tx_id\`, \`idx\`, \`value\`, \`token_id\`)
+           ON t.\`tx_id\` = v.\`tx_id\` AND t.\`index\` = v.\`idx\`
+          SET t.\`value\` = v.\`value\`, t.\`token_id\` = v.\`token_id\`, t.\`recovery_state\` = ?
+        WHERE t.\`recovery_state\` <> ? AND t.\`voided\` = FALSE`,
+      [
+        ...batch.flatMap((r) => [r.txId, r.index, r.value.toString(), r.tokenId]),
+        RecoveryState.Recovered,
+        RecoveryState.Recovered,
+      ],
+    ) as unknown as { affectedRows: number };
+    promoted += result.affectedRows;
+  }
+  return promoted;
+};
+
 /**
  * Record that a rewind we expected to succeed threw. Guarded on the row not
  * already being `recovered`, and leaves it `recovery_failed` so the on-call
@@ -228,11 +262,9 @@ export interface LockedWalletAddress {
  * Lock a wallet's address rows and return them: the wallet's address set, read
  * so it cannot change until the caller commits.
  *
- * Take this first in a recovery commit. Every daemon transaction involving an
- * owned address writes that address's row (its involvement counter) before it
- * reaches `tx_output` or `address_balance`, so it waits here rather than
- * inside our later locks; and the lock on the `wallet_id` index keeps the
- * daemon from adding an address to the wallet while we total it.
+ * Take this first in a recovery commit (see `commitShieldedRecoveries` for the
+ * order and why). The lock on the `wallet_id` index also keeps the daemon from
+ * adding an address to the wallet while we total it.
  */
 export const lockWalletAddresses = async (
   mysql: ServerlessMysql,

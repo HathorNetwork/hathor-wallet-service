@@ -24,7 +24,7 @@ import {
   countRecoveredShieldedOutputs,
   getShieldedOutputsToRecover,
   lockWalletAddresses,
-  markShieldedTxOutputRecovered,
+  markShieldedTxOutputsRecovered,
   markShieldedTxOutputRecoveryFailed,
   rebuildShieldedAddressBalances,
   rebuildShieldedAddressTxHistory,
@@ -286,24 +286,53 @@ const isLockConflict = (e: unknown): boolean => {
 };
 
 /**
- * Run `work` as one transaction, again from the start if it loses a lock
- * conflict (a deadlock, errno 1213, or a lock wait timeout, 1205) — it locks a
- * wallet's rows while the daemon writes to them, so it can. Any other error,
- * or a conflict past the retries, rolls back and propagates.
+ * A handle whose queries all go to `mysql`'s current connection and fail if it
+ * is lost.
+ *
+ * serverless-mysql answers a lost connection by running the query again on a
+ * new one, silently. Inside a transaction that runs it — and every statement
+ * after it — outside the transaction, each committing on its own, while the
+ * final COMMIT or ROLLBACK applies to nothing. A recovery commit split that
+ * way can leave an output promoted but not credited, which halts the daemon.
+ * On this handle a lost connection is an error, and the server discards the
+ * transaction.
+ */
+const pinConnection = async (mysql: ServerlessMysql): Promise<ServerlessMysql> => {
+  await mysql.connect();
+  const client = mysql.getClient();
+  const query = (sql: string, values?: unknown): Promise<unknown> => new Promise((resolve, reject) => {
+    client.query(sql, values, (err: unknown, results: unknown) => (err ? reject(err) : resolve(results)));
+  });
+  return { query } as unknown as ServerlessMysql;
+};
+
+/**
+ * Run `work` as one transaction on a pinned connection (see `pinConnection`),
+ * again from the start if it loses a lock conflict (a deadlock, errno 1213, or
+ * a lock wait timeout, 1205) — it locks a wallet's rows while the daemon
+ * writes to them, so it can. Any other error, or a conflict past the retries,
+ * rolls back and propagates. `work` must use the handle it is given.
  */
 export const runRecoveryTransaction = async <T>(
   mysql: ServerlessMysql,
   logger: Logger,
-  work: () => Promise<T>,
+  work: (tx: ServerlessMysql) => Promise<T>,
 ): Promise<T> => {
   for (let attempt = 0; ; attempt++) {
-    await beginTransaction(mysql);
+    const tx = await pinConnection(mysql);
+    await beginTransaction(tx);
     try {
-      const result = await work();
-      await commitTransaction(mysql);
+      const result = await work(tx);
+      await commitTransaction(tx);
       return result;
     } catch (e) {
-      await rollbackTransaction(mysql);
+      try {
+        await rollbackTransaction(tx);
+      } catch (rollbackError) {
+        // The connection is gone, and the server discarded the transaction
+        // with it. Report what actually failed, not the rollback.
+        logger.warn('Rolling back a recovery commit failed', { error: String(rollbackError) });
+      }
       if (!isLockConflict(e) || attempt >= COMMIT_RETRIES) throw e;
       logger.warn('Recovery commit lost a lock conflict; running it again', {
         attempt: attempt + 1, error: String(e),
@@ -322,10 +351,13 @@ export const runRecoveryTransaction = async <T>(
  * so a promoted output not yet credited to `address_balance` underflows the
  * unsigned balance and halts sync.
  *
- * Lock order, chosen to match the daemon's so conflicts stay rare (the retry
- * covers the rest):
- *  1. the wallet's `address` rows — the daemon's first write for an owned
- *     address — which also fixes the wallet's address set;
+ * Lock order, chosen so conflicts with the daemon stay rare; both sides retry
+ * the ones that remain:
+ *  1. the wallet's `address` rows, which fixes the wallet's address set. A
+ *     daemon ingest involving the wallet holds these from its involvement
+ *     write to its commit, so it serialises here. The daemon's unlock (which
+ *     takes `tx_output` then `address_balance`, as we do) and void (which
+ *     reaches `address` last) can still conflict with us;
  *  2. promote each recovery (only rows still unpromoted and not voided);
  *  3. the addresses' `address_balance` rows, including pairs that don't exist
  *     yet (next-key locks), so no daemon delta lands mid-rebuild;
@@ -341,13 +373,7 @@ export const commitShieldedRecoveries = async (
   recoveries: ShieldedRecovery[],
 ): Promise<number> => {
   const owned = await lockWalletAddresses(mysql, walletId);
-  let promoted = 0;
-  for (const r of recoveries) {
-    const { affectedRows } = await markShieldedTxOutputRecovered(
-      mysql, r.txId, r.index, { value: r.value, tokenId: r.tokenId },
-    );
-    promoted += affectedRows;
-  }
+  const promoted = await markShieldedTxOutputsRecovered(mysql, recoveries);
   const addresses = owned.map((a) => a.address);
   await lockAddressBalancesForUpdate(mysql, addresses);
   const ctSpendAddresses = owned
@@ -371,7 +397,7 @@ export const reconstructWallet = async (
   logger: Logger,
 ): Promise<SweepOutcome> => {
   const sweep = await findAndRewindShielded(mysql, walletId, logger);
-  await runRecoveryTransaction(mysql, logger, () => commitShieldedRecoveries(mysql, walletId, sweep.recoveries));
+  await runRecoveryTransaction(mysql, logger, (tx) => commitShieldedRecoveries(tx, walletId, sweep.recoveries));
   return sweep;
 };
 
