@@ -521,6 +521,91 @@ export async function markTxOutputRecovered(
   return { affectedRows: r.affectedRows };
 }
 
+/** What extending a wallet's CTSpend window needs. */
+export interface ShieldedWindow {
+  scanXpriv: string;
+  spendXpub: string;
+  shieldedMaxGap: number;
+  /** Highest CTSpend index the wallet has claimed; null if none. */
+  maxIndex: number | null;
+}
+
+/**
+ * The CTSpend window of each given wallet that has shielded keys, with the
+ * keys to derive it further. `scan_xpriv` is stored as the UTF-8 bytes of the
+ * base58 string.
+ */
+export const getShieldedWindows = async (
+  mysql: MysqlConnection,
+  walletIds: string[],
+): Promise<Map<string, ShieldedWindow>> => {
+  const windows = new Map<string, ShieldedWindow>();
+  if (walletIds.length === 0) return windows;
+  const [rows] = await mysql.query<RowDataPacket[]>(
+    `SELECT w.\`id\`, w.\`scan_xpriv\`, w.\`spend_xpub\`, w.\`shielded_max_gap\`,
+            (SELECT MAX(a.\`index\`) FROM \`address\` a
+              WHERE a.\`wallet_id\` = w.\`id\` AND a.\`bip32_account\` = ?) AS \`max_index\`
+       FROM \`wallet\` w
+      WHERE w.\`id\` IN (?) AND w.\`scan_xpriv\` IS NOT NULL AND w.\`spend_xpub\` IS NOT NULL`,
+    [Bip32Account.CTSpend, walletIds],
+  );
+  for (const row of rows) {
+    windows.set(row.id as string, {
+      scanXpriv: Buffer.from(row.scan_xpriv as Buffer).toString('utf8'),
+      spendXpub: row.spend_xpub as string,
+      shieldedMaxGap: parseNullableNumber(row.shielded_max_gap) ?? 20,
+      maxIndex: parseNullableNumber(row.max_index),
+    });
+  }
+  return windows;
+};
+
+/** A derived CTSpend address, as a wallet claims it. */
+export interface ShieldedAddressClaim {
+  index: number;
+  spendAddress: string;
+  ctAddress: string;
+  scanPrivkey: Buffer;
+}
+
+/**
+ * Claim derived CTSpend addresses for a wallet and advance its last-used
+ * shielded index (never backwards).
+ *
+ * The same upsert the wallet-service's load runs, so either side can claim an
+ * index first: an observation row the daemon wrote for an earlier payment is
+ * taken over, and arrives flagged for a sweep (`pending`) so its stored
+ * outputs get recovered; a row already claimed keeps its catch-up state.
+ */
+export const claimShieldedAddresses = async (
+  mysql: MysqlConnection,
+  walletId: string,
+  claims: ShieldedAddressClaim[],
+  lastUsedIndex: number,
+): Promise<void> => {
+  if (claims.length > 0) {
+    await mysql.query(
+      `INSERT INTO \`address\`
+         (\`address\`, \`index\`, \`wallet_id\`, \`transactions\`, \`bip32_account\`, \`scan_privkey\`, \`catchup_state\`, \`ct_address\`)
+       VALUES ?
+       ON DUPLICATE KEY UPDATE
+         \`bip32_account\` = VALUES(\`bip32_account\`),
+         \`wallet_id\` = VALUES(\`wallet_id\`),
+         \`index\` = VALUES(\`index\`),
+         \`ct_address\` = VALUES(\`ct_address\`),
+         \`scan_privkey\` = VALUES(\`scan_privkey\`),
+         \`catchup_state\` = COALESCE(\`catchup_state\`, VALUES(\`catchup_state\`))`,
+      [claims.map((c) => [
+        c.spendAddress, c.index, walletId, 0, Bip32Account.CTSpend, c.scanPrivkey, 'pending', c.ctAddress,
+      ])],
+    );
+  }
+  await mysql.query(
+    'UPDATE `wallet` SET `last_used_shielded_index` = GREATEST(COALESCE(`last_used_shielded_index`, -1), ?) WHERE `id` = ?',
+    [lastUsedIndex, walletId],
+  );
+};
+
 /**
  * Mark the given addresses' wallets as needing a shielded catch-up sweep, by
  * setting the claimed CTSpend rows' `catchup_state` to `pending`. Unclaimed

@@ -20,6 +20,7 @@ import {
   EPHEMERAL_PUBKEY_BYTES,
   ShieldedScanMissError,
   ShieldedAssetMismatchError,
+  deriveCtAddress,
 } from '@wallet-service/common';
 import {
   StringMap,
@@ -86,6 +87,9 @@ import {
   getAddressWalletInfo,
   refreshWalletLifecycles,
   flagAddressesForSweep,
+  getShieldedWindows,
+  claimShieldedAddresses,
+  ShieldedAddressClaim,
   addNewAddresses,
   updateWalletTablesWithTx,
   voidTransaction,
@@ -375,6 +379,76 @@ export function isNanoContract(headers: EventTxHeader[]) {
  * @param context - The context containing the event and other metadata
  * @param _event - The event being processed (unused, context.event is used instead)
  */
+/**
+ * Keep each wallet's CTSpend window ahead of its use, as the legacy gap
+ * extension does for legacy addresses: when a vertex uses a CTSpend address
+ * within `shielded_max_gap` of the wallet's highest claimed index, derive and
+ * claim the addresses up to that many past it. Without this the window, set
+ * by the wallet's load, is used up and later payments land on addresses no
+ * wallet has claimed, which nothing ever recovers.
+ *
+ * Usage is a balance-map address (a transparent payment to, or spend from, a
+ * CTSpend address) or the address of any shielded output stored here, whether
+ * or not it was recovered — the load counts any stored output the same way.
+ *
+ * A wallet whose keys fail to derive is logged and alerted after commit; it
+ * never fails the ingest.
+ */
+const extendShieldedWindows = async (
+  mysql: MysqlConnection,
+  hash: string,
+  walletIndices: Map<string, { maxCtAmongAddresses: number | null }>,
+  storedShieldedAddresses: Set<string>,
+  afterCommit: (() => Promise<void>)[],
+): Promise<void> => {
+  const used = new Map<string, number>();
+  const use = (walletId: string, index: number) => {
+    used.set(walletId, Math.max(used.get(walletId) ?? -1, index));
+  };
+  for (const [walletId, indices] of walletIndices) {
+    if (indices.maxCtAmongAddresses != null) use(walletId, indices.maxCtAmongAddresses);
+  }
+  // Owned rows are already locked by this ingest's involvement write.
+  const owned = await findShieldedAddressOwnershipBatch(mysql, [...storedShieldedAddresses]);
+  for (const ownership of owned.values()) {
+    use(ownership.wallet_id, ownership.shielded_index);
+  }
+  if (used.size === 0) return;
+
+  const windows = await getShieldedWindows(mysql, [...used.keys()]);
+  const network = new hathorLib.Network(getConfig().NETWORK);
+  for (const [walletId, window] of windows) {
+    const lastUsed = used.get(walletId)!;
+    const maxIndex = window.maxIndex ?? -1;
+    const end = lastUsed + window.shieldedMaxGap;
+    const claims: ShieldedAddressClaim[] = [];
+    try {
+      for (let index = maxIndex + 1; index <= end; index++) {
+        const derived = deriveCtAddress(window.scanXpriv, window.spendXpub, index, network);
+        claims.push({
+          index,
+          spendAddress: derived.spendAddress,
+          ctAddress: derived.ctAddress,
+          scanPrivkey: derived.scanPrivkey,
+        });
+      }
+    } catch (e) {
+      logger.error('Could not derive CTSpend addresses to extend a wallet\'s window', {
+        txId: hash, walletId, error: String(e),
+      });
+      afterCommit.push(() => emitDeferredAlert(
+        'Shielded address window not extended',
+        `Wallet ${walletId}'s CTSpend addresses could not be derived while ingesting ${hash}, so its `
+        + 'window was not extended; payments past it will not be recovered.',
+        Severity.MAJOR,
+        { tx_id: hash, wallet_id: walletId, error: String(e), source: 'daemon' },
+      ));
+      continue;
+    }
+    await claimShieldedAddresses(mysql, walletId, claims, lastUsed);
+  }
+};
+
 const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
   return tracer.startActiveSpan('handleVertexAccepted', async (span) => {
     let mysql: PoolConnection | undefined;
@@ -584,6 +658,10 @@ const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
         // retry can fix. Flagged in this transaction, so the flag rolls back
         // with the ingest.
         const needsSweep = new Set<string>();
+        // Addresses that got a stored shielded output here: usage, for
+        // extending their wallets' CTSpend windows, whether or not the output
+        // was recovered.
+        const storedShieldedAddresses = new Set<string>();
 
         // Read once per vertex, not cached across vertices: a provider can be
         // registered at any time, and a stale `false` would hide real failures.
@@ -677,6 +755,7 @@ const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
           const shieldedLocked = heightlock !== null
             || (shieldedTimelock !== null && shieldedTimelock > now);
 
+          storedShieldedAddresses.add(so.decoded.address);
           await insertTxOutput(mysql, {
             tx_id: hash,
             index: idx,
@@ -932,8 +1011,7 @@ const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
 
             // Legacy gap extension reads the legacy pair only — a
             // claimed shielded (CTSpend) index must never drive or suppress
-            // legacy derivation. The CT pair feeds the shielded gap
-            // extension (follow-up work).
+            // legacy derivation. The CT pair feeds extendShieldedWindows.
             const { maxLegacyAmongAddresses, maxLegacyWalletIndex } = indices;
 
             if (maxLegacyAmongAddresses == null || maxLegacyWalletIndex == null) {
@@ -952,6 +1030,8 @@ const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
               await addNewAddresses(mysql, walletId, addresses, maxLegacyAmongAddresses);
             }
           }
+
+          await extendShieldedWindows(mysql, hash, walletIndices, storedShieldedAddresses, afterCommit);
 
           // update wallet_balance and wallet_tx_history tables
           const walletBalanceMap: StringMap<TokenBalanceMap> = getWalletBalanceMap(addressWalletMap, addressBalanceMap);
