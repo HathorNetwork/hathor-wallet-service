@@ -528,6 +528,8 @@ export interface ShieldedWindow {
   shieldedMaxGap: number;
   /** Highest CTSpend index the wallet has claimed; null if none. */
   maxIndex: number | null;
+  /** The wallet's `last_used_shielded_index`; null if none. */
+  lastUsedIndex: number | null;
 }
 
 /**
@@ -542,7 +544,7 @@ export const getShieldedWindows = async (
   const windows = new Map<string, ShieldedWindow>();
   if (walletIds.length === 0) return windows;
   const [rows] = await mysql.query<RowDataPacket[]>(
-    `SELECT w.\`id\`, w.\`scan_xpriv\`, w.\`spend_xpub\`, w.\`shielded_max_gap\`,
+    `SELECT w.\`id\`, w.\`scan_xpriv\`, w.\`spend_xpub\`, w.\`shielded_max_gap\`, w.\`last_used_shielded_index\`,
             (SELECT MAX(a.\`index\`) FROM \`address\` a
               WHERE a.\`wallet_id\` = w.\`id\` AND a.\`bip32_account\` = ?) AS \`max_index\`
        FROM \`wallet\` w
@@ -555,9 +557,26 @@ export const getShieldedWindows = async (
       spendXpub: row.spend_xpub as string,
       shieldedMaxGap: parseNullableNumber(row.shielded_max_gap) ?? 20,
       maxIndex: parseNullableNumber(row.max_index),
+      lastUsedIndex: parseNullableNumber(row.last_used_shielded_index),
     });
   }
   return windows;
+};
+
+/**
+ * The given addresses that hold a non-voided output — the use the wallet's
+ * load counts when it sizes a CTSpend window.
+ */
+export const getAddressesWithOutputs = async (
+  mysql: MysqlConnection,
+  addresses: string[],
+): Promise<Set<string>> => {
+  if (addresses.length === 0) return new Set();
+  const [rows] = await mysql.query<RowDataPacket[]>(
+    'SELECT DISTINCT `address` FROM `tx_output` WHERE `address` IN (?) AND `voided` = FALSE',
+    [addresses],
+  );
+  return new Set(rows.map((r) => r.address as string));
 };
 
 /** A derived CTSpend address, as a wallet claims it. */
@@ -2682,8 +2701,8 @@ export const getTokenSymbols = async (
  * - A wallet with no rows for an account yields `NULL` for that account's pair
  *   (e.g. no shielded window claimed -> both CT maxes are `NULL`).
  *
- * The legacy pair feeds the legacy gap extension; the CT pair is the
- * input for the shielded gap extension (follow-up work).
+ * The legacy pair feeds the legacy gap extension; the CT pair feeds the
+ * CTSpend window extension.
  *
  * @param mysql - Database connection
  * @param walletData - Array of objects containing wallet IDs and their associated addresses

@@ -88,6 +88,7 @@ import {
   refreshWalletLifecycles,
   flagAddressesForSweep,
   getShieldedWindows,
+  getAddressesWithOutputs,
   claimShieldedAddresses,
   ShieldedAddressClaim,
   addNewAddresses,
@@ -340,6 +341,90 @@ export function isNanoContract(headers: EventTxHeader[]) {
 }
 
 /**
+ * Keep each wallet's CTSpend window ahead of its use, as the legacy gap
+ * extension does for legacy addresses: when a vertex uses a CTSpend address
+ * within `shielded_max_gap` of the wallet's highest claimed index, derive and
+ * claim the addresses up to that many past it. Without this the window, set
+ * by the wallet's load, is used up and later payments land on addresses no
+ * wallet has claimed, which nothing ever recovers.
+ *
+ * Usage is a balance-map address (a transparent payment to, or spend from, a
+ * CTSpend address) or the address of any shielded output stored here, whether
+ * or not it was recovered. Each newly derived block is then checked the way
+ * the load sizes a window — an address holding any stored output is used — so
+ * an observation row this takes over, paid before any wallet claimed it,
+ * pushes the window on as the load would have.
+ *
+ * A wallet whose keys fail to derive is logged and alerted after commit; it
+ * never fails the ingest.
+ */
+const extendShieldedWindows = async (
+  mysql: MysqlConnection,
+  hash: string,
+  walletIndices: Map<string, { maxCtAmongAddresses: number | null }>,
+  storedShieldedAddresses: Set<string>,
+  afterCommit: (() => Promise<void>)[],
+): Promise<void> => {
+  const used = new Map<string, number>();
+  const use = (walletId: string, index: number) => {
+    used.set(walletId, Math.max(used.get(walletId) ?? -1, index));
+  };
+  for (const [walletId, indices] of walletIndices) {
+    if (indices.maxCtAmongAddresses != null) use(walletId, indices.maxCtAmongAddresses);
+  }
+  // Owned rows are already locked by this ingest's involvement write.
+  const owned = await findShieldedAddressOwnershipBatch(mysql, [...storedShieldedAddresses]);
+  for (const ownership of owned.values()) {
+    use(ownership.wallet_id, ownership.shielded_index);
+  }
+  if (used.size === 0) return;
+
+  const windows = await getShieldedWindows(mysql, [...used.keys()]);
+  const network = new hathorLib.Network(getConfig().NETWORK);
+  for (const [walletId, window] of windows) {
+    let lastUsed = used.get(walletId)!;
+    const gap = window.shieldedMaxGap;
+    let highestDerived = window.maxIndex ?? -1;
+    const claims: ShieldedAddressClaim[] = [];
+    try {
+      while (lastUsed + gap > highestDerived) {
+        const block: ShieldedAddressClaim[] = [];
+        for (let index = highestDerived + 1; index <= lastUsed + gap; index++) {
+          const derived = deriveCtAddress(window.scanXpriv, window.spendXpub, index, network);
+          block.push({
+            index,
+            spendAddress: derived.spendAddress,
+            ctAddress: derived.ctAddress,
+            scanPrivkey: derived.scanPrivkey,
+          });
+        }
+        highestDerived = lastUsed + gap;
+        claims.push(...block);
+        const withOutputs = await getAddressesWithOutputs(mysql, block.map((c) => c.spendAddress));
+        for (const claim of block) {
+          if (withOutputs.has(claim.spendAddress)) lastUsed = Math.max(lastUsed, claim.index);
+        }
+      }
+    } catch (e) {
+      logger.error('Could not derive CTSpend addresses to extend a wallet\'s window', {
+        txId: hash, walletId, error: String(e),
+      });
+      afterCommit.push(() => emitDeferredAlert(
+        'Shielded address window not extended',
+        `Wallet ${walletId}'s CTSpend addresses could not be derived while ingesting ${hash}, so its `
+        + 'window was not extended; payments past it will not be recovered.',
+        Severity.MAJOR,
+        { tx_id: hash, wallet_id: walletId, error: String(e), source: 'daemon' },
+      ));
+      continue;
+    }
+    // Most payments land well inside the window: leave the wallet row alone.
+    if (claims.length === 0 && lastUsed <= (window.lastUsedIndex ?? -1)) continue;
+    await claimShieldedAddresses(mysql, walletId, claims, lastUsed);
+  }
+};
+
+/**
  * Handles a vertex (transaction or block) being accepted by the fullnode.
  *
  * This function processes VERTEX_METADATA_CHANGED and NEW_VERTEX_ACCEPTED events.
@@ -379,76 +464,6 @@ export function isNanoContract(headers: EventTxHeader[]) {
  * @param context - The context containing the event and other metadata
  * @param _event - The event being processed (unused, context.event is used instead)
  */
-/**
- * Keep each wallet's CTSpend window ahead of its use, as the legacy gap
- * extension does for legacy addresses: when a vertex uses a CTSpend address
- * within `shielded_max_gap` of the wallet's highest claimed index, derive and
- * claim the addresses up to that many past it. Without this the window, set
- * by the wallet's load, is used up and later payments land on addresses no
- * wallet has claimed, which nothing ever recovers.
- *
- * Usage is a balance-map address (a transparent payment to, or spend from, a
- * CTSpend address) or the address of any shielded output stored here, whether
- * or not it was recovered — the load counts any stored output the same way.
- *
- * A wallet whose keys fail to derive is logged and alerted after commit; it
- * never fails the ingest.
- */
-const extendShieldedWindows = async (
-  mysql: MysqlConnection,
-  hash: string,
-  walletIndices: Map<string, { maxCtAmongAddresses: number | null }>,
-  storedShieldedAddresses: Set<string>,
-  afterCommit: (() => Promise<void>)[],
-): Promise<void> => {
-  const used = new Map<string, number>();
-  const use = (walletId: string, index: number) => {
-    used.set(walletId, Math.max(used.get(walletId) ?? -1, index));
-  };
-  for (const [walletId, indices] of walletIndices) {
-    if (indices.maxCtAmongAddresses != null) use(walletId, indices.maxCtAmongAddresses);
-  }
-  // Owned rows are already locked by this ingest's involvement write.
-  const owned = await findShieldedAddressOwnershipBatch(mysql, [...storedShieldedAddresses]);
-  for (const ownership of owned.values()) {
-    use(ownership.wallet_id, ownership.shielded_index);
-  }
-  if (used.size === 0) return;
-
-  const windows = await getShieldedWindows(mysql, [...used.keys()]);
-  const network = new hathorLib.Network(getConfig().NETWORK);
-  for (const [walletId, window] of windows) {
-    const lastUsed = used.get(walletId)!;
-    const maxIndex = window.maxIndex ?? -1;
-    const end = lastUsed + window.shieldedMaxGap;
-    const claims: ShieldedAddressClaim[] = [];
-    try {
-      for (let index = maxIndex + 1; index <= end; index++) {
-        const derived = deriveCtAddress(window.scanXpriv, window.spendXpub, index, network);
-        claims.push({
-          index,
-          spendAddress: derived.spendAddress,
-          ctAddress: derived.ctAddress,
-          scanPrivkey: derived.scanPrivkey,
-        });
-      }
-    } catch (e) {
-      logger.error('Could not derive CTSpend addresses to extend a wallet\'s window', {
-        txId: hash, walletId, error: String(e),
-      });
-      afterCommit.push(() => emitDeferredAlert(
-        'Shielded address window not extended',
-        `Wallet ${walletId}'s CTSpend addresses could not be derived while ingesting ${hash}, so its `
-        + 'window was not extended; payments past it will not be recovered.',
-        Severity.MAJOR,
-        { tx_id: hash, wallet_id: walletId, error: String(e), source: 'daemon' },
-      ));
-      continue;
-    }
-    await claimShieldedAddresses(mysql, walletId, claims, lastUsed);
-  }
-};
-
 const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
   return tracer.startActiveSpan('handleVertexAccepted', async (span) => {
     let mysql: PoolConnection | undefined;

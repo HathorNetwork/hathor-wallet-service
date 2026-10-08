@@ -6047,6 +6047,30 @@ describe('extending a wallet\'s CTSpend window', () => {
     expect(row).toMatchObject({ address: derive(5).spendAddress, catchup_state: 'pending' });
   });
 
+  it('sizes the window as the load would when a claimed row already holds an output', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet(3);
+    // A payment to index 5, stored before any wallet claimed the address.
+    await mysql.query(
+      'INSERT INTO address (address, transactions) VALUES (?, 1)', [derive(5).spendAddress],
+    );
+    await mysql.query(
+      `INSERT INTO tx_output (tx_id, \`index\`, token_id, address, value, authorities, locked, voided)
+       VALUES (?, 0, '00', ?, 10, 0, FALSE, FALSE)`,
+      ['ab'.repeat(32), derive(5).spendAddress],
+    );
+
+    // Index 2 brings 4 and 5 into the window; 5 is used, so the load's window
+    // runs on to 5 + 3.
+    await ingest(paying(2));
+
+    const rows = await claimedIndices();
+    expect(rows.map((r: any) => Number(r.index))).toStrictEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(rows[8].address).toBe(derive(8).spendAddress);
+    const [[wallet]] = await mysql.query<any[]>('SELECT `last_used_shielded_index` AS i FROM `wallet` WHERE `id` = ?', [WALLET]);
+    expect(Number(wallet.i)).toBe(5);
+  });
+
   it('ingests the vertex, and alerts after commit, when the wallet\'s keys do not derive', async () => {
     expect.hasAssertions();
     await seedLoadedWallet(3, Buffer.from('not an xpriv', 'utf8'));
