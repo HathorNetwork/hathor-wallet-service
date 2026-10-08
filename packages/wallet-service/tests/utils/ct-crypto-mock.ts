@@ -61,6 +61,20 @@ export function primeFullyRewind(p: FullyPriming): void {
   fullyMap.set(key(p.commitment, p.ephemeralPubkey), p);
 }
 
+const scanMisses = new Set<string>();
+
+/**
+ * Make both rewinds of this output throw the provider's scan-miss error, as
+ * the real provider does when the scan key does not open the output.
+ */
+export function primeScanMiss(p: { commitment: Buffer; ephemeralPubkey: Buffer }): void {
+  scanMisses.add(key(p.commitment, p.ephemeralPubkey));
+}
+
+// Built by name, as the wrapper recognises it, so the mock does not depend on
+// which copy of the provider package resolves here.
+const scanMissError = () => Object.assign(new Error('rewind failed'), { name: 'ScanMissError' });
+
 const mockProvider = {
   async rewindAmountShieldedOutput(
     privateKey: Buffer,
@@ -70,6 +84,9 @@ const mockProvider = {
     tokenUid: Buffer,
   ) {
     lastAmountArgs = { privateKey, ephemeralPubkey, commitment, rangeProof, tokenUid };
+    if (scanMisses.has(key(commitment, ephemeralPubkey))) {
+      throw scanMissError();
+    }
     const p = amountMap.get(key(commitment, ephemeralPubkey));
     if (!p) {
       throw new Error('mock: no AmountShielded priming for (commitment, ephemeralPubkey)');
@@ -87,6 +104,9 @@ const mockProvider = {
     ephemeralPubkey: Buffer,
     commitment: Buffer,
   ) {
+    if (scanMisses.has(key(commitment, ephemeralPubkey))) {
+      throw scanMissError();
+    }
     const p = fullyMap.get(key(commitment, ephemeralPubkey));
     if (!p) {
       throw new Error('mock: no FullyShielded priming for (commitment, ephemeralPubkey)');
@@ -104,6 +124,7 @@ const mockProvider = {
 export function resetCtCryptoMock(): void {
   amountMap.clear();
   fullyMap.clear();
+  scanMisses.clear();
   lastAmountArgs = null;
   setShieldedCryptoProvider(mockProvider);
 }

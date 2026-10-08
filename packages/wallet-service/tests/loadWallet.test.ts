@@ -107,6 +107,13 @@ describe('loadWallet', () => {
       "SELECT `unlocked_shielded_balance` AS usb FROM `wallet_balance` WHERE `wallet_id` = ? AND `token_id` = '00'", [walletId],
     ))[0];
     expect(String(wb.usb)).toBe('1500');
+    // and counted, so the daemon's void of ctx1 has a count to take back: the
+    // history rebuild must run before the balance rebuild reads it.
+    const ab = (await mysql.query(
+      "SELECT `transactions` FROM `address_balance` WHERE `address` = ? AND `token_id` = '00'",
+      [derivedAt(2).spendAddress],
+    ))[0];
+    expect(Number(ab.transactions)).toBe(1);
 
     // wallet finalized
     const w = await getWallet(mysql, walletId);

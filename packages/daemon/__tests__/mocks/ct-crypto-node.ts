@@ -72,6 +72,30 @@ export function primeFullyRewind(p: FullyPriming): void {
   fullyMap.set(key(p.commitment, p.ephemeralPubkey), p);
 }
 
+const scanMisses = new Set<string>();
+
+/**
+ * Make both rewinds of this output throw the provider's scan-miss error, as
+ * the real provider does when the scan key does not open the output.
+ */
+export function primeScanMiss(p: { commitment: Buffer; ephemeralPubkey: Buffer }): void {
+  scanMisses.add(key(p.commitment, p.ephemeralPubkey));
+}
+
+// Built by name, as the wrapper recognises it, so the mock does not depend on
+// which copy of the provider package resolves here.
+const scanMissError = () => Object.assign(new Error('rewind failed'), { name: 'ScanMissError' });
+
+const assetMismatches = new Set<string>();
+
+/**
+ * Make the full rewind of this output fail the asset cross-check, as the real
+ * provider does when a sender puts a false token in the output.
+ */
+export function primeAssetMismatch(p: { commitment: Buffer; ephemeralPubkey: Buffer }): void {
+  assetMismatches.add(key(p.commitment, p.ephemeralPubkey));
+}
+
 /**
  * A provider that resolves rewinds from the priming maps. Only the two rewind
  * methods used by the wrapper are implemented; the rest of the interface is
@@ -87,6 +111,9 @@ const mockProvider = {
   ) {
     receivedRangeProofs.push(rangeProof);
     lastAmountArgs = { privateKey, ephemeralPubkey, commitment, rangeProof, tokenUid };
+    if (scanMisses.has(key(commitment, ephemeralPubkey))) {
+      throw scanMissError();
+    }
     const p = amountMap.get(key(commitment, ephemeralPubkey));
     if (!p) {
       throw new Error('mock: no AmountShielded priming for (commitment, ephemeralPubkey)');
@@ -106,6 +133,12 @@ const mockProvider = {
     rangeProof: Buffer,
   ) {
     receivedRangeProofs.push(rangeProof);
+    if (scanMisses.has(key(commitment, ephemeralPubkey))) {
+      throw scanMissError();
+    }
+    if (assetMismatches.has(key(commitment, ephemeralPubkey))) {
+      throw new Error('range proof error: asset commitment verification failed');
+    }
     const p = fullyMap.get(key(commitment, ephemeralPubkey));
     if (!p) {
       throw new Error('mock: no FullyShielded priming for (commitment, ephemeralPubkey)');
@@ -123,6 +156,8 @@ const mockProvider = {
 export function resetCtCryptoMock(): void {
   amountMap.clear();
   fullyMap.clear();
+  scanMisses.clear();
+  assetMismatches.clear();
   receivedRangeProofs.length = 0;
   lastAmountArgs = null;
   setShieldedCryptoProvider(mockProvider);
