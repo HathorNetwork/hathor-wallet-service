@@ -42,12 +42,7 @@ import {
   sweptOutputs,
   SweepOutcome,
 } from '@src/shieldedRecovery';
-import {
-  beginTransaction,
-  commitTransaction,
-  rollbackTransaction,
-  computeUnifiedStatus,
-} from '@src/db/utils';
+import { computeUnifiedStatus } from '@src/db/utils';
 import { WalletStatus, Wallet } from '@src/types';
 import {
   closeDbConnection,
@@ -807,19 +802,17 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
       : { rows: [], addresses: [], lastUsedShieldedIndex: null, newRows: [] };
 
     // 2. One short claim transaction: address ownership + frontier indices.
-    await beginTransaction(mysql);
-    try {
-      await upsertNewAddresses(mysql, walletId, legacy.newAddresses, legacy.lastUsedAddressIndex);
-      await updateExistingAddresses(mysql, walletId, legacy.existingAddresses);
-      await upsertShieldedAddressOwnership(mysql, walletId, shielded.newRows);
+    //    The daemon claims CTSpend addresses too, as it extends the window,
+    //    and can deadlock with this; every write here is an upsert, so a
+    //    retry is safe.
+    await runRecoveryTransaction(mysql, logger, async (tx) => {
+      await upsertNewAddresses(tx, walletId, legacy.newAddresses, legacy.lastUsedAddressIndex);
+      await updateExistingAddresses(tx, walletId, legacy.existingAddresses);
+      await upsertShieldedAddressOwnership(tx, walletId, shielded.newRows);
       if (shielded.lastUsedShieldedIndex != null) {
-        await advanceLastUsedShieldedIndex(mysql, walletId, shielded.lastUsedShieldedIndex);
+        await advanceLastUsedShieldedIndex(tx, walletId, shielded.lastUsedShieldedIndex);
       }
-      await commitTransaction(mysql);
-    } catch (txError) {
-      await rollbackTransaction(mysql);
-      throw txError;
-    }
+    });
 
     // 3. Rewind — outside any transaction: it is the slow part, and nothing it
     //    does yet changes a balance. Outputs that open are promoted in the

@@ -384,7 +384,10 @@ const extendShieldedWindows = async (
   for (const [walletId, window] of windows) {
     let lastUsed = used.get(walletId)!;
     const gap = window.shieldedMaxGap;
-    let highestDerived = window.maxIndex ?? -1;
+    // `maxIndex` is a plain read, so it can predate a load's claim that this
+    // ingest waited on. Both writers claim from 0 without holes, so the owned
+    // row at `lastUsed` proves everything up to it is claimed already.
+    let highestDerived = Math.max(window.maxIndex ?? -1, lastUsed);
     const claims: ShieldedAddressClaim[] = [];
     try {
       while (lastUsed + gap > highestDerived) {
@@ -1027,11 +1030,14 @@ const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
             // Legacy gap extension reads the legacy pair only — a
             // claimed shielded (CTSpend) index must never drive or suppress
             // legacy derivation. The CT pair feeds extendShieldedWindows.
-            const { maxLegacyAmongAddresses, maxLegacyWalletIndex } = indices;
+            const { maxLegacyAmongAddresses, maxLegacyWalletIndex, maxCtAmongAddresses } = indices;
 
             if (maxLegacyAmongAddresses == null || maxLegacyWalletIndex == null) {
-              // Do nothing, wallet is most likely not loaded yet.
-              if (walletDetails.status === WalletStatus.READY) {
+              // Do nothing, wallet is most likely not loaded yet. A vertex that
+              // touched only the wallet's CTSpend addresses has no legacy
+              // address here either, and that is expected.
+              const ctOnly = maxLegacyWalletIndex != null && maxCtAmongAddresses != null;
+              if (walletDetails.status === WalletStatus.READY && !ctOnly) {
                 logger.error('[ERROR] A wallet marked as READY does not have a max wallet index or address index was not found in the database');
               }
               continue;

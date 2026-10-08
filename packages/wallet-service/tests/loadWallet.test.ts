@@ -263,6 +263,29 @@ describe('loadWallet', () => {
     spy.mockRestore();
   }, COMBINED_TEST_TIMEOUT_MS);
 
+  it('runs the claim again when it loses a lock conflict to the daemon', async () => {
+    // The daemon claims CTSpend addresses as it extends a wallet's window, so
+    // the two claims can deadlock; a load must not fail over that.
+    await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, MAX_GAP, { scanXpriv, spendXpub, shieldedMaxGap: SHIELDED_GAP });
+    const spy = jest.spyOn(ShieldedDb, 'upsertShieldedAddressOwnership')
+      .mockRejectedValueOnce(Object.assign(new Error('Deadlock found when trying to get lock'), { errno: 1213 }));
+
+    try {
+      const result = await runWorker({ xpubkey: XPUBKEY, maxGap: MAX_GAP });
+      expect(result).toMatchObject({ success: true, walletId });
+      expect(spy).toHaveBeenCalledTimes(2);
+      const ctRows = await mysql.query(
+        'SELECT COUNT(*) AS c FROM `address` WHERE `wallet_id` = ? AND `bip32_account` = ?', [walletId, Bip32Account.CTSpend],
+      );
+      expect(Number(ctRows[0].c)).toBe(SHIELDED_GAP);
+      const w = await getWallet(mysql, walletId);
+      expect(w.status).toBe(WalletStatus.READY);
+      expect(w.ctStatus).toBe(WalletStatus.READY);
+    } finally {
+      spy.mockRestore();
+    }
+  }, COMBINED_TEST_TIMEOUT_MS);
+
   it('rolls the settle back when the ready flip fails', async () => {
     // The rebuild and the ready flip share one transaction so the daemon never
     // sees totals without READY (or READY without totals). If the flip throws,

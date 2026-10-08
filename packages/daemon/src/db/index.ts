@@ -595,6 +595,12 @@ export interface ShieldedAddressClaim {
  * index first: an observation row the daemon wrote for an earlier payment is
  * taken over, and arrives flagged for a sweep (`pending`) so its stored
  * outputs get recovered; a row already claimed keeps its catch-up state.
+ *
+ * Unlike the load, nothing settles these rows afterwards, so a new row starts
+ * `done`: an address with no row has no stored output to recover. Every
+ * stored output bumps its address's `transactions`, so among the rows taken
+ * over, only those with `transactions > 0` need the sweep. Flagging every
+ * claimed row would have the sweep take the wallet after each extension.
  */
 export const claimShieldedAddresses = async (
   mysql: MysqlConnection,
@@ -613,9 +619,9 @@ export const claimShieldedAddresses = async (
          \`index\` = VALUES(\`index\`),
          \`ct_address\` = VALUES(\`ct_address\`),
          \`scan_privkey\` = VALUES(\`scan_privkey\`),
-         \`catchup_state\` = COALESCE(\`catchup_state\`, VALUES(\`catchup_state\`))`,
+         \`catchup_state\` = COALESCE(\`catchup_state\`, IF(\`transactions\` > 0, 'pending', 'done'))`,
       [claims.map((c) => [
-        c.spendAddress, c.index, walletId, 0, Bip32Account.CTSpend, c.scanPrivkey, 'pending', c.ctAddress,
+        c.spendAddress, c.index, walletId, 0, Bip32Account.CTSpend, c.scanPrivkey, 'done', c.ctAddress,
       ])],
     );
   }

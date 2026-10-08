@@ -48,6 +48,7 @@ import {
   getWalletBalance,
   insertWalletBalance,
   getWalletTxHistoryCount,
+  ADDRESSES,
   XPUBKEY,
 } from '../utils';
 import { DbTxOutput, EventTxInput } from '../../src/types';
@@ -6007,7 +6008,9 @@ describe('extending a wallet\'s CTSpend window', () => {
     // The same addresses the wallet's own load derives.
     expect(rows[4].address).toBe(derive(4).spendAddress);
     expect(rows[5].address).toBe(derive(5).spendAddress);
-    expect(rows[5].catchup_state).toBe('pending');
+    // Nothing was ever paid to them, so there is nothing for a sweep to do.
+    expect(rows[4].catchup_state).toBe('done');
+    expect(rows[5].catchup_state).toBe('done');
     const [[wallet]] = await mysql.query<any[]>('SELECT `last_used_shielded_index` AS i FROM `wallet` WHERE `id` = ?', [WALLET]);
     expect(Number(wallet.i)).toBe(2);
   });
@@ -6031,6 +6034,28 @@ describe('extending a wallet\'s CTSpend window', () => {
     await ingest(f);
 
     expect((await claimedIndices()).map((r: any) => Number(r.index))).toStrictEqual([0, 1, 2, 3, 4, 5, 6]);
+  });
+
+  it('does not report a vertex that touched only the wallet\'s CTSpend addresses', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet(3);
+    await mysql.query(
+      'INSERT INTO address (address, wallet_id, `index`, bip32_account, transactions) VALUES (?, ?, 0, 0, 0)',
+      [ADDRESSES[0], WALLET],
+    );
+    const errorSpy = jest.spyOn(logger, 'error');
+    const f = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    f.event.data.outputs[0].decoded.address = derive(1).spendAddress;
+    f.event.data.shielded_outputs = [];
+
+    try {
+      await ingest(f);
+      expect(errorSpy.mock.calls.map(([message]) => message)).not.toContainEqual(
+        expect.stringContaining('A wallet marked as READY does not have a max wallet index'),
+      );
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it('claims an earlier payment\'s observation row and flags it for a sweep', async () => {
