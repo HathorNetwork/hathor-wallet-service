@@ -199,11 +199,12 @@ export const getAddressBalanceMap = (
  *
  *  - Transparent inputs: `spent_output.decoded.address` (when decode succeeded).
  *  - Transparent outputs: `decoded.address` (when decode succeeded).
- *  - Shielded outputs: every shielded `decoded.address`, regardless of
- *    ownership or recovery state. Unowned shielded outputs still mark
- *    their address as involved so an observer can see something happened.
- *  - Shielded inputs: `spent_output.decoded.address` — present on all
- *    shielded spent_output variants.
+ *  - Shielded outputs: `decoded.address` of every shielded output that has
+ *    one, regardless of ownership or recovery state. Unowned shielded
+ *    outputs still mark their address as involved so an observer can see
+ *    something happened; an output with no address contributes nothing.
+ *  - Shielded inputs: `spent_output.decoded.address`, when the spent
+ *    output has an address and its payload validated.
  *  - Nano-contract headers: `nc_address`.
  *
  * Pure function over wire data; no DB lookups. The caller is responsible
@@ -241,9 +242,8 @@ export const getInvolvedAddresses = (
   for (const input of inputs) {
     const spent = input?.spent_output;
     if (!spent) continue;
-    // `spent_output.decoded` is present on every variant of the union
-    // (transparent + both shielded). Address may still be absent if the
-    // decode failed upstream; skip empty/unknown values.
+    // A transparent spent output may have failed to decode and a shielded
+    // one may have no address; neither contributes anything.
     const decoded = (spent as { decoded?: { address?: string } | null }).decoded;
     const address = decoded && (decoded as { address?: string }).address;
     addInvolved(address);

@@ -17,6 +17,7 @@ import {
   isShieldedMode,
   checkShieldedOutputStorable,
   ShieldedStorageCheck,
+  EPHEMERAL_PUBKEY_BYTES,
 } from '@wallet-service/common';
 import {
   StringMap,
@@ -29,12 +30,12 @@ import {
   Context,
   EventTxInput,
   EventTxOutput,
-  ShieldedOutput,
   WalletStatus,
   FullNodeEventTypes,
   StandardFullNodeEvent,
   EventTxHeader,
   isNanoHeader,
+  ShieldedOutput,
 } from '../types';
 import {
   TxInput,
@@ -558,8 +559,10 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         // `shielded_tx_output_data` satellite carrying the per-output crypto payload,
         // and an `address` observation row (address + involvement only; the
         // CTSpend account and scan key are set when a wallet claims it).
-        // It lands in `recovery_state = 'unowned'` and is promoted in-line below when
-        // a wallet has claimed the spend address.
+        // It lands in `recovery_state = 'unowned'` and is promoted in-line below
+        // when a wallet has claimed the spend address, a crypto provider is
+        // registered and the output carries an ephemeral pubkey; otherwise it
+        // stays `unowned`.
         //
         // An output that does not fit its columns produces fewer: a satellite-scope
         // violation skips the payload and records `recovery_failed`; an output-scope
@@ -567,15 +570,34 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         // leaves its address in the involvement set, which the void path reverses;
         // an address violation leaves nothing). Either way the vertex still
         // ingests — see checkShieldedOutputStorable.
+        //
+        // An output with no address produces no rows at all — see the check at
+        // the top of the loop.
         for (let i = 0; i < shieldedOutputs.length; i++) {
           const so = shieldedOutputs[i];
           const idx = transparentCount + i;
+
+          if (!so.decoded) {
+            // The script is not an address script, so no wallet can own this
+            // output. Skipped without an alert, like a transparent output
+            // whose script does not decode (see prepareOutputs).
+            logger.info('Shielded output skipped: its script has no address', { txId: hash, index: idx });
+            continue;
+          }
+
           const isAmount = so.mode === ShieldedOutputMode.AmountShielded;
 
           // Decoded once: the storage guard sizes these exact bytes, and the
           // satellite insert and the rewind consume them unchanged.
           const commitment = Buffer.from(so.commitment, 'hex');
-          const ephemeralPubkey = Buffer.from(so.ephemeral_pubkey, 'hex');
+          // An absent ephemeral pubkey is stored as 33 zero bytes, the encoding
+          // hathor-core itself uses for "not present" on the wire. Zero bytes
+          // that arrive explicitly mean the same, as they do to the sweep.
+          const absentPubkey = Buffer.alloc(EPHEMERAL_PUBKEY_BYTES);
+          const ephemeralPubkey = so.ephemeral_pubkey
+            ? Buffer.from(so.ephemeral_pubkey, 'hex')
+            : absentPubkey;
+          const hasEphemeralPubkey = !ephemeralPubkey.equals(absentPubkey);
           const rangeProof = Buffer.from(so.range_proof, 'base64');
           const script = Buffer.from(so.script, 'base64');
           const assetCommitment = !isAmount ? Buffer.from(so.asset_commitment, 'hex') : null;
@@ -668,7 +690,16 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
           const owned = canRewind
             ? await findShieldedAddressOwnership(mysql, so.decoded.address)
             : null;
-          if (owned) {
+          if (owned && !hasEphemeralPubkey) {
+            // No shared secret to rewind from, so the output stays `unowned`
+            // and the recovery sweep skips it too. Wallet-lib likewise treats
+            // such an output as not the wallet's, but its funds then never
+            // show up for the address's owner, so it is traced.
+            logger.warn('Shielded output to a claimed address has no ephemeral pubkey; left unowned', {
+              txId: hash, index: idx, address: so.decoded.address,
+            });
+          }
+          if (owned && hasEphemeralPubkey) {
             try {
               if (isAmount) {
                 const tokenIdHex = resolveShieldedTokenId(so.token_data);
@@ -855,7 +886,9 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             parents,
             inputs: txInputs,
             outputs: txOutputs,
-            headers,
+            // The realtime contract carries nano headers only; other header
+            // types hold nothing a client acts on.
+            headers: headers.filter(isNanoHeader),
             height: metadata.height,
             token_name,
             token_symbol,
@@ -864,10 +897,10 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             // (no crypto blobs) and the full involved-address set (reusing the
             // same set bumpAddressInvolvement consumed). Clients intersect
             // `addresses` with their own and refetch.
+            // One entry per shielded output, so a client can still count
+            // positions: an addressless output reports no address.
             shielded_outputs: shieldedOutputs.map((so) => {
-              // `decoded` is schema-guaranteed present (the socket safeParse rejects
-              // any shielded output without it), matching the unguarded ingest path.
-              const decoded = { address: so.decoded.address };
+              const decoded = so.decoded ? { address: so.decoded.address } : null;
               // token_data only exists on AmountShielded; FullyShielded hides it.
               return so.mode === ShieldedOutputMode.AmountShielded
                 ? { mode: so.mode, token_data: so.token_data, decoded }

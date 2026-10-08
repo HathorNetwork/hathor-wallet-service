@@ -214,7 +214,7 @@ describe('shielded db: outputs to recover', () => {
 
   it('excludes recovered, voided, and other-wallet outputs', async () => {
     await insertShieldedOutput('recovered', 0, 'a1', 1, 'recovered', '5', '00');
-    await insertSatellite('recovered', 0, { commitment: Buffer.alloc(33), rangeProof: Buffer.alloc(8), ephemeralPubkey: Buffer.alloc(33) });
+    await insertSatellite('recovered', 0, { commitment: Buffer.alloc(33), rangeProof: Buffer.alloc(8), ephemeralPubkey: Buffer.alloc(33, 1) });
     await insertShieldedOutput('other', 0, 'a2', 1, 'unowned', null, '00'); // wallet w2
     await insertSatellite('other', 0, { commitment: Buffer.alloc(33, 2), rangeProof: Buffer.alloc(8), ephemeralPubkey: Buffer.alloc(33, 2) });
     // own-wallet (w1), unowned, but VOIDED -> only the `voided = FALSE` filter excludes it
@@ -224,10 +224,26 @@ describe('shielded db: outputs to recover', () => {
     expect(await getShieldedOutputsToRecover(mysql, 'w1', 100)).toHaveLength(0);
   });
 
+  it('excludes an output stored without an ephemeral pubkey', async () => {
+    // Own wallet, unowned, with a satellite row: only the pubkey guard
+    // excludes it. Its rewind could only fail, every catch-up.
+    await insertShieldedOutput('nopubkey', 0, 'a1', 1, 'unowned', null, '00');
+    await insertSatellite('nopubkey', 0, {
+      commitment: Buffer.alloc(33, 4), rangeProof: Buffer.alloc(8), ephemeralPubkey: Buffer.alloc(33),
+    });
+    await insertShieldedOutput('withpubkey', 0, 'a1', 1, 'unowned', null, '00');
+    await insertSatellite('withpubkey', 0, {
+      commitment: Buffer.alloc(33, 5), rangeProof: Buffer.alloc(8), ephemeralPubkey: Buffer.alloc(33, 5),
+    });
+
+    const outs = await getShieldedOutputsToRecover(mysql, 'w1', 100);
+    expect(outs.map((o) => o.txId)).toStrictEqual(['withpubkey']);
+  });
+
   it('honours the limit and cursors forward with `after`', async () => {
     for (let i = 0; i < 5; i++) {
       await insertShieldedOutput('lim' + i, 0, 'a1', 1, 'unowned', null, '00');
-      await insertSatellite('lim' + i, 0, { commitment: Buffer.alloc(33, i), rangeProof: Buffer.alloc(8), ephemeralPubkey: Buffer.alloc(33, i) });
+      await insertSatellite('lim' + i, 0, { commitment: Buffer.alloc(33, i), rangeProof: Buffer.alloc(8), ephemeralPubkey: Buffer.alloc(33, i + 1) });
     }
     const first = await getShieldedOutputsToRecover(mysql, 'w1', 3);
     expect(first.map((o) => o.txId)).toEqual(['lim0', 'lim1', 'lim2']);
@@ -240,7 +256,7 @@ describe('shielded db: outputs to recover', () => {
     // fall back to the `index > ?` branch of the keyset cursor
     for (const idx of [0, 1, 2]) {
       await insertShieldedOutput('multi', idx, 'a1', 1, 'unowned', null, '00');
-      await insertSatellite('multi', idx, { commitment: Buffer.alloc(33, idx), rangeProof: Buffer.alloc(8), ephemeralPubkey: Buffer.alloc(33, idx) });
+      await insertSatellite('multi', idx, { commitment: Buffer.alloc(33, idx), rangeProof: Buffer.alloc(8), ephemeralPubkey: Buffer.alloc(33, idx + 1) });
     }
     const first = await getShieldedOutputsToRecover(mysql, 'w1', 2);
     expect(first.map((o) => [o.txId, o.index])).toEqual([['multi', 0], ['multi', 1]]);

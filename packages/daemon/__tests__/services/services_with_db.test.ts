@@ -4876,3 +4876,187 @@ describe('handleVertexRemoved with shielded', () => {
     expect(wbAfter).toHaveLength(0);
   });
 });
+
+describe('a shielded vertex with optional fields left out', () => {
+  // The real alpha-v4 event, parsed the way WebSocketActor parses it, after
+  // `mutate` changes exactly the field under test. Both of its shielded
+  // outputs are AmountShielded HTR outputs to the same address, at indexes 0
+  // and 1 (the vertex has no transparent outputs).
+  const parseReal = (mutate: (data: any) => void) => {
+    const raw = JSON.parse(JSON.stringify(alphaV4ShieldedVertexEvent));
+    mutate(raw.event.data);
+    return FullNodeEventSchema.parse(raw);
+  };
+  const wire = alphaV4ShieldedVertexEvent.event.data;
+  const address = wire.shielded_outputs[0].decoded.address;
+
+  const ingest = (event: unknown) => handleVertexAccepted({
+    socket: expect.any(Object),
+    healthcheck: expect.any(Object),
+    retryAttempt: 0,
+    initialEventId: null,
+    txCache: new LRU(100),
+    rewardMinBlocks: 300,
+    event,
+  } as any, undefined as any);
+
+  const alertTitles = () => mockAddAlert.mock.calls.map(([title]) => title);
+
+  beforeEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+  });
+
+  afterEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  it.each([
+    ['absent', null],
+    ['sent as zero bytes', '00'.repeat(33)],
+  ])('treats an ephemeral pubkey that is %s as absent: zero bytes stored, no rewind', async (_label, wireValue) => {
+    expect.hasAssertions();
+
+    // Claimed by a wallet, with a provider registered: everything a rewind
+    // needs except the pubkey itself.
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [address, Buffer.alloc(32, 0x42)],
+    );
+    const event = parseReal((data) => {
+      for (const so of data.shielded_outputs) {
+        so.ephemeral_pubkey = wireValue;
+      }
+    });
+
+    const warnSpy = jest.spyOn(logger, 'warn');
+
+    await expect(ingest(event)).resolves.not.toThrow();
+
+    expect(lastAmountRewindArgs()).toBeNull();
+    for (const index of [0, 1]) {
+      const row = await getTxOutput(mysql, wire.hash, index, false);
+      expect(row!.recoveryState).toBe('unowned');
+    }
+    const [satRows] = await mysql.query<any[]>(
+      'SELECT `ephemeral_pubkey` FROM `shielded_tx_output_data` WHERE `tx_id` = ?', [wire.hash],
+    );
+    expect(satRows).toHaveLength(2);
+    for (const r of satRows) {
+      expect(r.ephemeral_pubkey).toEqual(Buffer.alloc(33));
+    }
+    expect(mockAddAlert).not.toHaveBeenCalled();
+    // The address is claimed, so the funds it cannot see are traced.
+    expect(warnSpy).toHaveBeenCalledWith(
+      'Shielded output to a claimed address has no ephemeral pubkey; left unowned',
+      expect.objectContaining({ txId: wire.hash, index: 0, address }),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('skips a shielded output whose script has no address, without an alert', async () => {
+    expect.hasAssertions();
+
+    const event = parseReal((data) => {
+      data.shielded_outputs[0].decoded = null;
+    });
+
+    await expect(ingest(event)).resolves.not.toThrow();
+
+    expect(await getTxOutput(mysql, wire.hash, 0, false)).toBeNull();
+    expect(await getTxOutput(mysql, wire.hash, 1, false)).not.toBeNull();
+    expect(alertTitles()).toStrictEqual([]);
+  });
+
+  it('skips a shielded output with an empty script, without an alert', async () => {
+    expect.hasAssertions();
+
+    // Valid in hathor-core: an empty script is not an address script.
+    const event = parseReal((data) => {
+      data.shielded_outputs[0].script = '';
+      data.shielded_outputs[0].decoded = null;
+    });
+
+    await expect(ingest(event)).resolves.not.toThrow();
+
+    expect(await getTxOutput(mysql, wire.hash, 0, false)).toBeNull();
+    expect(await getTxOutput(mysql, wire.hash, 1, false)).not.toBeNull();
+    expect(alertTitles()).toStrictEqual([]);
+  });
+
+  it('ingests a spend of a shielded output with no pubkey and no address', async () => {
+    expect.hasAssertions();
+
+    // Event 70473 spends a shielded output; strip both optional fields from
+    // the spent output, as hathor-core sends them for such an output.
+    const raw = JSON.parse(JSON.stringify(alphaV4FullyShieldedSpendEvent));
+    const shieldedInput = raw.event.data.inputs.find((i: any) => i.spent_output.mode === 1);
+    shieldedInput.spent_output.ephemeral_pubkey = null;
+    shieldedInput.spent_output.decoded = null;
+    const event = FullNodeEventSchema.parse(raw);
+
+    await expect(ingest(event)).resolves.not.toThrow();
+
+    const [txRows] = await mysql.query<any[]>(
+      'SELECT `tx_id` FROM `transaction` WHERE `tx_id` = ?', [raw.event.data.hash],
+    );
+    expect(txRows).toHaveLength(1);
+    // The spent output's missing address contributes nothing; the vertex's own
+    // shielded outputs still land.
+    expect(await getTxOutput(mysql, raw.event.data.hash, 0, false)).not.toBeNull();
+    expect(alertTitles()).toStrictEqual([]);
+  });
+
+  it('voids a vertex with an addressless shielded output back to where it started', async () => {
+    expect.hasAssertions();
+
+    // The addressless output sits next to an owned output that is recovered,
+    // so the void has a balance to reverse as well as the involvement counter.
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [address, Buffer.alloc(32, 0x42)],
+    );
+    const sibling = wire.shielded_outputs[1];
+    primeAmountRewind({
+      commitment: Buffer.from(sibling.commitment, 'hex'),
+      ephemeralPubkey: Buffer.from(sibling.ephemeral_pubkey, 'hex'),
+      value: 150n,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+    const event = parseReal((data) => {
+      data.shielded_outputs[0].decoded = null;
+    });
+    await ingest(event);
+
+    const shieldedBalance = async () => {
+      const [rows] = await mysql.query<any[]>(
+        `SELECT \`unlocked_shielded_balance\` AS b FROM \`address_balance\`
+          WHERE \`address\` = ? AND \`token_id\` = '00'`, [address],
+      );
+      return rows.length === 0 ? 0n : BigInt(rows[0].b);
+    };
+    const transactions = async () => {
+      const [rows] = await mysql.query<any[]>(
+        'SELECT `transactions` FROM `address` WHERE `address` = ?', [address],
+      );
+      return Number(rows[0].transactions);
+    };
+    expect((await getTxOutput(mysql, wire.hash, 1, false))!.recoveryState).toBe('recovered');
+    expect(await shieldedBalance()).toBe(150n);
+    expect(await transactions()).toBe(1);
+
+    const { data } = event.event as any;
+    await expect(voidTx(
+      mysql, data.hash, data.inputs, data.outputs, data.shielded_outputs,
+      data.tokens, data.headers ?? [], data.version,
+    )).resolves.not.toThrow();
+
+    // Ingest and void walk the same sources, so both return to where they
+    // started rather than going negative or staying raised.
+    expect(await shieldedBalance()).toBe(0n);
+    expect(await transactions()).toBe(0);
+  });
+});
