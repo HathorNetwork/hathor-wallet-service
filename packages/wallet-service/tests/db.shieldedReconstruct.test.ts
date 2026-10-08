@@ -183,6 +183,43 @@ describe('rebuildShieldedAddressBalances', () => {
 });
 
 describe('rebuildShieldedAddressTxHistory', () => {
+  it('records the spend of a recovered output on its spending tx', async () => {
+    // Recovered after the spend happened: the daemon never wrote that row.
+    await insertTx('recv', 1000);
+    await insertTx('spend', 2000);
+    await insertOutput('recv', 0, 'a1', { value: '100', spentBy: 'spend' });
+
+    await rebuildShieldedAddressTxHistory(mysql, ['a1']);
+
+    expect(String((await readAddressHistory('a1', 'recv', '00')).d)).toBe('100');
+    const spendRow = await readAddressHistory('a1', 'spend', '00');
+    expect(String(spendRow.d)).toBe('-100');
+    expect(Number(spendRow.timestamp)).toBe(2000);
+  });
+
+  it('nets a tx that spends from and pays the same pair', async () => {
+    // `mixed` spends the 100 received in `recv` and pays 30 back to a1.
+    await insertTx('recv', 1000);
+    await insertTx('mixed', 2000);
+    await insertOutput('recv', 0, 'a1', { value: '100', spentBy: 'mixed' });
+    await insertOutput('mixed', 0, 'a1', { value: '30' });
+
+    await rebuildShieldedAddressTxHistory(mysql, ['a1']);
+
+    // The same delta the daemon writes for that tx, so a rebuild doesn't overwrite it.
+    expect(String((await readAddressHistory('a1', 'mixed', '00')).d)).toBe('-70');
+  });
+
+  it('ignores a spend by a voided tx', async () => {
+    await insertTx('recv', 1000);
+    await mysql.query("INSERT INTO `transaction` (`tx_id`, `timestamp`, `version`, `voided`) VALUES ('gone', 2000, 1, TRUE)");
+    await insertOutput('recv', 0, 'a1', { value: '100', spentBy: 'gone' });
+
+    await rebuildShieldedAddressTxHistory(mysql, ['a1']);
+
+    expect(await readAddressHistory('a1', 'gone', '00')).toBeUndefined();
+  });
+
   it('writes one shielded receive-delta per (address, tx, token) from recovered outputs', async () => {
     await insertTx('rtx1', 1000);
     await insertTx('rtx2', 2000);

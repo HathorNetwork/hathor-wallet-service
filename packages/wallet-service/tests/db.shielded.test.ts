@@ -17,7 +17,7 @@ import { cleanDatabase, addToWalletTable, addToAddressTable, addToShieldedTxOutp
 import {
   findShieldedAddressOwnership,
   findShieldedAddressOwnershipBatch,
-  markShieldedTxOutputRecovered,
+  promoteShieldedTxOutputs,
   markShieldedTxOutputRecoveryFailed,
   getShieldedOutputsToRecover,
   upsertShieldedAddressOwnership,
@@ -137,25 +137,23 @@ describe('shielded db: ownership resolution', () => {
 });
 
 describe('shielded db: recovery-state transitions', () => {
-  it('markShieldedTxOutputRecovered promotes an unowned output and is idempotent', async () => {
+  it('promoteShieldedTxOutputs promotes an unowned output and is idempotent', async () => {
     await insertShieldedOutput('tx1', 0, 'a1', 1, 'unowned', null, null);
+    const recovery = { txId: 'tx1', index: 0, value: 1500n, tokenId: '00' };
 
-    const r1 = await markShieldedTxOutputRecovered(mysql, 'tx1', 0, { value: 1500n, tokenId: '00' });
-    expect(r1.affectedRows).toBe(1);
+    expect(await promoteShieldedTxOutputs(mysql, [recovery])).toBe(1);
     const row = await readOutput('tx1', 0);
     expect(row.recovery_state).toBe('recovered');
     expect(String(row.value)).toBe('1500');
     expect(row.token_id).toBe('00');
 
-    const r2 = await markShieldedTxOutputRecovered(mysql, 'tx1', 0, { value: 1500n, tokenId: '00' });
-    expect(r2.affectedRows).toBe(0);
+    expect(await promoteShieldedTxOutputs(mysql, [recovery])).toBe(0);
   });
 
-  it('markShieldedTxOutputRecovered can re-drive a recovery_failed output', async () => {
+  it('promoteShieldedTxOutputs can re-drive a recovery_failed output', async () => {
     await insertShieldedOutput('tx2', 0, 'a1', 2, 'recovery_failed', null, null);
 
-    const r = await markShieldedTxOutputRecovered(mysql, 'tx2', 0, { value: 42n, tokenId: 'ab' });
-    expect(r.affectedRows).toBe(1);
+    expect(await promoteShieldedTxOutputs(mysql, [{ txId: 'tx2', index: 0, value: 42n, tokenId: 'ab' }])).toBe(1);
     expect((await readOutput('tx2', 0)).recovery_state).toBe('recovered');
   });
 

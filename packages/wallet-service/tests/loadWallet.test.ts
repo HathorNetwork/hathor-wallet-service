@@ -12,6 +12,13 @@ import { Network } from '@hathor/wallet-lib';
 // Mocks the alerting module by resolved file, so both the worker's subpath
 // import and the recovery engine's barrel import land on the same stub.
 import { mockedAddAlert } from '@tests/utils/alerting.utils.mock';
+
+// The recovery code imports addAlert from the common barrel rather than the
+// path the mock above replaces; route it to the same mock so its alerts show.
+jest.mock('@wallet-service/common', () => ({
+  ...jest.requireActual('@wallet-service/common'),
+  addAlert: (...args: unknown[]) => mockedAddAlert(...args),
+}));
 import { Bip32Account } from '@wallet-service/common';
 import { deriveCtAddress } from '@wallet-service/common/src/crypto/shieldedAddress';
 import { getDbConnection, getWalletId, closeDbConnection } from '@src/utils';
@@ -19,7 +26,7 @@ import {
   cleanDatabase, XPUBKEY, AUTH_XPUBKEY, ADDRESSES,
   addToAddressTxHistoryTable, addToAddressBalanceTable, checkWalletBalanceTable,
 } from '@tests/utils';
-import { resetCtCryptoMock, primeAmountRewind } from '@tests/utils/ct-crypto-mock';
+import { resetCtCryptoMock, primeAmountRewind, primeScanMiss } from '@tests/utils/ct-crypto-mock';
 import { loadWallet } from '@src/api/wallet';
 import * as ShieldedRecovery from '@src/shieldedRecovery';
 import * as ShieldedDb from '@src/db/shielded';
@@ -126,6 +133,23 @@ describe('loadWallet', () => {
       'SELECT COUNT(*) AS c FROM `address` WHERE `wallet_id` = ? AND (`bip32_account` IS NULL OR `bip32_account` = 0)', [walletId],
     ))[0];
     expect(Number(tCount.c)).toBe(MAX_GAP);
+  }, COMBINED_TEST_TIMEOUT_MS);
+
+  it('does not page on a miss when the same load recovered an output', async () => {
+    await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, MAX_GAP, { scanXpriv, spendXpub, shieldedMaxGap: SHIELDED_GAP });
+    await seedShieldedOutputAt(2, 'ctx1', 0xa1, 1500n);
+    await seedShieldedOutputAt(3, 'ctx9', 0xa9, 1n);
+    primeScanMiss({ commitment: Buffer.alloc(33, 0xa9), ephemeralPubkey: Buffer.alloc(33, 0xa9) });
+
+    await runWorker({ xpubkey: XPUBKEY, maxGap: MAX_GAP });
+
+    // The pattern page needs zero recovered outputs. This load recovered one,
+    // which counts only once the settle has committed it, so the report must
+    // come after the commit.
+    const titles = mockedAddAlert.mock.calls.map(([title]) => title);
+    expect(titles).not.toContain("Shielded outputs did not open with their wallet's scan key");
+    expect((await mysql.query('SELECT `recovery_state` FROM `tx_output` WHERE `tx_id` = ?', ['ctx1']))[0].recovery_state)
+      .toBe('recovered');
   }, COMBINED_TEST_TIMEOUT_MS);
 
   it('is idempotent: a second run converges without double-crediting', async () => {
