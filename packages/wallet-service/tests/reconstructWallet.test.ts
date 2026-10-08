@@ -417,7 +417,7 @@ describe('runRecoveryTransaction', () => {
   });
 });
 
-describe('markShieldedTxOutputsRecovered', () => {
+describe('promoteShieldedTxOutputs', () => {
   it('promotes across batches and counts only rows it changed', async () => {
     await seedWallet('w1');
     await seedCtSpendAddress('ca', 'w1', 0);
@@ -435,7 +435,7 @@ describe('markShieldedTxOutputsRecovered', () => {
     await mysql.query("UPDATE `tx_output` SET `voided` = TRUE WHERE `tx_id` = 'b7'");
     await mysql.query("UPDATE `tx_output` SET `recovery_state` = 'recovered', `value` = 8 WHERE `tx_id` = 'b8'");
 
-    const promoted = await ShieldedDb.markShieldedTxOutputsRecovered(mysql, recoveries);
+    const promoted = await ShieldedDb.promoteShieldedTxOutputs(mysql, recoveries);
 
     expect(promoted).toBe(518);
     expect(await readState('b519')).toMatchObject({ s: 'recovered', v: '520' });

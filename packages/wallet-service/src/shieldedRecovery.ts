@@ -24,13 +24,14 @@ import {
   countRecoveredShieldedOutputs,
   getShieldedOutputsToRecover,
   lockWalletAddresses,
-  markShieldedTxOutputsRecovered,
+  promoteShieldedTxOutputs,
   markShieldedTxOutputRecoveryFailed,
   rebuildShieldedAddressBalances,
   rebuildShieldedAddressTxHistory,
   rebuildWalletBalance,
   rebuildWalletTxHistory,
   ShieldedOutputToRecover,
+  ShieldedRecovery,
 } from '@src/db/shielded';
 import { lockAddressBalancesForUpdate } from '@src/db';
 import { beginTransaction, commitTransaction, rollbackTransaction } from '@src/db/utils';
@@ -187,14 +188,6 @@ const reportMissingProvider = async (walletId: string, logger: Logger): Promise<
  * cursor (rather than set membership) is what guarantees the loop advances and
  * terminates. Never throws — a failed output is marked + alerted and counted.
  */
-/** An output a sweep rewound, not yet promoted. */
-export interface ShieldedRecovery {
-  txId: string;
-  index: number;
-  value: bigint;
-  tokenId: string;
-}
-
 export interface SweepOutcome {
   /** Outputs rewound successfully; promoted only by `commitShieldedRecoveries`. */
   recovered: number;
@@ -373,7 +366,7 @@ export const commitShieldedRecoveries = async (
   recoveries: ShieldedRecovery[],
 ): Promise<number> => {
   const owned = await lockWalletAddresses(mysql, walletId);
-  const promoted = await markShieldedTxOutputsRecovered(mysql, recoveries);
+  const promoted = await promoteShieldedTxOutputs(mysql, recoveries);
   const addresses = owned.map((a) => a.address);
   await lockAddressBalancesForUpdate(mysql, addresses);
   const ctSpendAddresses = owned

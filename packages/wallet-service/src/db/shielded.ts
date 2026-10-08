@@ -81,39 +81,28 @@ export const findShieldedAddressOwnershipBatch = async (
   return ownership;
 };
 
-/**
- * Promote a shielded `tx_output` to `recovered`, filling the revealed value and
- * token id. Guarded on the row being anything but already `recovered`, so it
- * drives an `unowned` (catch-up) or `recovery_failed` (re-drive) row alike and a
- * repeat on an already-recovered row is a no-op (`affectedRows = 0`).
- */
-export const markShieldedTxOutputRecovered = async (
-  mysql: ServerlessMysql,
-  txId: string,
-  index: number,
-  recovered: { value: bigint; tokenId: string },
-): Promise<{ affectedRows: number }> => {
-  const result = await mysql.query(
-    `UPDATE \`tx_output\`
-        SET \`value\` = ?, \`token_id\` = ?, \`recovery_state\` = ?
-      WHERE \`tx_id\` = ? AND \`index\` = ? AND \`recovery_state\` <> ? AND \`voided\` = FALSE`,
-    [recovered.value.toString(), recovered.tokenId, RecoveryState.Recovered, txId, index, RecoveryState.Recovered],
-  ) as unknown as { affectedRows: number };
-  return { affectedRows: result.affectedRows };
-};
-
 /** Most outputs promoted by one statement. */
 const PROMOTE_BATCH = 500;
 
+/** An output a sweep rewound, not yet promoted. */
+export interface ShieldedRecovery {
+  txId: string;
+  index: number;
+  value: bigint;
+  tokenId: string;
+}
+
 /**
  * Promote rewound outputs to `recovered`, revealing their value and token, in
- * batches. Only rows not yet recovered and not voided change; returns how many
- * did. One statement per batch rather than per output: the caller holds the
- * wallet's rows locked against the daemon for as long as this takes.
+ * batches. Only rows not yet recovered and not voided change, so an `unowned`
+ * (catch-up) or `recovery_failed` (re-drive) row is promoted alike and a repeat
+ * is a no-op; returns how many changed. One statement per batch rather than
+ * per output: the caller holds the wallet's rows locked against the daemon for
+ * as long as this takes.
  */
-export const markShieldedTxOutputsRecovered = async (
+export const promoteShieldedTxOutputs = async (
   mysql: ServerlessMysql,
-  recoveries: { txId: string; index: number; value: bigint; tokenId: string }[],
+  recoveries: ShieldedRecovery[],
 ): Promise<number> => {
   let promoted = 0;
   for (let start = 0; start < recoveries.length; start += PROMOTE_BATCH) {
