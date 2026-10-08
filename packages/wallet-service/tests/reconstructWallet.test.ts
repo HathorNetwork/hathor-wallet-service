@@ -108,8 +108,8 @@ describe('findAndRewindShielded', () => {
 
     expect(result).toMatchObject({ recovered: 2, failed: 1, missed: 0, skipped: false });
     expect(result.recoveries).toStrictEqual([
-      { txId: 'o1', index: 0, value: 100n, tokenId: '00' },
-      { txId: 'o2', index: 0, value: 250n, tokenId: '00' },
+      { txId: 'o1', index: 0, address: 'ca', value: 100n, tokenId: '00' },
+      { txId: 'o2', index: 0, address: 'ca', value: 250n, tokenId: '00' },
     ]);
     // Opened, but promoted only by the commit, with the balance rebuilds.
     expect((await readState('o1')).s).toBe('unowned');
@@ -142,7 +142,7 @@ describe('findAndRewindShielded', () => {
     const result = await findAndRewindShielded(mysql, 'w1', logger);
 
     expect(result).toMatchObject({ recovered: 1, failed: 0, missed: 0, skipped: false });
-    expect(result.recoveries).toStrictEqual([{ txId: 'f1', index: 0, value: 500n, tokenId: '00' }]);
+    expect(result.recoveries).toStrictEqual([{ txId: 'f1', index: 0, address: 'ca', value: 500n, tokenId: '00' }]);
   });
 
   it('skips outputs an earlier sweep of the same load handled', async () => {
@@ -157,7 +157,7 @@ describe('findAndRewindShielded', () => {
     }
     const first = await findAndRewindShielded(mysql, 'w1', logger);
 
-    const settle = await findAndRewindShielded(mysql, 'w1', logger, undefined, sweptOutputs(first));
+    const settle = await findAndRewindShielded(mysql, 'w1', logger, undefined, { exclude: sweptOutputs(first) });
 
     expect(first.recovered).toBe(2);
     // Both are still unpromoted, so without the exclusion they'd be rewound again.
@@ -376,6 +376,30 @@ describe('runRecoveryTransaction', () => {
     expect(Number(wallet.max_gap)).toBe(21);
   });
 
+  it('caps each lock wait when asked', async () => {
+    try {
+      const wait = await runRecoveryTransaction(mysql, logger, async (tx) => {
+        const [row] = await tx.query('SELECT @@SESSION.innodb_lock_wait_timeout AS w') as unknown as { w: number }[];
+        return Number(row.w);
+      }, { lockWaitSeconds: 3 });
+
+      expect(wait).toBe(3);
+    } finally {
+      await mysql.query('SET SESSION innodb_lock_wait_timeout = DEFAULT');
+    }
+  });
+
+  it('does not run again after a lock conflict once the caller\'s budget is spent', async () => {
+    let attempts = 0;
+
+    await expect(runRecoveryTransaction(mysql, logger, async () => {
+      attempts += 1;
+      throw lockError(1205);
+    }, { canRetry: () => false })).rejects.toMatchObject({ errno: 1205 });
+
+    expect(attempts).toBe(1);
+  });
+
   it('fails, leaving nothing behind, when its connection is lost midway', async () => {
     // serverless-mysql would re-run the next statement on a new connection,
     // outside the transaction, and commit it on its own; the pinned handle
@@ -423,7 +447,7 @@ describe('promoteShieldedTxOutputs', () => {
     await seedCtSpendAddress('ca', 'w1', 0);
     // More than one batch of 500, seeded in one statement.
     const recoveries = Array.from({ length: 520 }, (_, i) => ({
-      txId: `b${i}`, index: 0, value: BigInt(i + 1), tokenId: '00',
+      txId: `b${i}`, index: 0, address: 'ca', value: BigInt(i + 1), tokenId: '00',
     }));
     await mysql.query(
       `INSERT INTO \`tx_output\`

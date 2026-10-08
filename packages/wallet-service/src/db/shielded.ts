@@ -88,6 +88,7 @@ const PROMOTE_BATCH = 500;
 export interface ShieldedRecovery {
   txId: string;
   index: number;
+  address: string;
   value: bigint;
   tokenId: string;
 }
@@ -187,6 +188,8 @@ export const getShieldedOutputsToRecover = async (
   walletId: string,
   limit: number,
   after?: { txId: string; index: number },
+  /** Only outputs on addresses flagged for a sweep (`catchup_state` pending or running). */
+  onlyFlagged = false,
 ): Promise<ShieldedOutputToRecover[]> => {
   // Keyset cursor on (tx_id, index): because a re-driven `recovery_failed` row
   // stays in the result set, plain re-querying would revisit it — advancing past
@@ -222,6 +225,7 @@ export const getShieldedOutputsToRecover = async (
         AND t.\`voided\` = FALSE
         AND t.\`recovery_state\` <> ?
         AND d.\`ephemeral_pubkey\` <> ?
+        ${onlyFlagged ? "AND a.`catchup_state` IN ('pending', 'running')" : ''}
         ${cursor}
       ORDER BY t.\`tx_id\`, t.\`index\`
       LIMIT ?`,
@@ -556,9 +560,10 @@ export interface ShieldedOwnershipRow {
  * Claim shielded ownership of the given derived addresses for a wallet: upsert
  * `address` rows with the CTSpend account, per-index scan privkey, display
  * ct_address and a pending catch-up state. Safe over daemon observation rows —
- * the daemon only ever writes (address, transactions), so ownership columns are
- * disjoint; `transactions` appears ONLY in the insert list (never zeroed on
- * duplicate) and a `done` catch-up state is preserved via COALESCE.
+ * the daemon writes only `transactions` on them, and `catchup_state` once they
+ * are claimed (flagging them for a sweep), so ownership columns are disjoint;
+ * `transactions` appears ONLY in the insert list (never zeroed on duplicate)
+ * and an existing catch-up state is kept via COALESCE.
  */
 export const upsertShieldedAddressOwnership = async (
   mysql: ServerlessMysql,
@@ -602,21 +607,53 @@ export const getWalletCtSpendAddresses = async (
 };
 
 /**
- * Mark the catch-up pass complete for a wallet's CTSpend rows up to (and
- * including) maxIndex — scoped so rows this pass did not derive are untouched.
- * NOTE: `catchup_state` records "the registration pass ran over this address";
- * re-driving unrecovered outputs is keyed on `tx_output.recovery_state`, never
- * on this column.
+ * Take a wallet's flagged CTSpend rows (`catchup_state = 'pending'`) for a
+ * catch-up: they become `running`, and the commit that recovers their outputs
+ * moves them to `done` (see `commitShieldedRecoveries`). A row the daemon
+ * flags again meanwhile goes back to `pending`, so it is not lost.
  */
-export const markShieldedCatchupDone = async (
+export const markWalletSweepRunning = async (
   mysql: ServerlessMysql,
   walletId: string,
-  maxIndex: number,
 ): Promise<void> => {
   await mysql.query(
-    'UPDATE `address` SET `catchup_state` = ? WHERE `wallet_id` = ? AND `bip32_account` = ? AND `index` <= ?',
-    ['done', walletId, Bip32Account.CTSpend, maxIndex],
+    "UPDATE `address` SET `catchup_state` = 'running' WHERE `wallet_id` = ? AND `bip32_account` = ? AND `catchup_state` = 'pending'",
+    [walletId, Bip32Account.CTSpend],
   );
+};
+
+/** Finish a catch-up: the wallet's `running` CTSpend rows become `done`. Run inside its commit. */
+export const finishWalletSweep = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+): Promise<void> => {
+  await mysql.query(
+    "UPDATE `address` SET `catchup_state` = 'done' WHERE `wallet_id` = ? AND `bip32_account` = ? AND `catchup_state` = 'running'",
+    [walletId, Bip32Account.CTSpend],
+  );
+};
+
+/**
+ * Ready wallets with CTSpend rows flagged for a catch-up, after `afterWalletId`
+ * in id order — a keyset page. `running` counts too: a sweep that died left
+ * its rows that way.
+ */
+export const getWalletsNeedingSweep = async (
+  mysql: ServerlessMysql,
+  afterWalletId: string,
+  limit: number,
+): Promise<string[]> => {
+  const results: DbSelectResult = await mysql.query(
+    `SELECT w.\`id\` FROM \`wallet\` w
+      WHERE w.\`id\` > ? AND w.\`status\` = 'ready' AND w.\`ct_status\` = 'ready'
+        AND EXISTS (SELECT 1 FROM \`address\` a
+                     WHERE a.\`wallet_id\` = w.\`id\` AND a.\`bip32_account\` = ?
+                       AND a.\`catchup_state\` IN ('pending', 'running'))
+      ORDER BY w.\`id\`
+      LIMIT ?`,
+    [afterWalletId, Bip32Account.CTSpend, limit],
+  );
+  return results.map((row) => row.id as string);
 };
 
 export interface GenerateShieldedAddresses {

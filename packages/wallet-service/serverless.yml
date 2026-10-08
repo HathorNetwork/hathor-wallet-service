@@ -778,6 +778,20 @@ functions:
     warmup:
       walletWarmer:
         enabled: false
+  shieldedCatchupSweep:
+    # Recovers shielded outputs of ready wallets that the daemon or a load
+    # flagged (address.catchup_state). One run at a time, finishing well
+    # before the next is scheduled.
+    handler: src/shieldedSweep.handler
+    timeout: 240 # 4 minutes
+    memorySize: 1024 # CPU-bound rewinds, as in loadWalletAsync
+    reservedConcurrency: 1
+    maximumRetryAttempts: 0
+    events:
+      - schedule: rate(5 minutes)
+    warmup:
+      walletWarmer:
+        enabled: false
   cleanUnsentTxProposalsUtxos:
     handler: src/db/cronRoutines.cleanUnsentTxProposalsUtxos
     timeout: 60 # 1 minute

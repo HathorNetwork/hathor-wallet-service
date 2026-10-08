@@ -24,6 +24,7 @@ import {
   countRecoveredShieldedOutputs,
   getShieldedOutputsToRecover,
   lockWalletAddresses,
+  finishWalletSweep,
   promoteShieldedTxOutputs,
   markShieldedTxOutputRecoveryFailed,
   rebuildShieldedAddressBalances,
@@ -47,6 +48,8 @@ export interface ShieldedOutputRef {
 
 /** An owned output that could not be recovered and was marked `recovery_failed`. */
 export interface ShieldedRecoveryFailure extends ShieldedOutputRef {
+  /** The CTSpend address it pays, which a re-flag targets. */
+  address: string;
   /** Its token does not match its asset commitment: the sender's doing alone. */
   assetMismatch: boolean;
   error: string;
@@ -131,8 +134,9 @@ export const rewindShieldedOutput = async (
       return { ...base, recovered: false, missed: true };
     }
     // The mark must not throw either: a transient DB blip here would otherwise
-    // escape the catch-up loop and abort the whole batch. A swallowed mark just
-    // leaves the output non-recovered, so the next catch-up re-drives it.
+    // escape the catch-up loop and abort the whole batch. A swallowed mark
+    // leaves the output as it was; it is still reported as a failure and, like
+    // any, tried again only once its address is flagged again.
     try {
       await markShieldedTxOutputRecoveryFailed(mysql, output.txId, output.index);
     } catch (markErr) {
@@ -146,7 +150,9 @@ export const rewindShieldedOutput = async (
       ...base,
       recovered: false,
       missed: false,
-      failure: { ...ref, assetMismatch: e instanceof ShieldedAssetMismatchError, error: String(e) },
+      failure: {
+        ...ref, address: output.address, assetMismatch: e instanceof ShieldedAssetMismatchError, error: String(e),
+      },
     };
   }
 };
@@ -206,10 +212,15 @@ export interface SweepOutcome {
    * does not record the catch-up as complete.
    */
   skipped: boolean;
+  /**
+   * True when `shouldStop` cut the sweep short: outputs it never reached are
+   * still unrecovered, so the catch-up is not finished.
+   */
+  truncated: boolean;
 }
 
 const emptySweep = (): SweepOutcome => ({
-  recovered: 0, recoveries: [], failed: 0, missed: 0, misses: [], failures: [], skipped: false,
+  recovered: 0, recoveries: [], failed: 0, missed: 0, misses: [], failures: [], skipped: false, truncated: false,
 });
 
 /** `txId:index`, the key `exclude` and the de-duplication use. */
@@ -227,8 +238,18 @@ export const findAndRewindShielded = async (
   walletId: string,
   logger: Logger,
   pageSize = 100,
-  /** Outputs to skip, by `txId:index`: ones an earlier sweep of the same load handled. */
-  exclude: ReadonlySet<string> = new Set(),
+  {
+    exclude = new Set(),
+    onlyFlagged = false,
+    shouldStop = () => false,
+  }: {
+    /** Outputs to skip, by `txId:index`: ones an earlier sweep of the same load handled. */
+    exclude?: ReadonlySet<string>;
+    /** Only outputs on addresses flagged for a catch-up (see `getShieldedOutputsToRecover`). */
+    onlyFlagged?: boolean;
+    /** Checked after each output; returning true ends the sweep early (`truncated`). */
+    shouldStop?: () => boolean;
+  } = {},
 ): Promise<SweepOutcome> => {
   // With no provider every rewind throws, and recording the outputs as
   // recovery_failed would strand them: the daemon's promote helper only
@@ -244,17 +265,27 @@ export const findAndRewindShielded = async (
   const misses: ShieldedOutputRef[] = [];
   const failures: ShieldedRecoveryFailure[] = [];
   let after: { txId: string; index: number } | undefined;
-  for (;;) {
-    const page = await getShieldedOutputsToRecover(mysql, walletId, pageSize, after);
+  let truncated = false;
+  let stopRequested = false;
+  sweep: for (;;) {
+    const page = await getShieldedOutputsToRecover(mysql, walletId, pageSize, after, onlyFlagged);
     if (page.length === 0) break;
     for (const output of page) {
       if (exclude.has(outputKey(output))) continue;
+      if (stopRequested) {
+        // An output is left that this sweep won't reach.
+        truncated = true;
+        break sweep;
+      }
       const outcome = await rewindShieldedOutput(mysql, walletId, output, logger);
       if (outcome.recovered) {
-        recoveries.push({ txId: output.txId, index: output.index, value: outcome.value!, tokenId: outcome.tokenId! });
+        recoveries.push({
+          txId: output.txId, index: output.index, address: output.address, value: outcome.value!, tokenId: outcome.tokenId!,
+        });
       } else if (outcome.missed) {
         misses.push({ txId: output.txId, index: output.index, mode: output.mode, tokenId: output.tokenId });
       } else if (outcome.failure) failures.push(outcome.failure);
+      stopRequested = shouldStop();
     }
     const last = page[page.length - 1];
     after = { txId: last.txId, index: last.index };
@@ -267,6 +298,7 @@ export const findAndRewindShielded = async (
     misses,
     failures,
     skipped: false,
+    truncated,
   };
 };
 
@@ -305,14 +337,22 @@ const pinConnection = async (mysql: ServerlessMysql): Promise<ServerlessMysql> =
  * a lock wait timeout, 1205) — it locks a wallet's rows while the daemon
  * writes to them, so it can. Any other error, or a conflict past the retries,
  * rolls back and propagates. `work` must use the handle it is given.
+ *
+ * A caller on a time budget can bound it: `lockWaitSeconds` caps each lock
+ * wait (MySQL's default is 50 s) for the session, and `canRetry` stops the
+ * retries once the budget is spent.
  */
 export const runRecoveryTransaction = async <T>(
   mysql: ServerlessMysql,
   logger: Logger,
   work: (tx: ServerlessMysql) => Promise<T>,
+  { lockWaitSeconds, canRetry = () => true }: { lockWaitSeconds?: number; canRetry?: () => boolean } = {},
 ): Promise<T> => {
   for (let attempt = 0; ; attempt++) {
     const tx = await pinConnection(mysql);
+    if (lockWaitSeconds !== undefined) {
+      await tx.query('SET SESSION innodb_lock_wait_timeout = ?', [lockWaitSeconds]);
+    }
     await beginTransaction(tx);
     try {
       const result = await work(tx);
@@ -326,7 +366,7 @@ export const runRecoveryTransaction = async <T>(
         // with it. Report what actually failed, not the rollback.
         logger.warn('Rolling back a recovery commit failed', { error: String(rollbackError) });
       }
-      if (!isLockConflict(e) || attempt >= COMMIT_RETRIES) throw e;
+      if (!isLockConflict(e) || attempt >= COMMIT_RETRIES || !canRetry()) throw e;
       logger.warn('Recovery commit lost a lock conflict; running it again', {
         attempt: attempt + 1, error: String(e),
       });
@@ -358,20 +398,35 @@ export const runRecoveryTransaction = async <T>(
  *     balance rebuild counts its rows) and balances, then the wallet's totals
  *     and history over every one of its addresses.
  *
+ * A catch-up of a ready wallet (`onlyPromoted`) rebuilds just the addresses
+ * whose outputs it promoted, and nothing when it promoted none: the daemon
+ * keeps the rest current, and a full rebuild would hold the wallet's rows
+ * locked for longer than the change needs. `finishSweep` marks the catch-up
+ * done in the same commit (step 1b, while the address rows are held).
+ *
  * Returns how many outputs were actually promoted.
  */
 export const commitShieldedRecoveries = async (
   mysql: ServerlessMysql,
   walletId: string,
   recoveries: ShieldedRecovery[],
+  { onlyPromoted = false, finishSweep = false }: { onlyPromoted?: boolean; finishSweep?: boolean } = {},
 ): Promise<number> => {
   const owned = await lockWalletAddresses(mysql, walletId);
+  if (finishSweep) {
+    await finishWalletSweep(mysql, walletId);
+  }
   const promoted = await promoteShieldedTxOutputs(mysql, recoveries);
+  if (onlyPromoted && promoted === 0) {
+    return promoted;
+  }
   const addresses = owned.map((a) => a.address);
   await lockAddressBalancesForUpdate(mysql, addresses);
+  const promotedAddresses = new Set(recoveries.map((r) => r.address));
   const ctSpendAddresses = owned
     .filter((a) => a.bip32Account === Bip32Account.CTSpend)
-    .map((a) => a.address);
+    .map((a) => a.address)
+    .filter((address) => !onlyPromoted || promotedAddresses.has(address));
   await rebuildShieldedAddressTxHistory(mysql, ctSpendAddresses);
   await rebuildShieldedAddressBalances(mysql, ctSpendAddresses);
   await rebuildWalletBalance(mysql, walletId, addresses);

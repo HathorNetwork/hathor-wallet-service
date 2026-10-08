@@ -19,7 +19,7 @@ jest.mock('@wallet-service/common', () => ({
   ...jest.requireActual('@wallet-service/common'),
   addAlert: (...args: unknown[]) => mockedAddAlert(...args),
 }));
-import { Bip32Account } from '@wallet-service/common';
+import { Bip32Account, clearShieldedCryptoProvider } from '@wallet-service/common';
 import { deriveCtAddress } from '@wallet-service/common/src/crypto/shieldedAddress';
 import { getDbConnection, getWalletId, closeDbConnection } from '@src/utils';
 import {
@@ -27,6 +27,8 @@ import {
   addToAddressTxHistoryTable, addToAddressBalanceTable, checkWalletBalanceTable,
 } from '@tests/utils';
 import { resetCtCryptoMock, primeAmountRewind, primeScanMiss } from '@tests/utils/ct-crypto-mock';
+import { runShieldedSweep } from '@src/shieldedSweep';
+import createDefaultLogger from '@src/logger';
 import { loadWallet } from '@src/api/wallet';
 import * as ShieldedRecovery from '@src/shieldedRecovery';
 import * as ShieldedDb from '@src/db/shielded';
@@ -148,6 +150,33 @@ describe('loadWallet', () => {
     // come after the commit.
     const titles = mockedAddAlert.mock.calls.map(([title]) => title);
     expect(titles).not.toContain("Shielded outputs did not open with their wallet's scan key");
+    expect((await mysql.query('SELECT `recovery_state` FROM `tx_output` WHERE `tx_id` = ?', ['ctx1']))[0].recovery_state)
+      .toBe('recovered');
+  }, COMBINED_TEST_TIMEOUT_MS);
+
+  it('leaves a catch-up it could not run to the scheduled sweep', async () => {
+    await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, MAX_GAP, { scanXpriv, spendXpub, shieldedMaxGap: SHIELDED_GAP });
+    await seedShieldedOutputAt(2, 'ctx1', 0xa1, 1500n);
+    clearShieldedCryptoProvider();
+
+    await runWorker({ xpubkey: XPUBKEY, maxGap: MAX_GAP });
+
+    // Ready on both sides, with its catch-up still taken (`running`), which
+    // the scheduled sweep selects.
+    const w = await getWallet(mysql, walletId);
+    expect(w.ctStatus).toBe(WalletStatus.READY);
+    const states = ((await mysql.query(
+      'SELECT DISTINCT `catchup_state` FROM `address` WHERE `wallet_id` = ? AND `bip32_account` = ?',
+      [walletId, Bip32Account.CTSpend],
+    )) as DbSelectResult).map((r) => r.catchup_state);
+    expect(states).toStrictEqual(['running']);
+
+    resetCtCryptoMock();
+    primeAmountRewind({
+      commitment: Buffer.alloc(33, 0xa1), ephemeralPubkey: Buffer.alloc(33, 0xa1), value: 1500n, tokenUid: Buffer.alloc(32),
+    });
+    await runShieldedSweep(mysql, createDefaultLogger(), () => 10 * 60_000, '');
+
     expect((await mysql.query('SELECT `recovery_state` FROM `tx_output` WHERE `tx_id` = ?', ['ctx1']))[0].recovery_state)
       .toBe('recovered');
   }, COMBINED_TEST_TIMEOUT_MS);

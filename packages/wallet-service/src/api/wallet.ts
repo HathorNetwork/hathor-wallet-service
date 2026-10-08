@@ -32,7 +32,7 @@ import {
   GenerateShieldedAddresses,
   generateShieldedAddresses,
   upsertShieldedAddressOwnership,
-  markShieldedCatchupDone,
+  markWalletSweepRunning,
 } from '@src/db/shielded';
 import {
   commitShieldedRecoveries,
@@ -827,13 +827,17 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
     let catchupSkipped = false;
     let sweeps: SweepOutcome[] = [];
     if (hasShieldedKeys) {
+      // Take the wallet's flagged rows (the claim just flagged its new ones)
+      // for this catch-up; the settle marks them done. A row the daemon flags
+      // again meanwhile goes back to pending, for the scheduled sweep.
+      await markWalletSweepRunning(mysql, walletId);
       const firstSweep = await findAndRewindShielded(mysql, walletId, logger);
       // Settle drain: a daemon ingest whose ownership check snapshotted the
       // world before our claim committed lands its output unowned moments
       // later — one more (cheap when empty) sweep closes that window. It skips
       // what the first sweep handled, which is all still unpromoted.
       const settleSweep = await findAndRewindShielded(
-        mysql, walletId, logger, undefined, sweptOutputs(firstSweep),
+        mysql, walletId, logger, undefined, { exclude: sweptOutputs(firstSweep) },
       );
       sweeps = [firstSweep, settleSweep];
       // A sweep that never ran (no crypto provider) must not be mistaken for a
@@ -853,12 +857,11 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
     //    flip would be missed by both — the locks make it wait until we're ready.
     const recoveries = sweeps.flatMap((sweep) => sweep.recoveries);
     const promoted = await runRecoveryTransaction(mysql, logger, async (tx) => {
-      const count = await commitShieldedRecoveries(tx, walletId, recoveries);
+      // A skipped catch-up stays `running`, so the scheduled sweep picks it up.
+      const count = await commitShieldedRecoveries(tx, walletId, recoveries, {
+        finishSweep: hasShieldedKeys && !catchupSkipped,
+      });
       if (hasShieldedKeys) {
-        if (!catchupSkipped) {
-          const highestDerivedIndex = shielded.rows[shielded.rows.length - 1].index;
-          await markShieldedCatchupDone(tx, walletId, highestDerivedIndex);
-        }
         await markWalletLoadReady(tx, walletId, !legacyWasReady);
       } else {
         // Defensive legacy-only path: no shielded lifecycle is fabricated.
