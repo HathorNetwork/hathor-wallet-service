@@ -25,7 +25,7 @@ module.exports = {
     await queryInterface.sequelize.query(`
       CREATE TABLE shielded_tx_output_data (
         tx_id VARCHAR(64) NOT NULL,
-        \`index\` SMALLINT UNSIGNED NOT NULL,
+        \`index\` TINYINT UNSIGNED NOT NULL,
         commitment VARBINARY(33) NOT NULL,
         range_proof BLOB NOT NULL,
         script VARBINARY(1024) NOT NULL,
