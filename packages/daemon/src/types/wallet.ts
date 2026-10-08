@@ -35,7 +35,7 @@ export interface Wallet {
  * Note this must consider `ct_status` too — a shielded upgrade runs with
  * `status = 'ready'` while `ct_status = 'creating'`.
  */
-export const isWalletAttributable = (wallet: Wallet): boolean => (
+export const isWalletAttributable = (wallet: Pick<Wallet, 'status' | 'ctStatus'>): boolean => (
   wallet.status === WalletStatus.READY
   && (wallet.ctStatus === undefined
     || wallet.ctStatus === 'none'

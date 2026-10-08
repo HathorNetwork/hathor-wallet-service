@@ -38,6 +38,7 @@ import {
   StandardFullNodeEvent,
   EventTxHeader,
   isNanoHeader,
+  isWalletAttributable,
   ShieldedOutput,
 } from '../types';
 import {
@@ -90,6 +91,8 @@ import {
   getShieldedWindows,
   getAddressesWithOutputs,
   claimShieldedAddresses,
+  creditTakenOverAddresses,
+  getCurrentWalletLifecycle,
   ShieldedAddressClaim,
   addNewAddresses,
   updateWalletTablesWithTx,
@@ -357,6 +360,10 @@ export function isNanoContract(headers: EventTxHeader[]) {
  *
  * A wallet whose keys fail to derive is logged and alerted after commit; it
  * never fails the ingest.
+ *
+ * Returns, per wallet, the claimed addresses that had been paid before any
+ * wallet claimed them, for `creditTakenOverAddresses` once the vertex's own
+ * wallet writes are done.
  */
 const extendShieldedWindows = async (
   mysql: MysqlConnection,
@@ -364,7 +371,8 @@ const extendShieldedWindows = async (
   walletIndices: Map<string, { maxCtAmongAddresses: number | null }>,
   storedShieldedAddresses: Set<string>,
   afterCommit: (() => Promise<void>)[],
-): Promise<void> => {
+): Promise<Map<string, string[]>> => {
+  const takenOver = new Map<string, string[]>();
   const used = new Map<string, number>();
   const use = (walletId: string, index: number) => {
     used.set(walletId, Math.max(used.get(walletId) ?? -1, index));
@@ -377,7 +385,7 @@ const extendShieldedWindows = async (
   for (const ownership of owned.values()) {
     use(ownership.wallet_id, ownership.shielded_index);
   }
-  if (used.size === 0) return;
+  if (used.size === 0) return takenOver;
 
   const windows = await getShieldedWindows(mysql, [...used.keys()]);
   const network = new hathorLib.Network(getConfig().NETWORK);
@@ -423,8 +431,15 @@ const extendShieldedWindows = async (
     }
     // Most payments land well inside the window: leave the wallet row alone.
     if (claims.length === 0 && lastUsed <= (window.lastUsedIndex ?? -1)) continue;
-    await claimShieldedAddresses(mysql, walletId, claims, lastUsed);
+    const paid = await claimShieldedAddresses(mysql, walletId, claims, lastUsed);
+    // A wallet mid-load is left to its load, which rebuilds the wallet's
+    // tables from all of its addresses, these included.
+    if (paid.length > 0) {
+      const lifecycle = await getCurrentWalletLifecycle(mysql, walletId);
+      if (lifecycle && isWalletAttributable(lifecycle)) takenOver.set(walletId, paid);
+    }
   }
+  return takenOver;
 };
 
 /**
@@ -1052,11 +1067,14 @@ const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
             }
           }
 
-          await extendShieldedWindows(mysql, hash, walletIndices, storedShieldedAddresses, afterCommit);
+          const takenOver = await extendShieldedWindows(mysql, hash, walletIndices, storedShieldedAddresses, afterCommit);
 
           // update wallet_balance and wallet_tx_history tables
           const walletBalanceMap: StringMap<TokenBalanceMap> = getWalletBalanceMap(addressWalletMap, addressBalanceMap);
           await withSpan('updateWalletTablesWithTx', () => updateWalletTablesWithTx(mysql!, hash, timestamp, walletBalanceMap));
+          for (const [walletId, addresses] of takenOver) {
+            await creditTakenOverAddresses(mysql, walletId, addresses);
+          }
 
           // prepare the transaction data to be sent to the SQS queue
           const txData: Transaction = {

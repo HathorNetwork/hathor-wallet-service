@@ -601,14 +601,36 @@ export interface ShieldedAddressClaim {
  * stored output bumps its address's `transactions`, so among the rows taken
  * over, only those with `transactions > 0` need the sweep. Flagging every
  * claimed row would have the sweep take the wallet after each extension.
+ *
+ * Returns the addresses of the rows it took over that have transactions: their
+ * balances and history are not the wallet's yet (see
+ * `creditTakenOverAddresses`). The rows that exist are found with a plain read
+ * and then locked, so a row a load claimed meanwhile is not counted. Locking
+ * the whole claim instead would also lock the gaps where its new rows go, which
+ * a load inserting the same addresses deadlocks on. A row the snapshot misses
+ * can't be one to credit: only this daemon writes observation rows.
  */
 export const claimShieldedAddresses = async (
   mysql: MysqlConnection,
   walletId: string,
   claims: ShieldedAddressClaim[],
   lastUsedIndex: number,
-): Promise<void> => {
+): Promise<string[]> => {
+  let takenOver: string[] = [];
   if (claims.length > 0) {
+    const [existing] = await mysql.query<RowDataPacket[]>(
+      'SELECT `address` FROM `address` WHERE `address` IN (?)',
+      [claims.map((c) => c.spendAddress)],
+    );
+    if (existing.length > 0) {
+      const [rows] = await mysql.query<RowDataPacket[]>(
+        `SELECT \`address\` FROM \`address\`
+          WHERE \`address\` IN (?) AND \`wallet_id\` IS NULL AND \`transactions\` > 0
+            FOR UPDATE`,
+        [existing.map((row) => row.address as string)],
+      );
+      takenOver = rows.map((row) => row.address as string);
+    }
     await mysql.query(
       `INSERT INTO \`address\`
          (\`address\`, \`index\`, \`wallet_id\`, \`transactions\`, \`bip32_account\`, \`scan_privkey\`, \`catchup_state\`, \`ct_address\`)
@@ -629,6 +651,106 @@ export const claimShieldedAddresses = async (
     'UPDATE `wallet` SET `last_used_shielded_index` = GREATEST(COALESCE(`last_used_shielded_index`, -1), ?) WHERE `id` = ?',
     [lastUsedIndex, walletId],
   );
+  return takenOver;
+};
+
+/**
+ * Credit a wallet with addresses it just took over, which a payment reached
+ * before any wallet claimed them: their `address_balance` and
+ * `address_tx_history` hold everything up to and including this vertex, and
+ * none of it is in the wallet's tables yet.
+ *
+ * Without this the wallet's balance stays short of its addresses' total, and a
+ * spend of the taken-over funds underflows `wallet_balance` and halts sync.
+ *
+ * Run after the vertex's own `updateWalletTablesWithTx`, whose plain history
+ * insert would otherwise collide with a row added here. The balance goes
+ * first: its transaction count takes only the (tx, token) pairs the wallet's
+ * history doesn't have yet, so a tx that also paid an address it already owned
+ * isn't counted twice.
+ */
+export const creditTakenOverAddresses = async (
+  mysql: MysqlConnection,
+  walletId: string,
+  addresses: string[],
+): Promise<void> => {
+  if (addresses.length === 0) return;
+  await mysql.query(
+    `INSERT INTO \`wallet_balance\`
+       (\`wallet_id\`, \`token_id\`, \`total_received\`, \`unlocked_balance\`, \`locked_balance\`,
+        \`timelock_expires\`, \`unlocked_authorities\`, \`locked_authorities\`, \`transactions\`,
+        \`unlocked_shielded_balance\`, \`locked_shielded_balance\`, \`total_shielded_received\`)
+     SELECT ?, b.\`token_id\`, b.\`total_received\`, b.\`unlocked_balance\`, b.\`locked_balance\`,
+        b.\`timelock_expires\`, b.\`unlocked_authorities\`, b.\`locked_authorities\`,
+        COALESCE(n.\`new_txs\`, 0),
+        b.\`unlocked_shielded_balance\`, b.\`locked_shielded_balance\`, b.\`total_shielded_received\`
+       FROM (
+         SELECT \`token_id\`,
+                SUM(\`total_received\`) AS \`total_received\`,
+                SUM(\`unlocked_balance\`) AS \`unlocked_balance\`,
+                SUM(\`locked_balance\`) AS \`locked_balance\`,
+                MIN(\`timelock_expires\`) AS \`timelock_expires\`,
+                BIT_OR(\`unlocked_authorities\`) AS \`unlocked_authorities\`,
+                BIT_OR(\`locked_authorities\`) AS \`locked_authorities\`,
+                SUM(\`unlocked_shielded_balance\`) AS \`unlocked_shielded_balance\`,
+                SUM(\`locked_shielded_balance\`) AS \`locked_shielded_balance\`,
+                SUM(\`total_shielded_received\`) AS \`total_shielded_received\`
+           FROM \`address_balance\`
+          WHERE \`address\` IN (?)
+          GROUP BY \`token_id\`
+       ) b
+       LEFT JOIN (
+         SELECT h.\`token_id\`, COUNT(DISTINCT h.\`tx_id\`) AS \`new_txs\`
+           FROM \`address_tx_history\` h
+          WHERE h.\`address\` IN (?) AND h.\`voided\` = FALSE
+            AND NOT EXISTS (
+              SELECT 1 FROM \`wallet_tx_history\` w
+               WHERE w.\`wallet_id\` = ? AND w.\`token_id\` = h.\`token_id\` AND w.\`tx_id\` = h.\`tx_id\`
+            )
+          GROUP BY h.\`token_id\`
+       ) n ON n.\`token_id\` = b.\`token_id\`
+     ON DUPLICATE KEY UPDATE
+        \`total_received\` = \`wallet_balance\`.\`total_received\` + VALUES(\`total_received\`),
+        \`unlocked_balance\` = \`wallet_balance\`.\`unlocked_balance\` + VALUES(\`unlocked_balance\`),
+        \`locked_balance\` = \`wallet_balance\`.\`locked_balance\` + VALUES(\`locked_balance\`),
+        \`timelock_expires\` = CASE
+          WHEN \`wallet_balance\`.\`timelock_expires\` IS NULL THEN VALUES(\`timelock_expires\`)
+          WHEN VALUES(\`timelock_expires\`) IS NULL THEN \`wallet_balance\`.\`timelock_expires\`
+          ELSE LEAST(\`wallet_balance\`.\`timelock_expires\`, VALUES(\`timelock_expires\`))
+        END,
+        \`unlocked_authorities\` = \`wallet_balance\`.\`unlocked_authorities\` | VALUES(\`unlocked_authorities\`),
+        \`locked_authorities\` = \`wallet_balance\`.\`locked_authorities\` | VALUES(\`locked_authorities\`),
+        \`transactions\` = \`wallet_balance\`.\`transactions\` + VALUES(\`transactions\`),
+        \`unlocked_shielded_balance\` = \`wallet_balance\`.\`unlocked_shielded_balance\` + VALUES(\`unlocked_shielded_balance\`),
+        \`locked_shielded_balance\` = \`wallet_balance\`.\`locked_shielded_balance\` + VALUES(\`locked_shielded_balance\`),
+        \`total_shielded_received\` = \`wallet_balance\`.\`total_shielded_received\` + VALUES(\`total_shielded_received\`)`,
+    [walletId, addresses, addresses, walletId],
+  );
+  await mysql.query(
+    `INSERT INTO \`wallet_tx_history\`
+       (\`wallet_id\`, \`token_id\`, \`tx_id\`, \`balance\`, \`shielded_balance_delta\`, \`timestamp\`)
+     SELECT ?, \`token_id\`, \`tx_id\`, SUM(\`balance\`), SUM(\`shielded_balance_delta\`), \`timestamp\`
+       FROM \`address_tx_history\`
+      WHERE \`address\` IN (?) AND \`voided\` = FALSE
+      GROUP BY \`tx_id\`, \`token_id\`, \`timestamp\`
+     ON DUPLICATE KEY UPDATE
+        \`balance\` = \`wallet_tx_history\`.\`balance\` + VALUES(\`balance\`),
+        \`shielded_balance_delta\` = \`wallet_tx_history\`.\`shielded_balance_delta\` + VALUES(\`shielded_balance_delta\`)`,
+    [walletId, addresses],
+  );
+};
+
+/** A wallet's current lifecycle, read with a lock so it is not the snapshot's. */
+export const getCurrentWalletLifecycle = async (
+  mysql: MysqlConnection,
+  walletId: string,
+): Promise<Pick<Wallet, 'status' | 'ctStatus'> | null> => {
+  const [rows] = await mysql.query<RowDataPacket[]>(
+    'SELECT `status`, `ct_status` FROM `wallet` WHERE `id` = ? FOR SHARE',
+    [walletId],
+  );
+  if (rows.length === 0) return null;
+  return { status: rows[0].status as WalletStatus, ctStatus: rows[0].ct_status as WalletStatus | 'none' };
 };
 
 /**

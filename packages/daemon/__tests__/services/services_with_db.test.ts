@@ -6072,6 +6072,133 @@ describe('extending a wallet\'s CTSpend window', () => {
     expect(row).toMatchObject({ address: derive(5).spendAddress, catchup_state: 'pending' });
   });
 
+  describe('crediting a row taken over with a balance', () => {
+    /** A transparent vertex spending `inputs`, paying `value` to `address`. */
+    const transparentVertex = (hash: string, inputs: unknown[], value: number, address: string) => {
+      const f = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+      f.event.data.hash = hash;
+      f.event.data.metadata.hash = hash;
+      f.event.data.inputs = inputs;
+      f.event.data.outputs[0].value = value;
+      f.event.data.outputs[0].decoded.address = address;
+      f.event.data.shielded_outputs = [];
+      return f;
+    };
+    const walletUnlocked = async () => {
+      const [rows] = await mysql.query<any[]>(
+        "SELECT `unlocked_balance` AS b FROM `wallet_balance` WHERE `wallet_id` = ? AND `token_id` = '00'", [WALLET],
+      );
+      return rows.length ? BigInt(rows[0].b) : 0n;
+    };
+    const addressesUnlocked = async () => {
+      const [rows] = await mysql.query<any[]>(
+        `SELECT COALESCE(SUM(ab.\`unlocked_balance\`), 0) AS b FROM \`address_balance\` ab
+           JOIN \`address\` a ON a.\`address\` = ab.\`address\` WHERE a.\`wallet_id\` = ? AND ab.\`token_id\` = '00'`,
+        [WALLET],
+      );
+      return BigInt(rows[0].b);
+    };
+    const walletHistory = async () => {
+      const [rows] = await mysql.query<any[]>(
+        'SELECT `tx_id`, `balance` FROM `wallet_tx_history` WHERE `wallet_id` = ? ORDER BY `tx_id`', [WALLET],
+      );
+      return rows.map((r: any) => [r.tx_id, Number(r.balance)]);
+    };
+    const T1 = '11'.repeat(32);
+    const T2 = '22'.repeat(32);
+
+    /** A payment to index 6 before any wallet claimed it, then one to 3 that extends the window over it. */
+    const takeOverAPaidRow = async () => {
+      await seedLoadedWallet(3);
+      await ingest(transparentVertex(T1, [], 1000, derive(6).spendAddress));
+      await ingest(transparentVertex(T2, [], 10, derive(3).spendAddress));
+    };
+
+    it('credits the wallet with the row\'s balance and history', async () => {
+      expect.hasAssertions();
+      await takeOverAPaidRow();
+
+      expect(await walletUnlocked()).toBe(1010n);
+      expect(await addressesUnlocked()).toBe(1010n);
+      expect(await walletHistory()).toStrictEqual([[T1, 1000], [T2, 10]]);
+      const [[balance]] = await mysql.query<any[]>(
+        "SELECT `transactions` FROM `wallet_balance` WHERE `wallet_id` = ? AND `token_id` = '00'", [WALLET],
+      );
+      expect(Number(balance.transactions)).toBe(2);
+    });
+
+    it('ingests a spend of the taken-over balance', async () => {
+      expect.hasAssertions();
+      await takeOverAPaidRow();
+      const spend = transparentVertex('33'.repeat(32), [{
+        tx_id: T1,
+        index: 0,
+        spent_output: {
+          mode: 0, value: 1000, token_data: 0, locked: false,
+          script: eventsFixture.VERTEX_WITH_SHIELDED.event.data.outputs[0].script,
+          decoded: { type: 'P2PKH', address: derive(6).spendAddress, timelock: null },
+        },
+      }], 1000, 'WExternalAddress9');
+
+      await ingest(spend);
+
+      expect(await walletUnlocked()).toBe(10n);
+    });
+
+    it('counts a vertex once when it pays both an owned address and the row it takes over', async () => {
+      expect.hasAssertions();
+      await seedLoadedWallet(3);
+      const v = transparentVertex('44'.repeat(32), [], 10, derive(3).spendAddress);
+      const past = JSON.parse(JSON.stringify(v.event.data.outputs[0]));
+      past.value = 1000;
+      past.decoded.address = derive(6).spendAddress;
+      v.event.data.outputs.push(past);
+
+      await ingest(v);
+
+      expect(await walletUnlocked()).toBe(1010n);
+      expect(await walletHistory()).toStrictEqual([['44'.repeat(32), 1010]]);
+      const [[balance]] = await mysql.query<any[]>(
+        "SELECT `transactions` FROM `wallet_balance` WHERE `wallet_id` = ? AND `token_id` = '00'", [WALLET],
+      );
+      expect(Number(balance.transactions)).toBe(1);
+    });
+
+    it('leaves a mid-load wallet\'s taken-over row to its load', async () => {
+      expect.hasAssertions();
+      await seedLoadedWallet(3);
+      await mysql.query("UPDATE `wallet` SET `ct_status` = 'creating' WHERE `id` = ?", [WALLET]);
+      await ingest(transparentVertex(T1, [], 1000, derive(6).spendAddress));
+      await ingest(transparentVertex(T2, [], 10, derive(3).spendAddress));
+
+      // The row was taken over all the same...
+      const row = (await claimedIndices()).find((r: any) => Number(r.index) === 6);
+      expect(row).toMatchObject({ address: derive(6).spendAddress, catchup_state: 'pending' });
+      // ...but the load's settle rebuilds the wallet's tables from all its addresses.
+      expect(await walletUnlocked()).toBe(0n);
+      expect(await walletHistory()).toStrictEqual([]);
+    });
+
+    it('counts a tx once when it paid several rows taken over together', async () => {
+      expect.hasAssertions();
+      await seedLoadedWallet(3);
+      const v = transparentVertex(T1, [], 1000, derive(5).spendAddress);
+      const second = JSON.parse(JSON.stringify(v.event.data.outputs[0]));
+      second.value = 500;
+      second.decoded.address = derive(6).spendAddress;
+      v.event.data.outputs.push(second);
+      await ingest(v);
+      await ingest(transparentVertex(T2, [], 10, derive(3).spendAddress));
+
+      expect(await walletUnlocked()).toBe(1510n);
+      expect(await walletHistory()).toStrictEqual([[T1, 1500], [T2, 10]]);
+      const [[balance]] = await mysql.query<any[]>(
+        "SELECT `transactions` FROM `wallet_balance` WHERE `wallet_id` = ? AND `token_id` = '00'", [WALLET],
+      );
+      expect(Number(balance.transactions)).toBe(2);
+    });
+  });
+
   it('sizes the window as the load would when a claimed row already holds an output', async () => {
     expect.hasAssertions();
     await seedLoadedWallet(3);
