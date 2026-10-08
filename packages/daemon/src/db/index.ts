@@ -579,6 +579,53 @@ export const getAddressesWithOutputs = async (
   return new Set(rows.map((r) => r.address as string));
 };
 
+/**
+ * Lock and return the given addresses' rows that a claim would take over with
+ * transactions: unowned rows, which a payment reached before any wallet
+ * claimed them. Their balances and history are not any wallet's yet (see
+ * `creditTakenOverAddresses`).
+ *
+ * The rows that exist are found with a plain read and then locked, so a row a
+ * load claimed meanwhile is not counted. Locking the whole set instead would
+ * also lock the gaps where its new rows go, which a load inserting the same
+ * addresses deadlocks on. A row the snapshot misses can't be one to credit:
+ * only this daemon writes unowned rows.
+ */
+const lockRowsToTakeOver = async (
+  mysql: MysqlConnection,
+  addresses: string[],
+): Promise<string[]> => {
+  if (addresses.length === 0) return [];
+  const [existing] = await mysql.query<RowDataPacket[]>(
+    'SELECT `address` FROM `address` WHERE `address` IN (?)',
+    [addresses],
+  );
+  if (existing.length === 0) return [];
+  const [rows] = await mysql.query<RowDataPacket[]>(
+    `SELECT \`address\` FROM \`address\`
+      WHERE \`address\` IN (?) AND \`wallet_id\` IS NULL AND \`transactions\` > 0
+        FOR UPDATE`,
+    [existing.map((row) => row.address as string)],
+  );
+  return rows.map((row) => row.address as string);
+};
+
+/**
+ * The given addresses that have transactions, owned or not: how the load tells
+ * a used address, which a window has to reach `maxGap` past.
+ */
+export const getUsedAddresses = async (
+  mysql: MysqlConnection,
+  addresses: string[],
+): Promise<Set<string>> => {
+  if (addresses.length === 0) return new Set();
+  const [rows] = await mysql.query<RowDataPacket[]>(
+    'SELECT `address` FROM `address` WHERE `address` IN (?) AND `transactions` > 0',
+    [addresses],
+  );
+  return new Set(rows.map((row) => row.address as string));
+};
+
 /** A derived CTSpend address, as a wallet claims it. */
 export interface ShieldedAddressClaim {
   index: number;
@@ -602,13 +649,8 @@ export interface ShieldedAddressClaim {
  * over, only those with `transactions > 0` need the sweep. Flagging every
  * claimed row would have the sweep take the wallet after each extension.
  *
- * Returns the addresses of the rows it took over that have transactions: their
- * balances and history are not the wallet's yet (see
- * `creditTakenOverAddresses`). The rows that exist are found with a plain read
- * and then locked, so a row a load claimed meanwhile is not counted. Locking
- * the whole claim instead would also lock the gaps where its new rows go, which
- * a load inserting the same addresses deadlocks on. A row the snapshot misses
- * can't be one to credit: only this daemon writes observation rows.
+ * Returns the rows it took over that have transactions (see
+ * `lockRowsToTakeOver`).
  */
 export const claimShieldedAddresses = async (
   mysql: MysqlConnection,
@@ -618,19 +660,7 @@ export const claimShieldedAddresses = async (
 ): Promise<string[]> => {
   let takenOver: string[] = [];
   if (claims.length > 0) {
-    const [existing] = await mysql.query<RowDataPacket[]>(
-      'SELECT `address` FROM `address` WHERE `address` IN (?)',
-      [claims.map((c) => c.spendAddress)],
-    );
-    if (existing.length > 0) {
-      const [rows] = await mysql.query<RowDataPacket[]>(
-        `SELECT \`address\` FROM \`address\`
-          WHERE \`address\` IN (?) AND \`wallet_id\` IS NULL AND \`transactions\` > 0
-            FOR UPDATE`,
-        [existing.map((row) => row.address as string)],
-      );
-      takenOver = rows.map((row) => row.address as string);
-    }
+    takenOver = await lockRowsToTakeOver(mysql, claims.map((c) => c.spendAddress));
     await mysql.query(
       `INSERT INTO \`address\`
          (\`address\`, \`index\`, \`wallet_id\`, \`transactions\`, \`bip32_account\`, \`scan_privkey\`, \`catchup_state\`, \`ct_address\`)
@@ -2237,22 +2267,30 @@ export const incrementTokensTxCount = async (
 };
 
 /**
- * Add addresses to address table.
+ * Claim legacy addresses for a wallet and advance its last used address index
+ * (never backwards).
  *
- * @remarks
- * The addresses are added with the given walletId and 0 transactions.
+ * The same upsert the wallet-service's load runs (`upsertNewAddresses`), so an
+ * address a payment reached before the wallet's window did, which therefore
+ * already has a row, is taken over rather than failing the claim with a
+ * duplicate key, which halted sync for every wallet.
+ *
+ * Returns the rows it took over that have transactions (see
+ * `lockRowsToTakeOver`).
  *
  * @param mysql - Database connection
  * @param walletId - The wallet id
  * @param addresses - A map of addresses and corresponding indexes
+ * @param lastUsedAddressIndex - The wallet's highest used legacy index
  */
 export const addNewAddresses = async (
   mysql: MysqlConnection,
   walletId: string,
   addresses: AddressIndexMap,
   lastUsedAddressIndex: number,
-): Promise<void> => {
-  if (Object.keys(addresses).length === 0) return;
+): Promise<string[]> => {
+  if (Object.keys(addresses).length === 0) return [];
+  const takenOver = await lockRowsToTakeOver(mysql, Object.keys(addresses));
   const entries = [];
   for (const [address, index] of Object.entries(addresses)) {
     // Claimed legacy addresses carry an explicit account: an owned address never
@@ -2262,17 +2300,22 @@ export const addNewAddresses = async (
   await mysql.query(
     `INSERT INTO \`address\`(\`address\`, \`index\`,
                              \`wallet_id\`, \`transactions\`, \`bip32_account\`)
-     VALUES ?`,
+     VALUES ?
+     ON DUPLICATE KEY UPDATE
+       \`wallet_id\` = VALUES(\`wallet_id\`),
+       \`index\` = VALUES(\`index\`),
+       \`bip32_account\` = VALUES(\`bip32_account\`)`,
     [entries],
   );
 
   // Store on the wallet table the highest used index
   await mysql.execute(
     `UPDATE \`wallet\`
-        SET \`last_used_address_index\` = ?
+        SET \`last_used_address_index\` = GREATEST(\`last_used_address_index\`, ?)
       WHERE \`id\` = ?`,
     [lastUsedAddressIndex, walletId],
   );
+  return takenOver;
 };
 
 /**

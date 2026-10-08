@@ -103,7 +103,9 @@ jest.mock('../../src/db', () => ({
   flagAddressesForSweep: jest.fn(async () => undefined),
   getCurrentShieldedRecovery: jest.fn(async () => new Map()),
   generateAddresses: jest.fn(),
-  addNewAddresses: jest.fn(),
+  addNewAddresses: jest.fn(async () => []),
+  getUsedAddresses: jest.fn(async () => new Set()),
+  getCurrentWalletLifecycle: jest.fn(async () => null),
   updateWalletTablesWithTx: jest.fn(),
   getMaxIndicesForWallets: jest.fn(() => new Map([
     ['wallet1', { maxAmongAddresses: 10, maxWalletIndex: 15 }]

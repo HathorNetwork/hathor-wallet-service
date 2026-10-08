@@ -89,6 +89,7 @@ import {
   refreshWalletLifecycles,
   flagAddressesForSweep,
   getShieldedWindows,
+  getUsedAddresses,
   getAddressesWithOutputs,
   claimShieldedAddresses,
   creditTakenOverAddresses,
@@ -361,8 +362,8 @@ export function isNanoContract(headers: EventTxHeader[]) {
  * A wallet whose keys fail to derive is logged and alerted after commit; it
  * never fails the ingest.
  *
- * Returns, per wallet, the claimed addresses that had been paid before any
- * wallet claimed them, for `creditTakenOverAddresses` once the vertex's own
+ * The claimed addresses that had been paid before any wallet claimed them go
+ * to `recordTakeovers`, for `creditTakenOverAddresses` once the vertex's own
  * wallet writes are done.
  */
 const extendShieldedWindows = async (
@@ -371,8 +372,8 @@ const extendShieldedWindows = async (
   walletIndices: Map<string, { maxCtAmongAddresses: number | null }>,
   storedShieldedAddresses: Set<string>,
   afterCommit: (() => Promise<void>)[],
-): Promise<Map<string, string[]>> => {
-  const takenOver = new Map<string, string[]>();
+  recordTakeovers: (walletId: string, addresses: string[]) => Promise<void>,
+): Promise<void> => {
   const used = new Map<string, number>();
   const use = (walletId: string, index: number) => {
     used.set(walletId, Math.max(used.get(walletId) ?? -1, index));
@@ -385,7 +386,7 @@ const extendShieldedWindows = async (
   for (const ownership of owned.values()) {
     use(ownership.wallet_id, ownership.shielded_index);
   }
-  if (used.size === 0) return takenOver;
+  if (used.size === 0) return;
 
   const windows = await getShieldedWindows(mysql, [...used.keys()]);
   const network = new hathorLib.Network(getConfig().NETWORK);
@@ -431,15 +432,8 @@ const extendShieldedWindows = async (
     }
     // Most payments land well inside the window: leave the wallet row alone.
     if (claims.length === 0 && lastUsed <= (window.lastUsedIndex ?? -1)) continue;
-    const paid = await claimShieldedAddresses(mysql, walletId, claims, lastUsed);
-    // A wallet mid-load is left to its load, which rebuilds the wallet's
-    // tables from all of its addresses, these included.
-    if (paid.length > 0) {
-      const lifecycle = await getCurrentWalletLifecycle(mysql, walletId);
-      if (lifecycle && isWalletAttributable(lifecycle)) takenOver.set(walletId, paid);
-    }
+    await recordTakeovers(walletId, await claimShieldedAddresses(mysql, walletId, claims, lastUsed));
   }
-  return takenOver;
 };
 
 /**
@@ -1031,6 +1025,18 @@ const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
           // Get all max indices in a single query
           const walletIndices = await getMaxIndicesForWallets(mysql, walletDataArray);
 
+          // Per wallet, claimed addresses that a payment reached before any
+          // wallet claimed them; credited once this vertex's wallet writes are done.
+          const takenOver = new Map<string, string[]>();
+          const recordTakeovers = async (walletId: string, addresses: string[]) => {
+            if (addresses.length === 0) return;
+            // A wallet mid-load is left to its load, which rebuilds the
+            // wallet's tables from all of its addresses, these included.
+            const lifecycle = await getCurrentWalletLifecycle(mysql!, walletId);
+            if (!lifecycle || !isWalletAttributable(lifecycle)) return;
+            takenOver.set(walletId, [...(takenOver.get(walletId) ?? []), ...addresses]);
+          };
+
           // Process each wallet
           for (const [walletId, data] of Object.entries(addressesPerWallet)) {
             const { walletDetails } = data;
@@ -1061,13 +1067,27 @@ const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
             const diff = maxLegacyWalletIndex - maxLegacyAmongAddresses;
 
             if (diff < walletDetails.maxGap) {
-              // We need to generate addresses
-              const addresses = await generateAddresses(NETWORK as string, walletDetails.xpubkey, maxLegacyWalletIndex + 1, walletDetails.maxGap - diff);
-              await addNewAddresses(mysql, walletId, addresses, maxLegacyAmongAddresses);
+              // Extend the window to `maxGap` past the last used address. A
+              // derived address that already has transactions (a payment
+              // reached it before the window did) is used too, so keep going
+              // past it, as the load's window does.
+              const { maxGap, xpubkey } = walletDetails;
+              let lastUsed = maxLegacyAmongAddresses;
+              let highestDerived = maxLegacyWalletIndex;
+              const addresses: StringMap<number> = {};
+              while (lastUsed + maxGap > highestDerived) {
+                const block = await generateAddresses(NETWORK as string, xpubkey, highestDerived + 1, lastUsed + maxGap - highestDerived);
+                highestDerived = lastUsed + maxGap;
+                Object.assign(addresses, block);
+                for (const address of await getUsedAddresses(mysql, Object.keys(block))) {
+                  lastUsed = Math.max(lastUsed, block[address]);
+                }
+              }
+              await recordTakeovers(walletId, await addNewAddresses(mysql, walletId, addresses, lastUsed));
             }
           }
 
-          const takenOver = await extendShieldedWindows(mysql, hash, walletIndices, storedShieldedAddresses, afterCommit);
+          await extendShieldedWindows(mysql, hash, walletIndices, storedShieldedAddresses, afterCommit, recordTakeovers);
 
           // update wallet_balance and wallet_tx_history tables
           const walletBalanceMap: StringMap<TokenBalanceMap> = getWalletBalanceMap(addressWalletMap, addressBalanceMap);
