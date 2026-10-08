@@ -34,12 +34,17 @@ export interface Wallet {
  * deltas at the same time races that rebuild and the increment is silently lost.
  * Note this must consider `ct_status` too — a shielded upgrade runs with
  * `status = 'ready'` while `ct_status = 'creating'`.
+ *
+ * A failed upgrade (`ct_status = 'error'`) has settled too: the wallet-service
+ * rebuilds the wallet's totals in the transaction that records the failure, so
+ * deltas apply on top of them, and the transparent balance keeps moving.
  */
 export const isWalletAttributable = (wallet: Pick<Wallet, 'status' | 'ctStatus'>): boolean => (
   wallet.status === WalletStatus.READY
   && (wallet.ctStatus === undefined
     || wallet.ctStatus === 'none'
-    || wallet.ctStatus === WalletStatus.READY)
+    || wallet.ctStatus === WalletStatus.READY
+    || wallet.ctStatus === WalletStatus.ERROR)
 );
 
 export type TokenBalanceValue = {

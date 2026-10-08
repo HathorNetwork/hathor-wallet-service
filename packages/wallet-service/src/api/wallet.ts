@@ -38,6 +38,7 @@ import {
   commitShieldedRecoveries,
   findAndRewindShielded,
   reportShieldedSweeps,
+  recordFailedShieldedUpgrade,
   runRecoveryTransaction,
   sweptOutputs,
   SweepOutcome,
@@ -540,8 +541,10 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
    * status is re-read for the response. */
   const onAsyncInvokeError = async (e: unknown): Promise<void> => {
     logger.error(e);
-    if (hasShielded) {
-      await markWalletLoadError(mysql, walletId, wallet.status !== WalletStatus.READY);
+    if (hasShielded && wallet.status === WalletStatus.READY) {
+      await recordFailedShieldedUpgrade(mysql, walletId, logger, (tx) => markWalletLoadError(tx, walletId, false));
+    } else if (hasShielded) {
+      await markWalletLoadError(mysql, walletId, true);
     } else {
       await markLegacyLoadError(mysql, walletId);
     }
@@ -713,10 +716,21 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
       // legacy side was already ready before the crashed load — keeps its
       // working legacy state untouched.
       const failedWallet = await getWallet(mysql, walletId);
-      if (failedWallet && failedWallet.scanXpriv != null) {
-        if (failedWallet.status !== WalletStatus.READY) {
-          await pinLegacyLoadFailed(mysql, walletId, MAX_LOAD_WALLET_RETRIES);
+      if (failedWallet && failedWallet.scanXpriv != null && failedWallet.status === WalletStatus.READY) {
+        if (failedWallet.ctStatus !== WalletStatus.READY) {
+          // A timed-out upgrade lands here, not in the worker's catch, so it
+          // rebuilds the totals the same way (see recordFailedShieldedUpgrade).
+          // That includes a wallet still in error: a load that died before it
+          // could move it back to creating has rebuilt nothing.
+          await recordFailedShieldedUpgrade(
+            mysql, walletId, logger, (tx) => pinShieldedLoadFailed(tx, walletId, MAX_LOAD_WALLET_RETRIES),
+          );
+        } else {
+          // Another attempt made it ready, which rebuilt it: pinning is a no-op.
+          await pinShieldedLoadFailed(mysql, walletId, MAX_LOAD_WALLET_RETRIES);
         }
+      } else if (failedWallet && failedWallet.scanXpriv != null) {
+        await pinLegacyLoadFailed(mysql, walletId, MAX_LOAD_WALLET_RETRIES);
         await pinShieldedLoadFailed(mysql, walletId, MAX_LOAD_WALLET_RETRIES);
       } else {
         await pinLegacyLoadFailed(mysql, walletId, MAX_LOAD_WALLET_RETRIES);
@@ -779,6 +793,15 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
   const wallet = await getWallet(mysql, walletId);
   if (!wallet) {
     throw new Error(`loadWallet: wallet ${walletId} not found`);
+  }
+  // The load API moves an errored side back to `creating` before invoking
+  // this; an operator's direct invoke skips the API, so do it here. A ready
+  // wallet in error counts as settled for the daemon, so until this load
+  // records an outcome it must be mid-load: a load that dies, or fails to
+  // record its failure, then leaves it safe instead of settled on totals
+  // nothing rebuilt.
+  if (wallet.status === WalletStatus.ERROR || wallet.ctStatus === WalletStatus.ERROR) {
+    await casWalletErrorToCreating(mysql, walletId);
   }
   const legacyWasReady = wallet.status === WalletStatus.READY;
   // consts (not the wallet fields) so the null checks narrow them below
@@ -890,8 +913,10 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
         { wallet_id: walletId, error: errorDetail(e), source: 'wallet-service' },
         logger,
       );
-      if (hasShieldedKeys) {
-        await markWalletLoadError(mysql, walletId, !legacyWasReady);
+      if (hasShieldedKeys && legacyWasReady) {
+        await recordFailedShieldedUpgrade(mysql, walletId, logger, (tx) => markWalletLoadError(tx, walletId, false));
+      } else if (hasShieldedKeys) {
+        await markWalletLoadError(mysql, walletId, true);
       } else {
         await markLegacyLoadError(mysql, walletId);
       }

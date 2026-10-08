@@ -440,6 +440,50 @@ export const rebuildWalletBalance = async (
 };
 
 /**
+ * Delete the wallet's `wallet_balance` and `wallet_tx_history` rows that no
+ * row of its addresses backs any more. Run before the two rebuilds: they only
+ * upsert, so without this a row the daemon would have removed survives them.
+ *
+ * Those rows come from the time the wallet was mid-load, when the daemon skips
+ * its `wallet_*` writes. A transaction voided then deletes its address history
+ * and any `address_balance` row it zeroed, but the wallet's rows stay. A stale
+ * history row makes the daemon's insert fail with a duplicate key when that
+ * transaction comes back, halting sync, and a stale balance row keeps a
+ * balance the wallet no longer has.
+ *
+ * Every daemon write that adds a row to a wallet's tables follows a write to
+ * its addresses' `address_balance` in the same transaction, so with those
+ * rows locked nothing can add a row this would wrongly delete.
+ */
+export const pruneWalletTotals = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+  addresses: string[],
+): Promise<void> => {
+  if (addresses.length === 0) return;
+  await mysql.query(
+    `DELETE FROM \`wallet_balance\`
+      WHERE \`wallet_id\` = ?
+        AND \`token_id\` NOT IN (
+          SELECT \`token_id\` FROM \`address_balance\` WHERE \`address\` IN (?)
+        )`,
+    [walletId, addresses],
+  );
+  await mysql.query(
+    `DELETE FROM \`wallet_tx_history\`
+      WHERE \`wallet_id\` = ?
+        AND NOT EXISTS (
+          SELECT 1 FROM \`address_tx_history\` h
+           WHERE h.\`address\` IN (?)
+             AND h.\`tx_id\` = \`wallet_tx_history\`.\`tx_id\`
+             AND h.\`token_id\` = \`wallet_tx_history\`.\`token_id\`
+             AND h.\`voided\` = FALSE
+        )`,
+    [walletId, addresses],
+  );
+};
+
+/**
  * Rebuild a wallet's `wallet_tx_history` by aggregating its addresses'
  * `address_tx_history` per (tx, token): transparent `balance` and
  * `shielded_balance_delta` are summed across the wallet's addresses. Upsert →

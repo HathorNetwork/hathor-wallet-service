@@ -5506,6 +5506,65 @@ describe('ingest under lock contention', () => {
     expect(BigInt(rows[0].unlocked_balance)).toBe(5000n);
   });
 
+  it('credits a wallet whose shielded upgrade failed while the ingest waited on its rows', async () => {
+    expect.hasAssertions();
+
+    const walletId = 'wallet_upgrading';
+    const now = Math.floor(Date.now() / 1000);
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, ct_status, max_gap, created_at, ready_at)
+       VALUES (?, ?, ?, 'ready', 'creating', 20, ?, ?)`,
+      [walletId, XPUBKEY, XPUBKEY, now, now],
+    );
+    await mysql.query(
+      'INSERT INTO `address` (address, wallet_id, `index`, transactions) VALUES (?, ?, 0, 0)',
+      [TRANSPARENT_ADDRESS, walletId],
+    );
+    await mysql.query(
+      `INSERT INTO \`address_balance\` (address, token_id, unlocked_balance, locked_balance,
+          unlocked_authorities, locked_authorities, transactions)
+       VALUES (?, '00', 0, 0, 0, 0, 0)`,
+      [TRANSPARENT_ADDRESS],
+    );
+
+    // The upgrade's failure path holds the address's balance row while it
+    // rebuilds the wallet's totals...
+    const load = await db.getDbConnection();
+    try {
+      await load.beginTransaction();
+      await load.query('SELECT 1 FROM `address_balance` WHERE `address` = ? FOR UPDATE', [TRANSPARENT_ADDRESS]);
+
+      let reached!: () => void;
+      const atBalanceWrites = new Promise<void>((resolve) => { reached = resolve; });
+      const realUpdate = db.updateAddressTablesWithTx;
+      const spy = jest.spyOn(db, 'updateAddressTablesWithTx').mockImplementationOnce(async (...args) => {
+        await args[0].query('SELECT `ct_status` FROM `wallet` WHERE `id` = ?', [walletId]);
+        reached();
+        return realUpdate(...args);
+      });
+      const ingesting = ingest(vertex());
+      await atBalanceWrites;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // ...then records the failure and commits, releasing the row.
+      await load.query("UPDATE `wallet` SET `ct_status` = 'error' WHERE `id` = ?", [walletId]);
+      await load.commit();
+      await ingesting;
+      spy.mockRestore();
+    } finally {
+      load.release();
+    }
+
+    // The rebuild did not include this tx, so the ingest must credit the
+    // wallet, or its transparent balance would stay short for good.
+    const [rows] = await mysql.query<any[]>(
+      "SELECT `unlocked_balance` FROM `wallet_balance` WHERE `wallet_id` = ? AND `token_id` = '00'",
+      [walletId],
+    );
+    expect(rows).toHaveLength(1);
+    expect(BigInt(rows[0].unlocked_balance)).toBe(5000n);
+  });
+
   it('moves a recovered output\'s value on unlock even when it was read as unowned', async () => {
     expect.hasAssertions();
 
