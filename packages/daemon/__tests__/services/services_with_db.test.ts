@@ -31,6 +31,7 @@ import { TokenVersion } from '@hathor/wallet-lib';
 import * as db from '../../src/db';
 import { handleVoidedTx, voidTx, handleTokenCreated, handleVertexAccepted, handleUnvoidedTx, handleVertexRemoved, resetMissingProviderAlert } from '../../src/services';
 import { LRU, unlockUtxos } from '../../src/utils';
+import { generateAddresses } from '../../src/utils/wallet';
 import {
   addOrUpdateTx,
   addUtxos,
@@ -5987,6 +5988,197 @@ describe('flagging wallets for a shielded sweep', () => {
   });
 });
 
+describe('extending a wallet\'s legacy window', () => {
+  const WALLET = 'wallet_legacy';
+  const GAP = 5;
+  let derived: Record<number, string>;
+
+  const ingest = (event: unknown) => handleVertexAccepted({
+    socket: expect.any(Object),
+    healthcheck: expect.any(Object),
+    retryAttempt: 0,
+    initialEventId: null,
+    txCache: new LRU(100),
+    rewardMinBlocks: 300,
+    event,
+  } as any, undefined as any);
+
+  /** A transparent vertex paying each `[index, value]` to the wallet's legacy address at that index. */
+  const paying = (hash: string, ...payments: [number, number][]) => {
+    const f = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    f.event.data.hash = hash;
+    f.event.data.metadata.hash = hash;
+    f.event.data.inputs = [];
+    const template = f.event.data.outputs[0];
+    f.event.data.outputs = payments.map(([index, value]) => ({
+      ...JSON.parse(JSON.stringify(template)),
+      value,
+      decoded: { ...template.decoded, address: derived[index] },
+    }));
+    f.event.data.shielded_outputs = [];
+    return f;
+  };
+
+  beforeAll(async () => {
+    const byAddress = await generateAddresses('mainnet', XPUBKEY, 0, 30);
+    derived = Object.fromEntries(Object.entries(byAddress).map(([address, index]) => [index, address]));
+  });
+
+  /** A loaded wallet with nothing used yet: its window is indices 0..GAP - 1, as the load claims it. */
+  const seedLoadedWallet = async (ctStatus = 'none', status = 'ready') => {
+    const now = Math.floor(Date.now() / 1000);
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, ct_status, max_gap, created_at, ready_at, last_used_address_index)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, -1)`,
+      [WALLET, XPUBKEY, XPUBKEY, status, ctStatus, GAP, now, now],
+    );
+    await mysql.query(
+      'INSERT INTO `address` (address, `index`, wallet_id, transactions, bip32_account) VALUES ?',
+      [Array.from({ length: GAP }, (_, index) => [derived[index], index, WALLET, 0, 0])],
+    );
+  };
+
+  const claimed = async () => {
+    const [rows] = await mysql.query<any[]>(
+      'SELECT `index`, `bip32_account` FROM `address` WHERE `wallet_id` = ? ORDER BY `index`', [WALLET],
+    );
+    return rows;
+  };
+  const lastUsedIndex = async () => {
+    const [[wallet]] = await mysql.query<any[]>('SELECT `last_used_address_index` AS i FROM `wallet` WHERE `id` = ?', [WALLET]);
+    return Number(wallet.i);
+  };
+  const walletTotals = async () => {
+    const [rows] = await mysql.query<any[]>(
+      "SELECT `unlocked_balance` AS b, `transactions` AS t FROM `wallet_balance` WHERE `wallet_id` = ? AND `token_id` = '00'", [WALLET],
+    );
+    return rows.length ? { unlocked: BigInt(rows[0].b), transactions: Number(rows[0].t) } : null;
+  };
+  const walletHistory = async () => {
+    const [rows] = await mysql.query<any[]>(
+      'SELECT `tx_id`, `balance` FROM `wallet_tx_history` WHERE `wallet_id` = ? ORDER BY `tx_id`', [WALLET],
+    );
+    return rows.map((r: any) => [r.tx_id, Number(r.balance)]);
+  };
+  const T1 = 'a1'.repeat(32);
+  const T2 = 'a2'.repeat(32);
+
+  /** A payment to index 8, past the window, then one to 3, which extends the window over it. */
+  const takeOverAPaidAddress = async () => {
+    await ingest(paying(T1, [8, 1000]));
+    await ingest(paying(T2, [3, 10]));
+  };
+
+  it('takes over an address that was paid before the window reached it', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet();
+    await ingest(paying(T1, [8, 1000]));
+
+    // This used to fail the ingest with a duplicate key, halting sync.
+    await expect(ingest(paying(T2, [3, 10]))).resolves.not.toThrow();
+
+    // 8 is used, so the window runs on to 8 + GAP, as the load's would.
+    const rows = await claimed();
+    expect(rows.map((r: any) => Number(r.index))).toStrictEqual(Array.from({ length: 14 }, (_, i) => i));
+    expect(Number(rows[8].bip32_account)).toBe(0);
+    expect(await lastUsedIndex()).toBe(8);
+  });
+
+  it('credits the wallet with the taken-over balance and history', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet();
+    await takeOverAPaidAddress();
+
+    expect(await walletTotals()).toStrictEqual({ unlocked: 1010n, transactions: 2 });
+    expect(await walletHistory()).toStrictEqual([[T1, 1000], [T2, 10]]);
+  });
+
+  it('ingests a spend of more than the window held before the takeover', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet();
+    await takeOverAPaidAddress();
+    const spend = paying('a3'.repeat(32), [3, 1]);
+    spend.event.data.outputs[0].decoded.address = 'WExternalAddress9';
+    spend.event.data.outputs[0].value = 1000;
+    spend.event.data.inputs = [{
+      tx_id: T1,
+      index: 0,
+      spent_output: {
+        mode: 0, value: 1000, token_data: 0, locked: false,
+        script: eventsFixture.VERTEX_WITH_SHIELDED.event.data.outputs[0].script,
+        decoded: { type: 'P2PKH', address: derived[8], timelock: null },
+      },
+    }];
+
+    await ingest(spend);
+
+    expect((await walletTotals())!.unlocked).toBe(10n);
+  });
+
+  it('counts a vertex once when it pays both the window and the address past it', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet();
+
+    await ingest(paying(T1, [3, 10], [8, 1000]));
+
+    expect(await walletTotals()).toStrictEqual({ unlocked: 1010n, transactions: 1 });
+    expect(await walletHistory()).toStrictEqual([[T1, 1010]]);
+  });
+
+  it('keeps going past each used address it reaches', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet();
+    await ingest(paying(T1, [8, 1000]));
+    await ingest(paying(T2, [13, 500]));
+
+    await ingest(paying('a3'.repeat(32), [3, 10]));
+
+    expect((await claimed()).map((r: any) => Number(r.index))).toStrictEqual(Array.from({ length: 19 }, (_, i) => i));
+    expect(await lastUsedIndex()).toBe(13);
+    expect((await walletTotals())!.unlocked).toBe(1510n);
+  });
+
+  it('reverses the earlier payment when it is voided after the takeover', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet();
+    await takeOverAPaidAddress();
+    const { data } = paying(T1, [8, 1000]).event;
+
+    await voidTx(mysql, T1, data.inputs, data.outputs, [], data.tokens, [], data.version);
+
+    expect(await walletTotals()).toStrictEqual({ unlocked: 10n, transactions: 1 });
+  });
+
+  it('never moves the last used index backwards', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet();
+    await mysql.query('UPDATE `wallet` SET `last_used_address_index` = 30 WHERE `id` = ?', [WALLET]);
+
+    await ingest(paying(T1, [3, 10]));
+
+    expect(await lastUsedIndex()).toBe(30);
+  });
+
+  it('credits a ready wallet whose shielded upgrade failed', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet('error');
+    await takeOverAPaidAddress();
+
+    expect((await walletTotals())!.unlocked).toBe(1010n);
+  });
+
+  it('leaves a mid-load wallet\'s taken-over address to its load', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet('creating');
+    await takeOverAPaidAddress();
+
+    // Claimed all the same, but the load's settle rebuilds the wallet's tables
+    // from all of its addresses.
+    expect(Number((await claimed())[8].index)).toBe(8);
+    expect(await walletTotals()).toBeNull();
+  });
+});
+
 describe('extending a wallet\'s CTSpend window', () => {
   // A wallet's shielded keys as wallet-lib derives them from a seed.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -6236,6 +6428,37 @@ describe('extending a wallet\'s CTSpend window', () => {
       // ...but the load's settle rebuilds the wallet's tables from all its addresses.
       expect(await walletUnlocked()).toBe(0n);
       expect(await walletHistory()).toStrictEqual([]);
+    });
+
+    it('credits a legacy and a CTSpend row taken over by the same vertex', async () => {
+      expect.hasAssertions();
+      await seedLoadedWallet(3);
+      // The same wallet's legacy window, 0..2, with a legacy gap of 3 to keep
+      // the derivation short.
+      await mysql.query('UPDATE `wallet` SET `max_gap` = 3 WHERE `id` = ?', [WALLET]);
+      const legacy = Object.fromEntries(Object.entries(await generateAddresses('mainnet', XPUBKEY, 0, 10))
+        .map(([address, index]) => [index, address]));
+      await mysql.query(
+        'INSERT INTO `address` (address, `index`, wallet_id, transactions, bip32_account) VALUES ?',
+        [Array.from({ length: 3 }, (_, index) => [legacy[index], index, WALLET, 0, 0])],
+      );
+      // Both paid past their windows...
+      const first = transparentVertex(T1, [], 1000, legacy[4]);
+      const ct = JSON.parse(JSON.stringify(first.event.data.outputs[0]));
+      ct.value = 500;
+      ct.decoded.address = derive(6).spendAddress;
+      first.event.data.outputs.push(ct);
+      await ingest(first);
+      // ...and both windows then extended over them by one vertex.
+      const second = transparentVertex(T2, [], 10, legacy[1]);
+      const ct2 = JSON.parse(JSON.stringify(second.event.data.outputs[0]));
+      ct2.value = 20;
+      ct2.decoded.address = derive(3).spendAddress;
+      second.event.data.outputs.push(ct2);
+      await ingest(second);
+
+      expect(await walletUnlocked()).toBe(1530n);
+      expect(await walletHistory()).toStrictEqual([[T1, 1500], [T2, 30]]);
     });
 
     it('counts a tx once when it paid several rows taken over together', async () => {
