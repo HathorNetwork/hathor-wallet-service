@@ -48,6 +48,7 @@ import {
   getWalletBalance,
   insertWalletBalance,
   getWalletTxHistoryCount,
+  ADDRESSES,
   XPUBKEY,
 } from '../utils';
 import { DbTxOutput, EventTxInput } from '../../src/types';
@@ -66,7 +67,7 @@ import {
   receivedRangeProofs,
   resetCtCryptoMock,
 } from '../mocks/ct-crypto-node';
-import { Severity, clearShieldedCryptoProvider } from '@wallet-service/common';
+import { Severity, clearShieldedCryptoProvider, deriveCtAddress } from '@wallet-service/common';
 
 /**
  * @jest-environment node
@@ -5924,5 +5925,325 @@ describe('flagging wallets for a shielded sweep', () => {
       [ADDRESS],
     );
     expect(rows.length === 0 ? 0n : BigInt(rows[0].b)).toBe(0n);
+  });
+});
+
+describe('extending a wallet\'s CTSpend window', () => {
+  // A wallet's shielded keys as wallet-lib derives them from a seed.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { walletUtils, cryptoUtils, Network } = require('@hathor/wallet-lib');
+  const PIN = '123456';
+  const access = walletUtils.generateAccessDataFromSeed(`${'abandon '.repeat(23)}art`, {
+    pin: PIN, password: 'password', networkName: 'mainnet',
+  });
+  const scanXpriv: string = cryptoUtils.decryptData(access.scanMainKey, PIN);
+  const spendXpub: string = access.spendXpubkey;
+  const network = new Network('mainnet');
+  const derive = (index: number) => deriveCtAddress(scanXpriv, spendXpub, index, network);
+  const WALLET = 'wallet_ct';
+  const GAP = 3;
+
+  const ingest = (event: unknown) => handleVertexAccepted({
+    socket: expect.any(Object),
+    healthcheck: expect.any(Object),
+    retryAttempt: 0,
+    initialEventId: null,
+    txCache: new LRU(100),
+    rewardMinBlocks: 300,
+    event,
+  } as any, undefined as any);
+
+  /** A loaded wallet whose CTSpend window is indices 0..maxIndex. */
+  const seedLoadedWallet = async (maxIndex: number, scanXprivBytes = Buffer.from(scanXpriv, 'utf8')) => {
+    const now = Math.floor(Date.now() / 1000);
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, ct_status, max_gap, created_at, ready_at,
+          scan_xpriv, spend_xpub, shielded_max_gap, last_used_shielded_index)
+       VALUES (?, ?, ?, 'ready', 'ready', 20, ?, ?, ?, ?, ?, NULL)`,
+      [WALLET, XPUBKEY, XPUBKEY, now, now, scanXprivBytes, spendXpub, GAP],
+    );
+    for (let index = 0; index <= maxIndex; index++) {
+      const d = derive(index);
+      await mysql.query(
+        `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, ct_address, transactions, catchup_state)
+         VALUES (?, ?, ?, 2, ?, ?, 0, 'done')`,
+        [d.spendAddress, WALLET, index, d.scanPrivkey, d.ctAddress],
+      );
+    }
+  };
+  /** VERTEX_WITH_SHIELDED, its shielded output paying the address at `index`. */
+  const paying = (index: number) => {
+    const f = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    f.event.data.shielded_outputs[0].token_data = 0;
+    f.event.data.shielded_outputs[0].decoded.address = derive(index).spendAddress;
+    return f;
+  };
+  const claimedIndices = async () => {
+    const [rows] = await mysql.query<any[]>(
+      'SELECT `index`, `address`, `catchup_state` FROM `address` WHERE `wallet_id` = ? AND `bip32_account` = 2 ORDER BY `index`',
+      [WALLET],
+    );
+    return rows;
+  };
+
+  beforeEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+    clearShieldedCryptoProvider();
+    mockAddAlert.mockClear();
+  });
+
+  afterEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  it('claims the next addresses when a payment lands near the end of the window', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet(3);
+
+    // Index 2 leaves one address beyond it; the gap is 3, so two more.
+    await ingest(paying(2));
+
+    const rows = await claimedIndices();
+    expect(rows.map((r: any) => Number(r.index))).toStrictEqual([0, 1, 2, 3, 4, 5]);
+    // The same addresses the wallet's own load derives.
+    expect(rows[4].address).toBe(derive(4).spendAddress);
+    expect(rows[5].address).toBe(derive(5).spendAddress);
+    // Nothing was ever paid to them, so there is nothing for a sweep to do.
+    expect(rows[4].catchup_state).toBe('done');
+    expect(rows[5].catchup_state).toBe('done');
+    const [[wallet]] = await mysql.query<any[]>('SELECT `last_used_shielded_index` AS i FROM `wallet` WHERE `id` = ?', [WALLET]);
+    expect(Number(wallet.i)).toBe(2);
+  });
+
+  it('leaves the window alone while a payment is well inside it', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet(3);
+
+    await ingest(paying(0));
+
+    expect((await claimedIndices()).map((r: any) => Number(r.index))).toStrictEqual([0, 1, 2, 3]);
+  });
+
+  it('counts a transparent payment to a CTSpend address as use', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet(3);
+    const f = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    f.event.data.outputs[0].decoded.address = derive(3).spendAddress;
+    f.event.data.shielded_outputs = [];
+
+    await ingest(f);
+
+    expect((await claimedIndices()).map((r: any) => Number(r.index))).toStrictEqual([0, 1, 2, 3, 4, 5, 6]);
+  });
+
+  it('does not report a vertex that touched only the wallet\'s CTSpend addresses', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet(3);
+    await mysql.query(
+      'INSERT INTO address (address, wallet_id, `index`, bip32_account, transactions) VALUES (?, ?, 0, 0, 0)',
+      [ADDRESSES[0], WALLET],
+    );
+    const errorSpy = jest.spyOn(logger, 'error');
+    const f = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    f.event.data.outputs[0].decoded.address = derive(1).spendAddress;
+    f.event.data.shielded_outputs = [];
+
+    try {
+      await ingest(f);
+      expect(errorSpy.mock.calls.map(([message]) => message)).not.toContainEqual(
+        expect.stringContaining('A wallet marked as READY does not have a max wallet index'),
+      );
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('claims an earlier payment\'s observation row and flags it for a sweep', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet(3);
+    // A payment past the window was observed before any wallet claimed it.
+    await mysql.query(
+      'INSERT INTO address (address, transactions) VALUES (?, 1)', [derive(5).spendAddress],
+    );
+
+    await ingest(paying(3));
+
+    const row = (await claimedIndices()).find((r: any) => Number(r.index) === 5);
+    expect(row).toMatchObject({ address: derive(5).spendAddress, catchup_state: 'pending' });
+  });
+
+  describe('crediting a row taken over with a balance', () => {
+    /** A transparent vertex spending `inputs`, paying `value` to `address`. */
+    const transparentVertex = (hash: string, inputs: unknown[], value: number, address: string) => {
+      const f = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+      f.event.data.hash = hash;
+      f.event.data.metadata.hash = hash;
+      f.event.data.inputs = inputs;
+      f.event.data.outputs[0].value = value;
+      f.event.data.outputs[0].decoded.address = address;
+      f.event.data.shielded_outputs = [];
+      return f;
+    };
+    const walletUnlocked = async () => {
+      const [rows] = await mysql.query<any[]>(
+        "SELECT `unlocked_balance` AS b FROM `wallet_balance` WHERE `wallet_id` = ? AND `token_id` = '00'", [WALLET],
+      );
+      return rows.length ? BigInt(rows[0].b) : 0n;
+    };
+    const addressesUnlocked = async () => {
+      const [rows] = await mysql.query<any[]>(
+        `SELECT COALESCE(SUM(ab.\`unlocked_balance\`), 0) AS b FROM \`address_balance\` ab
+           JOIN \`address\` a ON a.\`address\` = ab.\`address\` WHERE a.\`wallet_id\` = ? AND ab.\`token_id\` = '00'`,
+        [WALLET],
+      );
+      return BigInt(rows[0].b);
+    };
+    const walletHistory = async () => {
+      const [rows] = await mysql.query<any[]>(
+        'SELECT `tx_id`, `balance` FROM `wallet_tx_history` WHERE `wallet_id` = ? ORDER BY `tx_id`', [WALLET],
+      );
+      return rows.map((r: any) => [r.tx_id, Number(r.balance)]);
+    };
+    const T1 = '11'.repeat(32);
+    const T2 = '22'.repeat(32);
+
+    /** A payment to index 6 before any wallet claimed it, then one to 3 that extends the window over it. */
+    const takeOverAPaidRow = async () => {
+      await seedLoadedWallet(3);
+      await ingest(transparentVertex(T1, [], 1000, derive(6).spendAddress));
+      await ingest(transparentVertex(T2, [], 10, derive(3).spendAddress));
+    };
+
+    it('credits the wallet with the row\'s balance and history', async () => {
+      expect.hasAssertions();
+      await takeOverAPaidRow();
+
+      expect(await walletUnlocked()).toBe(1010n);
+      expect(await addressesUnlocked()).toBe(1010n);
+      expect(await walletHistory()).toStrictEqual([[T1, 1000], [T2, 10]]);
+      const [[balance]] = await mysql.query<any[]>(
+        "SELECT `transactions` FROM `wallet_balance` WHERE `wallet_id` = ? AND `token_id` = '00'", [WALLET],
+      );
+      expect(Number(balance.transactions)).toBe(2);
+    });
+
+    it('ingests a spend of the taken-over balance', async () => {
+      expect.hasAssertions();
+      await takeOverAPaidRow();
+      const spend = transparentVertex('33'.repeat(32), [{
+        tx_id: T1,
+        index: 0,
+        spent_output: {
+          mode: 0, value: 1000, token_data: 0, locked: false,
+          script: eventsFixture.VERTEX_WITH_SHIELDED.event.data.outputs[0].script,
+          decoded: { type: 'P2PKH', address: derive(6).spendAddress, timelock: null },
+        },
+      }], 1000, 'WExternalAddress9');
+
+      await ingest(spend);
+
+      expect(await walletUnlocked()).toBe(10n);
+    });
+
+    it('counts a vertex once when it pays both an owned address and the row it takes over', async () => {
+      expect.hasAssertions();
+      await seedLoadedWallet(3);
+      const v = transparentVertex('44'.repeat(32), [], 10, derive(3).spendAddress);
+      const past = JSON.parse(JSON.stringify(v.event.data.outputs[0]));
+      past.value = 1000;
+      past.decoded.address = derive(6).spendAddress;
+      v.event.data.outputs.push(past);
+
+      await ingest(v);
+
+      expect(await walletUnlocked()).toBe(1010n);
+      expect(await walletHistory()).toStrictEqual([['44'.repeat(32), 1010]]);
+      const [[balance]] = await mysql.query<any[]>(
+        "SELECT `transactions` FROM `wallet_balance` WHERE `wallet_id` = ? AND `token_id` = '00'", [WALLET],
+      );
+      expect(Number(balance.transactions)).toBe(1);
+    });
+
+    it('leaves a mid-load wallet\'s taken-over row to its load', async () => {
+      expect.hasAssertions();
+      await seedLoadedWallet(3);
+      await mysql.query("UPDATE `wallet` SET `ct_status` = 'creating' WHERE `id` = ?", [WALLET]);
+      await ingest(transparentVertex(T1, [], 1000, derive(6).spendAddress));
+      await ingest(transparentVertex(T2, [], 10, derive(3).spendAddress));
+
+      // The row was taken over all the same...
+      const row = (await claimedIndices()).find((r: any) => Number(r.index) === 6);
+      expect(row).toMatchObject({ address: derive(6).spendAddress, catchup_state: 'pending' });
+      // ...but the load's settle rebuilds the wallet's tables from all its addresses.
+      expect(await walletUnlocked()).toBe(0n);
+      expect(await walletHistory()).toStrictEqual([]);
+    });
+
+    it('counts a tx once when it paid several rows taken over together', async () => {
+      expect.hasAssertions();
+      await seedLoadedWallet(3);
+      const v = transparentVertex(T1, [], 1000, derive(5).spendAddress);
+      const second = JSON.parse(JSON.stringify(v.event.data.outputs[0]));
+      second.value = 500;
+      second.decoded.address = derive(6).spendAddress;
+      v.event.data.outputs.push(second);
+      await ingest(v);
+      await ingest(transparentVertex(T2, [], 10, derive(3).spendAddress));
+
+      expect(await walletUnlocked()).toBe(1510n);
+      expect(await walletHistory()).toStrictEqual([[T1, 1500], [T2, 10]]);
+      const [[balance]] = await mysql.query<any[]>(
+        "SELECT `transactions` FROM `wallet_balance` WHERE `wallet_id` = ? AND `token_id` = '00'", [WALLET],
+      );
+      expect(Number(balance.transactions)).toBe(2);
+    });
+  });
+
+  it('sizes the window as the load would when a claimed row already holds an output', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet(3);
+    // A payment to index 5, stored before any wallet claimed the address.
+    await mysql.query(
+      'INSERT INTO address (address, transactions) VALUES (?, 1)', [derive(5).spendAddress],
+    );
+    await mysql.query(
+      `INSERT INTO tx_output (tx_id, \`index\`, token_id, address, value, authorities, locked, voided)
+       VALUES (?, 0, '00', ?, 10, 0, FALSE, FALSE)`,
+      ['ab'.repeat(32), derive(5).spendAddress],
+    );
+
+    // Index 2 brings 4 and 5 into the window; 5 is used, so the load's window
+    // runs on to 5 + 3.
+    await ingest(paying(2));
+
+    const rows = await claimedIndices();
+    expect(rows.map((r: any) => Number(r.index))).toStrictEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(rows[8].address).toBe(derive(8).spendAddress);
+    const [[wallet]] = await mysql.query<any[]>('SELECT `last_used_shielded_index` AS i FROM `wallet` WHERE `id` = ?', [WALLET]);
+    expect(Number(wallet.i)).toBe(5);
+  });
+
+  it('ingests the vertex, and alerts after commit, when the wallet\'s keys do not derive', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet(3, Buffer.from('not an xpriv', 'utf8'));
+
+    await expect(ingest(paying(2))).resolves.not.toThrow();
+
+    const [txRows] = await mysql.query<any[]>(
+      'SELECT `tx_id` FROM `transaction` WHERE `tx_id` = ?', [eventsFixture.VERTEX_WITH_SHIELDED.event.data.hash],
+    );
+    expect(txRows).toHaveLength(1);
+    expect(mockAddAlert.mock.calls.map(([title]) => title)).toContain('Shielded address window not extended');
+  });
+
+  it('never moves the last used index backwards', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet(3);
+    await mysql.query('UPDATE `wallet` SET `last_used_shielded_index` = 10 WHERE `id` = ?', [WALLET]);
+
+    await ingest(paying(2));
+
+    const [[wallet]] = await mysql.query<any[]>('SELECT `last_used_shielded_index` AS i FROM `wallet` WHERE `id` = ?', [WALLET]);
+    expect(Number(wallet.i)).toBe(10);
   });
 });
