@@ -223,6 +223,107 @@ describe('loadWallet', () => {
     expect(mockedAddAlert).toHaveBeenCalled();   // caught failures alert
   }, COMBINED_TEST_TIMEOUT_MS);
 
+  /**
+   * A transparent-ready wallet mid shielded upgrade, as the daemon leaves it:
+   * its addresses' tables are current (250 received, 150 of it while the
+   * wallet was mid-load), its own totals are not (100), and it still has a
+   * history row for a tx voided meanwhile and a balance row for a token its
+   * addresses no longer hold.
+   */
+  const seedUpgradeWithSkippedDeltas = async (scanXprivBytes: Buffer) => {
+    await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, MAX_GAP);
+    await updateWalletStatus(mysql, walletId, WalletStatus.READY);
+    await mysql.query(
+      'UPDATE `wallet` SET `scan_xpriv` = ?, `spend_xpub` = ?, `shielded_max_gap` = ?, `ct_status` = ? WHERE `id` = ?',
+      [scanXprivBytes, spendXpub, SHIELDED_GAP, 'creating', walletId],
+    );
+    await mysql.query(
+      'INSERT INTO `address` (`address`, `index`, `wallet_id`, `transactions`, `bip32_account`) VALUES (?, 0, ?, 2, 0)',
+      [ADDRESSES[0], walletId],
+    );
+    await addToAddressTxHistoryTable(mysql, [
+      { address: ADDRESSES[0], txId: 'before', tokenId: '00', balance: 100n, timestamp: 10 },
+      { address: ADDRESSES[0], txId: 'during', tokenId: '00', balance: 150n, timestamp: 20 },
+    ]);
+    await addToAddressBalanceTable(mysql, [[ADDRESSES[0], '00', 250, 0, null, 2, 0, 0, 250]]);
+    await mysql.query(
+      `INSERT INTO \`wallet_balance\` (\`wallet_id\`, \`token_id\`, \`unlocked_balance\`, \`locked_balance\`,
+          \`unlocked_authorities\`, \`locked_authorities\`, \`timelock_expires\`, \`transactions\`, \`total_received\`)
+       VALUES (?, '00', 100, 0, 0, 0, NULL, 1, 100), (?, 'gone', 7, 0, 0, 0, NULL, 1, 7)`,
+      [walletId, walletId],
+    );
+    await mysql.query(
+      `INSERT INTO \`wallet_tx_history\` (\`wallet_id\`, \`tx_id\`, \`token_id\`, \`balance\`, \`timestamp\`, \`voided\`)
+       VALUES (?, 'before', '00', 100, 10, FALSE), (?, 'voided-meanwhile', '00', 30, 15, FALSE)`,
+      [walletId, walletId],
+    );
+  };
+
+  const readWalletTotals = async () => {
+    const balances = await mysql.query(
+      'SELECT `token_id`, `unlocked_balance`, `transactions` FROM `wallet_balance` WHERE `wallet_id` = ? ORDER BY `token_id`',
+      [walletId],
+    ) as unknown as { token_id: string; unlocked_balance: string; transactions: string }[];
+    const history = await mysql.query(
+      'SELECT `tx_id` FROM `wallet_tx_history` WHERE `wallet_id` = ? ORDER BY `tx_id`', [walletId],
+    ) as unknown as { tx_id: string }[];
+    return {
+      balances: balances.map((b) => [b.token_id, Number(b.unlocked_balance), Number(b.transactions)]),
+      history: history.map((h) => h.tx_id),
+    };
+  };
+
+  it('rebuilds the wallet\'s totals when a shielded upgrade fails', async () => {
+    // The daemon resumes the wallet's deltas once it is in error, so its totals
+    // must hold what was skipped while the upgrade ran.
+    await seedUpgradeWithSkippedDeltas(Buffer.from('not-a-valid-xpriv', 'utf8'));
+
+    const result = await runWorker({ xpubkey: XPUBKEY, maxGap: MAX_GAP });
+    expect(result).toMatchObject({ success: false });
+
+    const w = await getWallet(mysql, walletId);
+    expect(w.status).toBe(WalletStatus.READY);
+    expect(w.ctStatus).toBe(WalletStatus.ERROR);
+    expect(w.retryCount).toBe(1);
+    expect(await readWalletTotals()).toStrictEqual({
+      balances: [['00', 250, 2]],
+      history: ['before', 'during'],
+    });
+  }, COMBINED_TEST_TIMEOUT_MS);
+
+  it('leaves a failed upgrade mid-load, and alerts, when recording the failure fails', async () => {
+    // Marking it error without the rebuild would let the daemon resume on
+    // short totals; mid-load, it keeps skipping them instead.
+    await seedUpgradeWithSkippedDeltas(Buffer.from('not-a-valid-xpriv', 'utf8'));
+    const spy = jest.spyOn(ShieldedDb, 'pruneWalletTotals').mockRejectedValue(new Error('connection lost'));
+
+    try {
+      const result = await runWorker({ xpubkey: XPUBKEY, maxGap: MAX_GAP });
+      expect(result).toMatchObject({ success: false });
+    } finally {
+      spy.mockRestore();
+    }
+
+    const w = await getWallet(mysql, walletId);
+    expect(w.ctStatus).toBe(WalletStatus.CREATING);
+    expect(mockedAddAlert.mock.calls.map(([title]) => title)).toContain('Failed shielded upgrade not recorded');
+    expect((await readWalletTotals()).balances).toStrictEqual([['00', 100, 1], ['gone', 7, 1]]);
+  }, COMBINED_TEST_TIMEOUT_MS);
+
+  it('drops wallet rows its addresses no longer back when a load settles', async () => {
+    // Left by a tx voided while the wallet was mid-load; a stale history row
+    // would collide with the daemon's insert when that tx comes back.
+    await seedUpgradeWithSkippedDeltas(Buffer.from(scanXpriv, 'utf8'));
+
+    const result = await runWorker({ xpubkey: XPUBKEY, maxGap: MAX_GAP });
+    expect(result).toMatchObject({ success: true });
+
+    expect(await readWalletTotals()).toStrictEqual({
+      balances: [['00', 250, 2]],
+      history: ['before', 'during'],
+    });
+  }, COMBINED_TEST_TIMEOUT_MS);
+
   it('marks both sides on a fresh-load failure', async () => {
     await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, MAX_GAP, { scanXpriv: 'garbage', spendXpub, shieldedMaxGap: SHIELDED_GAP });
 

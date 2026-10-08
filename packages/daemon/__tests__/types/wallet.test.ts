@@ -28,14 +28,16 @@ describe('isWalletAttributable', () => {
     expect(isWalletAttributable(wallet({ status: WalletStatus.ERROR, ctStatus: 'none' }))).toBe(false);
   });
 
-  it('does not attribute a wallet whose shielded load failed', () => {
-    // Deliberate, and load-bearing. A failed shielded load does NOT rebuild
-    // `wallet_balance` — markWalletLoadError only touches the `wallet` row — so
-    // the stored balance is missing every delta skipped while `ct_status` was
-    // `creating`. Resuming increments on top of that underflows the BIGINT
-    // UNSIGNED columns inside the ingest or void transaction, which halts sync
-    // for every wallet. The frozen-balance bug this masks is real, but it has
-    // to be fixed by rebuilding on the error path first.
-    expect(isWalletAttributable(wallet({ ctStatus: WalletStatus.ERROR }))).toBe(false);
+  it('attributes a ready wallet whose shielded upgrade failed', () => {
+    // The wallet-service rebuilds `wallet_balance` and `wallet_tx_history` in
+    // the transaction that records the failure, so the totals hold every delta
+    // skipped while `ct_status` was `creating`, and increments resume on top.
+    // That rebuild has to deploy first: on unrebuilt totals the first large
+    // debit underflows the BIGINT UNSIGNED columns and halts sync.
+    expect(isWalletAttributable(wallet({ ctStatus: WalletStatus.ERROR }))).toBe(true);
+  });
+
+  it('does not attribute a wallet whose fresh load failed on both sides', () => {
+    expect(isWalletAttributable(wallet({ status: WalletStatus.ERROR, ctStatus: WalletStatus.ERROR }))).toBe(false);
   });
 });

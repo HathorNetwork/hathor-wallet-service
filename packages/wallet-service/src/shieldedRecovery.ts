@@ -29,6 +29,7 @@ import {
   markShieldedTxOutputRecoveryFailed,
   rebuildShieldedAddressBalances,
   rebuildShieldedAddressTxHistory,
+  pruneWalletTotals,
   rebuildWalletBalance,
   rebuildWalletTxHistory,
   ShieldedOutputToRecover,
@@ -376,6 +377,51 @@ export const runRecoveryTransaction = async <T>(
 };
 
 /**
+ * Record a failed shielded upgrade of a wallet whose transparent side is
+ * ready, rebuilding the wallet's totals and history in the same transaction.
+ *
+ * While the upgrade ran the daemon skipped the wallet's `wallet_*` writes, so
+ * its totals are missing that time's deltas. Once `ct_status` is `error` the
+ * daemon applies deltas to them again, and on top of short totals the first
+ * large debit would underflow and halt sync. `mark` sets the failed state.
+ *
+ * If this transaction fails too, the wallet stays mid-load: the daemon keeps
+ * skipping its `wallet_*` writes, so nothing underflows, but the transparent
+ * balance stays frozen and the load API won't retry a wallet mid-load. That
+ * alerts, naming the way out.
+ */
+export const recordFailedShieldedUpgrade = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+  logger: Logger,
+  mark: (tx: ServerlessMysql) => Promise<void>,
+): Promise<void> => {
+  try {
+    await runRecoveryTransaction(mysql, logger, async (tx) => {
+      await commitShieldedRecoveries(tx, walletId, []);
+      await mark(tx);
+    });
+  } catch (e) {
+    logger.error('Could not record a failed shielded upgrade; the wallet stays mid-load', {
+      walletId, error: String(e),
+    });
+    try {
+      await addAlert(
+        'Failed shielded upgrade not recorded',
+        `Wallet ${walletId}'s shielded upgrade failed, and recording the failure failed too, so the wallet `
+        + 'stays mid-load: its transparent balance is frozen and the load API will not retry it. '
+        + 'Invoke loadWalletAsync directly with the wallet\'s xpubkey and max gap.',
+        Severity.MAJOR,
+        { wallet_id: walletId, error: String(e), source: 'wallet-service' },
+        logger,
+      );
+    } catch (alertError) {
+      logger.error('Failed to send the failed-upgrade alert', { walletId, error: String(alertError) });
+    }
+  }
+};
+
+/**
  * Promote rewound outputs and rebuild the wallet's balances and history, as one
  * unit. Must run inside the caller's transaction (see `runRecoveryTransaction`).
  *
@@ -396,12 +442,14 @@ export const runRecoveryTransaction = async <T>(
  *     yet (next-key locks), so no daemon delta lands mid-rebuild;
  *  4. rebuild the CTSpend addresses' shielded history (first, since the
  *     balance rebuild counts its rows) and balances, then the wallet's totals
- *     and history over every one of its addresses.
+ *     and history over every one of its addresses, dropping first the wallet
+ *     rows those addresses no longer back (see `pruneWalletTotals`).
  *
- * A catch-up of a ready wallet (`onlyPromoted`) rebuilds just the addresses
- * whose outputs it promoted, and nothing when it promoted none: the daemon
- * keeps the rest current, and a full rebuild would hold the wallet's rows
- * locked for longer than the change needs. `finishSweep` marks the catch-up
+ * A catch-up of a ready wallet (`onlyPromoted`) rebuilds the shielded columns
+ * of just the addresses whose outputs it promoted (the wallet's totals are
+ * still rebuilt and pruned over all of them), and nothing when it promoted
+ * none: the daemon keeps the rest current, and a full rebuild would hold the
+ * wallet's rows locked for longer than the change needs. `finishSweep` marks the catch-up
  * done in the same commit (step 1b, while the address rows are held).
  *
  * Returns how many outputs were actually promoted.
@@ -429,6 +477,7 @@ export const commitShieldedRecoveries = async (
     .filter((address) => !onlyPromoted || promotedAddresses.has(address));
   await rebuildShieldedAddressTxHistory(mysql, ctSpendAddresses);
   await rebuildShieldedAddressBalances(mysql, ctSpendAddresses);
+  await pruneWalletTotals(mysql, walletId, addresses);
   await rebuildWalletBalance(mysql, walletId, addresses);
   await rebuildWalletTxHistory(mysql, walletId, addresses);
   return promoted;

@@ -460,4 +460,10 @@ describe('getWalletBalanceMap attributability filter', () => {
     const map = getWalletBalanceMap(walletAt(WalletStatus.ERROR, 'none'), balances());
     expect(Object.keys(map)).toEqual([]);
   });
+
+  it('attributes a ready wallet whose shielded upgrade failed', () => {
+    // Recording the failure rebuilt its totals, so its transparent balance moves on.
+    const map = getWalletBalanceMap(walletAt(WalletStatus.READY, WalletStatus.ERROR), balances());
+    expect(Object.keys(map)).toEqual(['w1']);
+  });
 });
