@@ -99,6 +99,8 @@ jest.mock('../../src/db', () => ({
   bumpAddressInvolvement: jest.fn(),
   decrementAddressInvolvement: jest.fn(),
   getAddressWalletInfo: jest.fn(),
+  refreshWalletLifecycles: jest.fn(async () => undefined),
+  getCurrentShieldedRecovery: jest.fn(async () => new Map()),
   generateAddresses: jest.fn(),
   addNewAddresses: jest.fn(),
   updateWalletTablesWithTx: jest.fn(),
@@ -134,6 +136,7 @@ jest.mock('../../src/utils', () => ({
   getWalletBalancesForTx: jest.fn(),
   generateAddresses: jest.fn(),
   retryWithBackoff: jest.fn((fn) => fn()),
+  retryOnLockConflict: jest.fn((fn) => fn()),
 }));
 
 jest.mock('@wallet-service/common', () => {

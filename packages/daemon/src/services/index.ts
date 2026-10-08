@@ -84,6 +84,7 @@ import {
   getLockedUtxoFromInputs,
   incrementTokensTxCount,
   getAddressWalletInfo,
+  refreshWalletLifecycles,
   addNewAddresses,
   updateWalletTablesWithTx,
   voidTransaction,
@@ -118,7 +119,7 @@ import {
 } from '@wallet-service/common';
 import getConfig, { VALIDATE_ADDRESS_BALANCES } from '../config';
 import logger from '../logger';
-import { invokeOnTxPushNotificationRequestedLambda, getDaemonUptime, retryWithBackoff } from '../utils';
+import { invokeOnTxPushNotificationRequestedLambda, getDaemonUptime, retryWithBackoff, retryOnLockConflict } from '../utils';
 import { addAlert, Severity } from '@wallet-service/common';
 import { JSONBigInt } from '@hathor/wallet-lib/lib/utils/bigint';
 
@@ -373,7 +374,7 @@ export function isNanoContract(headers: EventTxHeader[]) {
  * @param context - The context containing the event and other metadata
  * @param _event - The event being processed (unused, context.event is used instead)
  */
-export const handleVertexAccepted = async (context: Context, _event: Event) => {
+const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
   return tracer.startActiveSpan('handleVertexAccepted', async (span) => {
     let mysql: PoolConnection | undefined;
     try {
@@ -434,6 +435,10 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       }
 
       await mysql.beginTransaction();
+      // Notifications that leave the database, sent only once the transaction
+      // has committed: a transaction re-run after a lock conflict must not
+      // send them twice, nor send them for a vertex that was never stored.
+      const afterCommit: (() => Promise<void>)[] = [];
       try {
         let height: number | null = metadata.height;
 
@@ -836,6 +841,9 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
           //   - shielded spend reversals sourced from local tx_output rows
           //     (only for `recovery_state = 'recovered'` rows owned by us),
           //   - header-only addresses seeded with an empty HTR entry.
+          // The spent rows were already updated above (spent_by), so they hold
+          // their locks; reading them as locking reads keeps that from being
+          // the only thing that makes these reads current.
           const addressBalanceMap: StringMap<TokenBalanceMap> = await getUnifiedBalanceMap(
             mysql,
             txInputs,
@@ -843,6 +851,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             shieldedRecoveryResults,
             spendableInputs,
             headers,
+            { lockRows: true },
           );
 
           // update address tables (address, address_balance, address_tx_history)
@@ -850,6 +859,7 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
           // for the addresses present on the tx, check if there are any wallets associated
           const addressWalletMap: StringMap<Wallet> = await withSpan('getAddressWalletInfo', () => getAddressWalletInfo(mysql!, Object.keys(addressBalanceMap)));
+          await refreshWalletLifecycles(mysql, addressWalletMap);
 
           const addressesPerWallet = Object.entries(addressWalletMap).reduce(
             (result: StringMap<{ addresses: string[], walletDetails: Wallet }>, [address, wallet]: [string, Wallet]) => {
@@ -952,31 +962,35 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             addresses: Array.from(involvedAddresses),
           };
 
-          try {
-            if (seenWallets.length > 0) {
-              await sendRealtimeTx(
-                Array.from(seenWallets),
-                txData,
-              );
-            }
-          } catch (e) {
-            logger.error('Failed to send transaction to SQS queue');
-            logger.error(e);
-          }
-
-          try {
-            if (PUSH_NOTIFICATION_ENABLED) {
-              const walletBalanceMap = await getWalletBalancesForTx(mysql, txData, addressBalanceMap);
-              const { length: hasAffectWallets } = Object.keys(walletBalanceMap);
-              if (hasAffectWallets) {
-                invokeOnTxPushNotificationRequestedLambda(walletBalanceMap)
-                  .catch((err: Error) => logger.error('Error on invokeOnTxPushNotificationRequestedLambda invocation', err));
+          afterCommit.push(async () => {
+            try {
+              if (seenWallets.length > 0) {
+                await sendRealtimeTx(
+                  Array.from(seenWallets),
+                  txData,
+                );
               }
+            } catch (e) {
+              logger.error('Failed to send transaction to SQS queue');
+              logger.error(e);
             }
-          } catch (e) {
-            logger.error('Failed to send push notification to wallet-service lambda');
-            logger.error(e);
-          }
+          });
+
+          afterCommit.push(async () => {
+            try {
+              if (PUSH_NOTIFICATION_ENABLED) {
+                const walletBalanceMap = await getWalletBalancesForTx(mysql!, txData, addressBalanceMap);
+                const { length: hasAffectWallets } = Object.keys(walletBalanceMap);
+                if (hasAffectWallets) {
+                  invokeOnTxPushNotificationRequestedLambda(walletBalanceMap)
+                    .catch((err: Error) => logger.error('Error on invokeOnTxPushNotificationRequestedLambda invocation', err));
+                }
+              }
+            } catch (e) {
+              logger.error('Failed to send push notification to wallet-service lambda');
+              logger.error(e);
+            }
+          });
 
           // NFT detection on transactions that touch shielded data is deferred —
           // shielded NFT detection is technical debt, so skip the handler when the
@@ -989,9 +1003,11 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
 
             // Call to process the data for NFT handling (if applicable)
             // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
-            // @ts-ignore - wallet-lib's FullNodeTransaction will be updated to know about the new spent_output union in the next release
-            NftUtils.processNftEvent(fullNodeData, STAGE, SERVERLESS_DEPLOY_PREFIX, network, logger)
-              .catch((err: unknown) => logger.error('[ALERT] Error processing NFT event', err));
+            afterCommit.push(async () => {
+              // @ts-ignore - wallet-lib's FullNodeTransaction will be updated to know about the new spent_output union in the next release
+              NftUtils.processNftEvent(fullNodeData, STAGE, SERVERLESS_DEPLOY_PREFIX, network, logger)
+                .catch((err: unknown) => logger.error('[ALERT] Error processing NFT event', err));
+            });
           }
         }
 
@@ -1010,6 +1026,10 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
 
         await mysql.commit();
+
+        for (const send of afterCommit) {
+          await send();
+        }
 
         // Transaction committed and its row locks released: now emit the
         // deferred recovery-failure alert, one per vertex. Routed through
@@ -1133,7 +1153,12 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
   });
 };
 
-export const handleVertexRemoved = async (context: Context, _event: Event) => {
+/** handleVertexAccepted, re-run when its transaction loses a lock conflict (see retryOnLockConflict). */
+export const handleVertexAccepted = (context: Context, event: Event) => (
+  retryOnLockConflict(() => handleVertexAcceptedOnce(context, event))
+);
+
+const handleVertexRemovedOnce = async (context: Context, _event: Event) => {
   return tracer.startActiveSpan('handleVertexRemoved', async (span) => {
     let mysql: PoolConnection | undefined;
     try {
@@ -1203,6 +1228,11 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
   });
 };
 
+/** handleVertexRemoved, re-run when its transaction loses a lock conflict (see retryOnLockConflict). */
+export const handleVertexRemoved = (context: Context, event: Event) => (
+  retryOnLockConflict(() => handleVertexRemovedOnce(context, event))
+);
+
 /**
  * Voids a transaction and all its associated data.
  *
@@ -1250,7 +1280,10 @@ export const voidTx = async (
   headers: EventTxHeader[],
   version: number,
 ) => {
-  const dbTxOutputs: DbTxOutput[] = await withSpan('getTxOutputsFromTx', () => getTxOutputsFromTx(mysql, hash));
+  // Locking reads, here and for the spent outputs below: what gets reversed is
+  // decided from these rows, and the wallet-service may have promoted and
+  // credited one of them after this transaction's snapshot was taken.
+  const dbTxOutputs: DbTxOutput[] = await withSpan('getTxOutputsFromTx', () => getTxOutputsFromTx(mysql, hash, true));
   const txOutputs: TxOutputWithIndex[] = prepareOutputs(outputs, tokens);
   const txInputs: TxInput[] = prepareInputs(inputs, tokens);
 
@@ -1297,6 +1330,7 @@ export const voidTx = async (
     shieldedRecoveryResults,
     inputs,
     headers,
+    { lockRows: true },
   );
 
   await withSpan('voidTransaction', () => voidTransaction(mysql, hash));
@@ -1373,7 +1407,7 @@ export const voidTx = async (
   }
 };
 
-export const handleVoidedTx = async (context: Context) => {
+const handleVoidedTxOnce = async (context: Context) => {
   return tracer.startActiveSpan('handleVoidedTx', async (span) => {
     let mysql: PoolConnection | undefined;
     try {
@@ -1433,7 +1467,12 @@ export const handleVoidedTx = async (context: Context) => {
   });
 };
 
-export const handleUnvoidedTx = async (context: Context) => {
+/** handleVoidedTx, re-run when its transaction loses a lock conflict (see retryOnLockConflict). */
+export const handleVoidedTx = (context: Context) => (
+  retryOnLockConflict(() => handleVoidedTxOnce(context))
+);
+
+const handleUnvoidedTxOnce = async (context: Context) => {
   return tracer.startActiveSpan('handleUnvoidedTx', async (span) => {
     let mysql: PoolConnection | undefined;
     try {
@@ -1478,7 +1517,12 @@ export const handleUnvoidedTx = async (context: Context) => {
   });
 };
 
-export const handleTxFirstBlock = async (context: Context) => {
+/** handleUnvoidedTx, re-run when its transaction loses a lock conflict (see retryOnLockConflict). */
+export const handleUnvoidedTx = (context: Context) => (
+  retryOnLockConflict(() => handleUnvoidedTxOnce(context))
+);
+
+const handleTxFirstBlockOnce = async (context: Context) => {
   return tracer.startActiveSpan('handleTxFirstBlock', async (span) => {
     let mysql: PoolConnection | undefined;
     try {
@@ -1535,6 +1579,11 @@ export const handleTxFirstBlock = async (context: Context) => {
   });
 };
 
+/** handleTxFirstBlock, re-run when its transaction loses a lock conflict (see retryOnLockConflict). */
+export const handleTxFirstBlock = (context: Context) => (
+  retryOnLockConflict(() => handleTxFirstBlockOnce(context))
+);
+
 /**
  * Handle NC_EXEC_VOIDED event - nc_execution changed from 'success' to something else.
  *
@@ -1547,7 +1596,7 @@ export const handleTxFirstBlock = async (context: Context) => {
  * because the token creation is inherent to the transaction itself, not dependent
  * on nano contract execution.
  */
-export const handleNcExecVoided = async (context: Context) => {
+const handleNcExecVoidedOnce = async (context: Context) => {
   return tracer.startActiveSpan('handleNcExecVoided', async (span) => {
     let mysql: PoolConnection | undefined;
     try {
@@ -1599,6 +1648,11 @@ export const handleNcExecVoided = async (context: Context) => {
     }
   });
 };
+
+/** handleNcExecVoided, re-run when its transaction loses a lock conflict (see retryOnLockConflict). */
+export const handleNcExecVoided = (context: Context) => (
+  retryOnLockConflict(() => handleNcExecVoidedOnce(context))
+);
 
 export const updateLastSyncedEvent = async (context: Context) => {
   let mysql: PoolConnection | undefined;
@@ -1727,7 +1781,7 @@ export const handleReorgStarted = async (context: Context): Promise<void> => {
   });
 };
 
-export const handleTokenCreated = async (context: Context) => {
+const handleTokenCreatedOnce = async (context: Context) => {
   return tracer.startActiveSpan('handleTokenCreated', async (span) => {
     let mysql: PoolConnection | undefined;
     try {
@@ -1815,6 +1869,11 @@ export const handleTokenCreated = async (context: Context) => {
     }
   });
 };
+
+/** handleTokenCreated, re-run when its transaction loses a lock conflict (see retryOnLockConflict). */
+export const handleTokenCreated = (context: Context) => (
+  retryOnLockConflict(() => handleTokenCreatedOnce(context))
+);
 
 /**
  * Checks the HTTP API for missed events after the last ACK

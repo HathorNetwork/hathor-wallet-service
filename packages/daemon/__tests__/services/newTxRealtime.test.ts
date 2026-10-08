@@ -195,6 +195,22 @@ describe('handleVertexAccepted realtime new-tx payload', () => {
     event,
   } as any, undefined as any);
 
+  it('notifies once when the ingest is re-run after a lock conflict', async () => {
+    expect.hasAssertions();
+
+    await seedSeenWallet();
+    // Fails the first attempt at its last statement, after the notification
+    // would have been built.
+    const spy = jest.spyOn(db, 'updateLastSyncedEvent')
+      .mockRejectedValueOnce(Object.assign(new Error('Deadlock found'), { errno: 1213 }));
+
+    await ingest(JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED)));
+    spy.mockRestore();
+
+    // Sent after the commit only, so the failed attempt sent nothing.
+    expect(sendRealtimeTx).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps one entry per shielded output, an addressless one included', async () => {
     expect.hasAssertions();
 

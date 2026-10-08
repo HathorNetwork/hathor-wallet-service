@@ -30,7 +30,7 @@ jest.mock('@wallet-service/common', () => {
 import { TokenVersion } from '@hathor/wallet-lib';
 import * as db from '../../src/db';
 import { handleVoidedTx, voidTx, handleTokenCreated, handleVertexAccepted, handleUnvoidedTx, handleVertexRemoved, resetMissingProviderAlert } from '../../src/services';
-import { LRU } from '../../src/utils';
+import { LRU, unlockUtxos } from '../../src/utils';
 import {
   addOrUpdateTx,
   addUtxos,
@@ -5382,5 +5382,296 @@ describe('voiding a shielded output the wallet-service recovered', () => {
 
     expect(await addressRow(address)).toBeNull();
     expect(await walletRow()).toBeNull();
+  });
+});
+
+describe('ingest under lock contention', () => {
+  // The wallet-service's recovery commit locks a wallet's balance rows for its
+  // whole transaction, so the daemon can lose a deadlock to it or wait on it.
+  const lockError = (errno: number) => Object.assign(new Error(`lock error ${errno}`), { errno });
+  const ingest = (event: unknown) => handleVertexAccepted({
+    socket: expect.any(Object),
+    healthcheck: expect.any(Object),
+    retryAttempt: 0,
+    initialEventId: null,
+    txCache: new LRU(100),
+    rewardMinBlocks: 300,
+    event,
+  } as any, undefined as any);
+  const vertex = () => JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+  const TRANSPARENT_ADDRESS = 'WTransparentAddress1'; // the fixture's transparent output, 5000 HTR
+
+  beforeEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  afterEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  it('re-runs an ingest that lost a lock conflict and writes everything once', async () => {
+    expect.hasAssertions();
+
+    const fixture = vertex();
+    const hash = fixture.event.data.hash;
+    // Fails the first attempt at its last statement, after every other write.
+    const spy = jest.spyOn(db, 'updateLastSyncedEvent').mockRejectedValueOnce(lockError(1213));
+
+    await expect(ingest(fixture)).resolves.not.toThrow();
+    spy.mockRestore();
+
+    const [txRows] = await mysql.query<any[]>('SELECT `tx_id` FROM `transaction` WHERE `tx_id` = ?', [hash]);
+    expect(txRows).toHaveLength(1);
+    const [outputs] = await mysql.query<any[]>('SELECT `index` FROM `tx_output` WHERE `tx_id` = ?', [hash]);
+    expect(outputs).toHaveLength(2);
+    const [addr] = await mysql.query<any[]>('SELECT `transactions` FROM `address` WHERE `address` = ?', [TRANSPARENT_ADDRESS]);
+    expect(Number(addr[0].transactions)).toBe(1);
+  });
+
+  it('still fails once its retries are exhausted, leaving nothing behind', async () => {
+    expect.hasAssertions();
+
+    const fixture = vertex();
+    const spy = jest.spyOn(db, 'updateLastSyncedEvent').mockRejectedValue(lockError(1205));
+
+    await expect(ingest(fixture)).rejects.toMatchObject({ errno: 1205 });
+    spy.mockRestore();
+
+    const [txRows] = await mysql.query<any[]>(
+      'SELECT `tx_id` FROM `transaction` WHERE `tx_id` = ?', [fixture.event.data.hash],
+    );
+    expect(txRows).toHaveLength(0);
+  });
+
+  it('credits a wallet whose load finished while the ingest waited on its rows', async () => {
+    expect.hasAssertions();
+
+    const walletId = 'wallet_loading';
+    const now = Math.floor(Date.now() / 1000);
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at)
+       VALUES (?, ?, ?, 'creating', 20, ?)`,
+      [walletId, XPUBKEY, XPUBKEY, now],
+    );
+    await mysql.query(
+      'INSERT INTO `address` (address, wallet_id, `index`, transactions) VALUES (?, ?, 0, 0)',
+      [TRANSPARENT_ADDRESS, walletId],
+    );
+    await mysql.query(
+      `INSERT INTO \`address_balance\` (address, token_id, unlocked_balance, locked_balance,
+          unlocked_authorities, locked_authorities, transactions)
+       VALUES (?, '00', 0, 0, 0, 0, 0)`,
+      [TRANSPARENT_ADDRESS],
+    );
+
+    // A load's settle holds the address's balance row...
+    const load = await db.getDbConnection();
+    try {
+      await load.beginTransaction();
+      await load.query('SELECT 1 FROM `address_balance` WHERE `address` = ? FOR UPDATE', [TRANSPARENT_ADDRESS]);
+
+      // ...so the ingest waits on it once it reaches its balance writes. A
+      // vertex with inputs reads (its locked inputs, for one) before then, which
+      // fixes its snapshot with the wallet still loading; this fixture has no
+      // inputs, so make that read here, on the ingest's own connection.
+      let reached!: () => void;
+      const atBalanceWrites = new Promise<void>((resolve) => { reached = resolve; });
+      const realUpdate = db.updateAddressTablesWithTx;
+      const spy = jest.spyOn(db, 'updateAddressTablesWithTx').mockImplementationOnce(async (...args) => {
+        await args[0].query('SELECT `status` FROM `wallet` WHERE `id` = ?', [walletId]);
+        reached();
+        return realUpdate(...args);
+      });
+      const ingesting = ingest(vertex());
+      await atBalanceWrites;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // The load flips the wallet ready and commits, releasing the row.
+      await load.query("UPDATE `wallet` SET `status` = 'ready' WHERE `id` = ?", [walletId]);
+      await load.commit();
+      await ingesting;
+      spy.mockRestore();
+    } finally {
+      load.release();
+    }
+
+    // The load's rebuild did not include this tx, so the ingest must credit the
+    // wallet; deciding from its stale snapshot would skip it for good.
+    const [rows] = await mysql.query<any[]>(
+      "SELECT `unlocked_balance` FROM `wallet_balance` WHERE `wallet_id` = ? AND `token_id` = '00'",
+      [walletId],
+    );
+    expect(rows).toHaveLength(1);
+    expect(BigInt(rows[0].unlocked_balance)).toBe(5000n);
+  });
+
+  it('moves a recovered output\'s value on unlock even when it was read as unowned', async () => {
+    expect.hasAssertions();
+
+    // The wallet-service recovered and credited this locked output after the
+    // daemon's plain read saw it unowned.
+    await mysql.query(
+      `INSERT INTO \`tx_output\` (tx_id, \`index\`, address, value, token_id, authorities, timelock,
+          heightlock, locked, voided, mode, recovery_state)
+       VALUES ('unlock-tx', 0, 'WShieldedAddress1', 100, '00', 0, NULL, 10, TRUE, FALSE, 1, 'recovered')`,
+    );
+    await mysql.query(
+      `INSERT INTO \`address_balance\` (address, token_id, unlocked_balance, locked_balance,
+          unlocked_shielded_balance, locked_shielded_balance, total_shielded_received,
+          unlocked_authorities, locked_authorities, transactions)
+       VALUES ('WShieldedAddress1', '00', 0, 0, 0, 100, 100, 0, 0, 1)`,
+    );
+    const current = (await db.getTxOutput(mysql, 'unlock-tx', 0, false))!;
+    const stale: DbTxOutput = { ...current, recoveryState: 'unowned', value: null, tokenId: '00' };
+
+    await mysql.beginTransaction();
+    await unlockUtxos(mysql, [stale], false);
+    await mysql.commit();
+
+    const [rows] = await mysql.query<any[]>(
+      `SELECT locked_shielded_balance AS locked, unlocked_shielded_balance AS unlocked
+         FROM address_balance WHERE address = 'WShieldedAddress1' AND token_id = '00'`,
+    );
+    expect({ locked: BigInt(rows[0].locked), unlocked: BigInt(rows[0].unlocked) })
+      .toStrictEqual({ locked: 0n, unlocked: 100n });
+  });
+});
+
+describe('void under lock contention', () => {
+  // The wallet-service promotes a stored shielded output and credits it in one
+  // transaction. A void that waits on that transaction must decide what to
+  // reverse from the committed row, not from its own earlier snapshot.
+  const ingest = (event: unknown) => handleVertexAccepted({
+    socket: expect.any(Object),
+    healthcheck: expect.any(Object),
+    retryAttempt: 0,
+    initialEventId: null,
+    txCache: new LRU(100),
+    rewardMinBlocks: 300,
+    event,
+  } as any, undefined as any);
+  const voidTxOf = (f: any) => handleVoidedTx({
+    event: {
+      stream_id: 's', peer_id: 'p', network: 'mainnet', type: 'FULLNODE_EVENT', latest_event_id: 99999,
+      event: {
+        id: 99000 + f.event.id,
+        data: { ...f.event.data, metadata: { ...f.event.data.metadata, voided_by: [f.event.data.hash] } },
+      },
+    },
+  } as any);
+  const receive = () => {
+    const f = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    f.event.data.shielded_outputs[0].token_data = 0;
+    return f;
+  };
+  const spend = (t: any) => {
+    const f = JSON.parse(JSON.stringify(t));
+    const hash = 'c3'.repeat(32);
+    f.event.id = 103;
+    f.event.data.hash = hash;
+    f.event.data.metadata.hash = hash;
+    f.event.data.inputs = [{
+      tx_id: t.event.data.hash,
+      index: t.event.data.outputs.length,
+      spent_output: { ...t.event.data.shielded_outputs[0], mode: 1, token_data: 0 },
+    }];
+    f.event.data.outputs = [{
+      value: 90, script: 'dqkU91U6sMdzgT3zxOtdIVGbqobP0FmIrA==', token_data: 0,
+      decoded: { type: 'P2PKH', address: 'WTransparentAddress2', timelock: null },
+    }];
+    f.event.data.shielded_outputs = [];
+    return f;
+  };
+  const SHIELDED_ADDRESS = 'WShieldedAddress1';
+
+  /**
+   * On a second connection, do what the wallet-service's recovery commit does
+   * for the receive's output, and leave it uncommitted. Returns the connection.
+   */
+  const recoverUncommitted = async (t: any) => {
+    const recoverer = await db.getDbConnection();
+    await recoverer.beginTransaction();
+    await recoverer.query(
+      "UPDATE `address` SET wallet_id = 'wallet_alice', bip32_account = 2, scan_privkey = ? WHERE address = ?",
+      [Buffer.alloc(32, 0x42), SHIELDED_ADDRESS],
+    );
+    const [rows] = await recoverer.query<any[]>(
+      'SELECT `spent_by` FROM `tx_output` WHERE `tx_id` = ? AND `index` = ?',
+      [t.event.data.hash, t.event.data.outputs.length],
+    );
+    const spent = rows[0].spent_by !== null;
+    await recoverer.query(
+      "UPDATE `tx_output` SET recovery_state = 'recovered', value = 100, token_id = '00' WHERE tx_id = ? AND `index` = ?",
+      [t.event.data.hash, t.event.data.outputs.length],
+    );
+    await recoverer.query(
+      `INSERT INTO address_balance (address, token_id, unlocked_balance, locked_balance,
+          unlocked_shielded_balance, locked_shielded_balance, total_shielded_received,
+          unlocked_authorities, locked_authorities, transactions)
+       VALUES (?, '00', 0, 0, ?, 0, 100, 0, 0, 1)`,
+      [SHIELDED_ADDRESS, spent ? 0 : 100],
+    );
+    await recoverer.query(
+      `INSERT INTO address_tx_history (address, tx_id, token_id, balance, shielded_balance_delta, timestamp, voided)
+       VALUES (?, ?, '00', 0, 100, 0, FALSE)`,
+      [SHIELDED_ADDRESS, t.event.data.hash],
+    );
+    return recoverer;
+  };
+  const shieldedRow = async () => {
+    const [rows] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance AS unlocked, total_shielded_received AS total
+         FROM address_balance WHERE address = ? AND token_id = '00'`, [SHIELDED_ADDRESS],
+    );
+    return rows[0] ? { unlocked: BigInt(rows[0].unlocked), total: BigInt(rows[0].total) } : null;
+  };
+
+  /** Start `run`, let it reach the recoverer's locks, then commit the recovery. */
+  const raceRecovery = async (recoverer: any, run: () => Promise<unknown>) => {
+    try {
+      const pending = run();
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await recoverer.commit();
+      await pending;
+    } finally {
+      recoverer.release();
+    }
+  };
+
+  beforeEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+    clearShieldedCryptoProvider();
+  });
+
+  afterEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  it('reverses an output recovered while the void waited on it', async () => {
+    expect.hasAssertions();
+
+    const t = receive();
+    await ingest(t);
+    const recoverer = await recoverUncommitted(t);
+
+    await raceRecovery(recoverer, () => voidTxOf(t));
+
+    // The void reversed the credit the recovery committed, leaving no balance.
+    expect(await shieldedRow()).toBeNull();
+  });
+
+  it('re-credits an output recovered while the void of its spender waited on it', async () => {
+    expect.hasAssertions();
+
+    const t = receive();
+    const t2 = spend(t);
+    await ingest(t);
+    await ingest(t2);
+    const recoverer = await recoverUncommitted(t);
+
+    await raceRecovery(recoverer, () => voidTxOf(t2));
+
+    // Unspent again: its value is back in the unlocked balance.
+    expect(await shieldedRow()).toStrictEqual({ unlocked: 100n, total: 100n });
   });
 });
