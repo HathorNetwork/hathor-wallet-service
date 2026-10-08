@@ -65,6 +65,7 @@ import middy from '@middy/core';
 import cors from '@middy/http-cors';
 import Joi from 'joi';
 import createDefaultLogger from '@src/logger';
+import { Logger } from 'winston';
 import { Severity } from '@wallet-service/common/src/types';
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 import config from '@src/config';
@@ -151,6 +152,27 @@ const loadBodySchema = Joi.object({
   spendXpubSignature: Joi.string(),
   ctAddressSignature: Joi.string(),
 }).and('scanXpriv', 'spendXpub', 'firstCtAddress', 'spendXpubSignature', 'ctAddressSignature');
+
+/**
+ * Validate a load body. A field this service doesn't know is dropped rather
+ * than rejected, so a client newer than the service still loads; the names of
+ * the dropped fields are logged (never their values, which can be keys). Known
+ * fields are validated as before.
+ */
+const validateLoadBody = (eventBody: unknown, logger: Logger) => {
+  const result = loadBodySchema.validate(eventBody, {
+    abortEarly: false,
+    convert: false,
+    stripUnknown: true,
+  });
+  if (!result.error && eventBody !== null && typeof eventBody === 'object') {
+    const ignored = Object.keys(eventBody).filter((key) => !(key in result.value));
+    if (ignored.length > 0) {
+      logger.warn('Load request had fields this service does not know; they were ignored', { fields: ignored });
+    }
+  }
+  return result;
+};
 
 /**
  * Invoke the async wallet-load lambda — derives both the legacy and
@@ -295,10 +317,7 @@ export const changeAuthXpub: APIGatewayProxyHandler = middy(async (event) => {
   }(event.body));
 
   // body should have the same schema as load
-  const { value, error } = loadBodySchema.validate(eventBody, {
-    abortEarly: false,
-    convert: false,
-  });
+  const { value, error } = validateLoadBody(eventBody, createDefaultLogger());
 
   if (error) {
     const details = error.details.map((err) => ({
@@ -399,10 +418,7 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
     }
   }(event.body));
 
-  const { value, error } = loadBodySchema.validate(eventBody, {
-    abortEarly: false,
-    convert: false,
-  });
+  const { value, error } = validateLoadBody(eventBody, logger);
 
   if (error) {
     const details = error.details.map((err) => ({
