@@ -16,6 +16,34 @@ Check [this document](2021-07-29-infrastructure-design.md#avoiding-downtimes-dur
 
 In case it's not possible to build a downtime-safe migration (this can happen), we have a maintenance mode in place that should be enabled before deploying, or before approving the deployment request in CodePipeline. Check below how to enable it.
 
+### First deploy of the failed-upgrade rebuild (#515)
+
+This is a one-time procedure for the first deploy to each environment that includes #515. It covers wallets that were already in `status = 'ready' AND ct_status = 'error'` before that deploy, meaning their shielded upgrade failed. While the upgrade ran, the daemon skipped their `wallet_balance` and `wallet_tx_history` updates, and nothing rebuilt them afterwards, so their totals are short.
+
+From #515 on, the daemon keeps such a wallet's totals current again. On short totals, the first large debit underflows and **halts sync for every wallet**. So the wallet-service must heal these wallets before the daemon deploys:
+
+1. **Deploy the wallet-service** (the Lambdas).
+2. **Wait at least 10 minutes.** A load that was already running the old code (`loadWalletAsync` times out after 600 s) can still record a failure without rebuilding.
+3. **Re-run the load of each such wallet.**
+   - List them:
+     ```sql
+     SELECT id, xpubkey, max_gap FROM wallet WHERE status = 'ready' AND ct_status = 'error';
+     ```
+   - Invoke the load Lambda directly for each wallet. The load API can't be used, because it needs the client's signatures.
+     ```sh
+     aws lambda invoke --function-name hathor-wallet-service-<stage>-loadWalletAsync \
+       --invocation-type Event --cli-binary-format raw-in-base64-out \
+       --payload '{"xpubkey": "<xpubkey>", "maxGap": <max_gap>}' /dev/null
+     ```
+   - The load first moves the wallet to `ct_status = 'creating'`, which the daemon skips, so every outcome is safe:
+     - **Success:** the totals are rebuilt and the wallet goes `ready`.
+     - **A failure:** the totals are rebuilt and the wallet goes back to `error`, now safe.
+     - **A timeout:** it goes through the DLQ, which rebuilds the totals the same way.
+     - **Anything else:** the wallet is left `creating`.
+   - Re-invoke any wallet that is left `creating`, and any whose run raised the "Failed shielded upgrade not recorded" alert.
+4. **Re-run the list query just before deploying the daemon.** Every wallet still on it must have been re-invoked after step 2.
+5. **Deploy the daemon.**
+
 ## Adding new environment variables
 
 If you need to add new environment variables, there are some steps that should be taken.
