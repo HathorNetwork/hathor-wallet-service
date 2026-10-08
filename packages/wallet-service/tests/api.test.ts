@@ -1724,6 +1724,37 @@ test('loadWalletFailed rebuilds the totals of an upgrade that crashed', async ()
   expect(history.map((h) => h.tx_id)).toStrictEqual(['during']);
 });
 
+test('loadWalletFailed rebuilds the totals of a wallet in error whose direct load crashed', async () => {
+  // An operator's direct load of a wallet left in error before the fix can
+  // die before moving it back to creating; it reaches the DLQ still in error.
+  expect.hasAssertions();
+  await cleanDatabase(mysql);
+  const walletId = getWalletId(XPUBKEY);
+  await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5);
+  await Db.updateWalletStatus(mysql, walletId, WalletStatus.READY);
+  await Db.registerWalletShieldedKeys(mysql, walletId, 'scanx', 'spendx', 20);
+  await mysql.query("UPDATE `wallet` SET `ct_status` = 'error' WHERE `id` = ?", [walletId]);
+  await mysql.query(
+    'INSERT INTO `address` (`address`, `index`, `wallet_id`, `transactions`, `bip32_account`) VALUES (?, 0, ?, 1, 0)',
+    [ADDRESSES[0], walletId],
+  );
+  await addToAddressTxHistoryTable(mysql, [
+    { address: ADDRESSES[0], txId: 'during', tokenId: '00', balance: 150n, timestamp: 20 },
+  ]);
+  await addToAddressBalanceTable(mysql, [[ADDRESSES[0], '00', 150, 0, null, 1, 0, 0, 150]]);
+
+  await loadWalletFailed(makeLoadWalletFailedSNSEvent(1, XPUBKEY), null, null);
+
+  const w = await Db.getWallet(mysql, walletId);
+  expect(w.status).toBe(WalletStatus.READY);
+  expect(w.ctStatus).toBe(WalletStatus.ERROR);
+  expect(w.retryCount).toBe(5);
+  const balances = await mysql.query(
+    "SELECT `unlocked_balance` FROM `wallet_balance` WHERE `wallet_id` = ? AND `token_id` = '00'", [walletId],
+  ) as unknown as { unlocked_balance: string }[];
+  expect(balances.map((b) => Number(b.unlocked_balance))).toStrictEqual([150]);
+});
+
 test('loadWalletFailed pins both sides for a fresh shielded wallet crash', async () => {
   expect.hasAssertions();
   await cleanDatabase(mysql);

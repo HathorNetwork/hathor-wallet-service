@@ -717,15 +717,16 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
       // working legacy state untouched.
       const failedWallet = await getWallet(mysql, walletId);
       if (failedWallet && failedWallet.scanXpriv != null && failedWallet.status === WalletStatus.READY) {
-        if (failedWallet.ctStatus === WalletStatus.CREATING) {
+        if (failedWallet.ctStatus !== WalletStatus.READY) {
           // A timed-out upgrade lands here, not in the worker's catch, so it
           // rebuilds the totals the same way (see recordFailedShieldedUpgrade).
+          // That includes a wallet still in error: a load that died before it
+          // could move it back to creating has rebuilt nothing.
           await recordFailedShieldedUpgrade(
             mysql, walletId, logger, (tx) => pinShieldedLoadFailed(tx, walletId, MAX_LOAD_WALLET_RETRIES),
           );
         } else {
-          // Its failure was recorded, with the rebuild, already; or another
-          // attempt made it ready. Neither needs rebuilding.
+          // Another attempt made it ready, which rebuilt it: pinning is a no-op.
           await pinShieldedLoadFailed(mysql, walletId, MAX_LOAD_WALLET_RETRIES);
         }
       } else if (failedWallet && failedWallet.scanXpriv != null) {
@@ -792,6 +793,15 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
   const wallet = await getWallet(mysql, walletId);
   if (!wallet) {
     throw new Error(`loadWallet: wallet ${walletId} not found`);
+  }
+  // The load API moves an errored side back to `creating` before invoking
+  // this; an operator's direct invoke skips the API, so do it here. A ready
+  // wallet in error counts as settled for the daemon, so until this load
+  // records an outcome it must be mid-load: a load that dies, or fails to
+  // record its failure, then leaves it safe instead of settled on totals
+  // nothing rebuilt.
+  if (wallet.status === WalletStatus.ERROR || wallet.ctStatus === WalletStatus.ERROR) {
+    await casWalletErrorToCreating(mysql, walletId);
   }
   const legacyWasReady = wallet.status === WalletStatus.READY;
   // consts (not the wallet fields) so the null checks narrow them below
