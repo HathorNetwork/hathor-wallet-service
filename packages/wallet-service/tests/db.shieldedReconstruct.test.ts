@@ -125,6 +125,57 @@ describe('rebuildShieldedAddressBalances', () => {
     expect(String(ab.tu)).toBe('777'); // transparent unlocked_balance preserved
   });
 
+  // The daemon's void subtracts 1 from `transactions` for the voided tx, so a
+  // pair the sweep credits must already be counted for it, or the void
+  // underflows and halts sync.
+  const readTransactions = async (address: string, tokenId: string) => Number((await mysql.query(
+    'SELECT `transactions` FROM `address_balance` WHERE `address` = ? AND `token_id` = ?',
+    [address, tokenId],
+  ))[0].transactions);
+
+  it('counts a new pair once per history row', async () => {
+    await insertTx('rtx1', 1000);
+    await insertOutput('rtx1', 0, 'a1', { value: '100' });
+
+    await rebuildShieldedAddressTxHistory(mysql, ['a1']);
+    await rebuildShieldedAddressBalances(mysql, ['a1']);
+
+    expect(await readTransactions('a1', '00')).toBe(1);
+  });
+
+  it('adds the recovered receive to the count a transparent row already has, once', async () => {
+    // The daemon already counted a transparent tx for this pair.
+    await mysql.query(
+      `INSERT INTO \`address_balance\`
+         (\`address\`, \`token_id\`, \`unlocked_balance\`, \`locked_balance\`,
+          \`unlocked_authorities\`, \`locked_authorities\`, \`transactions\`)
+       VALUES ('a1', '00', 777, 0, 0, 0, 1)`,
+    );
+    await insertAddressHistoryRow('a1', 'ttx', '00', 777, 0);
+    await insertTx('rtx1', 1000);
+    await insertOutput('rtx1', 0, 'a1', { value: '100' });
+
+    await rebuildShieldedAddressTxHistory(mysql, ['a1']);
+    await rebuildShieldedAddressBalances(mysql, ['a1']);
+    expect(await readTransactions('a1', '00')).toBe(2);
+
+    // A re-run (a reload) counts nothing twice.
+    await rebuildShieldedAddressTxHistory(mysql, ['a1']);
+    await rebuildShieldedAddressBalances(mysql, ['a1']);
+    expect(await readTransactions('a1', '00')).toBe(2);
+  });
+
+  it('does not count voided history rows', async () => {
+    await insertTx('rtx1', 1000);
+    await insertOutput('rtx1', 0, 'a1', { value: '100' });
+    await insertAddressHistoryRow('a1', 'gone', '00', 5, 0, true);
+
+    await rebuildShieldedAddressTxHistory(mysql, ['a1']);
+    await rebuildShieldedAddressBalances(mysql, ['a1']);
+
+    expect(await readTransactions('a1', '00')).toBe(1);
+  });
+
   it('is a no-op for an empty address list', async () => {
     await rebuildShieldedAddressBalances(mysql, []);
     expect(Number((await mysql.query('SELECT COUNT(*) AS c FROM `address_balance`'))[0].c)).toBe(0);
@@ -132,6 +183,43 @@ describe('rebuildShieldedAddressBalances', () => {
 });
 
 describe('rebuildShieldedAddressTxHistory', () => {
+  it('records the spend of a recovered output on its spending tx', async () => {
+    // Recovered after the spend happened: the daemon never wrote that row.
+    await insertTx('recv', 1000);
+    await insertTx('spend', 2000);
+    await insertOutput('recv', 0, 'a1', { value: '100', spentBy: 'spend' });
+
+    await rebuildShieldedAddressTxHistory(mysql, ['a1']);
+
+    expect(String((await readAddressHistory('a1', 'recv', '00')).d)).toBe('100');
+    const spendRow = await readAddressHistory('a1', 'spend', '00');
+    expect(String(spendRow.d)).toBe('-100');
+    expect(Number(spendRow.timestamp)).toBe(2000);
+  });
+
+  it('nets a tx that spends from and pays the same pair', async () => {
+    // `mixed` spends the 100 received in `recv` and pays 30 back to a1.
+    await insertTx('recv', 1000);
+    await insertTx('mixed', 2000);
+    await insertOutput('recv', 0, 'a1', { value: '100', spentBy: 'mixed' });
+    await insertOutput('mixed', 0, 'a1', { value: '30' });
+
+    await rebuildShieldedAddressTxHistory(mysql, ['a1']);
+
+    // The same delta the daemon writes for that tx, so a rebuild doesn't overwrite it.
+    expect(String((await readAddressHistory('a1', 'mixed', '00')).d)).toBe('-70');
+  });
+
+  it('ignores a spend by a voided tx', async () => {
+    await insertTx('recv', 1000);
+    await mysql.query("INSERT INTO `transaction` (`tx_id`, `timestamp`, `version`, `voided`) VALUES ('gone', 2000, 1, TRUE)");
+    await insertOutput('recv', 0, 'a1', { value: '100', spentBy: 'gone' });
+
+    await rebuildShieldedAddressTxHistory(mysql, ['a1']);
+
+    expect(await readAddressHistory('a1', 'gone', '00')).toBeUndefined();
+  });
+
   it('writes one shielded receive-delta per (address, tx, token) from recovered outputs', async () => {
     await insertTx('rtx1', 1000);
     await insertTx('rtx2', 2000);

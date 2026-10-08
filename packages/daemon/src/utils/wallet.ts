@@ -37,6 +37,8 @@ import {
   fetchAddressTxHistorySum,
   findShieldedAddressOwnership,
   getAddressWalletInfo,
+  refreshWalletLifecycles,
+  getCurrentShieldedRecovery,
   getExpiredTimelocksUtxos,
   getTokenSymbols,
   getTxOutput,
@@ -199,11 +201,12 @@ export const getAddressBalanceMap = (
  *
  *  - Transparent inputs: `spent_output.decoded.address` (when decode succeeded).
  *  - Transparent outputs: `decoded.address` (when decode succeeded).
- *  - Shielded outputs: every shielded `decoded.address`, regardless of
- *    ownership or recovery state. Unowned shielded outputs still mark
- *    their address as involved so an observer can see something happened.
- *  - Shielded inputs: `spent_output.decoded.address` — present on all
- *    shielded spent_output variants.
+ *  - Shielded outputs: `decoded.address` of every shielded output that has
+ *    one, regardless of ownership or recovery state. Unowned shielded
+ *    outputs still mark their address as involved so an observer can see
+ *    something happened; an output with no address contributes nothing.
+ *  - Shielded inputs: `spent_output.decoded.address`, when the spent
+ *    output has an address and its payload validated.
  *  - Nano-contract headers: `nc_address`.
  *
  * Pure function over wire data; no DB lookups. The caller is responsible
@@ -241,9 +244,8 @@ export const getInvolvedAddresses = (
   for (const input of inputs) {
     const spent = input?.spent_output;
     if (!spent) continue;
-    // `spent_output.decoded` is present on every variant of the union
-    // (transparent + both shielded). Address may still be absent if the
-    // decode failed upstream; skip empty/unknown values.
+    // A transparent spent output may have failed to decode and a shielded
+    // one may have no address; neither contributes anything.
     const decoded = (spent as { decoded?: { address?: string } | null }).decoded;
     const address = decoded && (decoded as { address?: string }).address;
     addInvolved(address);
@@ -378,6 +380,13 @@ export const getUnifiedBalanceMap = async (
   shieldedRecoveryResults: ShieldedRecoveryResult[],
   eventInputs: EventTxInput[],
   headers: EventTxHeader[],
+  /**
+   * Read the spent shielded outputs as currently committed (locking reads)
+   * rather than from the transaction's snapshot. A caller that hasn't already
+   * updated those rows itself must pass it: the wallet-service can promote and
+   * credit one after the snapshot was taken.
+   */
+  { lockRows = false }: { lockRows?: boolean } = {},
 ): Promise<StringMap<TokenBalanceMap>> => {
   const map: StringMap<TokenBalanceMap> = {};
 
@@ -410,7 +419,7 @@ export const getUnifiedBalanceMap = async (
   // originally; unowned and recovery_failed are skipped.
   for (const ei of eventInputs) {
     if (!ei?.spent_output || !isShieldedMode(ei.spent_output.mode)) continue;
-    const row = await getTxOutput(mysql, ei.tx_id, ei.index, false);
+    const row = await getTxOutput(mysql, ei.tx_id, ei.index, false, lockRows);
     if (!row) continue;
     // The wire says this input spends a shielded output. If the row stored at
     // that (tx_id, index) is transparent, the concatenated-index assumption
@@ -482,9 +491,20 @@ export const unlockUtxos = async (mysql: MysqlConnection, utxos: DbTxOutput[], u
   // `fromShielded`). Unowned / recovery_failed shielded rows are skipped — they never
   // contributed to balance, so unlocking them touches no column. `locked: false` on both
   // sides routes the value to the unlocked column families.
+  //
+  // Shielded rows are classified from their current state, not from `utxos`: the
+  // caller read those with a plain SELECT, and the wallet-service may have
+  // promoted and credited an output since. Deciding from the stale `unowned`
+  // would flip its lock flag without moving its value, leaving it in the locked
+  // column for good.
+  const currentShielded = await getCurrentShieldedRecovery(
+    mysql,
+    utxos.filter((utxo) => utxo.mode !== ShieldedOutputMode.Transparent),
+  );
   const synthOutputs: TxOutputWithIndex[] = [];
   const synthRecoveryResults: ShieldedRecoveryResult[] = [];
   for (const utxo of utxos) {
+    const current = currentShielded.get(`${utxo.txId}:${utxo.index}`);
     if (utxo.mode === ShieldedOutputMode.Transparent) {
       synthOutputs.push({
         value: utxo.authorities > 0 ? BigInt(utxo.authorities) : utxo.value!,
@@ -500,11 +520,11 @@ export const unlockUtxos = async (mysql: MysqlConnection, utxos: DbTxOutput[], u
         script: '',
         index: utxo.index,
       });
-    } else if (utxo.recoveryState === RecoveryState.Recovered) {
+    } else if (current?.recoveryState === RecoveryState.Recovered) {
       synthRecoveryResults.push({
         address: utxo.address,
-        tokenId: utxo.tokenId!,
-        value: utxo.value!,
+        tokenId: current.tokenId!,
+        value: current.value!,
         locked: false,
       });
     }
@@ -524,6 +544,7 @@ export const unlockUtxos = async (mysql: MysqlConnection, utxos: DbTxOutput[], u
   // The address table is unified — getAddressWalletInfo returns wallet info for
   // rows of any Bip32Account slot, so the lookup is account-agnostic.
   const addressWalletMap = await getAddressWalletInfo(mysql, Object.keys(addressBalanceMap));
+  await refreshWalletLifecycles(mysql, addressWalletMap);
   const walletBalanceMap = getWalletBalanceMap(addressWalletMap, addressBalanceMap);
   await updateWalletLockedBalance(mysql, walletBalanceMap, updateTimelocks);
 };

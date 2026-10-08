@@ -171,6 +171,83 @@ describe('handleVertexAccepted realtime new-tx payload', () => {
       expect.arrayContaining(['WShieldedAddress2']),
     );
   });
+
+  const seedSeenWallet = async () => {
+    const now = Math.floor(Date.now() / 1000);
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES ('wallet_alice', ?, ?, 'ready', 20, ?, ?)`,
+      [XPUBKEY, XPUBKEY, now, now],
+    );
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, transactions)
+       VALUES ('WTransparentAddress1', 'wallet_alice', 0, 0, 0)`,
+    );
+  };
+
+  const ingest = (event: unknown) => handleVertexAccepted({
+    socket: expect.any(Object),
+    healthcheck: expect.any(Object),
+    retryAttempt: 0,
+    initialEventId: null,
+    txCache: new LRU(100),
+    rewardMinBlocks: 300,
+    event,
+  } as any, undefined as any);
+
+  it('notifies once when the ingest is re-run after a lock conflict', async () => {
+    expect.hasAssertions();
+
+    await seedSeenWallet();
+    // Fails the first attempt at its last statement, after the notification
+    // would have been built.
+    const spy = jest.spyOn(db, 'updateLastSyncedEvent')
+      .mockRejectedValueOnce(Object.assign(new Error('Deadlock found'), { errno: 1213 }));
+
+    await ingest(JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED)));
+    spy.mockRestore();
+
+    // Sent after the commit only, so the failed attempt sent nothing.
+    expect(sendRealtimeTx).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps one entry per shielded output, an addressless one included', async () => {
+    expect.hasAssertions();
+
+    await seedSeenWallet();
+    // An addressless output first, so a client mapping entry i to output
+    // transparentCount + i would be off by one if it were dropped.
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    const valid = fixture.event.data.shielded_outputs[0];
+    fixture.event.data.shielded_outputs = [
+      { ...JSON.parse(JSON.stringify(valid)), commitment: '0a'.repeat(33), decoded: null },
+      valid,
+    ];
+
+    await ingest(fixture);
+
+    const [, tx] = (sendRealtimeTx as jest.Mock).mock.calls[0];
+    expect(tx.shielded_outputs).toStrictEqual([
+      { mode: 1, token_data: 1, decoded: null },
+      { mode: 1, token_data: 1, decoded: { address: 'WShieldedAddress1' } },
+    ]);
+  });
+
+  it('passes nano headers through and leaves out the ones the daemon ignores', async () => {
+    expect.hasAssertions();
+
+    await seedSeenWallet();
+    const nanoHeader = {
+      id: '10', nc_seqnum: 1, nc_id: 'aa'.repeat(32), nc_method: 'initialize', nc_address: 'WTransparentAddress1',
+    };
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.headers = [nanoHeader, { id: '11', entries: [] }];
+
+    await ingest(fixture);
+
+    const [, tx] = (sendRealtimeTx as jest.Mock).mock.calls[0];
+    expect(tx.headers).toStrictEqual([nanoHeader]);
+  });
 });
 
 describe('getWalletBalancesForTx shielded amounts (push payload)', () => {

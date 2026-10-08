@@ -65,7 +65,8 @@ import {
 } from '@tests/utils';
 import fullnode from '@src/fullnode';
 import { getHealthcheck } from '@src/api/healthcheck';
-import { Severity } from '@wallet-service/common';
+import { resetCtCryptoMock } from '@tests/utils/ct-crypto-mock';
+import { Severity, clearShieldedCryptoProvider } from '@wallet-service/common';
 import { deriveCtAddress } from '@wallet-service/common/src/crypto/shieldedAddress';
 import { convertApiVersionData } from '@src/nodeConfig';
 
@@ -1683,6 +1684,77 @@ test('loadWalletFailed pins only the shielded side when the transparent side was
   expect(w.retryCount).toBe(5);                // pinned at the cap (config.maxLoadWalletRetries in the test env)
 });
 
+test('loadWalletFailed rebuilds the totals of an upgrade that crashed', async () => {
+  // A timed-out upgrade reaches the DLQ, not the worker's catch. The daemon
+  // resumes the wallet's deltas once it is in error, so the totals it skipped
+  // while the upgrade ran must be rebuilt here too.
+  expect.hasAssertions();
+  await cleanDatabase(mysql);
+  const walletId = getWalletId(XPUBKEY);
+  await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5);
+  await Db.updateWalletStatus(mysql, walletId, WalletStatus.READY);
+  await Db.registerWalletShieldedKeys(mysql, walletId, 'scanx', 'spendx', 20);
+  await mysql.query(
+    'INSERT INTO `address` (`address`, `index`, `wallet_id`, `transactions`, `bip32_account`) VALUES (?, 0, ?, 1, 0)',
+    [ADDRESSES[0], walletId],
+  );
+  await addToAddressTxHistoryTable(mysql, [
+    { address: ADDRESSES[0], txId: 'during', tokenId: '00', balance: 150n, timestamp: 20 },
+  ]);
+  await addToAddressBalanceTable(mysql, [[ADDRESSES[0], '00', 150, 0, null, 1, 0, 0, 150]]);
+  await mysql.query(
+    `INSERT INTO \`wallet_tx_history\` (\`wallet_id\`, \`tx_id\`, \`token_id\`, \`balance\`, \`timestamp\`, \`voided\`)
+     VALUES (?, 'voided-meanwhile', '00', 30, 15, FALSE)`,
+    [walletId],
+  );
+
+  await loadWalletFailed(makeLoadWalletFailedSNSEvent(1, XPUBKEY), null, null);
+
+  const w = await Db.getWallet(mysql, walletId);
+  expect(w.status).toBe(WalletStatus.READY);
+  expect(w.ctStatus).toBe(WalletStatus.ERROR);
+  expect(w.retryCount).toBe(5);
+  const balances = await mysql.query(
+    'SELECT `token_id`, `unlocked_balance` FROM `wallet_balance` WHERE `wallet_id` = ?', [walletId],
+  ) as unknown as { token_id: string; unlocked_balance: string }[];
+  expect(balances.map((b) => [b.token_id, Number(b.unlocked_balance)])).toStrictEqual([['00', 150]]);
+  const history = await mysql.query(
+    'SELECT `tx_id` FROM `wallet_tx_history` WHERE `wallet_id` = ?', [walletId],
+  ) as unknown as { tx_id: string }[];
+  expect(history.map((h) => h.tx_id)).toStrictEqual(['during']);
+});
+
+test('loadWalletFailed rebuilds the totals of a wallet in error whose direct load crashed', async () => {
+  // An operator's direct load of a wallet left in error before the fix can
+  // die before moving it back to creating; it reaches the DLQ still in error.
+  expect.hasAssertions();
+  await cleanDatabase(mysql);
+  const walletId = getWalletId(XPUBKEY);
+  await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5);
+  await Db.updateWalletStatus(mysql, walletId, WalletStatus.READY);
+  await Db.registerWalletShieldedKeys(mysql, walletId, 'scanx', 'spendx', 20);
+  await mysql.query("UPDATE `wallet` SET `ct_status` = 'error' WHERE `id` = ?", [walletId]);
+  await mysql.query(
+    'INSERT INTO `address` (`address`, `index`, `wallet_id`, `transactions`, `bip32_account`) VALUES (?, 0, ?, 1, 0)',
+    [ADDRESSES[0], walletId],
+  );
+  await addToAddressTxHistoryTable(mysql, [
+    { address: ADDRESSES[0], txId: 'during', tokenId: '00', balance: 150n, timestamp: 20 },
+  ]);
+  await addToAddressBalanceTable(mysql, [[ADDRESSES[0], '00', 150, 0, null, 1, 0, 0, 150]]);
+
+  await loadWalletFailed(makeLoadWalletFailedSNSEvent(1, XPUBKEY), null, null);
+
+  const w = await Db.getWallet(mysql, walletId);
+  expect(w.status).toBe(WalletStatus.READY);
+  expect(w.ctStatus).toBe(WalletStatus.ERROR);
+  expect(w.retryCount).toBe(5);
+  const balances = await mysql.query(
+    "SELECT `unlocked_balance` FROM `wallet_balance` WHERE `wallet_id` = ? AND `token_id` = '00'", [walletId],
+  ) as unknown as { unlocked_balance: string }[];
+  expect(balances.map((b) => Number(b.unlocked_balance))).toStrictEqual([150]);
+});
+
 test('loadWalletFailed pins both sides for a fresh shielded wallet crash', async () => {
   expect.hasAssertions();
   await cleanDatabase(mysql);
@@ -2191,6 +2263,33 @@ test('GET /wallet/proxy/graphviz/neighbours', async () => {
 });
 
 describe('GET /health', () => {
+  // The provider is reported as a component of its own; these cases register
+  // the test provider so only the component under test can fail.
+  beforeEach(() => resetCtCryptoMock());
+  afterEach(() => clearShieldedCryptoProvider());
+
+  test('fails when no shielded crypto provider is registered', async () => {
+    expect.hasAssertions();
+
+    clearShieldedCryptoProvider();
+    jest.spyOn(fullnode, 'getStatus').mockResolvedValue({ dag: { best_block: { height: 321 } } });
+    jest.spyOn(fullnode, 'getHealth').mockResolvedValue({ status: 'pass' });
+    await addToTransactionTable(mysql, [['tx1', 100, 2, false, 321, 60]]);
+
+    const result = await getHealthcheck(makeGatewayEvent({}), null, null) as APIGatewayProxyResult;
+    const returnBody = JSON.parse(result.body as string);
+
+    expect(returnBody.status).toBe('fail');
+    expect(returnBody.checks['shielded:crypto_provider']).toStrictEqual([{
+      affectsServiceHealth: true,
+      componentName: 'shielded:crypto_provider',
+      componentType: 'internal',
+      output: expect.stringContaining('Shielded crypto provider failed to load'),
+      status: 'fail',
+      time: expect.any(String),
+    }]);
+  });
+
   test('success case', async () => {
     expect.hasAssertions();
 
@@ -2249,6 +2348,14 @@ describe('GET /health', () => {
           'componentName': 'fullnode:health',
           'componentType': 'http',
           'output': 'Fullnode is healthy',
+          'status': 'pass',
+          'time': expect.any(String),
+        }],
+        'shielded:crypto_provider': [{
+          'affectsServiceHealth': true,
+          'componentName': 'shielded:crypto_provider',
+          'componentType': 'internal',
+          'output': 'Shielded crypto provider is registered',
           'status': 'pass',
           'time': expect.any(String),
         }],
@@ -2320,6 +2427,14 @@ describe('GET /health', () => {
           'status': 'pass',
           'time': expect.any(String),
         }],
+        'shielded:crypto_provider': [{
+          'affectsServiceHealth': true,
+          'componentName': 'shielded:crypto_provider',
+          'componentType': 'internal',
+          'output': 'Shielded crypto provider is registered',
+          'status': 'pass',
+          'time': expect.any(String),
+        }],
       }
     });
   });
@@ -2375,6 +2490,14 @@ describe('GET /health', () => {
           'componentName': 'fullnode:health',
           'componentType': 'http',
           'output': 'Fullnode is healthy',
+          'status': 'pass',
+          'time': expect.any(String),
+        }],
+        'shielded:crypto_provider': [{
+          'affectsServiceHealth': true,
+          'componentName': 'shielded:crypto_provider',
+          'componentType': 'internal',
+          'output': 'Shielded crypto provider is registered',
           'status': 'pass',
           'time': expect.any(String),
         }],
@@ -2438,6 +2561,14 @@ describe('GET /health', () => {
           'componentType': 'http',
           'output': 'Error checking fullnode health: Fullnode exploded!',
           'status': 'fail',
+          'time': expect.any(String),
+        }],
+        'shielded:crypto_provider': [{
+          'affectsServiceHealth': true,
+          'componentName': 'shielded:crypto_provider',
+          'componentType': 'internal',
+          'output': 'Shielded crypto provider is registered',
+          'status': 'pass',
           'time': expect.any(String),
         }],
       }
@@ -2510,6 +2641,14 @@ describe('GET /health', () => {
           'componentType': 'http',
           'output': 'Fullnode is unhealthy: {"status":"fail","output":"Fullnode exploded!","checks":{"sync":{"status":"fail","output":"Sync is not working"}}}',
           'status': 'fail',
+          'time': expect.any(String),
+        }],
+        'shielded:crypto_provider': [{
+          'affectsServiceHealth': true,
+          'componentName': 'shielded:crypto_provider',
+          'componentType': 'internal',
+          'output': 'Shielded crypto provider is registered',
+          'status': 'pass',
           'time': expect.any(String),
         }],
       }
@@ -2865,11 +3004,13 @@ describe('shielded wallet registration', () => {
     readyAt: 10001,
   }]);
 
-  // Spy the async-load invoke, cleared (spyOn accumulates calls across tests).
+  // Spy the async-load invoke, reset (spyOn accumulates calls across tests, and
+  // a one-off rejection a failed test never reached would leak into the next).
   // Every load — transparent or shielded — goes through this single combined load.
   const spyInvokes = () => {
-    const combined = jest.spyOn(Wallet, 'invokeLoadWalletAsync').mockResolvedValue(undefined);
-    combined.mockClear();
+    const combined = jest.spyOn(Wallet, 'invokeLoadWalletAsync');
+    combined.mockReset();
+    combined.mockResolvedValue(undefined);
     return { combined };
   };
 
@@ -2915,6 +3056,37 @@ describe('shielded wallet registration', () => {
     expect(wallet.status).toBe(WalletStatus.ERROR);
     expect(wallet.retryCount).toBe(1);
     expect(combined).toHaveBeenCalledTimes(1);
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('rebuilds the totals of an upgrade whose load invoke fails', async () => {
+    // The API flips ct_status to creating before the invoke, so the daemon may
+    // already have skipped the wallet's deltas; once it is error they resume.
+    await cleanDatabase(mysql);
+    await seedReadyWallet();
+    const walletId = getWalletId(XPUBKEY);
+    await mysql.query(
+      'INSERT INTO `address` (`address`, `index`, `wallet_id`, `transactions`, `bip32_account`) VALUES (?, 0, ?, 1, 0)',
+      [ADDRESSES[0], walletId],
+    );
+    await addToAddressTxHistoryTable(mysql, [
+      { address: ADDRESSES[0], txId: 'during', tokenId: '00', balance: 150n, timestamp: 20 },
+    ]);
+    await addToAddressBalanceTable(mysql, [[ADDRESSES[0], '00', 150, 0, null, 1, 0, 0, 150]]);
+    const { combined } = spyInvokes();
+    combined.mockRejectedValueOnce(new Error('invoke failed'));
+    const body = buildShieldedLoadBody(Math.floor(Date.now() / 1000));
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(200);
+
+    const wallet = await Db.getWallet(mysql, walletId);
+    expect(wallet.status).toBe(WalletStatus.READY);
+    expect(wallet.ctStatus).toBe(WalletStatus.ERROR);
+    expect(wallet.retryCount).toBe(1);
+    const balances = await mysql.query(
+      "SELECT `unlocked_balance` FROM `wallet_balance` WHERE `wallet_id` = ? AND `token_id` = '00'", [walletId],
+    ) as unknown as { unlocked_balance: string }[];
+    expect(balances.map((b) => Number(b.unlocked_balance))).toStrictEqual([150]);
   }, SHIELDED_TEST_TIMEOUT_MS);
 
   test('upgrades an already-loaded transparent wallet via the combined load', async () => {

@@ -4,7 +4,9 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
 */
-import mysql, { Connection as MysqlConnection, Pool, PoolConnection, ResultSetHeader } from 'mysql2/promise';
+import mysql, {
+  Connection as MysqlConnection, Pool, PoolConnection, ResultSetHeader, RowDataPacket,
+} from 'mysql2/promise';
 import {
   DbTxOutput,
   StringMap,
@@ -22,6 +24,7 @@ import {
   MaxAddressIndexRow,
   AddressesWalletsRow,
   AddressRow,
+  isWalletAttributable,
 } from '../types';
 import {
   TxInput,
@@ -424,6 +427,10 @@ export interface ShieldedAddressOwnership {
  *
  * Returns an empty map when `addresses` is empty.
  */
+// Both ownership lookups are locking reads (FOR SHARE): an address a wallet
+// load claims after this transaction's snapshot would otherwise read as
+// unclaimed, leaving its output unowned and unflagged for a sweep, or a void
+// not reversing a credit made under that claim.
 export async function findShieldedAddressOwnershipBatch(
   conn: any,
   addresses: string[],
@@ -435,7 +442,8 @@ export async function findShieldedAddressOwnershipBatch(
       WHERE address IN (?)
         AND bip32_account = ?
         AND wallet_id IS NOT NULL
-        AND scan_privkey IS NOT NULL`,
+        AND scan_privkey IS NOT NULL
+        FOR SHARE`,
     [addresses, Bip32Account.CTSpend],
   );
   const result = new Map<string, ShieldedAddressOwnership>();
@@ -477,7 +485,8 @@ export async function findShieldedAddressOwnership(
       WHERE address = ?
         AND bip32_account = ?
         AND wallet_id IS NOT NULL
-        AND scan_privkey IS NOT NULL`,
+        AND scan_privkey IS NOT NULL
+        FOR SHARE`,
     [address, Bip32Account.CTSpend],
   );
   if (!rows || rows.length === 0) return null;
@@ -512,6 +521,289 @@ export async function markTxOutputRecovered(
   return { affectedRows: r.affectedRows };
 }
 
+/** What extending a wallet's CTSpend window needs. */
+export interface ShieldedWindow {
+  scanXpriv: string;
+  spendXpub: string;
+  shieldedMaxGap: number;
+  /** Highest CTSpend index the wallet has claimed; null if none. */
+  maxIndex: number | null;
+  /** The wallet's `last_used_shielded_index`; null if none. */
+  lastUsedIndex: number | null;
+}
+
+/**
+ * The CTSpend window of each given wallet that has shielded keys, with the
+ * keys to derive it further. `scan_xpriv` is stored as the UTF-8 bytes of the
+ * base58 string.
+ */
+export const getShieldedWindows = async (
+  mysql: MysqlConnection,
+  walletIds: string[],
+): Promise<Map<string, ShieldedWindow>> => {
+  const windows = new Map<string, ShieldedWindow>();
+  if (walletIds.length === 0) return windows;
+  const [rows] = await mysql.query<RowDataPacket[]>(
+    `SELECT w.\`id\`, w.\`scan_xpriv\`, w.\`spend_xpub\`, w.\`shielded_max_gap\`, w.\`last_used_shielded_index\`,
+            (SELECT MAX(a.\`index\`) FROM \`address\` a
+              WHERE a.\`wallet_id\` = w.\`id\` AND a.\`bip32_account\` = ?) AS \`max_index\`
+       FROM \`wallet\` w
+      WHERE w.\`id\` IN (?) AND w.\`scan_xpriv\` IS NOT NULL AND w.\`spend_xpub\` IS NOT NULL`,
+    [Bip32Account.CTSpend, walletIds],
+  );
+  for (const row of rows) {
+    windows.set(row.id as string, {
+      scanXpriv: Buffer.from(row.scan_xpriv as Buffer).toString('utf8'),
+      spendXpub: row.spend_xpub as string,
+      shieldedMaxGap: parseNullableNumber(row.shielded_max_gap) ?? 20,
+      maxIndex: parseNullableNumber(row.max_index),
+      lastUsedIndex: parseNullableNumber(row.last_used_shielded_index),
+    });
+  }
+  return windows;
+};
+
+/**
+ * The given addresses that hold a non-voided output — the use the wallet's
+ * load counts when it sizes a CTSpend window.
+ */
+export const getAddressesWithOutputs = async (
+  mysql: MysqlConnection,
+  addresses: string[],
+): Promise<Set<string>> => {
+  if (addresses.length === 0) return new Set();
+  const [rows] = await mysql.query<RowDataPacket[]>(
+    'SELECT DISTINCT `address` FROM `tx_output` WHERE `address` IN (?) AND `voided` = FALSE',
+    [addresses],
+  );
+  return new Set(rows.map((r) => r.address as string));
+};
+
+/**
+ * Lock and return the given addresses' rows that a claim would take over with
+ * transactions: unowned rows, which a payment reached before any wallet
+ * claimed them. Their balances and history are not any wallet's yet (see
+ * `creditTakenOverAddresses`).
+ *
+ * The rows that exist are found with a plain read and then locked, so a row a
+ * load claimed meanwhile is not counted. Locking the whole set instead would
+ * also lock the gaps where its new rows go, which a load inserting the same
+ * addresses deadlocks on. A row the snapshot misses can't be one to credit:
+ * only this daemon writes unowned rows.
+ */
+const lockRowsToTakeOver = async (
+  mysql: MysqlConnection,
+  addresses: string[],
+): Promise<string[]> => {
+  if (addresses.length === 0) return [];
+  const [existing] = await mysql.query<RowDataPacket[]>(
+    'SELECT `address` FROM `address` WHERE `address` IN (?)',
+    [addresses],
+  );
+  if (existing.length === 0) return [];
+  const [rows] = await mysql.query<RowDataPacket[]>(
+    `SELECT \`address\` FROM \`address\`
+      WHERE \`address\` IN (?) AND \`wallet_id\` IS NULL AND \`transactions\` > 0
+        FOR UPDATE`,
+    [existing.map((row) => row.address as string)],
+  );
+  return rows.map((row) => row.address as string);
+};
+
+/**
+ * The given addresses that have transactions, owned or not: how the load tells
+ * a used address, which a window has to reach `maxGap` past.
+ */
+export const getUsedAddresses = async (
+  mysql: MysqlConnection,
+  addresses: string[],
+): Promise<Set<string>> => {
+  if (addresses.length === 0) return new Set();
+  const [rows] = await mysql.query<RowDataPacket[]>(
+    'SELECT `address` FROM `address` WHERE `address` IN (?) AND `transactions` > 0',
+    [addresses],
+  );
+  return new Set(rows.map((row) => row.address as string));
+};
+
+/** A derived CTSpend address, as a wallet claims it. */
+export interface ShieldedAddressClaim {
+  index: number;
+  spendAddress: string;
+  ctAddress: string;
+  scanPrivkey: Buffer;
+}
+
+/**
+ * Claim derived CTSpend addresses for a wallet and advance its last-used
+ * shielded index (never backwards).
+ *
+ * The same upsert the wallet-service's load runs, so either side can claim an
+ * index first: an observation row the daemon wrote for an earlier payment is
+ * taken over, and arrives flagged for a sweep (`pending`) so its stored
+ * outputs get recovered; a row already claimed keeps its catch-up state.
+ *
+ * Unlike the load, nothing settles these rows afterwards, so a new row starts
+ * `done`: an address with no row has no stored output to recover. Every
+ * stored output bumps its address's `transactions`, so among the rows taken
+ * over, only those with `transactions > 0` need the sweep. Flagging every
+ * claimed row would have the sweep take the wallet after each extension.
+ *
+ * Returns the rows it took over that have transactions (see
+ * `lockRowsToTakeOver`).
+ */
+export const claimShieldedAddresses = async (
+  mysql: MysqlConnection,
+  walletId: string,
+  claims: ShieldedAddressClaim[],
+  lastUsedIndex: number,
+): Promise<string[]> => {
+  let takenOver: string[] = [];
+  if (claims.length > 0) {
+    takenOver = await lockRowsToTakeOver(mysql, claims.map((c) => c.spendAddress));
+    await mysql.query(
+      `INSERT INTO \`address\`
+         (\`address\`, \`index\`, \`wallet_id\`, \`transactions\`, \`bip32_account\`, \`scan_privkey\`, \`catchup_state\`, \`ct_address\`)
+       VALUES ?
+       ON DUPLICATE KEY UPDATE
+         \`bip32_account\` = VALUES(\`bip32_account\`),
+         \`wallet_id\` = VALUES(\`wallet_id\`),
+         \`index\` = VALUES(\`index\`),
+         \`ct_address\` = VALUES(\`ct_address\`),
+         \`scan_privkey\` = VALUES(\`scan_privkey\`),
+         \`catchup_state\` = COALESCE(\`catchup_state\`, IF(\`transactions\` > 0, 'pending', 'done'))`,
+      [claims.map((c) => [
+        c.spendAddress, c.index, walletId, 0, Bip32Account.CTSpend, c.scanPrivkey, 'done', c.ctAddress,
+      ])],
+    );
+  }
+  await mysql.query(
+    'UPDATE `wallet` SET `last_used_shielded_index` = GREATEST(COALESCE(`last_used_shielded_index`, -1), ?) WHERE `id` = ?',
+    [lastUsedIndex, walletId],
+  );
+  return takenOver;
+};
+
+/**
+ * Credit a wallet with addresses it just took over, which a payment reached
+ * before any wallet claimed them: their `address_balance` and
+ * `address_tx_history` hold everything up to and including this vertex, and
+ * none of it is in the wallet's tables yet.
+ *
+ * Without this the wallet's balance stays short of its addresses' total, and a
+ * spend of the taken-over funds underflows `wallet_balance` and halts sync.
+ *
+ * Run after the vertex's own `updateWalletTablesWithTx`, whose plain history
+ * insert would otherwise collide with a row added here. The balance goes
+ * first: its transaction count takes only the (tx, token) pairs the wallet's
+ * history doesn't have yet, so a tx that also paid an address it already owned
+ * isn't counted twice.
+ */
+export const creditTakenOverAddresses = async (
+  mysql: MysqlConnection,
+  walletId: string,
+  addresses: string[],
+): Promise<void> => {
+  if (addresses.length === 0) return;
+  await mysql.query(
+    `INSERT INTO \`wallet_balance\`
+       (\`wallet_id\`, \`token_id\`, \`total_received\`, \`unlocked_balance\`, \`locked_balance\`,
+        \`timelock_expires\`, \`unlocked_authorities\`, \`locked_authorities\`, \`transactions\`,
+        \`unlocked_shielded_balance\`, \`locked_shielded_balance\`, \`total_shielded_received\`)
+     SELECT ?, b.\`token_id\`, b.\`total_received\`, b.\`unlocked_balance\`, b.\`locked_balance\`,
+        b.\`timelock_expires\`, b.\`unlocked_authorities\`, b.\`locked_authorities\`,
+        COALESCE(n.\`new_txs\`, 0),
+        b.\`unlocked_shielded_balance\`, b.\`locked_shielded_balance\`, b.\`total_shielded_received\`
+       FROM (
+         SELECT \`token_id\`,
+                SUM(\`total_received\`) AS \`total_received\`,
+                SUM(\`unlocked_balance\`) AS \`unlocked_balance\`,
+                SUM(\`locked_balance\`) AS \`locked_balance\`,
+                MIN(\`timelock_expires\`) AS \`timelock_expires\`,
+                BIT_OR(\`unlocked_authorities\`) AS \`unlocked_authorities\`,
+                BIT_OR(\`locked_authorities\`) AS \`locked_authorities\`,
+                SUM(\`unlocked_shielded_balance\`) AS \`unlocked_shielded_balance\`,
+                SUM(\`locked_shielded_balance\`) AS \`locked_shielded_balance\`,
+                SUM(\`total_shielded_received\`) AS \`total_shielded_received\`
+           FROM \`address_balance\`
+          WHERE \`address\` IN (?)
+          GROUP BY \`token_id\`
+       ) b
+       LEFT JOIN (
+         SELECT h.\`token_id\`, COUNT(DISTINCT h.\`tx_id\`) AS \`new_txs\`
+           FROM \`address_tx_history\` h
+          WHERE h.\`address\` IN (?) AND h.\`voided\` = FALSE
+            AND NOT EXISTS (
+              SELECT 1 FROM \`wallet_tx_history\` w
+               WHERE w.\`wallet_id\` = ? AND w.\`token_id\` = h.\`token_id\` AND w.\`tx_id\` = h.\`tx_id\`
+            )
+          GROUP BY h.\`token_id\`
+       ) n ON n.\`token_id\` = b.\`token_id\`
+     ON DUPLICATE KEY UPDATE
+        \`total_received\` = \`wallet_balance\`.\`total_received\` + VALUES(\`total_received\`),
+        \`unlocked_balance\` = \`wallet_balance\`.\`unlocked_balance\` + VALUES(\`unlocked_balance\`),
+        \`locked_balance\` = \`wallet_balance\`.\`locked_balance\` + VALUES(\`locked_balance\`),
+        \`timelock_expires\` = CASE
+          WHEN \`wallet_balance\`.\`timelock_expires\` IS NULL THEN VALUES(\`timelock_expires\`)
+          WHEN VALUES(\`timelock_expires\`) IS NULL THEN \`wallet_balance\`.\`timelock_expires\`
+          ELSE LEAST(\`wallet_balance\`.\`timelock_expires\`, VALUES(\`timelock_expires\`))
+        END,
+        \`unlocked_authorities\` = \`wallet_balance\`.\`unlocked_authorities\` | VALUES(\`unlocked_authorities\`),
+        \`locked_authorities\` = \`wallet_balance\`.\`locked_authorities\` | VALUES(\`locked_authorities\`),
+        \`transactions\` = \`wallet_balance\`.\`transactions\` + VALUES(\`transactions\`),
+        \`unlocked_shielded_balance\` = \`wallet_balance\`.\`unlocked_shielded_balance\` + VALUES(\`unlocked_shielded_balance\`),
+        \`locked_shielded_balance\` = \`wallet_balance\`.\`locked_shielded_balance\` + VALUES(\`locked_shielded_balance\`),
+        \`total_shielded_received\` = \`wallet_balance\`.\`total_shielded_received\` + VALUES(\`total_shielded_received\`)`,
+    [walletId, addresses, addresses, walletId],
+  );
+  await mysql.query(
+    `INSERT INTO \`wallet_tx_history\`
+       (\`wallet_id\`, \`token_id\`, \`tx_id\`, \`balance\`, \`shielded_balance_delta\`, \`timestamp\`)
+     SELECT ?, \`token_id\`, \`tx_id\`, SUM(\`balance\`), SUM(\`shielded_balance_delta\`), \`timestamp\`
+       FROM \`address_tx_history\`
+      WHERE \`address\` IN (?) AND \`voided\` = FALSE
+      GROUP BY \`tx_id\`, \`token_id\`, \`timestamp\`
+     ON DUPLICATE KEY UPDATE
+        \`balance\` = \`wallet_tx_history\`.\`balance\` + VALUES(\`balance\`),
+        \`shielded_balance_delta\` = \`wallet_tx_history\`.\`shielded_balance_delta\` + VALUES(\`shielded_balance_delta\`)`,
+    [walletId, addresses],
+  );
+};
+
+/** A wallet's current lifecycle, read with a lock so it is not the snapshot's. */
+export const getCurrentWalletLifecycle = async (
+  mysql: MysqlConnection,
+  walletId: string,
+): Promise<Pick<Wallet, 'status' | 'ctStatus'> | null> => {
+  const [rows] = await mysql.query<RowDataPacket[]>(
+    'SELECT `status`, `ct_status` FROM `wallet` WHERE `id` = ? FOR SHARE',
+    [walletId],
+  );
+  if (rows.length === 0) return null;
+  return { status: rows[0].status as WalletStatus, ctStatus: rows[0].ct_status as WalletStatus | 'none' };
+};
+
+/**
+ * Mark the given addresses' wallets as needing a shielded catch-up sweep, by
+ * setting the claimed CTSpend rows' `catchup_state` to `pending`. Unclaimed
+ * addresses (observation rows, which have no account) are left alone: nothing
+ * could recover their outputs yet. Filtered on the primary key and the account
+ * only, so the statement locks just these rows.
+ */
+export const flagAddressesForSweep = async (
+  mysql: MysqlConnection,
+  addresses: string[],
+): Promise<void> => {
+  if (addresses.length === 0) return;
+  await mysql.query(
+    `UPDATE \`address\`
+        SET \`catchup_state\` = 'pending'
+      WHERE \`address\` IN (?)
+        AND \`bip32_account\` = ?`,
+    [addresses, Bip32Account.CTSpend],
+  );
+};
+
 /**
  * Record that the rewind threw for an output we believed we owned.
  *
@@ -522,9 +814,9 @@ export async function markTxOutputRecovered(
  * `markTxOutputRecovered` below is guarded `recovery_state = 'unowned'` (so that
  * a re-delivered vertex is a no-op) and therefore cannot promote a
  * `recovery_failed` row. The wallet-service's equivalent guards on
- * `<> 'recovered'` and can. A catch-up sweep must use the latter form, and must
- * select on `tx_output.recovery_state` rather than on `address.catchup_state`,
- * which is marked done regardless of how many outputs were recovered.
+ * `<> 'recovered'` and can, which is what the catch-up sweep uses. Ingestion
+ * flags the address for that sweep (`flagAddressesForSweep`) when the failure
+ * is worth retrying.
  */
 export async function markTxOutputRecoveryFailed(
   conn: any,
@@ -658,11 +950,18 @@ export const updateTxOutputSpentBy = async (
 export const getTxOutputsFromTx = async (
   mysql: any,
   txId: string,
+  /**
+   * Read the rows as currently committed, locking them, instead of from the
+   * transaction's snapshot. For a caller that decides balances from them: the
+   * wallet-service can promote a row to `recovered`, and credit it, after the
+   * snapshot was taken.
+   */
+  lockRows = false,
 ): Promise<DbTxOutput[]> => {
   const [results] = await mysql.execute(
     `SELECT *
        FROM \`tx_output\`
-      WHERE \`tx_id\` = ?`,
+      WHERE \`tx_id\` = ?${lockRows ? '\n        FOR UPDATE' : ''}`,
     [txId],
   );
 
@@ -750,6 +1049,8 @@ export const getTxOutput = async (
   txId: string,
   index: number,
   skipSpent: boolean,
+  /** As in `getTxOutputsFromTx`: a current, locking read. */
+  lockRow = false,
 ): Promise<DbTxOutput | null> => {
   const [results] = await mysql.execute<TxOutputRow[]>(
     `SELECT *
@@ -757,7 +1058,7 @@ export const getTxOutput = async (
       WHERE \`tx_id\` = ?
         AND \`index\` = ?
         ${skipSpent ? 'AND `spent_by` IS NULL' : ''}
-        AND \`voided\` = FALSE`,
+        AND \`voided\` = FALSE${lockRow ? '\n        FOR UPDATE' : ''}`,
     [txId, index],
   );
 
@@ -822,6 +1123,33 @@ export const getTxOutputsAtHeight = async (
 };
 
 /**
+ * The (owner, token) pairs that have a history row for `txId`, keyed
+ * `owner:token`. A pair's `transactions` count is its number of history rows:
+ * the daemon writes a row and adds 1 together, and the wallet-service's
+ * rebuild sets the count from the rows. So only these pairs were counted for
+ * the tx, and only these may be decremented when it is voided. A shielded
+ * output the wallet-service recovered after ingest is credited to its pair
+ * without a history row for a later spend, and decrementing that pair would
+ * take a count that was never added (an UNSIGNED underflow that halts sync).
+ */
+const pairsWithTxHistory = async (
+  mysql: any,
+  table: '`address_tx_history`' | '`wallet_tx_history`',
+  ownerColumn: '`address`' | '`wallet_id`',
+  txId: string,
+  pairKeys: [string, string][],
+): Promise<Set<string>> => {
+  if (pairKeys.length === 0) return new Set();
+  const [rows] = await mysql.query(
+    `SELECT ${ownerColumn} AS \`owner\`, \`token_id\`
+       FROM ${table}
+      WHERE \`tx_id\` = ? AND (${ownerColumn}, \`token_id\`) IN (?)`,
+    [txId, pairKeys],
+  );
+  return new Set((rows as { owner: string; token_id: string }[]).map((r) => `${r.owner}:${r.token_id}`));
+};
+
+/**
  * Void address-related information when voiding a transaction.
  *
  * @param mysql - The MySQL connection object
@@ -863,6 +1191,9 @@ export const voidAddressTransaction = async (
   // Single batched UPDATE for all balance decrements (no-op if no row matches)
   type AddrPair = { address: string; token: string; balance: Balance };
   const getAddrKeys = (p: AddrPair): [string, string] => [p.address, p.token];
+  const counted = await pairsWithTxHistory(
+    mysql, '`address_tx_history`', '`address`', txId, pairs.map(getAddrKeys),
+  );
 
   const { sql: updateSql, params: updateParams } = buildBatchCaseUpdate<AddrPair>(
     '`address_balance`',
@@ -884,8 +1215,12 @@ export const voidAddressTransaction = async (
       { column: '`unlocked_shielded_balance`', op: 'subtract', getValue: (p) => p.balance.unlockedShieldedAmount },
       { column: '`locked_shielded_balance`', op: 'subtract', getValue: (p) => p.balance.lockedShieldedAmount },
       { column: '`total_shielded_received`', op: 'subtract', getValue: (p) => p.balance.totalShieldedReceived },
-      // Decrement transactions by 1 for each voided (address, token) pair.
-      { column: '`transactions`', op: 'subtract', getValue: () => 1 },
+      // Decrement transactions only for the pairs this tx was counted for.
+      {
+        column: '`transactions`',
+        op: 'subtract',
+        getValue: (p) => (counted.has(`${p.address}:${p.token}`) ? 1 : 0),
+      },
     ],
   );
 
@@ -1007,6 +1342,7 @@ export const voidWalletTransaction = async (
 ): Promise<void> => {
   // Get wallet information for all affected addresses
   const addressWalletMap: StringMap<Wallet> = await getAddressWalletInfo(mysql, Object.keys(addressBalanceMap));
+  await refreshWalletLifecycles(mysql, addressWalletMap);
 
   if (Object.keys(addressWalletMap).length === 0) {
     // No wallets to update
@@ -1032,6 +1368,9 @@ export const voidWalletTransaction = async (
   if (pairs.length > 0) {
     type WalletPair = { walletId: string; token: string; balance: Balance };
     const getWalletKeys = (p: WalletPair): [string, string] => [p.walletId, p.token];
+    const counted = await pairsWithTxHistory(
+      mysql, '`wallet_tx_history`', '`wallet_id`', txId, pairs.map(getWalletKeys),
+    );
 
     // Single batched UPDATE for all wallet balance decrements
     const { sql: updateSql, params: updateParams } = buildBatchCaseUpdate<WalletPair>(
@@ -1049,8 +1388,12 @@ export const voidWalletTransaction = async (
         { column: '`unlocked_shielded_balance`', op: 'subtract', getValue: (p) => p.balance.unlockedShieldedAmount },
         { column: '`locked_shielded_balance`', op: 'subtract', getValue: (p) => p.balance.lockedShieldedAmount },
         { column: '`total_shielded_received`', op: 'subtract', getValue: (p) => p.balance.totalShieldedReceived },
-        // Decrement transactions by 1 for each voided (wallet, token) pair.
-        { column: '`transactions`', op: 'subtract', getValue: () => 1 },
+        // Decrement transactions only for the pairs this tx was counted for.
+        {
+          column: '`transactions`',
+          op: 'subtract',
+          getValue: (p) => (counted.has(`${p.walletId}:${p.token}`) ? 1 : 0),
+        },
       ],
     );
 
@@ -1338,6 +1681,45 @@ export const unlockUtxos = async (mysql: MysqlConnection, utxos: TxInput[]): Pro
   );
 };
 
+/** A shielded output's recovery as currently stored. */
+export interface CurrentShieldedRecovery {
+  recoveryState: string | null;
+  value: bigint | null;
+  tokenId: string | null;
+}
+
+/**
+ * The current recovery of the given shielded outputs, keyed `txId:index`.
+ *
+ * A locking read, so it sees the latest committed row rather than the
+ * transaction's snapshot: the wallet-service can promote an output to
+ * `recovered`, and credit it, between an earlier plain read and now. Read it
+ * after the caller's own UPDATE of the same rows, which already holds their
+ * locks, so this adds no lock-ordering edge.
+ */
+export const getCurrentShieldedRecovery = async (
+  mysql: MysqlConnection,
+  outputs: { txId: string; index: number }[],
+): Promise<Map<string, CurrentShieldedRecovery>> => {
+  const current = new Map<string, CurrentShieldedRecovery>();
+  if (outputs.length === 0) return current;
+  const [rows] = await mysql.query<RowDataPacket[]>(
+    `SELECT \`tx_id\`, \`index\`, \`recovery_state\`, \`value\`, \`token_id\`
+       FROM \`tx_output\`
+      WHERE (\`tx_id\`, \`index\`) IN (?)
+        FOR UPDATE`,
+    [outputs.map((o) => [o.txId, o.index])],
+  );
+  for (const row of rows) {
+    current.set(`${row.tx_id}:${row.index}`, {
+      recoveryState: row.recovery_state,
+      value: parseNullableBigInt(row.value),
+      tokenId: row.token_id,
+    });
+  }
+  return current;
+};
+
 /**
  * Update the unlocked and locked balances for addresses.
  *
@@ -1474,6 +1856,40 @@ export const getAddressWalletInfo = async (mysql: MysqlConnection, addresses: st
     addressWalletMap[entry.address] = walletInfo;
   }
   return addressWalletMap;
+};
+
+/**
+ * Re-read the lifecycle of the wallets `addressWalletMap` reports as not
+ * attributable, and update the map in place.
+ *
+ * `getAddressWalletInfo` is a plain read, which under REPEATABLE READ returns
+ * the snapshot taken at the transaction's first read. A transaction that then
+ * waited on a wallet load's commit would still see the wallet loading after
+ * the load flipped it ready, skip `wallet_balance`, and leave the wallet's
+ * total short for good. A locking read sees the latest committed row. Call it
+ * after the transaction's `address_balance` writes, which is where such a wait
+ * happens; only wallets the snapshot calls non-attributable are re-read, so a
+ * steady-state ingest takes no extra locks.
+ */
+export const refreshWalletLifecycles = async (
+  mysql: MysqlConnection,
+  addressWalletMap: StringMap<Wallet>,
+): Promise<void> => {
+  const stale = [...new Set(Object.values(addressWalletMap)
+    .filter((wallet) => !isWalletAttributable(wallet))
+    .map((wallet) => wallet.walletId))];
+  if (stale.length === 0) return;
+  const [rows] = await mysql.query<RowDataPacket[]>(
+    'SELECT `id`, `status`, `ct_status` FROM `wallet` WHERE `id` IN (?) FOR SHARE',
+    [stale],
+  );
+  const current = new Map(rows.map((row) => [row.id as string, row]));
+  for (const wallet of Object.values(addressWalletMap)) {
+    const row = current.get(wallet.walletId);
+    if (!row) continue;
+    wallet.status = row.status as WalletStatus;
+    wallet.ctStatus = row.ct_status as WalletStatus | 'none';
+  }
 };
 
 /**
@@ -1851,22 +2267,30 @@ export const incrementTokensTxCount = async (
 };
 
 /**
- * Add addresses to address table.
+ * Claim legacy addresses for a wallet and advance its last used address index
+ * (never backwards).
  *
- * @remarks
- * The addresses are added with the given walletId and 0 transactions.
+ * The same upsert the wallet-service's load runs (`upsertNewAddresses`), so an
+ * address a payment reached before the wallet's window did, which therefore
+ * already has a row, is taken over rather than failing the claim with a
+ * duplicate key, which halted sync for every wallet.
+ *
+ * Returns the rows it took over that have transactions (see
+ * `lockRowsToTakeOver`).
  *
  * @param mysql - Database connection
  * @param walletId - The wallet id
  * @param addresses - A map of addresses and corresponding indexes
+ * @param lastUsedAddressIndex - The wallet's highest used legacy index
  */
 export const addNewAddresses = async (
   mysql: MysqlConnection,
   walletId: string,
   addresses: AddressIndexMap,
   lastUsedAddressIndex: number,
-): Promise<void> => {
-  if (Object.keys(addresses).length === 0) return;
+): Promise<string[]> => {
+  if (Object.keys(addresses).length === 0) return [];
+  const takenOver = await lockRowsToTakeOver(mysql, Object.keys(addresses));
   const entries = [];
   for (const [address, index] of Object.entries(addresses)) {
     // Claimed legacy addresses carry an explicit account: an owned address never
@@ -1876,17 +2300,22 @@ export const addNewAddresses = async (
   await mysql.query(
     `INSERT INTO \`address\`(\`address\`, \`index\`,
                              \`wallet_id\`, \`transactions\`, \`bip32_account\`)
-     VALUES ?`,
+     VALUES ?
+     ON DUPLICATE KEY UPDATE
+       \`wallet_id\` = VALUES(\`wallet_id\`),
+       \`index\` = VALUES(\`index\`),
+       \`bip32_account\` = VALUES(\`bip32_account\`)`,
     [entries],
   );
 
   // Store on the wallet table the highest used index
   await mysql.execute(
     `UPDATE \`wallet\`
-        SET \`last_used_address_index\` = ?
+        SET \`last_used_address_index\` = GREATEST(\`last_used_address_index\`, ?)
       WHERE \`id\` = ?`,
     [lastUsedAddressIndex, walletId],
   );
+  return takenOver;
 };
 
 /**
@@ -2443,8 +2872,8 @@ export const getTokenSymbols = async (
  * - A wallet with no rows for an account yields `NULL` for that account's pair
  *   (e.g. no shielded window claimed -> both CT maxes are `NULL`).
  *
- * The legacy pair feeds the legacy gap extension; the CT pair is the
- * input for the shielded gap extension (follow-up work).
+ * The legacy pair feeds the legacy gap extension; the CT pair feeds the
+ * CTSpend window extension.
  *
  * @param mysql - Database connection
  * @param walletData - Array of objects containing wallet IDs and their associated addresses

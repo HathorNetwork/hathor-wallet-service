@@ -14,7 +14,12 @@ import {
   clearShieldedCryptoProvider,
   isShieldedCryptoProviderRegistered,
   denormalizeShieldedTokenId,
+  ShieldedScanMissError,
+  ShieldedAssetMismatchError,
+  initShieldedCryptoProvider,
+  describeErrorChain,
 } from '@src/crypto/ctRewind';
+import { ScanMissError } from '@hathor/ct-crypto-provider';
 import type { IShieldedCryptoProvider } from '@hathor/ct-crypto-provider';
 
 const buf = (n: number, fill = 0): Buffer => Buffer.alloc(n, fill);
@@ -221,5 +226,159 @@ describe('rewindAmount token uid expansion', () => {
 
     await expect(rewindAmount({ ...amountArgs(), tokenId: 'abcd' }))
       .rejects.toBeInstanceOf(RewindError);
+  });
+});
+
+describe('scan misses', () => {
+  afterEach(() => clearShieldedCryptoProvider());
+
+  // A copy of the provider package other than the one the provider uses would
+  // fail an `instanceof` check, so the wrapper must recognise it by name.
+  const foreignScanMiss = () => Object.assign(new Error('rewind failed'), { name: 'ScanMissError' });
+
+  it.each([
+    ['the provider package class', () => new ScanMissError()],
+    ['another copy of that class', foreignScanMiss],
+  ])('rewindAmount reports a scan miss thrown as %s as ShieldedScanMissError', async (_label, make) => {
+    const thrown = make();
+    setShieldedCryptoProvider(stubProvider({
+      rewindAmountShieldedOutput: async () => { throw thrown; },
+    }));
+
+    const err = await rewindAmount(amountArgs()).catch((e) => e);
+
+    expect(err).toBeInstanceOf(ShieldedScanMissError);
+    expect(err).toBeInstanceOf(RewindError);
+    expect(err.cause).toBe(thrown);
+  });
+
+  it('rewindFully reports a scan miss as ShieldedScanMissError', async () => {
+    setShieldedCryptoProvider(stubProvider({
+      rewindFullShieldedOutput: async () => { throw foreignScanMiss(); },
+    }));
+
+    await expect(rewindFully(fullyArgs())).rejects.toBeInstanceOf(ShieldedScanMissError);
+  });
+
+  it('keeps any other provider failure a plain RewindError', async () => {
+    setShieldedCryptoProvider(stubProvider({
+      rewindAmountShieldedOutput: async () => { throw new Error('range proof is malformed'); },
+    }));
+
+    const err = await rewindAmount(amountArgs()).catch((e) => e);
+
+    expect(err).toBeInstanceOf(RewindError);
+    expect(err).not.toBeInstanceOf(ShieldedScanMissError);
+  });
+});
+
+describe('initShieldedCryptoProvider', () => {
+  afterEach(() => clearShieldedCryptoProvider());
+
+  const working = () => stubProvider({ generateRandomBlindingFactor: async () => buf(32, 7) });
+
+  it('registers a provider that loads and runs', async () => {
+    expect(await initShieldedCryptoProvider(working)).toStrictEqual({ ok: true });
+    expect(isShieldedCryptoProviderRegistered()).toBe(true);
+  });
+
+  it('reports a binding that fails to load, without throwing', async () => {
+    const result = await initShieldedCryptoProvider(() => {
+      throw new Error('Cannot find module ct-crypto.linux-x64-musl.node');
+    });
+
+    expect(result).toStrictEqual({ ok: false, error: expect.stringContaining('Cannot find module') });
+    expect(isShieldedCryptoProviderRegistered()).toBe(false);
+  });
+
+  it('reports a binding that loads but cannot run, and does not register it', async () => {
+    const result = await initShieldedCryptoProvider(() => stubProvider({
+      generateRandomBlindingFactor: async () => { throw new Error('illegal instruction'); },
+    }));
+
+    expect(result).toMatchObject({ ok: false });
+    expect(isShieldedCryptoProviderRegistered()).toBe(false);
+  });
+
+  it('leaves an already registered provider in place when a new one fails', async () => {
+    const existing = working();
+    setShieldedCryptoProvider(existing);
+
+    await initShieldedCryptoProvider(() => { throw new Error('no binary'); });
+
+    expect(isShieldedCryptoProviderRegistered()).toBe(true);
+  });
+});
+
+describe('classifying a rewind that does not open', () => {
+  afterEach(() => clearShieldedCryptoProvider());
+
+  const scanMiss = () => Object.assign(new Error('rewind failed'), { name: 'ScanMissError' });
+  const missingProvider = (verifyRangeProof?: (...a: unknown[]) => Promise<boolean>) => stubProvider({
+    rewindAmountShieldedOutput: async () => { throw scanMiss(); },
+    rewindFullShieldedOutput: async () => { throw scanMiss(); },
+    deriveAssetTag: async () => buf(33, 8),
+    ...(verifyRangeProof ? { verifyRangeProof } : {}),
+  });
+
+  it('keeps a miss whose proof verifies a scan miss', async () => {
+    setShieldedCryptoProvider(missingProvider(async () => true));
+
+    await expect(rewindAmount(amountArgs())).rejects.toBeInstanceOf(ShieldedScanMissError);
+    await expect(rewindFully(fullyArgs())).rejects.toBeInstanceOf(ShieldedScanMissError);
+  });
+
+  it('reports a miss whose proof does not verify as a failed recovery', async () => {
+    setShieldedCryptoProvider(missingProvider(async () => false));
+
+    const err = await rewindAmount(amountArgs()).catch((e) => e);
+
+    expect(err).toBeInstanceOf(RewindError);
+    expect(err).not.toBeInstanceOf(ShieldedScanMissError);
+    expect(err.message).toContain('does not verify');
+  });
+
+  it('verifies against the derived generator for amount-shielded and the asset commitment for fully-shielded', async () => {
+    const generators: Buffer[] = [];
+    setShieldedCryptoProvider(missingProvider(async (_proof, _commitment, generator) => {
+      generators.push(generator as Buffer);
+      return true;
+    }));
+
+    await rewindAmount(amountArgs()).catch(() => {});
+    await rewindFully(fullyArgs()).catch(() => {});
+
+    expect(generators).toStrictEqual([buf(33, 8), fullyArgs().assetCommitment]);
+  });
+
+  it('reports a verifier that throws as a failed recovery', async () => {
+    setShieldedCryptoProvider(missingProvider(async () => { throw new Error('malformed proof'); }));
+
+    const err = await rewindAmount(amountArgs()).catch((e) => e);
+
+    expect(err).toBeInstanceOf(RewindError);
+    expect(err).not.toBeInstanceOf(ShieldedScanMissError);
+  });
+
+  it('reports a failed asset cross-check as ShieldedAssetMismatchError', async () => {
+    setShieldedCryptoProvider(stubProvider({
+      rewindFullShieldedOutput: async () => { throw new Error('asset commitment verification failed'); },
+    }));
+
+    await expect(rewindFully(fullyArgs())).rejects.toBeInstanceOf(ShieldedAssetMismatchError);
+  });
+});
+
+describe('describeErrorChain', () => {
+  it('lists the message of every cause, outermost first', () => {
+    const inner = new Error('libc.musl-x86_64.so.1: cannot open shared object file');
+    const outer = new Error('Cannot find native binding', { cause: inner });
+
+    expect(describeErrorChain(outer))
+      .toBe('Cannot find native binding <- libc.musl-x86_64.so.1: cannot open shared object file');
+  });
+
+  it('describes a non-error value', () => {
+    expect(describeErrorChain('boom')).toBe('boom');
   });
 });

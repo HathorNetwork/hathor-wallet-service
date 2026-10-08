@@ -3,10 +3,6 @@
 /**
  * Extends `tx_output` for shielded-output support:
  *
- *   - Widens `index` from TINYINT UNSIGNED (0-255) to SMALLINT UNSIGNED
- *     (0-65535). A vertex's concatenated transparent + shielded output
- *     count can exceed 255 (255 transparent + up to 15 shielded), so the
- *     existing TINYINT cap is too tight.
  *   - Adds `mode` (0=transparent, 1=AMOUNT_SHIELDED, 2=FULLY_SHIELDED)
  *     and `recovery_state` (NULL for transparent rows).
  *   - Relaxes `value` and `token_id` to NULL — both are unknown for
@@ -14,11 +10,6 @@
  */
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    await queryInterface.sequelize.query(`
-      ALTER TABLE tx_output
-        MODIFY COLUMN \`index\` SMALLINT UNSIGNED NOT NULL
-    `);
-
     await queryInterface.addColumn('tx_output', 'mode', {
       type: Sequelize.TINYINT,
       allowNull: false,
@@ -74,19 +65,6 @@ module.exports = {
       );
     }
 
-    // Guard against silent truncation: narrowing to TINYINT UNSIGNED would lose
-    // any row with index > 255 (which is exactly what the widening enabled).
-    const [maxRows] = await queryInterface.sequelize.query(
-      'SELECT MAX(`index`) AS max_index FROM tx_output'
-    );
-    const maxIndex = maxRows[0]?.max_index ?? 0;
-    if (maxIndex > 255) {
-      throw new Error(
-        `Rollback blocked: tx_output.index has values > 255 (max=${maxIndex}). `
-        + 'Narrowing to TINYINT UNSIGNED would silently truncate them.'
-      );
-    }
-
     // Preconditions cleared — proceed with the destructive DDL.
     await queryInterface.sequelize.query(`DROP INDEX idx_tx_output_voided_mode ON tx_output`);
     await queryInterface.sequelize.query(`DROP INDEX idx_tx_output_mode_recovery ON tx_output`);
@@ -101,10 +79,5 @@ module.exports = {
     });
     await queryInterface.removeColumn('tx_output', 'recovery_state');
     await queryInterface.removeColumn('tx_output', 'mode');
-
-    await queryInterface.sequelize.query(`
-      ALTER TABLE tx_output
-        MODIFY COLUMN \`index\` TINYINT UNSIGNED NOT NULL
-    `);
   },
 };

@@ -11,7 +11,10 @@ import { addAlert, Bip32Account } from '@wallet-service/common';
 import { getDbConnection, closeDbConnection } from '@src/utils';
 import { cleanDatabase, addToWalletTable, addToAddressTable } from '@tests/utils';
 import { resetCtCryptoMock, primeAmountRewind, primeFullyRewind } from '@tests/utils/ct-crypto-mock';
-import { findAndRewindShielded, reconstructWallet } from '@src/shieldedRecovery';
+import {
+  sweptOutputs, findAndRewindShielded, reconstructWallet, commitShieldedRecoveries, runRecoveryTransaction,
+} from '@src/shieldedRecovery';
+import * as ShieldedDb from '@src/db/shielded';
 
 jest.mock('@wallet-service/common', () => ({
   ...jest.requireActual('@wallet-service/common'),
@@ -103,18 +106,25 @@ describe('findAndRewindShielded', () => {
 
     const result = await findAndRewindShielded(mysql, 'w1', logger, 2); // pageSize 2 → forces >1 page
 
-    expect(result).toEqual({ recovered: 2, failed: 1, skipped: false });
-    expect((await readState('o1')).s).toBe('recovered');
-    expect(String((await readState('o1')).v)).toBe('100');
+    expect(result).toMatchObject({ recovered: 2, failed: 1, missed: 0, skipped: false });
+    expect(result.recoveries).toStrictEqual([
+      { txId: 'o1', index: 0, address: 'ca', value: 100n, tokenId: '00' },
+      { txId: 'o2', index: 0, address: 'ca', value: 250n, tokenId: '00' },
+    ]);
+    // Opened, but promoted only by the commit, with the balance rebuilds.
+    expect((await readState('o1')).s).toBe('unowned');
+    // A failure is recorded straight away: it changes no balance.
     expect((await readState('o3')).s).toBe('recovery_failed');
-    expect(mockedAddAlert).toHaveBeenCalledTimes(1);
+    // Returned for the load to report once, not alerted per output.
+    expect(result.failures).toStrictEqual([expect.objectContaining({ txId: 'o3', index: 0 })]);
+    expect(mockedAddAlert).not.toHaveBeenCalled();
   });
 
   it('is a no-op when the wallet has no unowned shielded outputs', async () => {
     await seedWallet('w1');
     await seedCtSpendAddress('ca', 'w1', 0);
 
-    expect(await findAndRewindShielded(mysql, 'w1', logger)).toEqual({ recovered: 0, failed: 0, skipped: false });
+    expect(await findAndRewindShielded(mysql, 'w1', logger)).toMatchObject({ recovered: 0, failed: 0, missed: 0, skipped: false });
   });
 
   it('re-drives a previously recovery_failed output (no reset needed)', async () => {
@@ -131,8 +141,27 @@ describe('findAndRewindShielded', () => {
 
     const result = await findAndRewindShielded(mysql, 'w1', logger);
 
-    expect(result).toEqual({ recovered: 1, failed: 0, skipped: false });
-    expect((await readState('f1')).s).toBe('recovered');
+    expect(result).toMatchObject({ recovered: 1, failed: 0, missed: 0, skipped: false });
+    expect(result.recoveries).toStrictEqual([{ txId: 'f1', index: 0, address: 'ca', value: 500n, tokenId: '00' }]);
+  });
+
+  it('skips outputs an earlier sweep of the same load handled', async () => {
+    await seedWallet('w1');
+    await seedCtSpendAddress('ca', 'w1', 0);
+    for (const [tx, byte] of [['o1', 0xa1], ['o2', 0xa2]] as [string, number][]) {
+      await insertUnownedOutput(tx, 'ca', '00');
+      await insertSatellite(tx, Buffer.alloc(33, byte), Buffer.alloc(33, byte));
+      primeAmountRewind({
+        commitment: Buffer.alloc(33, byte), ephemeralPubkey: Buffer.alloc(33, byte), value: 1n, tokenUid: Buffer.alloc(32, 0),
+      });
+    }
+    const first = await findAndRewindShielded(mysql, 'w1', logger);
+
+    const settle = await findAndRewindShielded(mysql, 'w1', logger, undefined, { exclude: sweptOutputs(first) });
+
+    expect(first.recovered).toBe(2);
+    // Both are still unpromoted, so without the exclusion they'd be rewound again.
+    expect(settle.recovered).toBe(0);
   });
 });
 
@@ -152,7 +181,7 @@ describe('reconstructWallet', () => {
     primeAmountRewind({ commitment: Buffer.alloc(33, 0xb1), ephemeralPubkey: Buffer.alloc(33, 0xb1), value: 100n, tokenUid: Buffer.alloc(32, 0) });
     primeAmountRewind({ commitment: Buffer.alloc(33, 0xb2), ephemeralPubkey: Buffer.alloc(33, 0xb2), value: 250n, tokenUid: Buffer.alloc(32, 0) });
 
-    await reconstructWallet(mysql, 'w1', ['ta'], ['ca'], logger);
+    await reconstructWallet(mysql, 'w1', logger);
 
     expect((await readState('so1')).s).toBe('recovered');
     const wb = await readWalletBalance('w1');
@@ -168,7 +197,7 @@ describe('reconstructWallet', () => {
     await insertTx('t1', 500);
     await seedTransparentBalance('ta', 't1');
 
-    await reconstructWallet(mysql, 'w1', ['ta'], [], logger);
+    await reconstructWallet(mysql, 'w1', logger);
 
     const wb = await readWalletBalance('w1');
     expect(String(wb.ub)).toBe('200');
@@ -191,12 +220,12 @@ describe('reconstructWallet', () => {
     primeAmountRewind({ commitment: Buffer.alloc(33, 0xb1), ephemeralPubkey: Buffer.alloc(33, 0xb1), value: 100n, tokenUid: Buffer.alloc(32, 0) });
     primeAmountRewind({ commitment: Buffer.alloc(33, 0xb2), ephemeralPubkey: Buffer.alloc(33, 0xb2), value: 250n, tokenUid: Buffer.alloc(32, 0) });
 
-    const first = await reconstructWallet(mysql, 'w1', ['ta'], ['ca'], logger);
-    expect(first).toEqual({ recovered: 2, failed: 0, skipped: false });
+    const first = await reconstructWallet(mysql, 'w1', logger);
+    expect(first).toMatchObject({ recovered: 2, failed: 0, missed: 0, skipped: false });
     // second pass: outputs are already 'recovered', so nothing is rewound and the
     // rebuilds re-snapshot (replace, not add)
-    const second = await reconstructWallet(mysql, 'w1', ['ta'], ['ca'], logger);
-    expect(second).toEqual({ recovered: 0, failed: 0, skipped: false });
+    const second = await reconstructWallet(mysql, 'w1', logger);
+    expect(second).toMatchObject({ recovered: 0, failed: 0, missed: 0, skipped: false });
 
     const wb = await readWalletBalance('w1');
     expect(String(wb.usb)).toBe('350'); // 100 + 250, not doubled
@@ -217,7 +246,7 @@ describe('reconstructWallet', () => {
     primeAmountRewind({ commitment: Buffer.alloc(33, 0xc1), ephemeralPubkey: Buffer.alloc(33, 0xc1), value: 100n, tokenUid: Buffer.alloc(32, 0) });
     primeFullyRewind({ commitment: Buffer.alloc(33, 0xc2), ephemeralPubkey: Buffer.alloc(33, 0xc2), value: 42n, tokenUid: Buffer.from(tokenB, 'hex'), assetCommitment: Buffer.alloc(33, 0xd2) });
 
-    expect(await reconstructWallet(mysql, 'w1', [], ['ca'], logger)).toEqual({ recovered: 2, failed: 0, skipped: false });
+    expect(await reconstructWallet(mysql, 'w1', logger)).toMatchObject({ recovered: 2, failed: 0, missed: 0, skipped: false });
 
     expect(String((await readWalletBalance('w1')).usb)).toBe('100'); // token '00' row
     const wbB = (await mysql.query(
@@ -241,12 +270,199 @@ describe('reconstructWallet', () => {
     // The native token's raw on-chain uid is 32 zero bytes.
     primeFullyRewind({ commitment: Buffer.alloc(33, 0xe2), ephemeralPubkey: Buffer.alloc(33, 0xe2), value: 42n, tokenUid: Buffer.alloc(32, 0), assetCommitment: Buffer.alloc(33, 0xf2) });
 
-    expect(await reconstructWallet(mysql, 'w1', [], ['ca'], logger)).toEqual({ recovered: 2, failed: 0, skipped: false });
+    expect(await reconstructWallet(mysql, 'w1', logger)).toMatchObject({ recovered: 2, failed: 0, missed: 0, skipped: false });
 
     // Both receives fold onto the single '00' row: 100 + 42 = 142.
     expect(String((await readWalletBalance('w1')).usb)).toBe('142');
     const rows = await mysql.query("SELECT `token_id` FROM `wallet_balance` WHERE `wallet_id` = 'w1'");
     expect(rows).toHaveLength(1); // no stray all-zero-uid token row
     expect((rows as { token_id: string }[])[0].token_id).toBe('00');
+  });
+});
+
+describe('commitShieldedRecoveries', () => {
+  // One opened output to the wallet's CTSpend address 'ca', ready to commit.
+  const sweepOne = async () => {
+    await seedWallet('w1');
+    await seedCtSpendAddress('ca', 'w1', 0);
+    await insertTx('o1', 1000);
+    await insertUnownedOutput('o1', 'ca', '00');
+    await insertSatellite('o1', Buffer.alloc(33, 0xa1), Buffer.alloc(33, 0xa1));
+    primeAmountRewind({
+      commitment: Buffer.alloc(33, 0xa1), ephemeralPubkey: Buffer.alloc(33, 0xa1), value: 100n, tokenUid: Buffer.alloc(32, 0),
+    });
+    return findAndRewindShielded(mysql, 'w1', logger);
+  };
+  const readAddressBalance = async () => (await mysql.query(
+    "SELECT `unlocked_shielded_balance` AS usb, `transactions` AS txns FROM `address_balance` WHERE `address` = 'ca' AND `token_id` = '00'",
+  ))[0];
+
+  it('promotes and credits in the same commit', async () => {
+    const sweep = await sweepOne();
+
+    const promoted = await runRecoveryTransaction(mysql, logger, (tx) => commitShieldedRecoveries(tx, 'w1', sweep.recoveries));
+
+    expect(promoted).toBe(1);
+    expect((await readState('o1')).s).toBe('recovered');
+    expect(await readAddressBalance()).toMatchObject({ usb: '100' });
+    expect(String((await readWalletBalance('w1')).usb)).toBe('100');
+  });
+
+  it('leaves nothing promoted or credited when the commit fails', async () => {
+    const sweep = await sweepOne();
+    const spy = jest.spyOn(ShieldedDb, 'rebuildWalletBalance').mockRejectedValueOnce(new Error('connection lost'));
+
+    await expect(runRecoveryTransaction(mysql, logger, (tx) => commitShieldedRecoveries(tx, 'w1', sweep.recoveries)))
+      .rejects.toThrow('connection lost');
+    spy.mockRestore();
+
+    // A promoted but uncredited output is what halts the daemon on its next
+    // spend, unlock or void of it.
+    expect((await readState('o1')).s).toBe('unowned');
+    expect(await readAddressBalance()).toBeUndefined();
+  });
+
+  it('credits an output once when its recovery is committed twice', async () => {
+    const sweep = await sweepOne();
+    await runRecoveryTransaction(mysql, logger, (tx) => commitShieldedRecoveries(tx, 'w1', sweep.recoveries));
+
+    const second = await runRecoveryTransaction(mysql, logger, (tx) => commitShieldedRecoveries(tx, 'w1', sweep.recoveries));
+
+    expect(second).toBe(0);
+    expect(await readAddressBalance()).toMatchObject({ usb: '100' });
+    expect(Number((await readAddressBalance()).txns)).toBe(1);
+  });
+
+  it('does not promote an output voided between its rewind and the commit', async () => {
+    const sweep = await sweepOne();
+    await mysql.query("UPDATE `tx_output` SET `voided` = TRUE WHERE `tx_id` = 'o1'");
+
+    const promoted = await runRecoveryTransaction(mysql, logger, (tx) => commitShieldedRecoveries(tx, 'w1', sweep.recoveries));
+
+    expect(promoted).toBe(0);
+    expect((await readState('o1')).s).toBe('unowned');
+  });
+
+  it('totals every address the wallet has when it commits, not when it swept', async () => {
+    const sweep = await sweepOne();
+    // The daemon claims and credits another address for the wallet in between.
+    await seedTransparentAddress('ta', 'w1', 0);
+    await seedTransparentBalance('ta', 'ttx');
+
+    await runRecoveryTransaction(mysql, logger, (tx) => commitShieldedRecoveries(tx, 'w1', sweep.recoveries));
+
+    expect(await readWalletBalance('w1')).toMatchObject({ ub: '200', usb: '100' });
+  });
+});
+
+describe('runRecoveryTransaction', () => {
+  const lockError = (errno: number) => Object.assign(new Error(`lock error ${errno}`), { errno });
+
+  it.each([1213, 1205])('runs the whole transaction again after a lock conflict (errno %i)', async (errno) => {
+    await seedWallet('w1');
+    let attempts = 0;
+
+    const result = await runRecoveryTransaction(mysql, logger, async (tx) => {
+      attempts += 1;
+      await tx.query("UPDATE `wallet` SET `max_gap` = `max_gap` + 1 WHERE `id` = 'w1'");
+      if (attempts === 1) throw lockError(errno);
+      return 'committed';
+    });
+
+    expect(result).toBe('committed');
+    expect(attempts).toBe(2);
+    // The first attempt's write was rolled back, so it applied once.
+    const [wallet] = await mysql.query("SELECT `max_gap` FROM `wallet` WHERE `id` = 'w1'") as unknown as { max_gap: number }[];
+    expect(Number(wallet.max_gap)).toBe(21);
+  });
+
+  it('caps each lock wait when asked', async () => {
+    try {
+      const wait = await runRecoveryTransaction(mysql, logger, async (tx) => {
+        const [row] = await tx.query('SELECT @@SESSION.innodb_lock_wait_timeout AS w') as unknown as { w: number }[];
+        return Number(row.w);
+      }, { lockWaitSeconds: 3 });
+
+      expect(wait).toBe(3);
+    } finally {
+      await mysql.query('SET SESSION innodb_lock_wait_timeout = DEFAULT');
+    }
+  });
+
+  it('does not run again after a lock conflict once the caller\'s budget is spent', async () => {
+    let attempts = 0;
+
+    await expect(runRecoveryTransaction(mysql, logger, async () => {
+      attempts += 1;
+      throw lockError(1205);
+    }, { canRetry: () => false })).rejects.toMatchObject({ errno: 1205 });
+
+    expect(attempts).toBe(1);
+  });
+
+  it('fails, leaving nothing behind, when its connection is lost midway', async () => {
+    // serverless-mysql would re-run the next statement on a new connection,
+    // outside the transaction, and commit it on its own; the pinned handle
+    // must fail instead.
+    await seedWallet('w1');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mysql2 = require('mysql2/promise');
+    const killer = await mysql2.createConnection({
+      host: process.env.DB_ENDPOINT,
+      port: Number(process.env.DB_PORT),
+      user: process.env.DB_USER,
+      password: process.env.DB_PASS,
+      database: process.env.DB_NAME,
+    });
+    try {
+      await expect(runRecoveryTransaction(mysql, logger, async (tx) => {
+        await tx.query("UPDATE `wallet` SET `max_gap` = 31 WHERE `id` = 'w1'");
+        const [{ id }] = await tx.query('SELECT CONNECTION_ID() AS id') as unknown as { id: number }[];
+        await killer.query(`KILL CONNECTION ${Number(id)}`);
+        await tx.query("UPDATE `wallet` SET `max_gap` = 32 WHERE `id` = 'w1'");
+      })).rejects.toBeDefined();
+    } finally {
+      await killer.end();
+    }
+
+    const [wallet] = await mysql.query("SELECT `max_gap` FROM `wallet` WHERE `id` = 'w1'") as unknown as { max_gap: number }[];
+    expect(Number(wallet.max_gap)).toBe(20);
+  });
+
+  it('does not retry any other error', async () => {
+    let attempts = 0;
+
+    await expect(runRecoveryTransaction(mysql, logger, async () => {
+      attempts += 1;
+      throw new Error('out of range');
+    })).rejects.toThrow('out of range');
+
+    expect(attempts).toBe(1);
+  });
+});
+
+describe('promoteShieldedTxOutputs', () => {
+  it('promotes across batches and counts only rows it changed', async () => {
+    await seedWallet('w1');
+    await seedCtSpendAddress('ca', 'w1', 0);
+    // More than one batch of 500, seeded in one statement.
+    const recoveries = Array.from({ length: 520 }, (_, i) => ({
+      txId: `b${i}`, index: 0, address: 'ca', value: BigInt(i + 1), tokenId: '00',
+    }));
+    await mysql.query(
+      `INSERT INTO \`tx_output\`
+         (\`tx_id\`, \`index\`, \`address\`, \`value\`, \`token_id\`, \`authorities\`,
+          \`timelock\`, \`heightlock\`, \`locked\`, \`voided\`, \`mode\`, \`recovery_state\`)
+       VALUES ?`,
+      [recoveries.map((r) => [r.txId, 0, 'ca', null, '00', 0, null, null, false, false, 1, 'unowned'])],
+    );
+    await mysql.query("UPDATE `tx_output` SET `voided` = TRUE WHERE `tx_id` = 'b7'");
+    await mysql.query("UPDATE `tx_output` SET `recovery_state` = 'recovered', `value` = 8 WHERE `tx_id` = 'b8'");
+
+    const promoted = await ShieldedDb.promoteShieldedTxOutputs(mysql, recoveries);
+
+    expect(promoted).toBe(518);
+    expect(await readState('b519')).toMatchObject({ s: 'recovered', v: '520' });
+    expect((await readState('b7')).s).toBe('unowned');
   });
 });

@@ -104,9 +104,11 @@ describe('shielded event schemas', () => {
       ['bad padding', 'dqkU='],
       ['the base64url alphabet', 'ab-_'],
     ];
-    it.each(fields.flatMap(([field, output]) => badValues.map(
-      ([label, value]) => [field, label, output, value] as const,
-    )))('rejects a %s with %s', (field, _label, output, value) => {
+    // An empty script is valid (see 'accepts an empty script'); the proofs
+    // never are.
+    it.each(fields.flatMap(([field, output]) => badValues
+      .filter(([label]) => !(field === 'script' && label === 'empty'))
+      .map(([label, value]) => [field, label, output, value] as const)))('rejects a %s with %s', (field, _label, output, value) => {
       expect(ShieldedOutputSchema.safeParse({ ...output, [field]: value }).success).toBe(false);
     });
   });
@@ -215,6 +217,184 @@ describe('shielded event schemas', () => {
       expect(v.shielded_outputs).toHaveLength(2);
       expect(v.shielded_outputs[0].mode).toBe(1);
       expect(v.shielded_outputs[1].mode).toBe(2);
+    });
+  });
+
+  describe('fields hathor-core treats as optional', () => {
+    // A copy of the real event, so each case differs from what hathor-core
+    // actually sends by exactly the field under test.
+    const realEvent = () => JSON.parse(JSON.stringify(alphaV4ShieldedVertexEvent));
+
+    it.each([
+      ['null', null],
+      ['absent', undefined],
+    ])('accepts an ephemeral_pubkey that is %s', (_label, value) => {
+      const event = realEvent();
+      event.event.data.shielded_outputs[0].ephemeral_pubkey = value;
+
+      const result = FullNodeEventSchema.safeParse(event);
+
+      expect(result.success).toBe(true);
+      const so = (result as any).data.event.data.shielded_outputs[0];
+      expect(so.ephemeral_pubkey ?? null).toBeNull();
+    });
+
+    it.each([
+      ['null', null],
+      ['absent', undefined],
+      ['an empty object', {}],
+    ])('reads a decoded that is %s as no address', (_label, value) => {
+      const event = realEvent();
+      event.event.data.shielded_outputs[0].decoded = value;
+
+      const result = FullNodeEventSchema.safeParse(event);
+
+      expect(result.success).toBe(true);
+      const so = (result as any).data.event.data.shielded_outputs[0];
+      expect(so.decoded).toBeNull();
+    });
+
+    it('accepts an empty script, which has no address', () => {
+      const event = realEvent();
+      event.event.data.shielded_outputs[0].script = '';
+      event.event.data.shielded_outputs[0].decoded = null;
+
+      const result = FullNodeEventSchema.safeParse(event);
+
+      expect(result.success).toBe(true);
+      const so = (result as any).data.event.data.shielded_outputs[0];
+      expect(so.script).toBe('');
+    });
+  });
+
+  describe('a shielded spent output with optional fields left out', () => {
+    // #500 applies to spends too: SpentOutputSchema reuses the output schemas,
+    // and an output that ingested without these fields is later spent.
+    const realSpentOutput = () => {
+      const event = JSON.parse(JSON.stringify(alphaV4FullyShieldedSpendEvent));
+      return event.event.data.inputs.find((i: any) => i.spent_output.mode === 1).spent_output;
+    };
+
+    it.each([
+      ['null', null],
+      ['absent', undefined],
+    ])('accepts an ephemeral_pubkey that is %s', (_label, value) => {
+      const spent = { ...realSpentOutput(), ephemeral_pubkey: value };
+
+      const result = SpentOutputSchema.safeParse(spent);
+
+      expect(result.success).toBe(true);
+      expect((result as any).data.ephemeral_pubkey ?? null).toBeNull();
+    });
+
+    it.each([
+      ['null', null],
+      ['absent', undefined],
+      ['an empty object', {}],
+    ])('reads a decoded that is %s as no address', (_label, value) => {
+      const spent = { ...realSpentOutput(), decoded: value };
+
+      const result = SpentOutputSchema.safeParse(spent);
+
+      expect(result.success).toBe(true);
+      expect((result as any).data.decoded).toBeNull();
+    });
+  });
+
+  describe('a shielded payload that does not match the schema', () => {
+    // hathor-core verifies every shielded field before it emits a vertex, so
+    // a mismatch here means the schema drifted from core. The event fails, so
+    // sync stops on it and replays it once the schema is fixed.
+    const realEvent = () => JSON.parse(JSON.stringify(alphaV4ShieldedVertexEvent));
+    const issuePaths = (result: any) => result.error.issues.map((i: any) => i.path.join('.'));
+
+    it('fails the event on an invalid field', () => {
+      const event = realEvent();
+      event.event.data.shielded_outputs[0].commitment = 'not hex';
+
+      const result = FullNodeEventSchema.safeParse(event);
+
+      expect(result.success).toBe(false);
+      expect(issuePaths(result)).toContain('event.data.shielded_outputs.0.commitment');
+    });
+
+    it('fails the event on an unknown mode', () => {
+      const event = realEvent();
+      event.event.data.shielded_outputs[0].mode = 3;
+
+      expect(FullNodeEventSchema.safeParse(event).success).toBe(false);
+    });
+
+    // Only null, absent and `{}` mean "no address"; any other shape is drift.
+    it.each([
+      ['an array', []],
+      ['an object without an address', { type: 'P2PKH' }],
+    ])('fails the event on a decoded that is %s', (_label, decoded) => {
+      const event = realEvent();
+      event.event.data.shielded_outputs[0].decoded = decoded;
+
+      expect(FullNodeEventSchema.safeParse(event).success).toBe(false);
+    });
+
+    it('fails a shielded spent output missing a field', () => {
+      const result = SpentOutputSchema.safeParse({
+        mode: 2,
+        commitment: 'aa'.repeat(33),
+        range_proof: Buffer.alloc(64, 0xbb).toString('base64'),
+        script: Buffer.alloc(20, 0xcc).toString('base64'),
+        ephemeral_pubkey: 'dd'.repeat(33),
+        surjection_proof: Buffer.alloc(64, 0xff).toString('base64'),
+        decoded: { address: 'WT4n' },
+      });
+
+      expect(result.success).toBe(false);
+      expect(issuePaths(result)).toContain('asset_commitment');
+    });
+
+    it('fails a transparent spent output that does not validate, naming the field', () => {
+      const result = SpentOutputSchema.safeParse({ mode: 0, value: 1, token_data: 'x', script: '' });
+
+      expect(result.success).toBe(false);
+      expect(issuePaths(result)).toContain('token_data');
+    });
+  });
+
+  describe('headers', () => {
+    const realEvent = () => JSON.parse(JSON.stringify(alphaV4ShieldedVertexEvent));
+    const issuePaths = (result: any) => result.error.issues.map((i: any) => i.path.join('.'));
+    const nanoHeader = {
+      id: '10', nc_seqnum: 1, nc_id: 'aa', nc_method: 'initialize', nc_address: 'WT4n',
+    };
+
+    it.each(['11', '12', '13'])('accepts and keeps a header with id %s, which the daemon ignores', (id) => {
+      const event = realEvent();
+      event.event.data.headers = [nanoHeader, { id, entries: [] }];
+
+      const result = FullNodeEventSchema.safeParse(event);
+
+      expect(result.success).toBe(true);
+      expect((result as any).data.event.data.headers).toHaveLength(2);
+    });
+
+    // Mint and melt change token supply; ignoring them would lose it silently.
+    it.each(['14', '15', '99'])('fails the event on a header with id %s', (id) => {
+      const event = realEvent();
+      event.event.data.headers = [{ id }];
+
+      const result = FullNodeEventSchema.safeParse(event);
+
+      expect(result.success).toBe(false);
+      expect(issuePaths(result)).toContain('event.data.headers.0.id');
+    });
+
+    it('still fails a nano header missing its fields', () => {
+      const event = realEvent();
+      event.event.data.headers = [{ id: '10', nc_seqnum: 1 }];
+
+      const result = FullNodeEventSchema.safeParse(event);
+
+      expect(result.success).toBe(false);
+      expect(issuePaths(result)).toContain('event.data.headers.0.nc_id');
     });
   });
 

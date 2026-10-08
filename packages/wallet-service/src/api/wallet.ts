@@ -20,7 +20,6 @@ import {
   updateWalletAuthXpub,
   registerWalletShieldedKeys,
   casWalletErrorToCreating,
-  lockAddressBalancesForUpdate,
   pinLegacyLoadFailed,
   pinShieldedLoadFailed,
   upsertNewAddresses,
@@ -33,20 +32,18 @@ import {
   GenerateShieldedAddresses,
   generateShieldedAddresses,
   upsertShieldedAddressOwnership,
-  getWalletCtSpendAddresses,
-  markShieldedCatchupDone,
-  rebuildShieldedAddressBalances,
-  rebuildShieldedAddressTxHistory,
-  rebuildWalletBalance,
-  rebuildWalletTxHistory,
+  markWalletSweepRunning,
 } from '@src/db/shielded';
-import { findAndRewindShielded } from '@src/shieldedRecovery';
 import {
-  beginTransaction,
-  commitTransaction,
-  rollbackTransaction,
-  computeUnifiedStatus,
-} from '@src/db/utils';
+  commitShieldedRecoveries,
+  findAndRewindShielded,
+  reportShieldedSweeps,
+  recordFailedShieldedUpgrade,
+  runRecoveryTransaction,
+  sweptOutputs,
+  SweepOutcome,
+} from '@src/shieldedRecovery';
+import { computeUnifiedStatus } from '@src/db/utils';
 import { WalletStatus, Wallet } from '@src/types';
 import {
   closeDbConnection,
@@ -544,8 +541,10 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
    * status is re-read for the response. */
   const onAsyncInvokeError = async (e: unknown): Promise<void> => {
     logger.error(e);
-    if (hasShielded) {
-      await markWalletLoadError(mysql, walletId, wallet.status !== WalletStatus.READY);
+    if (hasShielded && wallet.status === WalletStatus.READY) {
+      await recordFailedShieldedUpgrade(mysql, walletId, logger, (tx) => markWalletLoadError(tx, walletId, false));
+    } else if (hasShielded) {
+      await markWalletLoadError(mysql, walletId, true);
     } else {
       await markLegacyLoadError(mysql, walletId);
     }
@@ -717,10 +716,21 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
       // legacy side was already ready before the crashed load — keeps its
       // working legacy state untouched.
       const failedWallet = await getWallet(mysql, walletId);
-      if (failedWallet && failedWallet.scanXpriv != null) {
-        if (failedWallet.status !== WalletStatus.READY) {
-          await pinLegacyLoadFailed(mysql, walletId, MAX_LOAD_WALLET_RETRIES);
+      if (failedWallet && failedWallet.scanXpriv != null && failedWallet.status === WalletStatus.READY) {
+        if (failedWallet.ctStatus !== WalletStatus.READY) {
+          // A timed-out upgrade lands here, not in the worker's catch, so it
+          // rebuilds the totals the same way (see recordFailedShieldedUpgrade).
+          // That includes a wallet still in error: a load that died before it
+          // could move it back to creating has rebuilt nothing.
+          await recordFailedShieldedUpgrade(
+            mysql, walletId, logger, (tx) => pinShieldedLoadFailed(tx, walletId, MAX_LOAD_WALLET_RETRIES),
+          );
+        } else {
+          // Another attempt made it ready, which rebuilt it: pinning is a no-op.
+          await pinShieldedLoadFailed(mysql, walletId, MAX_LOAD_WALLET_RETRIES);
         }
+      } else if (failedWallet && failedWallet.scanXpriv != null) {
+        await pinLegacyLoadFailed(mysql, walletId, MAX_LOAD_WALLET_RETRIES);
         await pinShieldedLoadFailed(mysql, walletId, MAX_LOAD_WALLET_RETRIES);
       } else {
         await pinLegacyLoadFailed(mysql, walletId, MAX_LOAD_WALLET_RETRIES);
@@ -766,8 +776,9 @@ export const loadWalletFailed: Handler<SNSEvent> = async (event) => {
  *
  * Idempotent end to end: derivations are recomputed, claims are upserts, rewinds
  * are guarded by tx_output.recovery_state, and the rebuilds recompute absolutes —
- * so AWS async retries and user-driven re-invocations converge. reconstructWallet
- * runs OUTSIDE any DB transaction (paged crypto must not hold row locks).
+ * so AWS async retries and user-driven re-invocations converge. The rewinds run
+ * outside any DB transaction (paged crypto must not hold row locks); what they
+ * open is promoted in the settle transaction, with the rebuilds that credit it.
  */
 export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
   const logger = createDefaultLogger();
@@ -782,6 +793,15 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
   const wallet = await getWallet(mysql, walletId);
   if (!wallet) {
     throw new Error(`loadWallet: wallet ${walletId} not found`);
+  }
+  // The load API moves an errored side back to `creating` before invoking
+  // this; an operator's direct invoke skips the API, so do it here. A ready
+  // wallet in error counts as settled for the daemon, so until this load
+  // records an outcome it must be mid-load: a load that dies, or fails to
+  // record its failure, then leaves it safe instead of settled on totals
+  // nothing rebuilt.
+  if (wallet.status === WalletStatus.ERROR || wallet.ctStatus === WalletStatus.ERROR) {
+    await casWalletErrorToCreating(mysql, walletId);
   }
   const legacyWasReady = wallet.status === WalletStatus.READY;
   // consts (not the wallet fields) so the null checks narrow them below
@@ -805,40 +825,37 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
       : { rows: [], addresses: [], lastUsedShieldedIndex: null, newRows: [] };
 
     // 2. One short claim transaction: address ownership + frontier indices.
-    await beginTransaction(mysql);
-    try {
-      await upsertNewAddresses(mysql, walletId, legacy.newAddresses, legacy.lastUsedAddressIndex);
-      await updateExistingAddresses(mysql, walletId, legacy.existingAddresses);
-      await upsertShieldedAddressOwnership(mysql, walletId, shielded.newRows);
+    //    The daemon claims CTSpend addresses too, as it extends the window,
+    //    and can deadlock with this; every write here is an upsert, so a
+    //    retry is safe.
+    await runRecoveryTransaction(mysql, logger, async (tx) => {
+      await upsertNewAddresses(tx, walletId, legacy.newAddresses, legacy.lastUsedAddressIndex);
+      await updateExistingAddresses(tx, walletId, legacy.existingAddresses);
+      await upsertShieldedAddressOwnership(tx, walletId, shielded.newRows);
       if (shielded.lastUsedShieldedIndex != null) {
-        await advanceLastUsedShieldedIndex(mysql, walletId, shielded.lastUsedShieldedIndex);
+        await advanceLastUsedShieldedIndex(tx, walletId, shielded.lastUsedShieldedIndex);
       }
-      await commitTransaction(mysql);
-    } catch (txError) {
-      await rollbackTransaction(mysql);
-      throw txError;
-    }
+    });
 
-    // 3. Reconstruction — outside any transaction. The CTSpend set is read back
-    //    from the database so previously-claimed rows stay covered on re-loads.
-    //    The rewind drains run BEFORE the rebuilds (which recompute absolutes
-    //    from tx_output), so everything revealed lands in a single rebuild.
-    const ctSpendAddresses = hasShieldedKeys ? await getWalletCtSpendAddresses(mysql, walletId) : [];
+    // 3. Rewind — outside any transaction: it is the slow part, and nothing it
+    //    does yet changes a balance. Outputs that open are promoted in the
+    //    settle below, together with the rebuilds that credit them.
     let catchupSkipped = false;
+    let sweeps: SweepOutcome[] = [];
     if (hasShieldedKeys) {
+      // Take the wallet's flagged rows (the claim just flagged its new ones)
+      // for this catch-up; the settle marks them done. A row the daemon flags
+      // again meanwhile goes back to pending, for the scheduled sweep.
+      await markWalletSweepRunning(mysql, walletId);
       const firstSweep = await findAndRewindShielded(mysql, walletId, logger);
       // Settle drain: a daemon ingest whose ownership check snapshotted the
       // world before our claim committed lands its output unowned moments
-      // later — one more (cheap when empty) sweep closes that window.
-      const settleSweep = await findAndRewindShielded(mysql, walletId, logger);
-      // A rewind that fails is recorded as `recovery_failed` and re-driven by a
-      // later catch-up, so the load still completes — but the balance is
-      // incomplete until then, so make the count greppable next to the
-      // per-output alerts rather than letting it pass silently.
-      const failedRewinds = firstSweep.failed + settleSweep.failed;
-      if (failedRewinds > 0) {
-        logger.error('Shielded outputs failed to recover during load', { walletId, failed: failedRewinds });
-      }
+      // later — one more (cheap when empty) sweep closes that window. It skips
+      // what the first sweep handled, which is all still unpromoted.
+      const settleSweep = await findAndRewindShielded(
+        mysql, walletId, logger, undefined, { exclude: sweptOutputs(firstSweep) },
+      );
+      sweeps = [firstSweep, settleSweep];
       // A sweep that never ran (no crypto provider) must not be mistaken for a
       // completed one: recording the catch-up as done would tell a later sweep
       // there is nothing left to pick up, and the wallet's shielded balance
@@ -848,36 +865,38 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
       if (catchupSkipped) {
         logger.warn('Shielded catch-up left pending: the sweep could not run', { walletId });
       }
-      await rebuildShieldedAddressBalances(mysql, ctSpendAddresses);
-      await rebuildShieldedAddressTxHistory(mysql, ctSpendAddresses);
     }
-    // 4. Settle: recompute the wallet totals and flip it ready as one atomic
-    //    step, holding locks on the address rows the totals are summed from.
+    // 4. Settle: promote what opened, rebuild the wallet's balances and history,
+    //    and flip it ready, as one transaction (see commitShieldedRecoveries).
     //    The daemon skips a mid-load wallet's `wallet_balance` but still writes
-    //    `address_balance`, so a write landing between the sum and the ready flip
-    //    would be missed by both — the locks make it wait until we're ready.
-    const ownedAddresses = [...legacy.addresses, ...ctSpendAddresses];
-    await beginTransaction(mysql);
-    try {
-      await lockAddressBalancesForUpdate(mysql, ownedAddresses);
-      await rebuildWalletBalance(mysql, walletId, ownedAddresses);
-      await rebuildWalletTxHistory(mysql, walletId, ownedAddresses);
-
+    //    `address_balance`, so a write landing between the totals and the ready
+    //    flip would be missed by both — the locks make it wait until we're ready.
+    const recoveries = sweeps.flatMap((sweep) => sweep.recoveries);
+    const promoted = await runRecoveryTransaction(mysql, logger, async (tx) => {
+      // A skipped catch-up stays `running`, so the scheduled sweep picks it up.
+      const count = await commitShieldedRecoveries(tx, walletId, recoveries, {
+        finishSweep: hasShieldedKeys && !catchupSkipped,
+      });
       if (hasShieldedKeys) {
-        if (!catchupSkipped) {
-          const highestDerivedIndex = shielded.rows[shielded.rows.length - 1].index;
-          await markShieldedCatchupDone(mysql, walletId, highestDerivedIndex);
-        }
-        await markWalletLoadReady(mysql, walletId, !legacyWasReady);
+        await markWalletLoadReady(tx, walletId, !legacyWasReady);
       } else {
         // Defensive legacy-only path: no shielded lifecycle is fabricated.
-        await updateWalletStatus(mysql, walletId, WalletStatus.READY);
+        await updateWalletStatus(tx, walletId, WalletStatus.READY);
       }
-      await commitTransaction(mysql);
-    } catch (settleError) {
-      await rollbackTransaction(mysql);
-      throw settleError;
+      return count;
+    });
+    if (promoted < recoveries.length) {
+      // Voided, or promoted by another load, between the rewind and the commit.
+      logger.info('Some rewound shielded outputs were not promoted', {
+        walletId, rewound: recoveries.length, promoted,
+      });
     }
+
+    // After the commit: the miss-pattern page counts the wallet's recovered
+    // outputs, which include this load's only once it has committed. A rewind
+    // that failed was recorded as `recovery_failed` for a later catch-up, so
+    // the load still completed — but the balance is incomplete until then.
+    await reportShieldedSweeps(mysql, walletId, sweeps, logger);
 
     return { success: true, walletId, xpubkey };
   } catch (e) {
@@ -894,8 +913,10 @@ export const loadWallet: Handler<LoadEvent, LoadResult> = async (event) => {
         { wallet_id: walletId, error: errorDetail(e), source: 'wallet-service' },
         logger,
       );
-      if (hasShieldedKeys) {
-        await markWalletLoadError(mysql, walletId, !legacyWasReady);
+      if (hasShieldedKeys && legacyWasReady) {
+        await recordFailedShieldedUpgrade(mysql, walletId, logger, (tx) => markWalletLoadError(tx, walletId, false));
+      } else if (hasShieldedKeys) {
+        await markWalletLoadError(mysql, walletId, true);
       } else {
         await markLegacyLoadError(mysql, walletId);
       }

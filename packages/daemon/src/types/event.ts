@@ -126,6 +126,32 @@ const HexStringSchema = z.string().regex(/^([0-9a-fA-F]{2})+$/);
 // variable-size blobs (range_proof, script, surjection_proof), like the
 // transparent `script`. `base64()` alone accepts an empty string.
 const Base64StringSchema = z.string().min(1).base64();
+// hathor-core bounds a shielded script's size from above only, so an empty
+// script is valid; like any script that is not an address script, it simply
+// has no `decoded`.
+const ShieldedScriptSchema = z.string().base64();
+
+/**
+ * Parse `raw` with `schema` from inside a transform, forwarding its issues.
+ * Lets a schema choose what to parse with before parsing, so a failure
+ * reports the real cause rather than a union's "no option matched".
+ */
+const parseWith = <S extends z.ZodTypeAny>(
+  schema: S, raw: unknown, ctx: z.RefinementCtx,
+): z.infer<S> => {
+  const parsed = schema.safeParse(raw);
+  if (!parsed.success) {
+    for (const issue of parsed.error.issues) {
+      ctx.addIssue(issue);
+    }
+    return z.NEVER;
+  }
+  return parsed.data;
+};
+
+const fieldOf = (raw: unknown, field: string): unknown => (
+  raw && typeof raw === 'object' ? (raw as Record<string, unknown>)[field] : undefined
+);
 
 const ShieldedDecodedSchema = z.object({
   address: z.string(),
@@ -136,15 +162,30 @@ const ShieldedDecodedSchema = z.object({
   timelock: z.number().int().nullish(),
 }).passthrough();
 
-// `.length(66)` pins commitment, ephemeral_pubkey and asset_commitment to 33
-// bytes, the width of their VARBINARY(33) columns. checkShieldedOutputStorable
-// relies on this and does not re-check them.
+// hathor-core only writes `decoded` when the script is a recognised address
+// script; otherwise it arrives as null, absent or `{}`. All three become null,
+// so consumers have one "no address" case to handle.
+const OptionalShieldedDecodedSchema = z.preprocess(
+  (raw) => (
+    raw == null
+      || (typeof raw === 'object' && !Array.isArray(raw) && Object.keys(raw).length === 0)
+      ? null
+      : raw
+  ),
+  ShieldedDecodedSchema.nullable(),
+);
+
+// `.length(66)` pins commitment, asset_commitment and (when present)
+// ephemeral_pubkey to 33 bytes, the width of their VARBINARY(33) columns.
+// checkShieldedOutputStorable relies on this and does not re-check them.
 const BaseShieldedFieldsSchema = z.object({
   commitment: HexStringSchema.length(66),
   range_proof: Base64StringSchema,
-  script: Base64StringSchema,
-  ephemeral_pubkey: HexStringSchema.length(66),
-  decoded: ShieldedDecodedSchema,
+  script: ShieldedScriptSchema,
+  // Optional in the protocol: hathor-core omits it (sends null) when the sender
+  // supplied none, and such an output cannot be rewound.
+  ephemeral_pubkey: HexStringSchema.length(66).nullish(),
+  decoded: OptionalShieldedDecodedSchema,
 });
 
 export const AmountShieldedOutputSchema = BaseShieldedFieldsSchema.extend({
@@ -192,6 +233,8 @@ export const EventTxInputSchema = z.object({
 });
 export type EventTxInput = z.infer<typeof EventTxInputSchema>;
 
+const NANO_HEADER_ID = '10';
+
 export const EventTxNanoHeaderSchema = z.object({
   id: z.string(),
   nc_seqnum: z.number(),
@@ -201,13 +244,40 @@ export const EventTxNanoHeaderSchema = z.object({
 });
 export type EventTxNanoHeader = z.infer<typeof EventTxNanoHeaderSchema>;
 
-// EventTxHeaderSchema should be a union of all possible header schemas.
-// But currently only the nano header exists.
-export const EventTxHeaderSchema = EventTxNanoHeaderSchema;
+/**
+ * Header ids the daemon can accept and ignore: fee (`11`), shielded outputs
+ * (`12`, already flattened into `shielded_outputs`) and unshield balance
+ * (`13`). Balances come from the inputs and outputs, so none of them carries
+ * anything to ingest. hathor-core emits only nano headers today.
+ *
+ * Deliberately an allowlist. Mint (`14`) and melt (`15`) headers change token
+ * supply, and any id not listed here may too, so those fail the event rather
+ * than being dropped without a trace.
+ */
+const IGNORED_HEADER_IDS: ReadonlySet<string> = new Set(['11', '12', '13']);
+
+const EventTxIgnoredHeaderSchema = z.object({ id: z.string() }).passthrough();
+
+// Chosen by id, so a nano header must match the nano schema in full.
+export const EventTxHeaderSchema = z.unknown().transform((raw, ctx) => {
+  const id = fieldOf(raw, 'id');
+  if (id === NANO_HEADER_ID) {
+    return parseWith(EventTxNanoHeaderSchema, raw, ctx);
+  }
+  if (typeof id === 'string' && IGNORED_HEADER_IDS.has(id)) {
+    return parseWith(EventTxIgnoredHeaderSchema, raw, ctx);
+  }
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ['id'],
+    message: `header id ${String(id)} is not one the daemon can safely ignore`,
+  });
+  return z.NEVER;
+});
 export type EventTxHeader = z.infer<typeof EventTxHeaderSchema>;
 
 export function isNanoHeader(header: EventTxHeader): header is EventTxNanoHeader {
-  return header.id === '10';
+  return header.id === NANO_HEADER_ID;
 }
 
 export const TxEventDataWithoutMetaSchema = z.object({
@@ -219,7 +289,7 @@ export const TxEventDataWithoutMetaSchema = z.object({
   inputs: EventTxInputSchema.array(),
   outputs: EventTxOutputSchema.array(),
   shielded_outputs: z.array(ShieldedOutputSchema).default([]),
-  headers: EventTxNanoHeaderSchema.array().optional(),
+  headers: EventTxHeaderSchema.array().optional(),
   parents: z.string().array(),
   tokens: z.string().array(),
   token_name: z.string().nullable(),

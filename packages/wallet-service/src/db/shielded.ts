@@ -6,7 +6,12 @@
  */
 
 import { ServerlessMysql } from 'serverless-mysql';
-import { Bip32Account, RecoveryState, ShieldedOutputMode } from '@wallet-service/common';
+import {
+  Bip32Account,
+  EPHEMERAL_PUBKEY_BYTES,
+  RecoveryState,
+  ShieldedOutputMode,
+} from '@wallet-service/common';
 import { deriveCtAddress } from '@wallet-service/common/src/crypto/shieldedAddress';
 import type { Network } from '@hathor/wallet-lib';
 import { DbSelectResult } from '@src/types';
@@ -76,25 +81,49 @@ export const findShieldedAddressOwnershipBatch = async (
   return ownership;
 };
 
+/** Most outputs promoted by one statement. */
+const PROMOTE_BATCH = 500;
+
+/** An output a sweep rewound, not yet promoted. */
+export interface ShieldedRecovery {
+  txId: string;
+  index: number;
+  address: string;
+  value: bigint;
+  tokenId: string;
+}
+
 /**
- * Promote a shielded `tx_output` to `recovered`, filling the revealed value and
- * token id. Guarded on the row being anything but already `recovered`, so it
- * drives an `unowned` (catch-up) or `recovery_failed` (re-drive) row alike and a
- * repeat on an already-recovered row is a no-op (`affectedRows = 0`).
+ * Promote rewound outputs to `recovered`, revealing their value and token, in
+ * batches. Only rows not yet recovered and not voided change, so an `unowned`
+ * (catch-up) or `recovery_failed` (re-drive) row is promoted alike and a repeat
+ * is a no-op; returns how many changed. One statement per batch rather than
+ * per output: the caller holds the wallet's rows locked against the daemon for
+ * as long as this takes.
  */
-export const markShieldedTxOutputRecovered = async (
+export const promoteShieldedTxOutputs = async (
   mysql: ServerlessMysql,
-  txId: string,
-  index: number,
-  recovered: { value: bigint; tokenId: string },
-): Promise<{ affectedRows: number }> => {
-  const result = await mysql.query(
-    `UPDATE \`tx_output\`
-        SET \`value\` = ?, \`token_id\` = ?, \`recovery_state\` = ?
-      WHERE \`tx_id\` = ? AND \`index\` = ? AND \`recovery_state\` <> ?`,
-    [recovered.value.toString(), recovered.tokenId, RecoveryState.Recovered, txId, index, RecoveryState.Recovered],
-  ) as unknown as { affectedRows: number };
-  return { affectedRows: result.affectedRows };
+  recoveries: ShieldedRecovery[],
+): Promise<number> => {
+  let promoted = 0;
+  for (let start = 0; start < recoveries.length; start += PROMOTE_BATCH) {
+    const batch = recoveries.slice(start, start + PROMOTE_BATCH);
+    const rows = batch.map(() => 'ROW(?, ?, ?, ?)').join(', ');
+    const result = await mysql.query(
+      `UPDATE \`tx_output\` t
+         JOIN (VALUES ${rows}) AS v (\`tx_id\`, \`idx\`, \`value\`, \`token_id\`)
+           ON t.\`tx_id\` = v.\`tx_id\` AND t.\`index\` = v.\`idx\`
+          SET t.\`value\` = v.\`value\`, t.\`token_id\` = v.\`token_id\`, t.\`recovery_state\` = ?
+        WHERE t.\`recovery_state\` <> ? AND t.\`voided\` = FALSE`,
+      [
+        ...batch.flatMap((r) => [r.txId, r.index, r.value.toString(), r.tokenId]),
+        RecoveryState.Recovered,
+        RecoveryState.Recovered,
+      ],
+    ) as unknown as { affectedRows: number };
+    promoted += result.affectedRows;
+  }
+  return promoted;
 };
 
 /**
@@ -149,20 +178,33 @@ export interface ShieldedOutputToRecover {
  * construction — nothing in this system can rewind a payload that was never
  * stored. Keep that join if this query is ever rewritten, or parked outputs will
  * be re-driven forever.
+ *
+ * Outputs stored without an ephemeral pubkey (all zero bytes) are skipped too:
+ * the rewind needs that key, so trying would only mark them `recovery_failed`
+ * and alert on every catch-up. They stay `unowned`.
  */
 export const getShieldedOutputsToRecover = async (
   mysql: ServerlessMysql,
   walletId: string,
   limit: number,
   after?: { txId: string; index: number },
+  /** Only outputs on addresses flagged for a sweep (`catchup_state` pending or running). */
+  onlyFlagged = false,
 ): Promise<ShieldedOutputToRecover[]> => {
   // Keyset cursor on (tx_id, index): because a re-driven `recovery_failed` row
   // stays in the result set, plain re-querying would revisit it — advancing past
   // the last row seen guarantees forward progress.
   const cursor = after ? 'AND (t.`tx_id` > ? OR (t.`tx_id` = ? AND t.`index` > ?))' : '';
   // Placeholder order follows the SQL text: join account, wallet, the two shielded
-  // modes, the recovered-guard, then (optional) cursor keys, then limit.
-  const head = [Bip32Account.CTSpend, walletId, ...SHIELDED_MODES, RecoveryState.Recovered];
+  // modes, the recovered-guard, the absent-pubkey guard, then (optional) cursor
+  // keys, then limit.
+  const head = [
+    Bip32Account.CTSpend,
+    walletId,
+    ...SHIELDED_MODES,
+    RecoveryState.Recovered,
+    Buffer.alloc(EPHEMERAL_PUBKEY_BYTES),
+  ];
   const params = after
     ? [...head, after.txId, after.txId, after.index, limit]
     : [...head, limit];
@@ -182,6 +224,8 @@ export const getShieldedOutputsToRecover = async (
         AND t.\`mode\` IN (?, ?)
         AND t.\`voided\` = FALSE
         AND t.\`recovery_state\` <> ?
+        AND d.\`ephemeral_pubkey\` <> ?
+        ${onlyFlagged ? "AND a.`catchup_state` IN ('pending', 'running')" : ''}
         ${cursor}
       ORDER BY t.\`tx_id\`, t.\`index\`
       LIMIT ?`,
@@ -201,6 +245,53 @@ export const getShieldedOutputsToRecover = async (
   }));
 };
 
+/** One of a wallet's addresses, as read under lock. */
+export interface LockedWalletAddress {
+  address: string;
+  bip32Account: number | null;
+}
+
+/**
+ * Lock a wallet's address rows and return them: the wallet's address set, read
+ * so it cannot change until the caller commits.
+ *
+ * Take this first in a recovery commit (see `commitShieldedRecoveries` for the
+ * order and why). The lock on the `wallet_id` index also keeps the daemon from
+ * adding an address to the wallet while we total it.
+ */
+export const lockWalletAddresses = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+): Promise<LockedWalletAddress[]> => {
+  const results: DbSelectResult = await mysql.query(
+    'SELECT `address`, `bip32_account` FROM `address` WHERE `wallet_id` = ? FOR UPDATE',
+    [walletId],
+  );
+  return results.map((row) => ({
+    address: row.address as string,
+    bip32Account: row.bip32_account == null ? null : Number(row.bip32_account),
+  }));
+};
+
+/**
+ * How many of the wallet's shielded outputs are recovered (non-voided). Tells a
+ * scan key that never opens anything apart from one that only missed a few.
+ */
+export const countRecoveredShieldedOutputs = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+): Promise<number> => {
+  const results: DbSelectResult = await mysql.query(
+    `SELECT COUNT(*) AS \`count\`
+       FROM \`tx_output\` t
+       INNER JOIN \`address\` a ON a.\`address\` = t.\`address\`
+      WHERE a.\`wallet_id\` = ? AND t.\`mode\` IN (?, ?)
+        AND t.\`recovery_state\` = ? AND t.\`voided\` = FALSE`,
+    [walletId, ...SHIELDED_MODES, RecoveryState.Recovered],
+  );
+  return Number(results[0]?.count ?? 0);
+};
+
 /**
  * Recompute the shielded balance columns of `address_balance` for the given
  * addresses from their recovered `tx_output` rows (mode 1/2, `recovery_state =
@@ -208,6 +299,13 @@ export const getShieldedOutputsToRecover = async (
  * unlocked/locked come from the unspent utxos, `total_shielded_received` is the
  * lifetime (every recovered output, spent or not). Only the shielded columns are
  * written; a transparent balance already on the (address, token) row is preserved.
+ *
+ * `transactions` is set to the pair's number of `address_tx_history` rows,
+ * which is what the daemon's count amounts to (it writes a row and adds 1
+ * together) and what its void subtracts from. Run
+ * `rebuildShieldedAddressTxHistory` first, so the recovered receives and their
+ * spends are among the rows counted; a pair left at 0 here would underflow
+ * when the daemon voids one of them, halting sync.
  */
 export const rebuildShieldedAddressBalances = async (
   mysql: ServerlessMysql,
@@ -223,7 +321,10 @@ export const rebuildShieldedAddressBalances = async (
         COALESCE(SUM(CASE WHEN t.\`spent_by\` IS NULL AND t.\`locked\` = FALSE THEN t.\`value\` ELSE 0 END), 0),
         COALESCE(SUM(CASE WHEN t.\`spent_by\` IS NULL AND t.\`locked\` = TRUE  THEN t.\`value\` ELSE 0 END), 0),
         COALESCE(SUM(t.\`value\`), 0),
-        0, 0, 0
+        0, 0,
+        (SELECT COUNT(*) FROM \`address_tx_history\` h
+          WHERE h.\`address\` = t.\`address\` AND h.\`token_id\` = t.\`token_id\`
+            AND h.\`voided\` = FALSE)
        FROM \`tx_output\` t
       WHERE t.\`address\` IN (?) AND t.\`mode\` IN (?, ?)
         AND t.\`recovery_state\` = ? AND t.\`voided\` = FALSE
@@ -231,20 +332,22 @@ export const rebuildShieldedAddressBalances = async (
      ON DUPLICATE KEY UPDATE
         \`unlocked_shielded_balance\` = VALUES(\`unlocked_shielded_balance\`),
         \`locked_shielded_balance\` = VALUES(\`locked_shielded_balance\`),
-        \`total_shielded_received\` = VALUES(\`total_shielded_received\`)`,
+        \`total_shielded_received\` = VALUES(\`total_shielded_received\`),
+        \`transactions\` = VALUES(\`transactions\`)`,
     [addresses, ...SHIELDED_MODES, RecoveryState.Recovered],
   );
 };
 
 /**
- * Recompute the shielded receive-history for the given addresses from their
- * recovered `tx_output` rows: one signed `shielded_balance_delta` per (address,
- * tx, token), summed across that tx's recovered outputs, stamped with the tx
- * timestamp. Replace-not-add (`= VALUES(...)`) → idempotent, and only the shielded
- * delta is written, so a transparent `balance` already on that history row is kept.
- *
- * This is the receive side only; a shielded output later spent has its negative
- * delta produced by the spend tx, which a receive-driven catch-up does not see.
+ * Recompute the shielded history for the given addresses from their recovered
+ * `tx_output` rows: per (address, tx, token), the signed sum of what the tx
+ * received (`+value` on the output's own tx) and what it spent (`-value` on the
+ * output's `spent_by`), stamped with that tx's timestamp. Both sides come from
+ * `tx_output`, so this is a true snapshot: it agrees with the delta the daemon
+ * writes for a tx that both spends from and pays the same pair, and it fills in
+ * spends that happened before the outputs were recovered. Replace-not-add
+ * (`= VALUES(...)`) → idempotent, and only the shielded delta is written, so a
+ * transparent `balance` already on the row is kept.
  */
 export const rebuildShieldedAddressTxHistory = async (
   mysql: ServerlessMysql,
@@ -254,15 +357,26 @@ export const rebuildShieldedAddressTxHistory = async (
   await mysql.query(
     `INSERT INTO \`address_tx_history\`
        (\`address\`, \`tx_id\`, \`token_id\`, \`balance\`, \`shielded_balance_delta\`, \`timestamp\`, \`voided\`)
-     SELECT t.\`address\`, t.\`tx_id\`, t.\`token_id\`, 0,
-        COALESCE(SUM(t.\`value\`), 0), tx.\`timestamp\`, FALSE
-       FROM \`tx_output\` t
-       INNER JOIN \`transaction\` tx ON tx.\`tx_id\` = t.\`tx_id\`
-      WHERE t.\`address\` IN (?) AND t.\`mode\` IN (?, ?)
-        AND t.\`recovery_state\` = ? AND t.\`voided\` = FALSE
-      GROUP BY t.\`address\`, t.\`tx_id\`, t.\`token_id\`, tx.\`timestamp\`
+     SELECT s.\`address\`, s.\`tx_id\`, s.\`token_id\`, 0, SUM(s.\`delta\`), tx.\`timestamp\`, FALSE
+       FROM (
+         SELECT t.\`address\`, t.\`tx_id\`, t.\`token_id\`, CAST(t.\`value\` AS SIGNED) AS \`delta\`
+           FROM \`tx_output\` t
+          WHERE t.\`address\` IN (?) AND t.\`mode\` IN (?, ?)
+            AND t.\`recovery_state\` = ? AND t.\`voided\` = FALSE
+         UNION ALL
+         SELECT t.\`address\`, t.\`spent_by\`, t.\`token_id\`, -CAST(t.\`value\` AS SIGNED)
+           FROM \`tx_output\` t
+          WHERE t.\`address\` IN (?) AND t.\`mode\` IN (?, ?)
+            AND t.\`recovery_state\` = ? AND t.\`voided\` = FALSE
+            AND t.\`spent_by\` IS NOT NULL
+       ) s
+       INNER JOIN \`transaction\` tx ON tx.\`tx_id\` = s.\`tx_id\` AND tx.\`voided\` = FALSE
+      GROUP BY s.\`address\`, s.\`tx_id\`, s.\`token_id\`, tx.\`timestamp\`
      ON DUPLICATE KEY UPDATE \`shielded_balance_delta\` = VALUES(\`shielded_balance_delta\`)`,
-    [addresses, ...SHIELDED_MODES, RecoveryState.Recovered],
+    [
+      addresses, ...SHIELDED_MODES, RecoveryState.Recovered,
+      addresses, ...SHIELDED_MODES, RecoveryState.Recovered,
+    ],
   );
 };
 
@@ -322,6 +436,50 @@ export const rebuildWalletBalance = async (
         \`locked_shielded_balance\` = VALUES(\`locked_shielded_balance\`),
         \`total_shielded_received\` = VALUES(\`total_shielded_received\`)`,
     [walletId, addresses, addresses],
+  );
+};
+
+/**
+ * Delete the wallet's `wallet_balance` and `wallet_tx_history` rows that no
+ * row of its addresses backs any more. Run before the two rebuilds: they only
+ * upsert, so without this a row the daemon would have removed survives them.
+ *
+ * Those rows come from the time the wallet was mid-load, when the daemon skips
+ * its `wallet_*` writes. A transaction voided then deletes its address history
+ * and any `address_balance` row it zeroed, but the wallet's rows stay. A stale
+ * history row makes the daemon's insert fail with a duplicate key when that
+ * transaction comes back, halting sync, and a stale balance row keeps a
+ * balance the wallet no longer has.
+ *
+ * Every daemon write that adds a row to a wallet's tables follows a write to
+ * its addresses' `address_balance` in the same transaction, so with those
+ * rows locked nothing can add a row this would wrongly delete.
+ */
+export const pruneWalletTotals = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+  addresses: string[],
+): Promise<void> => {
+  if (addresses.length === 0) return;
+  await mysql.query(
+    `DELETE FROM \`wallet_balance\`
+      WHERE \`wallet_id\` = ?
+        AND \`token_id\` NOT IN (
+          SELECT \`token_id\` FROM \`address_balance\` WHERE \`address\` IN (?)
+        )`,
+    [walletId, addresses],
+  );
+  await mysql.query(
+    `DELETE FROM \`wallet_tx_history\`
+      WHERE \`wallet_id\` = ?
+        AND NOT EXISTS (
+          SELECT 1 FROM \`address_tx_history\` h
+           WHERE h.\`address\` IN (?)
+             AND h.\`tx_id\` = \`wallet_tx_history\`.\`tx_id\`
+             AND h.\`token_id\` = \`wallet_tx_history\`.\`token_id\`
+             AND h.\`voided\` = FALSE
+        )`,
+    [walletId, addresses],
   );
 };
 
@@ -446,9 +604,10 @@ export interface ShieldedOwnershipRow {
  * Claim shielded ownership of the given derived addresses for a wallet: upsert
  * `address` rows with the CTSpend account, per-index scan privkey, display
  * ct_address and a pending catch-up state. Safe over daemon observation rows —
- * the daemon only ever writes (address, transactions), so ownership columns are
- * disjoint; `transactions` appears ONLY in the insert list (never zeroed on
- * duplicate) and a `done` catch-up state is preserved via COALESCE.
+ * the daemon writes only `transactions` on them, and `catchup_state` once they
+ * are claimed (flagging them for a sweep), so ownership columns are disjoint;
+ * `transactions` appears ONLY in the insert list (never zeroed on duplicate)
+ * and an existing catch-up state is kept via COALESCE.
  */
 export const upsertShieldedAddressOwnership = async (
   mysql: ServerlessMysql,
@@ -492,21 +651,53 @@ export const getWalletCtSpendAddresses = async (
 };
 
 /**
- * Mark the catch-up pass complete for a wallet's CTSpend rows up to (and
- * including) maxIndex — scoped so rows this pass did not derive are untouched.
- * NOTE: `catchup_state` records "the registration pass ran over this address";
- * re-driving unrecovered outputs is keyed on `tx_output.recovery_state`, never
- * on this column.
+ * Take a wallet's flagged CTSpend rows (`catchup_state = 'pending'`) for a
+ * catch-up: they become `running`, and the commit that recovers their outputs
+ * moves them to `done` (see `commitShieldedRecoveries`). A row the daemon
+ * flags again meanwhile goes back to `pending`, so it is not lost.
  */
-export const markShieldedCatchupDone = async (
+export const markWalletSweepRunning = async (
   mysql: ServerlessMysql,
   walletId: string,
-  maxIndex: number,
 ): Promise<void> => {
   await mysql.query(
-    'UPDATE `address` SET `catchup_state` = ? WHERE `wallet_id` = ? AND `bip32_account` = ? AND `index` <= ?',
-    ['done', walletId, Bip32Account.CTSpend, maxIndex],
+    "UPDATE `address` SET `catchup_state` = 'running' WHERE `wallet_id` = ? AND `bip32_account` = ? AND `catchup_state` = 'pending'",
+    [walletId, Bip32Account.CTSpend],
   );
+};
+
+/** Finish a catch-up: the wallet's `running` CTSpend rows become `done`. Run inside its commit. */
+export const finishWalletSweep = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+): Promise<void> => {
+  await mysql.query(
+    "UPDATE `address` SET `catchup_state` = 'done' WHERE `wallet_id` = ? AND `bip32_account` = ? AND `catchup_state` = 'running'",
+    [walletId, Bip32Account.CTSpend],
+  );
+};
+
+/**
+ * Ready wallets with CTSpend rows flagged for a catch-up, after `afterWalletId`
+ * in id order — a keyset page. `running` counts too: a sweep that died left
+ * its rows that way.
+ */
+export const getWalletsNeedingSweep = async (
+  mysql: ServerlessMysql,
+  afterWalletId: string,
+  limit: number,
+): Promise<string[]> => {
+  const results: DbSelectResult = await mysql.query(
+    `SELECT w.\`id\` FROM \`wallet\` w
+      WHERE w.\`id\` > ? AND w.\`status\` = 'ready' AND w.\`ct_status\` = 'ready'
+        AND EXISTS (SELECT 1 FROM \`address\` a
+                     WHERE a.\`wallet_id\` = w.\`id\` AND a.\`bip32_account\` = ?
+                       AND a.\`catchup_state\` IN ('pending', 'running'))
+      ORDER BY w.\`id\`
+      LIMIT ?`,
+    [afterWalletId, Bip32Account.CTSpend, limit],
+  );
+  return results.map((row) => row.id as string);
 };
 
 export interface GenerateShieldedAddresses {
