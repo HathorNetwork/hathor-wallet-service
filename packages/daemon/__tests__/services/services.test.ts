@@ -100,6 +100,7 @@ jest.mock('../../src/db', () => ({
   decrementAddressInvolvement: jest.fn(),
   getAddressWalletInfo: jest.fn(),
   refreshWalletLifecycles: jest.fn(async () => undefined),
+  flagAddressesForSweep: jest.fn(async () => undefined),
   getCurrentShieldedRecovery: jest.fn(async () => new Map()),
   generateAddresses: jest.fn(),
   addNewAddresses: jest.fn(),
