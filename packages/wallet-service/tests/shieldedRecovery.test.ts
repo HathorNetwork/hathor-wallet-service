@@ -310,7 +310,7 @@ describe('reportShieldedSweeps', () => {
     recovered: 0, recoveries: [], failed: 0, missed: 0, misses: [], failures: [], skipped: false, truncated: false, ...over,
   });
   const ref = (txId: string, index = 0) => ({ txId, index, mode: 1 as const, tokenId: '00' });
-  const failure = (txId: string, assetMismatch = false) => ({ ...ref(txId), assetMismatch, error: 'boom' });
+  const failure = (txId: string, assetMismatch = false) => ({ ...ref(txId), address: 'a1', assetMismatch, error: 'boom' });
   const seedRecovered = async () => {
     await addToAddressTable(mysql, [{
       address: 'a1', index: 0, walletId: 'w1', transactions: 0,

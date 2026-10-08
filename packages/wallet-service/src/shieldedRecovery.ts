@@ -48,6 +48,8 @@ export interface ShieldedOutputRef {
 
 /** An owned output that could not be recovered and was marked `recovery_failed`. */
 export interface ShieldedRecoveryFailure extends ShieldedOutputRef {
+  /** The CTSpend address it pays, which a re-flag targets. */
+  address: string;
   /** Its token does not match its asset commitment: the sender's doing alone. */
   assetMismatch: boolean;
   error: string;
@@ -132,8 +134,9 @@ export const rewindShieldedOutput = async (
       return { ...base, recovered: false, missed: true };
     }
     // The mark must not throw either: a transient DB blip here would otherwise
-    // escape the catch-up loop and abort the whole batch. A swallowed mark just
-    // leaves the output non-recovered, so the next catch-up re-drives it.
+    // escape the catch-up loop and abort the whole batch. A swallowed mark
+    // leaves the output as it was; it is still reported as a failure and, like
+    // any, tried again only once its address is flagged again.
     try {
       await markShieldedTxOutputRecoveryFailed(mysql, output.txId, output.index);
     } catch (markErr) {
@@ -147,7 +150,9 @@ export const rewindShieldedOutput = async (
       ...base,
       recovered: false,
       missed: false,
-      failure: { ...ref, assetMismatch: e instanceof ShieldedAssetMismatchError, error: String(e) },
+      failure: {
+        ...ref, address: output.address, assetMismatch: e instanceof ShieldedAssetMismatchError, error: String(e),
+      },
     };
   }
 };
@@ -332,14 +337,22 @@ const pinConnection = async (mysql: ServerlessMysql): Promise<ServerlessMysql> =
  * a lock wait timeout, 1205) — it locks a wallet's rows while the daemon
  * writes to them, so it can. Any other error, or a conflict past the retries,
  * rolls back and propagates. `work` must use the handle it is given.
+ *
+ * A caller on a time budget can bound it: `lockWaitSeconds` caps each lock
+ * wait (MySQL's default is 50 s) for the session, and `canRetry` stops the
+ * retries once the budget is spent.
  */
 export const runRecoveryTransaction = async <T>(
   mysql: ServerlessMysql,
   logger: Logger,
   work: (tx: ServerlessMysql) => Promise<T>,
+  { lockWaitSeconds, canRetry = () => true }: { lockWaitSeconds?: number; canRetry?: () => boolean } = {},
 ): Promise<T> => {
   for (let attempt = 0; ; attempt++) {
     const tx = await pinConnection(mysql);
+    if (lockWaitSeconds !== undefined) {
+      await tx.query('SET SESSION innodb_lock_wait_timeout = ?', [lockWaitSeconds]);
+    }
     await beginTransaction(tx);
     try {
       const result = await work(tx);
@@ -353,7 +366,7 @@ export const runRecoveryTransaction = async <T>(
         // with it. Report what actually failed, not the rollback.
         logger.warn('Rolling back a recovery commit failed', { error: String(rollbackError) });
       }
-      if (!isLockConflict(e) || attempt >= COMMIT_RETRIES) throw e;
+      if (!isLockConflict(e) || attempt >= COMMIT_RETRIES || !canRetry()) throw e;
       logger.warn('Recovery commit lost a lock conflict; running it again', {
         attempt: attempt + 1, error: String(e),
       });

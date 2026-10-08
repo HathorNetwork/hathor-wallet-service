@@ -376,6 +376,30 @@ describe('runRecoveryTransaction', () => {
     expect(Number(wallet.max_gap)).toBe(21);
   });
 
+  it('caps each lock wait when asked', async () => {
+    try {
+      const wait = await runRecoveryTransaction(mysql, logger, async (tx) => {
+        const [row] = await tx.query('SELECT @@SESSION.innodb_lock_wait_timeout AS w') as unknown as { w: number }[];
+        return Number(row.w);
+      }, { lockWaitSeconds: 3 });
+
+      expect(wait).toBe(3);
+    } finally {
+      await mysql.query('SET SESSION innodb_lock_wait_timeout = DEFAULT');
+    }
+  });
+
+  it('does not run again after a lock conflict once the caller\'s budget is spent', async () => {
+    let attempts = 0;
+
+    await expect(runRecoveryTransaction(mysql, logger, async () => {
+      attempts += 1;
+      throw lockError(1205);
+    }, { canRetry: () => false })).rejects.toMatchObject({ errno: 1205 });
+
+    expect(attempts).toBe(1);
+  });
+
   it('fails, leaving nothing behind, when its connection is lost midway', async () => {
     // serverless-mysql would re-run the next statement on a new connection,
     // outside the transaction, and commit it on its own; the pinned handle

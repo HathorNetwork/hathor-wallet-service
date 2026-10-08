@@ -242,6 +242,65 @@ describe('runShieldedSweep', () => {
       .not.toContain("Shielded outputs did not open with their wallet's scan key");
   });
 
+  it('names the failed wallets and the statement that flags them again', async () => {
+    for (const id of ['w1', 'w2']) {
+      await seedWallet(id);
+      await seedCtSpendAddress(`a-${id}`, id, 'pending');
+      await seedOutput(`t-${id}`, `a-${id}`, id === 'w1' ? 0xa1 : 0xa2); // both fail
+    }
+
+    await runShieldedSweep(mysql, logger, plentyOfTime, '');
+
+    const [alert] = mockedAddAlert.mock.calls.filter(([title]) => title === 'Shielded recovery failed');
+    expect(alert[3]).toMatchObject({ wallet_count: 2, wallet_ids: ['w1', 'w2'] });
+    expect(await catchupOf('a-w1')).toBe('done');
+    // Running it is all an operator needs for the next run to try them again.
+    await mysql.query(alert[3].reflag_sql);
+    expect(await catchupOf('a-w1')).toBe('pending');
+    expect(await catchupOf('a-w2')).toBe('pending');
+    expect((await runShieldedSweep(mysql, logger, plentyOfTime, '')).wallets).toBe(2);
+  });
+
+  it('reports the failures of wallets it swept when a later selection query throws', async () => {
+    await seedWallet('w1');
+    await seedCtSpendAddress('a1', 'w1', 'pending');
+    await seedOutput('fail', 'a1', 0xa1); // not primed: the rewind fails
+    const real = ShieldedDb.getWalletsNeedingSweep;
+    let calls = 0;
+    const spy = jest.spyOn(ShieldedDb, 'getWalletsNeedingSweep').mockImplementation(async (...args) => {
+      calls += 1;
+      if (calls > 1) throw new Error('connection lost');
+      return real(...args);
+    });
+
+    try {
+      await expect(runShieldedSweep(mysql, logger, plentyOfTime, '')).rejects.toThrow('connection lost');
+    } finally {
+      spy.mockRestore();
+    }
+
+    const alerts = mockedAddAlert.mock.calls.filter(([title]) => title === 'Shielded recovery failed');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0][3]).toMatchObject({ count: 1, wallet_ids: ['w1'] });
+  });
+
+  it('reports a wallet\'s failures even when its commit then fails', async () => {
+    await seedWallet('w1');
+    await seedCtSpendAddress('a1', 'w1', 'pending');
+    await seedOutput('fail', 'a1', 0xa1); // not primed: the rewind fails
+    const spy = jest.spyOn(Recovery, 'commitShieldedRecoveries').mockRejectedValue(new Error('boom'));
+
+    try {
+      expect(await runShieldedSweep(mysql, logger, plentyOfTime, '')).toMatchObject({ errored: 1 });
+    } finally {
+      spy.mockRestore();
+    }
+
+    const alerts = mockedAddAlert.mock.calls.filter(([title]) => title === 'Shielded recovery failed');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0][3]).toMatchObject({ count: 1 });
+  });
+
   it('starts no wallet with too little time left', async () => {
     await seedWallet('w1');
     await seedCtSpendAddress('a1', 'w1', 'pending');
