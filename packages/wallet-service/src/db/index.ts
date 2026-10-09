@@ -1491,12 +1491,12 @@ export const getNewAddresses = async (
   if (gap == null) {
     return addresses;
   }
-  // An owned address always has its account set; a NULL `bip32_account` marks an
-  // unowned observation row whose account is not yet known, so it is never a
-  // candidate here.
+  // The old daemon can claim legacy addresses without setting bip32_account
+  // while it runs beside the new Lambdas during a release. wallet_id keeps
+  // unowned observations out; NULL on an owned row is a legacy address.
   const accountFilter = isCtSpend
     ? `AND \`bip32_account\` = ${Bip32Account.CTSpend}`
-    : `AND \`bip32_account\` = ${Bip32Account.Legacy}`;
+    : `AND (\`bip32_account\` IS NULL OR \`bip32_account\` = ${Bip32Account.Legacy})`;
 
   // Select all addresses that are empty and the index is bigger than the last used address index
   const results: DbSelectResult = await mysql.query(`
