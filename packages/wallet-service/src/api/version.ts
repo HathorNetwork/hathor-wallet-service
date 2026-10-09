@@ -21,8 +21,34 @@ import cors from '@middy/http-cors';
 
 const mysql = getDbConnection();
 
+/**
+ * What this wallet-service supports, returned beside the fullnode's data so
+ * clients can feature-detect it. Service-owned: should the fullnode add a flag
+ * of its own to `/version`, it needs a different key.
+ *
+ * A client must read a missing flag as unsupported: deployments from before it
+ * existed don't send it.
+ *
+ * A new optional field on the load ships with a flag of its own here. The load
+ * ignores a field it doesn't know (naming it in `ignoredFields`), so a client
+ * can't learn whether the service supports one by sending it.
+ */
+export const SERVICE_CAPABILITIES = {
+  /**
+   * Accepts shielded key registration on load and serves shielded balances
+   * and history. Static: whether recovery works right now (the native crypto
+   * provider is loaded) is the healthcheck's to report, and loading it here
+   * would put a native load in a public, frequently warmed endpoint.
+   *
+   * It says nothing about the network: the connected fullnode reports no
+   * shielded flag, so whether it accepts shielded transactions isn't known here.
+   */
+  shieldedOutputsEnabled: true,
+} as const;
+
 /*
- * Get version data from the stored data from the connected fullnode
+ * Get version data from the stored data from the connected fullnode, with
+ * this service's capabilities
  *
  * This lambda is called by API Gateway on GET /version
  */
@@ -37,6 +63,7 @@ export const get: APIGatewayProxyHandler = middy(async () => {
       success: true,
       data: {
         ...versionData,
+        ...SERVICE_CAPABILITIES,
         timestamp: getUnixTimestamp(),
       },
     }),
