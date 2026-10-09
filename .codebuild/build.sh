@@ -153,7 +153,8 @@ deploy_testnet_shielded_outputs() {
 
         send_slack_message "New version deployed to testnet-shielded-outputs: ${GIT_REF_TO_DEPLOY}"
     # Temporary, with no end date: no release has shielded-outputs support yet, so this environment
-    # follows master. Its daemon image is pinned by hand in ops-tools, so only the Lambdas follow it.
+    # follows master. This deploys its Lambdas and migrations; its daemon follows master through the
+    # dev image policy in ops-tools, so the same merge also moves it once the dev image is pushed.
     elif [ "${GIT_REF_TO_DEPLOY}" = "master" ]; then
         make migrate;
         make deploy-lambdas-testnet-shielded-outputs;
