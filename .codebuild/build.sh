@@ -12,6 +12,24 @@ send_slack_message() {
 deploy_hathor_network_account() {
     exit=false;
 
+    # Checks whether there is a file called "rollback_testnet_production", which is used by our other CodeBuild to indicate that this is a testnet-india rollback.
+    # Without this check, a testnet rollback to a tag would fall through to the release deploy below, which also deploys mainnet.
+    if [ -f "rollback_testnet_production" ]; then
+        # Gets all env vars with `testnetindia_` prefix and re-exports them without the prefix
+        for var in "${!testnetindia_@}"; do
+            export ${var#testnetindia_}="${!var}"
+        done
+        make deploy-lambdas-testnet-india;
+
+        # Unsets all the testnet env vars so we make sure they don't leak to a mainnet rollback in the same build
+        for var in "${!testnetindia_@}"; do
+            unset ${var#testnetindia_}
+        done
+
+        send_slack_message "Rollback performed on testnet-india to: ${GIT_REF_TO_DEPLOY}";
+        exit=true;
+    fi;
+
     # Checks whether there is a file called "rollback_mainnet_production", which is used by our other CodeBuild to indicate that this is a mainnet-production rollback
     if [ -f "rollback_mainnet_production" ]; then
         # Gets all env vars with `mainnet_` prefix and re-exports them without the prefix
