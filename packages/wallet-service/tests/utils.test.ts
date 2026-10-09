@@ -38,6 +38,36 @@ test('verifyMessageSignature verifies a Hathor-signed arbitrary message against 
   expect(verifyMessageSignature(signature, `${message}x`, address)).toBe(false);
 });
 
+describe('verifyMessageSignature with the short signatures bitcore produces', () => {
+  // Signed by bitcore with a fixed key (the private key 0xc0ffee…01), which
+  // dropped the leading zero bytes of r.
+  const address = 'HFzeNDCm5jc5aABuW96NooczNGX7FjZzin';
+  const rShort64 = { message: 'fixture-388', signature: 'H6vnb0fgg6C5ZFJCos/xvKNyQKhJXUiRmqGu/1k4ZGpaXfbZ5aui3WcgjCQDXJF/ksJFdXamfdHEwF611lM2bQ==' };
+  const rShort63 = { message: 'fixture-63', signature: 'II8uyiMU7ovwwDVJ5EL/IfdQ2PczK8byq8mYCqvpsBF4iBFyL/C2iyYkZflaPFguEgkUSg52YjuYqkk9g0Cg' };
+
+  it.each([
+    ['64 bytes (r one byte short)', rShort64],
+    ['63 bytes (r two bytes short)', rShort63],
+  ])('verifies a signature of %s', (_, { message, signature }) => {
+    expect(Buffer.from(signature, 'base64').length).toBeLessThan(65);
+    expect(verifyMessageSignature(signature, message, address)).toBe(true);
+  });
+
+  it('still rejects one against another address or message', () => {
+    expect(verifyMessageSignature(rShort64.signature, rShort64.message, ADDRESSES[0])).toBe(false);
+    expect(verifyMessageSignature(rShort64.signature, `${rShort64.message}x`, address)).toBe(false);
+  });
+
+  it.each([
+    ['an empty', ''],
+    ['a one-byte', Buffer.alloc(1, 31).toString('base64')],
+    ['a too long', Buffer.alloc(66, 1).toString('base64')],
+    ['a non-base64', '%%%'],
+  ])('rejects %s signature without throwing', (_, signature) => {
+    expect(verifyMessageSignature(signature, rShort64.message, address)).toBe(false);
+  });
+});
+
 test('arrayShuffle', () => {
   expect.hasAssertions();
   const original = Array.from(Array(10).keys());
