@@ -9,6 +9,7 @@ import { get as balancesGet } from '@src/api/balances';
 import { get as txHistoryGet } from '@src/api/txhistory';
 import { get as walletTokensGet, getTokenDetails } from '@src/api/tokens';
 import { get as getVersionDataGet } from '@src/api/version';
+import * as LoggerModule from '@src/logger';
 import {
   getTransactionById,
   getConfirmationData,
@@ -1106,7 +1107,7 @@ test('POST /wallet', async () => {
   expect(returnBody.details).toHaveLength(1);
   expect(returnBody.details[0].message).toStrictEqual('"value" must be of type object');
 
-  // missing xpubkey, auth_xpubkey, signatures and timestamp
+  // missing xpubkey, auth_xpubkey, signatures and timestamp (an unknown field is ignored)
   event = makeGatewayEvent({}, JSON.stringify({ param1: 'aaa', firstAddress: 'a' }));
   result = await walletLoad(event, null, null) as APIGatewayProxyResult;
   returnBody = JSON.parse(result.body as string);
@@ -1114,13 +1115,12 @@ test('POST /wallet', async () => {
   expect(result.statusCode).toBe(400);
   expect(returnBody.success).toBe(false);
   expect(returnBody.error).toBe(ApiError.INVALID_PAYLOAD);
-  expect(returnBody.details).toHaveLength(6);
+  expect(returnBody.details).toHaveLength(5);
   expect(returnBody.details[0].message).toStrictEqual('"xpubkey" is required');
   expect(returnBody.details[1].message).toStrictEqual('"authXpubkey" is required');
   expect(returnBody.details[2].message).toStrictEqual('"xpubkeySignature" is required');
   expect(returnBody.details[3].message).toStrictEqual('"authXpubkeySignature" is required');
   expect(returnBody.details[4].message).toStrictEqual('"timestamp" is required');
-  expect(returnBody.details[5].message).toStrictEqual('"param1" is not allowed');
 
   // get the first address
   const xpubChangeDerivation = walletUtils.xpubDeriveChild(XPUBKEY, 0);
@@ -1412,6 +1412,27 @@ test('PUT /wallet/auth should fail if wallet is not yet started', async () => {
 
   expect(result.statusCode).toBe(404);
   expect(returnBody.success).toStrictEqual(false);
+  expect(returnBody.error).toStrictEqual(ApiError.WALLET_NOT_FOUND);
+});
+
+test('PUT /wallet/auth ignores a field this service does not know', async () => {
+  expect.hasAssertions();
+
+  const event = makeGatewayEvent({}, JSON.stringify({
+    xpubkey: XPUBKEY,
+    xpubkeySignature: 'xpubkey-signature',
+    authXpubkey: AUTH_XPUBKEY,
+    authXpubkeySignature: 'auth-xpubkey-signature',
+    firstAddress: ADDRESSES[0],
+    timestamp: Math.floor(Date.now() / 1000),
+    futureField: 'x',
+  }));
+
+  const result = await changeAuthXpub(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+
+  // Past the schema: it fails on the missing wallet, not on the payload.
+  expect(result.statusCode).toBe(404);
   expect(returnBody.error).toStrictEqual(ApiError.WALLET_NOT_FOUND);
 });
 
@@ -2023,6 +2044,8 @@ test('GET /version', async () => {
     timestamp: expect.anything(),
     ...returnData,
   }));
+  // The service's own capability, beside the fullnode's data.
+  expect(returnBody.data.shieldedOutputsEnabled).toBe(true);
 });
 
 test('GET /wallet/proxy/transactions/{txId}', async () => {
@@ -3035,6 +3058,44 @@ describe('shielded wallet registration', () => {
     expect(wallet.spendXpub).toBe(body.spendXpub);
 
     expect(combined).toHaveBeenCalledTimes(1);
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('loads a wallet whose request has a field this service does not know, logging only its name', async () => {
+    await cleanDatabase(mysql);
+    const { combined } = spyInvokes();
+    const warn = jest.fn();
+    const realLogger = LoggerModule.default();
+    const loggerSpy = jest.spyOn(LoggerModule, 'default').mockReturnValue(
+      Object.assign(Object.create(realLogger), { warn }),
+    );
+    const body = { ...buildShieldedLoadBody(Math.floor(Date.now() / 1000)), futureField: 'not-to-be-logged' };
+
+    try {
+      const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+
+      expect(result.statusCode).toBe(200);
+      // The client learns the field wasn't honoured.
+      expect(JSON.parse(result.body as string).ignoredFields).toStrictEqual(['futureField']);
+      expect(combined).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.any(String), { fields: ['futureField'] });
+      expect(JSON.stringify(warn.mock.calls)).not.toContain('not-to-be-logged');
+    } finally {
+      loggerSpy.mockRestore();
+    }
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('still rejects a partial shielded field set that comes with a field this service does not know', async () => {
+    await cleanDatabase(mysql);
+    spyInvokes();
+    const { scanXpriv, ...partial } = buildShieldedLoadBody(Math.floor(Date.now() / 1000));
+    void scanXpriv;
+
+    const result = await walletLoad(
+      makeGatewayEvent({}, JSON.stringify({ ...partial, futureField: 'x' })), null, null,
+    ) as APIGatewayProxyResult;
+
+    expect(result.statusCode).toBe(400);
+    expect(JSON.parse(result.body as string).error).toBe(ApiError.INVALID_PAYLOAD);
   }, SHIELDED_TEST_TIMEOUT_MS);
 
   test('marks the wallet error and bumps retryCount when the combined load invoke fails', async () => {

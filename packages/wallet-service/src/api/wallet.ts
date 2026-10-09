@@ -65,6 +65,7 @@ import middy from '@middy/core';
 import cors from '@middy/http-cors';
 import Joi from 'joi';
 import createDefaultLogger from '@src/logger';
+import { Logger } from 'winston';
 import { Severity } from '@wallet-service/common/src/types';
 import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
 import config from '@src/config';
@@ -151,6 +152,39 @@ const loadBodySchema = Joi.object({
   spendXpubSignature: Joi.string(),
   ctAddressSignature: Joi.string(),
 }).and('scanXpriv', 'spendXpub', 'firstCtAddress', 'spendXpubSignature', 'ctAddressSignature');
+
+/**
+ * Validate a load body. A field this service doesn't know is dropped rather
+ * than rejected, so a client newer than the service still loads; the names of
+ * the dropped fields are logged (never their values, which can be keys). Known
+ * fields are validated as before.
+ */
+const LOAD_BODY_KEYS = new Set(Object.keys(loadBodySchema.describe().keys ?? {}));
+
+const validateLoadBody = (eventBody: unknown, logger: Logger) => {
+  const result = loadBodySchema.validate(eventBody, {
+    abortEarly: false,
+    convert: false,
+    stripUnknown: true,
+  });
+  let ignoredFields: string[] = [];
+  if (!result.error && eventBody !== null && typeof eventBody === 'object') {
+    ignoredFields = Object.keys(eventBody).filter((key) => !LOAD_BODY_KEYS.has(key));
+    if (ignoredFields.length > 0) {
+      logger.warn('Load request had fields this service does not know; they were ignored', { fields: ignoredFields });
+    }
+  }
+  return { ...result, ignoredFields };
+};
+
+/**
+ * The fields of a successful response that name what the request's body had
+ * and this service ignored. A client that sent one learns it wasn't honoured,
+ * rather than taking a 200 as having registered it.
+ */
+const ignoredFieldsResponse = (ignoredFields: string[]) => (
+  ignoredFields.length > 0 ? { ignoredFields } : {}
+);
 
 /**
  * Invoke the async wallet-load lambda — derives both the legacy and
@@ -295,10 +329,7 @@ export const changeAuthXpub: APIGatewayProxyHandler = middy(async (event) => {
   }(event.body));
 
   // body should have the same schema as load
-  const { value, error } = loadBodySchema.validate(eventBody, {
-    abortEarly: false,
-    convert: false,
-  });
+  const { value, error, ignoredFields } = validateLoadBody(eventBody, createDefaultLogger());
 
   if (error) {
     const details = error.details.map((err) => ({
@@ -378,6 +409,7 @@ export const changeAuthXpub: APIGatewayProxyHandler = middy(async (event) => {
     body: JSON.stringify({
       success: true,
       status: toWalletStatusResponse(updatedWallet),
+      ...ignoredFieldsResponse(ignoredFields),
     }),
   };
 }).use(cors())
@@ -399,10 +431,7 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
     }
   }(event.body));
 
-  const { value, error } = loadBodySchema.validate(eventBody, {
-    abortEarly: false,
-    convert: false,
-  });
+  const { value, error, ignoredFields } = validateLoadBody(eventBody, logger);
 
   if (error) {
     const details = error.details.map((err) => ({
@@ -656,7 +685,7 @@ export const load: APIGatewayProxyHandler = middy(async (event) => {
 
   return {
     statusCode: 200,
-    body: JSON.stringify({ success: true, status: toWalletStatusResponse(wallet) }),
+    body: JSON.stringify({ success: true, status: toWalletStatusResponse(wallet), ...ignoredFieldsResponse(ignoredFields) }),
   };
 }).use(cors())
   .use(warmupMiddleware())

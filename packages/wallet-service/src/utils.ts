@@ -292,12 +292,29 @@ export const buildAuthMessage = (timestamp: number, walletId: string, payload: s
  * message prefix. Never throws — user-supplied input that can't be parsed
  * verifies as false.
  */
+/** A compact signature: a header byte, then r and s at 32 bytes each. */
+const COMPACT_SIGNATURE_LENGTH = 65;
+
+/**
+ * Restore the zero bytes bitcore drops from the front of r.
+ *
+ * bitcore computes r as one of elliptic's BNs, which lacks bitcore's padded
+ * `toBuffer({ size: 32 })`, so an r with leading zero bytes is written without
+ * them: about 1 signature in 256 comes out 64 bytes long, fewer shorter still.
+ * s is always padded. wallet-lib signs with bitcore, and the verifier only
+ * takes the 65-byte form, so these valid signatures failed.
+ */
+const padCompactSignature = (raw: Buffer): Buffer => {
+  if (raw.length >= COMPACT_SIGNATURE_LENGTH || raw.length < 2) return raw;
+  return Buffer.concat([raw.subarray(0, 1), Buffer.alloc(COMPACT_SIGNATURE_LENGTH - raw.length), raw.subarray(1)]);
+};
+
 export const verifyMessageSignature = (signature: string, message: string, address: string): boolean => {
   try {
     return bitcoinMessage.verify(
       message,
       address,
-      Buffer.from(signature, 'base64'),
+      padCompactSignature(Buffer.from(signature, 'base64')),
       // Different from bitcore-lib, bitcoinjs-lib does not prefix the messagePrefix
       // length on the message, so we need to do this by using a "End of Transmission
       // Block" with the length (22) in hex (17). This is the same thing that is done

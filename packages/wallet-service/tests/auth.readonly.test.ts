@@ -379,6 +379,8 @@ describe('bearerAuthorizer with read-only mode', () => {
     expect(resources).toContain('arn:aws:execute-api:us-east-1:123456789012:abcdef123/test/*/wallet/status');
     expect(resources).toContain('arn:aws:execute-api:us-east-1:123456789012:abcdef123/test/*/wallet/addresses');
     expect(resources).toContain('arn:aws:execute-api:us-east-1:123456789012:abcdef123/test/*/wallet/history');
+    // A read: xpub-only clients need it to process incoming transactions.
+    expect(resources).toContain('arn:aws:execute-api:us-east-1:123456789012:abcdef123/test/*/wallet/addresses/check_mine');
 
     // Should NOT contain write endpoints
     expect(resources).not.toContain('arn:aws:execute-api:us-east-1:123456789012:abcdef123/*/tx/*');
