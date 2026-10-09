@@ -139,7 +139,7 @@ deploy_ekvilibro_mainnet() {
 }
 
 deploy_testnet_shielded_outputs() {
-    # Deploys the release-candidates and releases to our testnet-shielded-outputs environment
+    # Deploys master, the release-candidates and releases to our testnet-shielded-outputs environment
 
     # We deploy only the Lambdas here, because the daemon used in testnet-shielded-outputs is the same as
     # the one built in the hathor-network account, since it runs there as well
@@ -152,6 +152,13 @@ deploy_testnet_shielded_outputs() {
         make deploy-lambdas-testnet-shielded-outputs;
 
         send_slack_message "New version deployed to testnet-shielded-outputs: ${GIT_REF_TO_DEPLOY}"
+    # Temporary, with no end date: no release has shielded-outputs support yet, so this environment
+    # follows master. Its daemon image is pinned by hand in ops-tools, so only the Lambdas follow it.
+    elif [ "${GIT_REF_TO_DEPLOY}" = "master" ]; then
+        make migrate;
+        make deploy-lambdas-testnet-shielded-outputs;
+
+        send_slack_message "master deployed to testnet-shielded-outputs: ${CODEBUILD_RESOLVED_SOURCE_VERSION}"
     elif expr "${MANUAL_DEPLOY}" : "true" >/dev/null; then
         make migrate;
         make deploy-lambdas-testnet-shielded-outputs;
