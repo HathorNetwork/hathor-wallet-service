@@ -3074,12 +3074,28 @@ describe('shielded wallet registration', () => {
       const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
 
       expect(result.statusCode).toBe(200);
+      // The client learns the field wasn't honoured.
+      expect(JSON.parse(result.body as string).ignoredFields).toStrictEqual(['futureField']);
       expect(combined).toHaveBeenCalledTimes(1);
       expect(warn).toHaveBeenCalledWith(expect.any(String), { fields: ['futureField'] });
       expect(JSON.stringify(warn.mock.calls)).not.toContain('not-to-be-logged');
     } finally {
       loggerSpy.mockRestore();
     }
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('still rejects a partial shielded field set that comes with a field this service does not know', async () => {
+    await cleanDatabase(mysql);
+    spyInvokes();
+    const { scanXpriv, ...partial } = buildShieldedLoadBody(Math.floor(Date.now() / 1000));
+    void scanXpriv;
+
+    const result = await walletLoad(
+      makeGatewayEvent({}, JSON.stringify({ ...partial, futureField: 'x' })), null, null,
+    ) as APIGatewayProxyResult;
+
+    expect(result.statusCode).toBe(400);
+    expect(JSON.parse(result.body as string).error).toBe(ApiError.INVALID_PAYLOAD);
   }, SHIELDED_TEST_TIMEOUT_MS);
 
   test('marks the wallet error and bumps retryCount when the combined load invoke fails', async () => {
