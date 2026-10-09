@@ -1512,6 +1512,34 @@ test('getNewAddresses skips CTSpend rows', async () => {
   expect(newAddresses.map((a) => a.address)).toStrictEqual(['legacyEmpty']);
 });
 
+test('getNewAddresses includes legacy rows claimed by the old daemon after migration', async () => {
+  await addToWalletTable(mysql, [{
+    id: 'w1', xpubkey: 'xpub', authXpubkey: 'auth', status: 'ready',
+    maxGap: 5, createdAt: 1, readyAt: 2, highestUsedIndex: 1,
+  }]);
+  await addToAddressTable(mysql, [
+    { address: 'legacyNew', index: 3, walletId: 'w1', transactions: 0, bip32_account: 0 },
+    { address: 'ctNew', index: 2, walletId: 'w1', transactions: 0, bip32_account: 2, ct_address: 'HshLongCtAddress1' },
+  ]);
+  // v1.14.0 claims legacy addresses without writing bip32_account. An
+  // unowned observation also has NULL, but must stay outside this wallet.
+  await mysql.query(
+    `INSERT INTO \`address\` (\`address\`, \`index\`, \`wallet_id\`, \`transactions\`)
+     VALUES ('legacyOldDaemon', 2, 'w1', 0), ('unownedObservation', 4, NULL, 0)`,
+  );
+
+  const wallet = await getWallet(mysql, 'w1');
+  const legacy = await getNewAddresses(mysql, wallet);
+  const ct = await getNewAddresses(mysql, wallet, Bip32Account.CTSpend);
+
+  expect(legacy.map(({ address, index, addressPath }) => ({ address, index, addressPath })))
+    .toStrictEqual([
+      { address: 'legacyOldDaemon', index: 2, addressPath: "m/44'/280'/0'/0/2" },
+      { address: 'legacyNew', index: 3, addressPath: "m/44'/280'/0'/0/3" },
+    ]);
+  expect(ct.map((a) => a.address)).toStrictEqual(['ctNew']);
+});
+
 test('markUtxosWithProposalId and getTxProposalInputs', async () => {
   expect.hasAssertions();
 
