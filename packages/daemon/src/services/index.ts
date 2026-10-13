@@ -1539,8 +1539,17 @@ export const voidTx = async (
   await withSpan('voidWalletTransaction', () => voidWalletTransaction(mysql, hash, addressBalanceMap));
 
   // CRITICAL: Clear tx_proposal marks from inputs that were used in this voided transaction
-  // This ensures the UTXOs can be used in new transactions after the void
-  await withSpan('clearTxProposalForVoidedTx', () => clearTxProposalForVoidedTx(mysql, txInputs));
+  // This ensures the UTXOs can be used in new transactions after the void.
+  // Takes the event inputs rather than `txInputs`: prepareInputs drops shielded
+  // inputs, and those can be locked under a proposal too. Filtered the same way
+  // ingest filters them: a wire-shielded input that resolves to a transparent
+  // row was never spent by this transaction, and that row may be locked under
+  // another wallet's live proposal. Ingest already alerted on it.
+  const releasableInputs = await withSpan(
+    'partitionShieldedInputs',
+    () => partitionShieldedInputs(mysql, inputs, []),
+  );
+  await withSpan('clearTxProposalForVoidedTx', () => clearTxProposalForVoidedTx(mysql, releasableInputs));
 
   /**
    * Delete ALL tokens created by this voided transaction.

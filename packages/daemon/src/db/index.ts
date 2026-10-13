@@ -2801,12 +2801,16 @@ export const cleanupVoidedTx = async (mysql: MysqlConnection, txId: string): Pro
  * This is necessary to release UTXOs that were marked for a transaction proposal
  * but the transaction ended up being voided.
  *
+ * Kind-agnostic: only uses tx_id+index, so callers pass the event inputs —
+ * transparent and shielded alike — since shielded outputs can be locked under
+ * a proposal too.
+ *
  * @param mysql - Database connection
  * @param txInputs - The inputs of the voided transaction to be released
  */
 export const clearTxProposalForVoidedTx = async (
   mysql: MysqlConnection,
-  txInputs: TxInput[],
+  txInputs: Array<{ tx_id: string; index: number }>,
 ): Promise<void> => {
   if (txInputs.length === 0) return;
 

@@ -994,6 +994,135 @@ describe('wallet balance voiding bug', () => {
     expect(utxo2AfterVoid!.spentBy).toBeNull();
   });
 
+  test('should clear tx_proposal marks from shielded inputs when voiding', async () => {
+    expect.hasAssertions();
+    await cleanDatabase(mysql);
+
+    const address1 = 'HBCQgVR8Xsyv3L8spWJLQCJkbgj1YABWMU';
+    const shieldedAddress = 'WShieldedSpendAddr';
+    const tokenId = '00';
+    const txProposalId = 'test-proposal-789';
+
+    // Transaction A: one transparent output and one recovered AmountShielded output
+    const txIdA = 'txA';
+    await addOrUpdateTx(mysql, txIdA, 10, 1000, 1, 10);
+    await addUtxos(mysql, txIdA, [createOutput(0, 50n, address1, tokenId)], null);
+    await mysql.query(
+      `INSERT INTO tx_output
+         (tx_id, \`index\`, mode, address, value, token_id, authorities,
+          timelock, heightlock, locked, voided, spent_by, recovery_state)
+       VALUES (?, 1, 1, ?, 50, ?, 0, NULL, NULL, FALSE, FALSE, NULL, 'recovered')`,
+      [txIdA, shieldedAddress, tokenId],
+    );
+
+    // Both outputs were locked under the same (sent) proposal
+    await mysql.query(
+      `UPDATE \`tx_output\`
+          SET \`tx_proposal\` = ?,
+              \`tx_proposal_index\` = \`index\`
+        WHERE tx_id = ?`,
+      [txProposalId, txIdA]
+    );
+
+    // Transaction B: spends both outputs from A
+    const txIdB = 'txB';
+    const inputs: EventTxInput[] = [
+      createEventTxInput(50n, address1, txIdA, 0),
+      {
+        tx_id: txIdA,
+        index: 1,
+        spent_output: {
+          mode: 1,
+          commitment: '02'.repeat(33),
+          range_proof: Buffer.alloc(64, 0x03).toString('base64'),
+          script: Buffer.alloc(20, 0x04).toString('base64'),
+          ephemeral_pubkey: '05'.repeat(33),
+          token_data: 0,
+          decoded: {
+            address: shieldedAddress,
+          },
+        },
+      },
+    ];
+    const outputsB = [createOutput(0, 100n, address1, tokenId)];
+
+    await addOrUpdateTx(mysql, txIdB, 11, 1001, 1, 11);
+    await addUtxos(mysql, txIdB, outputsB, null);
+    await updateTxOutputSpentBy(mysql, inputs, txIdB);
+
+    const outputs = [{
+      value: 100n,
+      token_data: 0,
+      script: 'dqkU',
+      decoded: {
+        type: 'P2PKH',
+        address: address1,
+        timelock: null,
+      },
+      token: tokenId,
+      spent_by: null,
+    }];
+
+    await voidTx(mysql, txIdB, inputs, outputs, [], [tokenId], [], 1);
+
+    // Both inputs are released, the shielded one included
+    for (const index of [0, 1]) {
+      const utxoAfterVoid = await getTxOutput(mysql, txIdA, index, false);
+      expect(utxoAfterVoid).not.toBeNull();
+      expect(utxoAfterVoid!.txProposalId).toBeNull();
+      expect(utxoAfterVoid!.txProposalIndex).toBeNull();
+      expect(utxoAfterVoid!.spentBy).toBeNull();
+    }
+  });
+
+  test('should keep the tx_proposal of a transparent row a shielded input resolves to', async () => {
+    expect.hasAssertions();
+    await cleanDatabase(mysql);
+
+    const address1 = 'HBCQgVR8Xsyv3L8spWJLQCJkbgj1YABWMU';
+    const tokenId = '00';
+    const otherProposalId = 'other-wallet-proposal';
+
+    // Transaction A: a transparent UTXO locked under another wallet's live proposal
+    const txIdA = 'txA';
+    await addOrUpdateTx(mysql, txIdA, 10, 1000, 1, 10);
+    await addUtxos(mysql, txIdA, [createOutput(0, 50n, address1, tokenId)], null);
+    await mysql.query(
+      `UPDATE \`tx_output\`
+          SET \`tx_proposal\` = ?,
+              \`tx_proposal_index\` = 0
+        WHERE tx_id = ? AND \`index\` = 0`,
+      [otherProposalId, txIdA]
+    );
+
+    // Transaction B: a wire-shielded input whose (tx_id, index) resolves to that
+    // transparent row. Ingest excludes it, so B never marked it spent.
+    const txIdB = 'txB';
+    const inputs: EventTxInput[] = [{
+      tx_id: txIdA,
+      index: 0,
+      spent_output: {
+        mode: 1,
+        commitment: '02'.repeat(33),
+        range_proof: Buffer.alloc(64, 0x03).toString('base64'),
+        script: Buffer.alloc(20, 0x04).toString('base64'),
+        ephemeral_pubkey: '05'.repeat(33),
+        token_data: 0,
+        decoded: {
+          address: address1,
+        },
+      },
+    }];
+    await addOrUpdateTx(mysql, txIdB, 11, 1001, 1, 11);
+
+    await voidTx(mysql, txIdB, inputs, [], [], [tokenId], [], 1);
+
+    const utxoAfterVoid = await getTxOutput(mysql, txIdA, 0, false);
+    expect(utxoAfterVoid).not.toBeNull();
+    expect(utxoAfterVoid!.txProposalId).toBe(otherProposalId);
+    expect(utxoAfterVoid!.txProposalIndex).toBe(0);
+  });
+
   it('should delete tokens when voiding transaction that created them', async () => {
     expect.hasAssertions();
     await cleanDatabase(mysql);
