@@ -3235,25 +3235,61 @@ describe('shielded wallet registration', () => {
     expect(combined).toHaveBeenCalledTimes(1);
   }, SHIELDED_TEST_TIMEOUT_MS);
 
-  test('reports each side when a failed upgrade reaches the retry cap', async () => {
+  // A shielded upgrade of a ready legacy wallet that failed up to the retry cap:
+  // legacy stays ready, ct_status is pinned at error.
+  const seedFailedUpgrade = async (now: number) => {
     await cleanDatabase(mysql);
     const walletId = getWalletId(XPUBKEY);
-    const { combined } = spyInvokes();
-    const now = Math.floor(Date.now() / 1000);
     const body = buildShieldedLoadBody(now);
-    // The legacy wallet is ready; only the shielded load failed, up to the cap.
     await addToWalletTable(mysql, [{
       id: walletId, xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY, status: 'ready', maxGap: 5, createdAt: 10000, readyAt: 10001,
     }]);
     await Db.registerWalletShieldedKeys(mysql, walletId, body.scanXpriv, body.spendXpub, 20);
     await mysql.query('UPDATE `wallet` SET `ct_status` = ?, `retry_count` = 5 WHERE `id` = ?', ['error', walletId]);
+    return { walletId, body };
+  };
+  const splitErrorStatus = { status: 'error', legacyStatus: 'ready', shieldedStatus: 'error' };
+
+  test('reports each side when a failed upgrade reaches the retry cap', async () => {
+    const { combined } = spyInvokes();
+    const { body } = await seedFailedUpgrade(Math.floor(Date.now() / 1000));
 
     const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
     expect(result.statusCode).toBe(400);
     const returnBody = JSON.parse(result.body as string);
     expect(returnBody.error).toBe(ApiError.WALLET_MAX_RETRIES);
-    expect(returnBody.status).toMatchObject({ status: 'error', legacyStatus: 'ready', shieldedStatus: 'error' });
+    expect(returnBody.status).toMatchObject(splitErrorStatus);
     expect(combined).not.toHaveBeenCalled();
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('reports each side on a legacy-only load of a failed upgrade', async () => {
+    const { combined } = spyInvokes();
+    const { body } = await seedFailedUpgrade(Math.floor(Date.now() / 1000));
+    const legacyBody = {
+      xpubkey: body.xpubkey,
+      xpubkeySignature: body.xpubkeySignature,
+      authXpubkey: body.authXpubkey,
+      authXpubkeySignature: body.authXpubkeySignature,
+      firstAddress: body.firstAddress,
+      timestamp: body.timestamp,
+    };
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(legacyBody)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(400);
+    const returnBody = JSON.parse(result.body as string);
+    expect(returnBody.error).toBe(ApiError.WALLET_ALREADY_LOADED);
+    expect(returnBody.status).toMatchObject(splitErrorStatus);
+    expect(combined).not.toHaveBeenCalled();
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('GET /wallet/status reports each side of a failed upgrade', async () => {
+    const { walletId } = await seedFailedUpgrade(Math.floor(Date.now() / 1000));
+
+    const result = await walletGet(makeGatewayEventWithAuthorizer(walletId, null), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(200);
+    const returnBody = JSON.parse(result.body as string);
+    expect(returnBody.status).toMatchObject(splitErrorStatus);
+    expect(returnBody.status).not.toHaveProperty('scanXpriv');
   }, SHIELDED_TEST_TIMEOUT_MS);
 
   test('rejects a shielded resubmit with WALLET_MAX_RETRIES + alert once the cap is reached', async () => {
