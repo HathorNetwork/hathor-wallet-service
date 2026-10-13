@@ -1075,6 +1075,54 @@ describe('wallet balance voiding bug', () => {
     }
   });
 
+  test('should keep the tx_proposal of a transparent row a shielded input resolves to', async () => {
+    expect.hasAssertions();
+    await cleanDatabase(mysql);
+
+    const address1 = 'HBCQgVR8Xsyv3L8spWJLQCJkbgj1YABWMU';
+    const tokenId = '00';
+    const otherProposalId = 'other-wallet-proposal';
+
+    // Transaction A: a transparent UTXO locked under another wallet's live proposal
+    const txIdA = 'txA';
+    await addOrUpdateTx(mysql, txIdA, 10, 1000, 1, 10);
+    await addUtxos(mysql, txIdA, [createOutput(0, 50n, address1, tokenId)], null);
+    await mysql.query(
+      `UPDATE \`tx_output\`
+          SET \`tx_proposal\` = ?,
+              \`tx_proposal_index\` = 0
+        WHERE tx_id = ? AND \`index\` = 0`,
+      [otherProposalId, txIdA]
+    );
+
+    // Transaction B: a wire-shielded input whose (tx_id, index) resolves to that
+    // transparent row. Ingest excludes it, so B never marked it spent.
+    const txIdB = 'txB';
+    const inputs: EventTxInput[] = [{
+      tx_id: txIdA,
+      index: 0,
+      spent_output: {
+        mode: 1,
+        commitment: '02'.repeat(33),
+        range_proof: Buffer.alloc(64, 0x03).toString('base64'),
+        script: Buffer.alloc(20, 0x04).toString('base64'),
+        ephemeral_pubkey: '05'.repeat(33),
+        token_data: 0,
+        decoded: {
+          address: address1,
+        },
+      },
+    }];
+    await addOrUpdateTx(mysql, txIdB, 11, 1001, 1, 11);
+
+    await voidTx(mysql, txIdB, inputs, [], [], [tokenId], [], 1);
+
+    const utxoAfterVoid = await getTxOutput(mysql, txIdA, 0, false);
+    expect(utxoAfterVoid).not.toBeNull();
+    expect(utxoAfterVoid!.txProposalId).toBe(otherProposalId);
+    expect(utxoAfterVoid!.txProposalIndex).toBe(0);
+  });
+
   it('should delete tokens when voiding transaction that created them', async () => {
     expect.hasAssertions();
     await cleanDatabase(mysql);
