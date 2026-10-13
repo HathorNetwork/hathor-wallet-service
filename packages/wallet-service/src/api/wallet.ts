@@ -89,7 +89,8 @@ const shieldedNetwork = new Network(config.network);
 
 /**
  * Shape a wallet row into the API status payload: the `status` field is the
- * unified legacy+shielded lifecycle value, and the two shielded fields are
+ * unified legacy+shielded lifecycle value, `legacyStatus` and `shieldedStatus`
+ * are the two sides it is computed from, and the two shielded fields are
  * surfaced for clients that use them. Scan/spend keys are deliberately omitted —
  * `scan_xpriv` is a secret and must never leave the service.
  */
@@ -98,6 +99,10 @@ export const toWalletStatusResponse = (wallet: Wallet): Record<string, unknown> 
   xpubkey: wallet.xpubkey,
   authXpubkey: wallet.authXpubkey,
   status: computeUnifiedStatus(wallet.status, wallet.ctStatus ?? 'none'),
+  // Each side on its own: a client can tell a failed shielded load apart from a
+  // failed wallet, and keep using the ready legacy side
+  legacyStatus: wallet.status,
+  shieldedStatus: wallet.ctStatus ?? 'none',
   retryCount: wallet.retryCount,
   maxGap: wallet.maxGap,
   createdAt: wallet.createdAt,
