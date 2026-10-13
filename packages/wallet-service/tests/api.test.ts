@@ -1073,6 +1073,8 @@ test('GET /wallet', async () => {
     xpubkey: XPUBKEY,
     authXpubkey: AUTH_XPUBKEY,
     status: 'ready',
+    legacyStatus: 'ready',
+    shieldedStatus: 'none',
     maxGap: 5,
     retryCount: 0,
     createdAt: 10000,
@@ -3231,6 +3233,27 @@ describe('shielded wallet registration', () => {
     expect(result.statusCode).toBe(200);
     // Same keys + error state -> retry via the combined load.
     expect(combined).toHaveBeenCalledTimes(1);
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('reports each side when a failed upgrade reaches the retry cap', async () => {
+    await cleanDatabase(mysql);
+    const walletId = getWalletId(XPUBKEY);
+    const { combined } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    const body = buildShieldedLoadBody(now);
+    // The legacy wallet is ready; only the shielded load failed, up to the cap.
+    await addToWalletTable(mysql, [{
+      id: walletId, xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY, status: 'ready', maxGap: 5, createdAt: 10000, readyAt: 10001,
+    }]);
+    await Db.registerWalletShieldedKeys(mysql, walletId, body.scanXpriv, body.spendXpub, 20);
+    await mysql.query('UPDATE `wallet` SET `ct_status` = ?, `retry_count` = 5 WHERE `id` = ?', ['error', walletId]);
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(400);
+    const returnBody = JSON.parse(result.body as string);
+    expect(returnBody.error).toBe(ApiError.WALLET_MAX_RETRIES);
+    expect(returnBody.status).toMatchObject({ status: 'error', legacyStatus: 'ready', shieldedStatus: 'error' });
+    expect(combined).not.toHaveBeenCalled();
   }, SHIELDED_TEST_TIMEOUT_MS);
 
   test('rejects a shielded resubmit with WALLET_MAX_RETRIES + alert once the cap is reached', async () => {
