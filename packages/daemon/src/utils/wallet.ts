@@ -836,8 +836,21 @@ export const getWalletBalancesForTx = async (
   const tokenIdSet = new Set<string>(tokenIdAccumulation.reduce((prev, eachGroup) => [...prev, ...eachGroup], []));
   const tokenSymbolsMap = await getTokenSymbols(mysql, Array.from(tokenIdSet.values()));
 
+  // A token-creation tx's own token (token_id = tx_id) is only stored by the
+  // TOKEN_CREATED event, which is handled after this vertex, so it isn't in the
+  // token table yet. The tx already carries its symbol.
+  if (tx.token_symbol && tokenIdSet.has(tx.tx_id) && !tokenSymbolsMap[tx.tx_id]) {
+    tokenSymbolsMap[tx.tx_id] = tx.token_symbol;
+  }
+
   return WalletBalanceMapConverter.toValue(walletsMap, tokenSymbolsMap);
 };
+
+/**
+ * Symbol shown for a token whose symbol could not be resolved: the end of its
+ * uid, since uids start with the zeros of their proof of work.
+ */
+export const unknownTokenSymbol = (tokenId: string): string => tokenId.slice(-8);
 
 export class FromTokenBalanceMapToBalanceValueList {
   /**
@@ -850,20 +863,29 @@ export class FromTokenBalanceMapToBalanceValueList {
    */
   static convert(tokenBalanceMap: TokenBalanceMap, tokenSymbolsMap: StringMap<string>): TokenBalanceValue[] {
     const entryBalances = Object.entries(tokenBalanceMap.map);
-    const balances = entryBalances.map(([tokenId, balance]) => ({
-      tokenId,
-      tokenSymbol: tokenSymbolsMap[tokenId],
-      lockedAmount: balance.lockedAmount,
-      lockedAuthorities: balance.lockedAuthorities.toJSON(),
-      lockExpires: balance.lockExpires,
-      unlockedAmount: balance.unlockedAmount,
-      unlockedAuthorities: balance.unlockedAuthorities.toJSON(),
-      totalAmountSent: balance.totalAmountSent,
-      total: balance.total(),
-      // Gross shielded received this tx (the lifetime accumulator, suppressed
-      // to 0 on spends), so the receive-oriented push amount is never negative.
-      shieldedAmount: balance.totalShieldedReceived,
-    } as TokenBalanceValue));
+    const balances = entryBalances.map(([tokenId, balance]) => {
+      let tokenSymbol = tokenSymbolsMap[tokenId];
+      if (!tokenSymbol) {
+        // The push lambda rejects the whole payload without a symbol, so the
+        // notification would not be sent at all.
+        logger.warn(`Token symbol not found for token ${tokenId}, using a placeholder`);
+        tokenSymbol = unknownTokenSymbol(tokenId);
+      }
+      return {
+        tokenId,
+        tokenSymbol,
+        lockedAmount: balance.lockedAmount,
+        lockedAuthorities: balance.lockedAuthorities.toJSON(),
+        lockExpires: balance.lockExpires,
+        unlockedAmount: balance.unlockedAmount,
+        unlockedAuthorities: balance.unlockedAuthorities.toJSON(),
+        totalAmountSent: balance.totalAmountSent,
+        total: balance.total(),
+        // Gross shielded received this tx (the lifetime accumulator, suppressed
+        // to 0 on spends), so the receive-oriented push amount is never negative.
+        shieldedAmount: balance.totalShieldedReceived,
+      } as TokenBalanceValue;
+    });
     return balances;
   }
 }
