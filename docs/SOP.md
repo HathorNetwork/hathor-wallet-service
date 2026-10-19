@@ -107,6 +107,50 @@ Then, for each environment in turn:
 
 **dev** deploys its Lambdas and daemon together, nightly, and is already past #515. There, run step 8 for any `ready/error` wallet: under the new daemon, a direct load moves the wallet to `creating` and rebuilds it.
 
+### First deploy of the public address tables
+
+This is a one-time procedure for each environment, after the first deploy that includes the `public_address_tx_history` and `public_address_tokens` tables. The explorer reads them; nothing in the wallet-service does.
+
+The migration creates both tables empty, and the daemon writes them from then on, for each vertex it ingests. `db/scripts/backfill-public-address-tables.sql` fills them for everything ingested before. The script must run with the daemon **stopped**: a vertex ingested or voided while it runs can be missed or kept. It can run any time after the release, as long as the explorer does not read the tables until it is done.
+
+**Steps,** for each environment in turn:
+
+1. **Release as usual.** The migration and the new daemon deploy; no hold is needed. Until the backfill runs, the tables hold only what the new daemon ingested.
+2. **Stop the daemon.** Suspend the environment's Kustomization so Flux does not undo the scale-down, then scale the daemon to zero and wait for its pod to exit:
+   ```sh
+   flux suspend kustomization -n flux-system hathor-wallet-service-<environment>
+   kubectl -n <namespace> scale statefulset/<daemon> --replicas=0
+   ```
+   The wallet-service keeps serving meanwhile; balances and history stop moving until the daemon is back.
+3. **Run the backfill:**
+   ```sh
+   mysql -h <host> -u <user> -p <database> < db/scripts/backfill-public-address-tables.sql
+   ```
+   It prints the last address of each batch it commits, then the number of nano-contract caller rows it wrote; note that number. If it fails, run it again: it is safe to re-run from the start. To skip the batches already done, set `@resume_after` at the top of the script to the last address printed.
+4. **Check the tables.** Each query must return no rows:
+   ```sql
+   -- Counters that do not match their history rows.
+   SELECT p.address, p.token_id
+     FROM public_address_tokens p
+     LEFT JOIN (SELECT address, token_id, COUNT(*) AS n, SUM(has_shielded) AS s, MAX(timestamp) AS ts
+                  FROM public_address_tx_history GROUP BY address, token_id) h
+       ON h.address = p.address AND h.token_id = p.token_id
+    WHERE h.n IS NULL OR h.n <> p.transactions OR h.s <> p.shielded_transactions OR h.ts <> p.last_activity;
+   -- History rows of a voided or unknown transaction.
+   SELECT h.tx_id
+     FROM public_address_tx_history h
+     LEFT JOIN `transaction` t ON t.tx_id = h.tx_id
+    WHERE t.tx_id IS NULL OR t.voided = TRUE
+    LIMIT 10;
+   ```
+5. **Start the daemon.** Resuming the Kustomization restores its replica count:
+   ```sh
+   flux resume kustomization -n flux-system hathor-wallet-service-<environment>
+   ```
+6. **Then switch the explorer** to the tables, in its own deploy.
+
+**Rollback:** a daemon from before this change does not write the tables, so they fall behind while it runs. The explorer must not read them in that state. Before the explorer reads them again, repeat steps 2 to 5 under the new daemon.
+
 ## Adding new environment variables
 
 If you need to add new environment variables, there are some steps that should be taken.

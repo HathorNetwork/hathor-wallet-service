@@ -34,6 +34,8 @@ import {
 } from '@wallet-service/common';
 import { isAuthority, toTokenVersion, RecoveryState, Bip32Account } from '@wallet-service/common';
 import { getWalletBalanceMap } from '../utils/wallet';
+import { PublicInvolvement } from '../utils/publicInvolvement';
+import logger from '../logger';
 import { parseNullableBigInt, parseNullableNumber } from '../utils/helpers';
 import {
   AddressBalanceRow,
@@ -1586,6 +1588,145 @@ export const updateAddressTablesWithTx = async (
 };
 
 /**
+ * Add a vertex's rows to `public_address_tx_history` and count them in
+ * `public_address_tokens`.
+ *
+ * A plain INSERT: a vertex is ingested once (a re-delivered one returns before
+ * reaching here, and a voided one had its rows removed by
+ * `voidPublicAddressTransaction`), so a duplicate is an inconsistency and
+ * fails the ingest.
+ *
+ * @param mysql - Database connection
+ * @param txId - Transaction id
+ * @param timestamp - Transaction timestamp
+ * @param entries - The vertex's public involvement, from `getVertexPublicInvolvement`
+ */
+export const addPublicAddressTxHistory = async (
+  mysql: MysqlConnection,
+  txId: string,
+  timestamp: number,
+  entries: PublicInvolvement[],
+): Promise<void> => {
+  if (entries.length === 0) return;
+
+  await mysql.query(
+    `INSERT INTO \`public_address_tx_history\`
+            (\`address\`, \`token_id\`, \`timestamp\`, \`tx_id\`, \`balance\`, \`has_shielded\`)
+     VALUES ?`,
+    [entries.map((e) => [e.address, e.tokenId, timestamp, txId, e.balance, e.hasShielded])],
+  );
+
+  await mysql.query(
+    `INSERT INTO \`public_address_tokens\`
+            (\`address\`, \`token_id\`, \`transactions\`, \`shielded_transactions\`, \`last_activity\`)
+     VALUES ?
+         ON DUPLICATE KEY UPDATE
+            \`transactions\` = \`transactions\` + VALUES(\`transactions\`),
+            \`shielded_transactions\` = \`shielded_transactions\` + VALUES(\`shielded_transactions\`),
+            \`last_activity\` = GREATEST(\`last_activity\`, VALUES(\`last_activity\`))`,
+    [entries.map((e) => [e.address, e.tokenId, 1, e.hasShielded ? 1 : 0, timestamp])],
+  );
+};
+
+/**
+ * Remove a transaction's rows from `public_address_tx_history` and take them
+ * out of `public_address_tokens`.
+ *
+ * The decrement is derived from the rows deleted, so it only removes what
+ * `addPublicAddressTxHistory` added, and a transaction without rows is a
+ * no-op. A counter that would go below zero is clamped and logged rather than
+ * left to fail on its UNSIGNED column, which would halt sync. A pair whose
+ * count reaches zero is deleted; otherwise `last_activity` is taken from its
+ * newest remaining row.
+ *
+ * @param mysql - Database connection
+ * @param txId - Transaction id
+ */
+export const voidPublicAddressTransaction = async (
+  mysql: MysqlConnection,
+  txId: string,
+): Promise<void> => {
+  const [rows] = await mysql.query<RowDataPacket[]>(
+    `SELECT \`address\`, \`token_id\`, \`has_shielded\`
+       FROM \`public_address_tx_history\`
+      WHERE \`tx_id\` = ?
+        FOR UPDATE`,
+    [txId],
+  );
+  if (rows.length === 0) return;
+
+  await mysql.query(
+    `DELETE FROM \`public_address_tx_history\`
+      WHERE \`tx_id\` = ?`,
+    [txId],
+  );
+
+  for (const row of rows) {
+    const address: string = row.address;
+    const tokenId: string = row.token_id;
+    const shielded = row.has_shielded ? 1 : 0;
+
+    const [counters] = await mysql.query<RowDataPacket[]>(
+      `SELECT \`transactions\`, \`shielded_transactions\`
+         FROM \`public_address_tokens\`
+        WHERE \`address\` = ? AND \`token_id\` = ?
+          FOR UPDATE`,
+      [address, tokenId],
+    );
+    if (counters.length === 0) {
+      logger.error(`[voidPublicAddressTransaction] tx ${txId}: no public_address_tokens row for ${address} ${tokenId}`);
+      continue;
+    }
+    const current = { transactions: Number(counters[0].transactions), shielded: Number(counters[0].shielded_transactions) };
+    if (current.transactions < 1 || current.shielded < shielded) {
+      logger.error(
+        `[voidPublicAddressTransaction] tx ${txId}: clamping public_address_tokens counters of ${address} ${tokenId} at 0 `
+        + `(transactions ${current.transactions} - 1, shielded_transactions ${current.shielded} - ${shielded})`,
+      );
+    }
+    const transactions = Math.max(current.transactions - 1, 0);
+    const shieldedTransactions = Math.max(current.shielded - shielded, 0);
+
+    if (transactions === 0) {
+      await mysql.query(
+        `DELETE FROM \`public_address_tokens\`
+          WHERE \`address\` = ? AND \`token_id\` = ?`,
+        [address, tokenId],
+      );
+      continue;
+    }
+
+    const [latest] = await mysql.query<RowDataPacket[]>(
+      `SELECT \`timestamp\`
+         FROM \`public_address_tx_history\`
+        WHERE \`address\` = ? AND \`token_id\` = ?
+        ORDER BY \`timestamp\` DESC, \`tx_id\` DESC
+        LIMIT 1`,
+      [address, tokenId],
+    );
+    if (latest.length === 0) {
+      logger.error(
+        `[voidPublicAddressTransaction] tx ${txId}: public_address_tokens counts ${transactions} transactions `
+        + `for ${address} ${tokenId} but no rows remain; deleting it`,
+      );
+      await mysql.query(
+        `DELETE FROM \`public_address_tokens\`
+          WHERE \`address\` = ? AND \`token_id\` = ?`,
+        [address, tokenId],
+      );
+      continue;
+    }
+
+    await mysql.query(
+      `UPDATE \`public_address_tokens\`
+          SET \`transactions\` = ?, \`shielded_transactions\` = ?, \`last_activity\` = ?
+        WHERE \`address\` = ? AND \`token_id\` = ?`,
+      [transactions, shieldedTransactions, latest[0].timestamp, address, tokenId],
+    );
+  }
+};
+
+/**
  * Get a transaction by its ID.
  *
  * @param mysql - Database connection
@@ -2761,7 +2902,8 @@ export const getTokenInformation = async (
  *
  * @remarks
  * This does not re-calculates balances, so it's only supposed to be used to clear
- * the tx_output, address_tx_history and wallet_tx_history tables
+ * the tx_output, address_tx_history and wallet_tx_history tables. It also
+ * reverses any rows left in the public address tables.
  *
  * @param mysql - Database connection
  * @param txId - The transaction to clear from database
@@ -2787,6 +2929,11 @@ export const cleanupVoidedTx = async (mysql: MysqlConnection, txId: string): Pro
         AND voided = true`,
     [txId],
   );
+
+  // The void path already removed the transaction's public rows, so this is
+  // a no-op unless the transaction is cleaned up without having been voided
+  // through it. Reversing rather than deleting keeps the counters consistent.
+  await voidPublicAddressTransaction(mysql, txId);
 
   await mysql.execute(
     `DELETE FROM \`wallet_tx_history\`

@@ -5,6 +5,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+import { readFileSync } from 'fs';
+import path from 'path';
 import { Connection as MysqlConnection, RowDataPacket } from 'mysql2/promise';
 import { DbTxOutput, EventTxInput, TransactionTableRow } from '../src/types';
 import { TxInput, TxOutputWithIndex } from '@wallet-service/common/src/types';
@@ -191,6 +193,8 @@ export const cleanDatabase = async (mysql: MysqlConnection): Promise<void> => {
     'address',
     'address_balance',
     'address_tx_history',
+    'public_address_tx_history',
+    'public_address_tokens',
     'token',
     'token_creation',
     'tx_proposal',
@@ -848,4 +852,54 @@ export const getWalletTxHistoryCount = async (mysql: MysqlConnection, walletId: 
     [walletId, txId]
   ) as [any[], any];
   return Number(results[0].count);
+};
+
+export const BACKFILL_PUBLIC_ADDRESS_TABLES_SQL = path.resolve(
+  __dirname, '../../../db/scripts/backfill-public-address-tables.sql',
+);
+
+/**
+ * Run a SQL script the way the `mysql` client does: full-line `--` comments
+ * are skipped, `DELIMITER` changes the statement terminator, and every
+ * statement runs in order on `mysql`. A `SET @name = ...;` statement whose
+ * name is in `vars` gets the given value instead.
+ *
+ * @returns The rows of the last statement.
+ */
+export const runSqlScript = async (
+  mysql: MysqlConnection,
+  file: string,
+  vars: Record<string, string | number> = {},
+): Promise<unknown> => {
+  const statements: string[] = [];
+  let delimiter = ';';
+  let current: string[] = [];
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
+    const trimmed = line.trim();
+    if (current.length === 0 && (trimmed === '' || trimmed.startsWith('--'))) continue;
+    const directive = /^DELIMITER\s+(\S+)$/i.exec(trimmed);
+    if (directive) {
+      delimiter = directive[1];
+      continue;
+    }
+    if (trimmed.endsWith(delimiter)) {
+      current.push(line.slice(0, line.lastIndexOf(delimiter)));
+      statements.push(current.join('\n'));
+      current = [];
+    } else {
+      current.push(line);
+    }
+  }
+  if (current.join('').trim() !== '') throw new Error(`${file}: unterminated statement`);
+
+  let rows: unknown;
+  for (const statement of statements) {
+    const set = /^SET @(\w+) = /.exec(statement.trim());
+    if (set && set[1] in vars) {
+      [rows] = await mysql.query(`SET @${set[1]} = ?`, [vars[set[1]]]);
+    } else {
+      [rows] = await mysql.query(statement);
+    }
+  }
+  return rows;
 };

@@ -81,6 +81,8 @@ jest.mock('../../src/db', () => ({
   getTxOutput: jest.fn(),
   voidTransaction: jest.fn(),
   voidAddressTransaction: jest.fn(),
+  addPublicAddressTxHistory: jest.fn(),
+  voidPublicAddressTransaction: jest.fn(),
   voidWalletTransaction: jest.fn(),
   markUtxosAsVoided: jest.fn(),
   unspendUtxos: jest.fn(),
@@ -124,6 +126,7 @@ jest.mock('../../src/utils', () => ({
   getUnifiedBalanceMap: jest.fn().mockResolvedValue({}),
   // These vertices carry no shielded inputs, so every input is spendable.
   partitionShieldedInputs: jest.fn(async (_mysql, inputs) => inputs),
+  getVertexPublicInvolvement: jest.fn(() => []),
   validateAddressBalances: jest.fn(),
   LRU: jest.fn(),
   unlockTimelockedUtxos: jest.fn(),
