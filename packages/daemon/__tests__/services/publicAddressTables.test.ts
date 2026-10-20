@@ -16,7 +16,8 @@ jest.mock('@wallet-service/common', () => ({
 
 import { Connection } from 'mysql2/promise';
 import * as db from '../../src/db';
-import { handleUnvoidedTx, handleVertexAccepted, handleVoidedTx } from '../../src/services';
+import { handleUnvoidedTx, handleVertexAccepted, handleVertexRemoved, handleVoidedTx } from '../../src/services';
+import logger from '../../src/logger';
 import { FULLY_SHIELDED_TOKEN_ID, LRU } from '../../src/utils';
 import { BACKFILL_PUBLIC_ADDRESS_TABLES_SQL, cleanDatabase, runSqlScript } from '../utils';
 import { primeAmountRewind, primeFullyRewind, resetCtCryptoMock } from '../mocks/ct-crypto-node';
@@ -75,6 +76,7 @@ const context = (e: unknown) => ({
 const ingest = (spec: VertexSpec) => handleVertexAccepted(context(event(spec)), undefined as any);
 const voidVertex = (spec: VertexSpec) => handleVoidedTx(context(event(spec, true)));
 const unvoidVertex = (spec: VertexSpec) => handleUnvoidedTx(context(event(spec)));
+const removeVertex = (spec: VertexSpec) => handleVertexRemoved(context(event(spec)), undefined as any);
 
 const transparentOut = (value: bigint, address: string, tokenData = 0) => ({
   value, script: SCRIPT, token_data: tokenData, decoded: { type: 'P2PKH', address, timelock: null },
@@ -313,6 +315,62 @@ describe('void', () => {
     expect(await snapshot()).toEqual(ingested);
   });
 
+  it('removes the rows of a removed vertex', async () => {
+    await ingest(H1);
+    await ingest(H6);
+    const before = await snapshot();
+    await ingest(H10);
+
+    await removeVertex(H10);
+    expect(await snapshot()).toEqual(before);
+  });
+
+  describe('with counters that disagree with the rows', () => {
+    let errorSpy: jest.SpyInstance;
+    beforeEach(() => { errorSpy = jest.spyOn(logger, 'error'); });
+    afterEach(() => { errorSpy.mockRestore(); });
+
+    const errorsAbout = (text: string) => errorSpy.mock.calls.filter(([message]) => String(message).includes(text));
+
+    it('clamps a counter at zero and logs it instead of failing', async () => {
+      await ingest(H6);
+      await ingest(H10);
+      await mysql.query(
+        "UPDATE `public_address_tokens` SET `transactions` = 0, `shielded_transactions` = 0 WHERE `address` = ? AND `token_id` = '00'",
+        [X],
+      );
+
+      await voidVertex(H6);
+      expect(errorsAbout('clamping')).toHaveLength(1);
+      expect((await historyOf(X)).map((r) => r.tx_id)).toEqual([hash(10)]);
+      expect(await tokensOf(X)).toEqual([]);
+    });
+
+    it('logs a missing counter row instead of failing', async () => {
+      await ingest(H1);
+      await ingest(H10);
+      await mysql.query('DELETE FROM `public_address_tokens` WHERE `address` = ?', [X]);
+
+      await voidVertex(H10);
+      expect(errorsAbout('no public_address_tokens row')).toHaveLength(1);
+      expect(await historyOf(X)).toEqual([row('00', 1, 1000n, false)]);
+      expect(await tokensOf(X)).toEqual([]);
+    });
+
+    it('deletes a pair whose counter outlives its rows and logs it', async () => {
+      await ingest(H10);
+      await mysql.query(
+        "UPDATE `public_address_tokens` SET `transactions` = 2 WHERE `address` = ? AND `token_id` = '00'",
+        [X],
+      );
+
+      await voidVertex(H10);
+      expect(errorsAbout('but no rows remain')).toHaveLength(1);
+      expect(await historyOf(X)).toEqual([]);
+      expect(await tokensOf(X)).toEqual([]);
+    });
+  });
+
   it('leaves the tables alone when cleaning up a transaction without rows', async () => {
     await ingest(H1);
     const before = await snapshot();
@@ -365,6 +423,44 @@ describe('backfill', () => {
     expect(await snapshot()).toEqual(ingested);
     // H8 and H15; H9's caller has a FullyShielded row, so it is not one.
     expect(Number(report[0].nano_caller_rows)).toBe(2);
+  });
+
+  it('removes rows the rule does not produce', async () => {
+    await runFixture('none');
+    const ingested = await snapshot();
+
+    await mysql.query(
+      `INSERT INTO \`public_address_tx_history\` (\`address\`, \`token_id\`, \`timestamp\`, \`tx_id\`, \`balance\`, \`has_shielded\`)
+       VALUES (?, ?, ?, ?, 7, FALSE)`,
+      [X, T, ts(1), hash(1)],
+    );
+    await mysql.query(
+      `INSERT INTO \`public_address_tokens\` (\`address\`, \`token_id\`, \`transactions\`, \`shielded_transactions\`, \`last_activity\`)
+       VALUES (?, ?, 1, 0, ?)`,
+      [X, T, ts(1)],
+    );
+    await runSqlScript(mysql, BACKFILL_PUBLIC_ADDRESS_TABLES_SQL, { batch_size: 2 });
+    expect(await snapshot()).toEqual(ingested);
+  });
+
+  it('counts a transparent row with NULL authorities as no authority', async () => {
+    await runFixture('none');
+    const ingested = await snapshot();
+
+    await mysql.query('UPDATE `tx_output` SET `authorities` = NULL WHERE `mode` = 0 AND `authorities` = 0');
+    await mysql.query('DELETE FROM `public_address_tx_history`');
+    await mysql.query('DELETE FROM `public_address_tokens`');
+    await runSqlScript(mysql, BACKFILL_PUBLIC_ADDRESS_TABLES_SQL, { batch_size: 2 });
+    expect(await snapshot()).toEqual(ingested);
+  });
+
+  it('rejects a batch size below one without writing', async () => {
+    await runFixture('none');
+    const ingested = await snapshot();
+
+    await expect(runSqlScript(mysql, BACKFILL_PUBLIC_ADDRESS_TABLES_SQL, { batch_size: 0 }))
+      .rejects.toThrow('@batch_size must be a positive integer');
+    expect(await snapshot()).toEqual(ingested);
   });
 
   it('is idempotent and resumable', async () => {

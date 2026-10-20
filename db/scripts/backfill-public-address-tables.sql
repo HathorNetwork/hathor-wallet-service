@@ -13,7 +13,8 @@
 --  - every `tx_output` row counts as an output of its `tx_id` and, when spent,
 --    as an input of its `spent_by`;
 --  - a transparent row (mode 0) counts under its token, adding (output) or
---    subtracting (input) its value unless it is an authority;
+--    subtracting (input) its value unless it is an authority (a NULL
+--    `authorities` counts as none);
 --  - an AmountShielded row (mode 1) counts under its token with no balance, or
 --    under 'fully_shielded' when its token is unknown;
 --  - a FullyShielded row (mode 2) counts under 'fully_shielded' with no
@@ -29,11 +30,11 @@
 --
 -- Addresses are processed in batches of `@batch_size` from the `address`
 -- table, each batch in its own transaction; the last batch is open-ended and
--- also takes any address missing from that table. History rows are upserted,
--- and each batch's counters are rebuilt from its history rows in the same
--- transaction, so the script can be run again from the start. Each batch
--- prints the last address it covered; to resume after a failure, set
--- `@resume_after` to it.
+-- also takes any address missing from that table. Each batch deletes its
+-- addresses' rows from both tables and writes them again, so a run leaves
+-- exactly what the rule produces, and the script can be run again from the
+-- start. Each batch prints the last address it covered; to resume after a
+-- failure, set `@resume_after` to it.
 
 SET @batch_size = 1000;
 SET @resume_after = '';
@@ -55,6 +56,10 @@ BEGIN
     RESIGNAL;
   END;
 
+  IF p_batch_size IS NULL OR p_batch_size < 1 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '@batch_size must be a positive integer';
+  END IF;
+
   WHILE NOT v_done DO
     -- The batch is (v_after, v_up_to]; a NULL v_up_to is open-ended.
     SET v_up_to = (SELECT `address`
@@ -66,6 +71,9 @@ BEGIN
 
     START TRANSACTION;
 
+    DELETE FROM `public_address_tx_history`
+     WHERE `address` > v_after AND (v_up_to IS NULL OR `address` <= v_up_to);
+
     INSERT INTO `public_address_tx_history`
            (`address`, `token_id`, `timestamp`, `tx_id`, `balance`, `has_shielded`)
     SELECT io.`address`, io.`token_id`, t.`timestamp`, io.`tx_id`, SUM(io.`balance`), MAX(io.`shielded`)
@@ -76,7 +84,7 @@ BEGIN
                  WHEN 1 THEN COALESCE(o.`token_id`, 'fully_shielded')
                  WHEN 2 THEN 'fully_shielded'
                END AS `token_id`,
-               CASE WHEN o.`mode` = 0 AND o.`authorities` = 0 THEN CAST(o.`value` AS SIGNED) ELSE 0 END AS `balance`,
+               CASE WHEN o.`mode` = 0 AND COALESCE(o.`authorities`, 0) = 0 THEN CAST(o.`value` AS SIGNED) ELSE 0 END AS `balance`,
                o.`mode` <> 0 AS `shielded`
           FROM `tx_output` o
          WHERE o.`address` > v_after AND (v_up_to IS NULL OR o.`address` <= v_up_to)
@@ -88,7 +96,7 @@ BEGIN
                  WHEN 1 THEN COALESCE(o.`token_id`, 'fully_shielded')
                  WHEN 2 THEN 'fully_shielded'
                END,
-               CASE WHEN o.`mode` = 0 AND o.`authorities` = 0 THEN -CAST(o.`value` AS SIGNED) ELSE 0 END,
+               CASE WHEN o.`mode` = 0 AND COALESCE(o.`authorities`, 0) = 0 THEN -CAST(o.`value` AS SIGNED) ELSE 0 END,
                o.`mode` <> 0
           FROM `tx_output` o
          WHERE o.`address` > v_after AND (v_up_to IS NULL OR o.`address` <= v_up_to)
@@ -107,10 +115,9 @@ BEGIN
       ) io
       JOIN `transaction` t ON t.`tx_id` = io.`tx_id`
      WHERE t.`voided` = FALSE
-     GROUP BY io.`address`, io.`token_id`, io.`tx_id`, t.`timestamp`
-        ON DUPLICATE KEY UPDATE `balance` = VALUES(`balance`), `has_shielded` = VALUES(`has_shielded`);
+     GROUP BY io.`address`, io.`token_id`, io.`tx_id`, t.`timestamp`;
 
-    -- The counters, from the history rows as they now stand.
+    -- The counters, from the history rows just written.
     DELETE FROM `public_address_tokens`
      WHERE `address` > v_after AND (v_up_to IS NULL OR `address` <= v_up_to);
     INSERT INTO `public_address_tokens`
