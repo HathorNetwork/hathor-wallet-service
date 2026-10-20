@@ -19,6 +19,9 @@
   "repository": "git@github.com:HathorNetwork/hathor-wallet-service.git",
   "author": "André Abadesso <andre.abadesso@gmail.com>",
   "private": true,
+  "scripts": {
+    "dev:db:migrate": "nix develop . -c bash -c \"source ./dev/envrc && sequelize db:migrate\""
+  },
   "devDependencies": {
     "@eslint/js": "9.39.4",
     "@types/jest": "29.5.13",
