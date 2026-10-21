@@ -67,6 +67,9 @@ import {
   getFullnodeHttpUrl,
   generateAddresses,
   sendRealtimeTx,
+  getVertexPublicInvolvement,
+  PublicSpentRow,
+  StoredShieldedOutput,
 } from '../utils';
 import {
   getDbConnection,
@@ -99,6 +102,8 @@ import {
   updateWalletTablesWithTx,
   voidTransaction,
   voidAddressTransaction,
+  addPublicAddressTxHistory,
+  voidPublicAddressTransaction,
   updateLastSyncedEvent as dbUpdateLastSyncedEvent,
   getLastSyncedEvent,
   getTxOutputsFromTx,
@@ -602,9 +607,10 @@ const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
         // the involvement counter is wire-level and the void path reverses it
         // from the same wire set, so filtering here would break that symmetry.
         const shieldedInputAnomalies: ShieldedInputAnomaly[] = [];
+        const spentShieldedRows: PublicSpentRow[] = [];
         const spendableInputs = await withSpan(
           'partitionShieldedInputs',
-          () => partitionShieldedInputs(mysql!, inputs, shieldedInputAnomalies),
+          () => partitionShieldedInputs(mysql!, inputs, shieldedInputAnomalies, spentShieldedRows),
         );
 
         // check if any of the inputs are still marked as locked and update tables accordingly.
@@ -689,6 +695,9 @@ const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
         // extending their wallets' CTSpend windows, whether or not the output
         // was recovered.
         const storedShieldedAddresses = new Set<string>();
+        // The shielded outputs that got a `tx_output` row, with their public
+        // columns only, for the public address tables.
+        const storedShieldedOutputs: StoredShieldedOutput[] = [];
 
         // Read once per vertex, not cached across vertices: a provider can be
         // registered at any time, and a stale `false` would hide real failures.
@@ -797,6 +806,13 @@ const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
             voided: false,
             recovery_state: storage.storable ? RecoveryState.Unowned : RecoveryState.RecoveryFailed,
           });
+          storedShieldedOutputs.push(isAmount
+            ? {
+              mode: ShieldedOutputMode.AmountShielded,
+              address: so.decoded.address,
+              tokenId: resolveShieldedTokenId(so.token_data),
+            }
+            : { mode: ShieldedOutputMode.FullyShielded, address: so.decoded.address });
 
           if (!storage.storable) {
             // `recovery_failed` because that is the true state: the crypto
@@ -991,6 +1007,19 @@ const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
 
           // update address tables (address, address_balance, address_tx_history)
           await withSpan('updateAddressTablesWithTx', () => updateAddressTablesWithTx(mysql, hash, timestamp, addressBalanceMap));
+
+          // The public address tables, from on-chain data only. Not derived
+          // from the balance map, which also holds recovered values and is
+          // empty for a vertex whose shielded outputs were not recovered.
+          const publicInvolvement = getVertexPublicInvolvement(
+            hash,
+            txOutputs,
+            txInputs,
+            storedShieldedOutputs,
+            spentShieldedRows,
+            headers,
+          );
+          await withSpan('addPublicAddressTxHistory', () => addPublicAddressTxHistory(mysql!, hash, timestamp, publicInvolvement));
 
           // for the addresses present on the tx, check if there are any wallets associated
           const addressWalletMap: StringMap<Wallet> = await withSpan('getAddressWalletInfo', () => getAddressWalletInfo(mysql!, Object.keys(addressBalanceMap)));
@@ -1508,6 +1537,8 @@ export const voidTx = async (
   // the UTXOs table.
   await withSpan('markUtxosAsVoided', () => markUtxosAsVoided(mysql, dbTxOutputs));
   await withSpan('voidAddressTransaction', () => voidAddressTransaction(mysql, hash, addressBalanceMap, version));
+  // Reversed from the transaction's own public rows, not from the balance map.
+  await withSpan('voidPublicAddressTransaction', () => voidPublicAddressTransaction(mysql, hash));
 
   // Reverse the address-grain involvement counter for the SAME set the ingest
   // path bumped via bumpAddressInvolvement.

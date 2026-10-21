@@ -8,6 +8,7 @@ import { Connection } from 'mysql2/promise';
 import { Interpreter } from 'xstate';
 import { getLastSyncedEvent } from '../../../src/db';
 import { AddressBalance, AddressBalanceRow, Context, Event, WalletBalanceRow } from '../../../src/types';
+import { BACKFILL_PUBLIC_ADDRESS_TABLES_SQL, runSqlScript } from '../../utils';
 
 export interface WalletBalance {
   walletId: string;
@@ -26,6 +27,8 @@ export const cleanDatabase = async (mysql: Connection): Promise<void> => {
     'address',
     'address_balance',
     'address_tx_history',
+    'public_address_tx_history',
+    'public_address_tokens',
     'miner',
     'sync_metadata',
     'token',
@@ -237,3 +240,65 @@ export async function transitionUntilEvent(
 
 
 export * from './voiding-consistency-checks';
+
+const publicTablesSnapshot = async (mysql: Connection) => {
+  const [history] = await mysql.query(
+    'SELECT * FROM `public_address_tx_history` ORDER BY `address`, `token_id`, `timestamp`, `tx_id`',
+  );
+  const [tokens] = await mysql.query(
+    'SELECT * FROM `public_address_tokens` ORDER BY `address`, `token_id`',
+  );
+  return { history, tokens };
+};
+
+/**
+ * Check the public address tables after a sync with no shielded outputs:
+ * their counters agree with their history, no voided transaction has rows,
+ * the history matches `address_tx_history` row for row, and the backfill
+ * rebuilds both tables exactly.
+ */
+export const validatePublicAddressTables = async (mysql: Connection): Promise<void> => {
+  const [counterMismatches] = await mysql.query(
+    `SELECT p.\`address\`, p.\`token_id\`, p.\`transactions\`, h.\`n\`
+       FROM \`public_address_tokens\` p
+       LEFT JOIN (SELECT \`address\`, \`token_id\`, COUNT(*) AS \`n\`, SUM(\`has_shielded\`) AS \`s\`,
+                         MAX(\`timestamp\`) AS \`ts\`
+                    FROM \`public_address_tx_history\` GROUP BY \`address\`, \`token_id\`) h
+         ON h.\`address\` = p.\`address\` AND h.\`token_id\` = p.\`token_id\`
+      WHERE h.\`n\` IS NULL OR h.\`n\` <> p.\`transactions\`
+         OR h.\`s\` <> p.\`shielded_transactions\` OR h.\`ts\` <> p.\`last_activity\``,
+  );
+  expect(counterMismatches).toEqual([]);
+
+  const [uncounted] = await mysql.query(
+    `SELECT DISTINCT h.\`address\`, h.\`token_id\`
+       FROM \`public_address_tx_history\` h
+       LEFT JOIN \`public_address_tokens\` p ON p.\`address\` = h.\`address\` AND p.\`token_id\` = h.\`token_id\`
+      WHERE p.\`address\` IS NULL`,
+  );
+  expect(uncounted).toEqual([]);
+
+  const [voided] = await mysql.query(
+    `SELECT h.\`tx_id\`
+       FROM \`public_address_tx_history\` h
+       LEFT JOIN \`transaction\` t ON t.\`tx_id\` = h.\`tx_id\`
+      WHERE t.\`tx_id\` IS NULL OR t.\`voided\` = TRUE`,
+  );
+  expect(voided).toEqual([]);
+
+  const [publicRows] = await mysql.query(
+    `SELECT \`address\`, \`token_id\`, \`tx_id\`, \`timestamp\`, \`balance\`
+       FROM \`public_address_tx_history\` ORDER BY \`address\`, \`token_id\`, \`tx_id\``,
+  );
+  const [historyRows] = await mysql.query(
+    `SELECT \`address\`, \`token_id\`, \`tx_id\`, \`timestamp\`, \`balance\`
+       FROM \`address_tx_history\` ORDER BY \`address\`, \`token_id\`, \`tx_id\``,
+  );
+  expect(publicRows).toEqual(historyRows);
+
+  const synced = await publicTablesSnapshot(mysql);
+  await mysql.query('DELETE FROM `public_address_tx_history`');
+  await mysql.query('DELETE FROM `public_address_tokens`');
+  await runSqlScript(mysql, BACKFILL_PUBLIC_ADDRESS_TABLES_SQL, { batch_size: 3 });
+  expect(await publicTablesSnapshot(mysql)).toEqual(synced);
+};

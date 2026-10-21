@@ -54,6 +54,7 @@ import {
 } from '@wallet-service/common';
 import logger from '../logger';
 import { stringMapIterator } from './helpers';
+import { PublicSpentRow } from './publicInvolvement';
 
 /**
  * Prepares transaction outputs with additional metadata and indexing.
@@ -307,11 +308,16 @@ export interface ShieldedInputAnomaly {
  *
  * Mismatches are logged here and pushed to `anomalies` for the caller to alert
  * on after the transaction commits — an SQS round-trip must not hold row locks.
+ *
+ * When `spentShieldedRows` is given, the stored row of each kept shielded
+ * input that has one is pushed to it, projected to its public columns, so the
+ * caller can derive public involvement without reading the rows again.
  */
 export const partitionShieldedInputs = async (
   mysql: MysqlConnection,
   eventInputs: EventTxInput[],
   anomalies: ShieldedInputAnomaly[],
+  spentShieldedRows?: PublicSpentRow[],
 ): Promise<EventTxInput[]> => {
   const safe: EventTxInput[] = [];
   for (const ei of eventInputs) {
@@ -329,6 +335,15 @@ export const partitionShieldedInputs = async (
       });
       anomalies.push({ txId: ei.tx_id, index: ei.index, storedMode: row.mode });
       continue;
+    }
+    if (row && spentShieldedRows) {
+      spentShieldedRows.push({
+        txId: row.txId,
+        index: row.index,
+        mode: row.mode,
+        address: row.address,
+        tokenId: row.tokenId,
+      });
     }
     safe.push(ei);
   }

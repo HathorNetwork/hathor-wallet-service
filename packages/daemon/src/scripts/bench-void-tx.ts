@@ -130,6 +130,7 @@ async function cleanDb(conn: mysql2.Connection) {
   const tables = [
     'wallet_tx_history', 'wallet_balance', 'wallet',
     'address_tx_history', 'address_balance', 'address',
+    'public_address_tx_history', 'public_address_tokens',
     'tx_output', 'transaction', 'token',
     'token_creation', 'tx_proposal',
   ];
