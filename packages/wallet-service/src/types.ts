@@ -71,13 +71,7 @@ export interface EnvironmentConfig {
   healthCheckMaximumHeightDifference: number;
   awsRegion: string;
   firebaseProjectId: string;
-  firebasePrivateKeyId: string;
   firebaseClientEmail: string;
-  firebaseClientId: string;
-  firebaseAuthUri: string;
-  firebaseTokenUri: string;
-  firebaseAuthProviderX509CertUrl: string;
-  firebaseClientX509CertUrl: string;
   firebasePrivateKey: string | null;
   maxLoadWalletRetries: number;
   logLevel: string;
