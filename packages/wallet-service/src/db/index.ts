@@ -3472,6 +3472,37 @@ export const getUnsentTxProposals = async (
 };
 
 /**
+ * Locks the given txProposals that are still OPEN or in SEND_ERROR, and
+ * returns their ids. Run it inside a transaction: a proposal sent since
+ * {@link getUnsentTxProposals} read it is left out, and a send that is in
+ * progress waits for the transaction to end before setting SENT.
+ *
+ * @param mysql - Database connection
+ * @param txProposalIds - The candidate txProposals, as read by getUnsentTxProposals
+ *
+ * @returns The ids of the txProposals that are still unsent
+ */
+export const lockUnsentTxProposals = async (
+  mysql: ServerlessMysql,
+  txProposalIds: string[],
+): Promise<string[]> => {
+  const result = await mysql.query<{ id: string }[]>(
+    `
+    SELECT id
+      FROM \`tx_proposal\`
+     WHERE id IN (?)
+       AND status IN (?)
+       FOR UPDATE`,
+    [txProposalIds, [
+      TxProposalStatus.OPEN,
+      TxProposalStatus.SEND_ERROR,
+    ]],
+  );
+
+  return result.map((row) => row.id);
+};
+
+/**
  * Gets a specific address from an index and a walletId
  *
  * @param mysql - Database connection
