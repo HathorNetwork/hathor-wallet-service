@@ -513,7 +513,7 @@ test('PUT /txproposals/{proposalId} with a invalid proposalId should fail with A
   expect(JSON.parse(txSendResult.body as string).parameter).toStrictEqual('txProposalId');
 });
 
-test('PUT /txproposals/{proposalId} on a proposal which status is not OPEN or SEND_ERROR should fail with ApiError.TX_PROPOSAL_NOT_OPEN', async () => {
+test('PUT /txproposals/{proposalId} on a proposal which status is not OPEN should fail with ApiError.TX_PROPOSAL_NOT_OPEN', async () => {
   expect.hasAssertions();
 
   await addToWalletTable(mysql, [{
@@ -638,6 +638,20 @@ test('PUT /txproposals/{proposalId} on a proposal which status is not OPEN or SE
   const txSendResult = await txProposalSend(txSendEvent, null, null) as APIGatewayProxyResult;
 
   expect(JSON.parse(txSendResult.body as string).error).toStrictEqual(ApiError.TX_PROPOSAL_NOT_OPEN);
+
+  // A failed send released the proposal's UTXOs, so it can't be sent again either
+  await updateTxProposal(
+    mysql,
+    returnBody.txProposalId,
+    now,
+    TxProposalStatus.SEND_ERROR,
+  );
+
+  const txResendResult = await txProposalSend(txSendEvent, null, null) as APIGatewayProxyResult;
+  const txResendBody = JSON.parse(txResendResult.body as string);
+
+  expect(txResendBody.error).toStrictEqual(ApiError.TX_PROPOSAL_NOT_OPEN);
+  expect(txResendBody.status).toStrictEqual(TxProposalStatus.SEND_ERROR);
 });
 
 test('PUT /txproposals/{proposalId} on a proposal which is not owned by the user\'s wallet should fail with ApiError.FORBIDDEN', async () => {
