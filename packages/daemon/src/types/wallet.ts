@@ -19,10 +19,33 @@ export interface Wallet {
   authXpubkey: string,
   maxGap: number;
   status?: WalletStatus;
+  /** Shielded lifecycle: 'none' when the wallet has no shielded keys registered. */
+  ctStatus?: WalletStatus | 'none';
   retryCount?: number;
   createdAt?: number;
   readyAt?: number;
 }
+
+/**
+ * A wallet is only attributable for balance once BOTH lifecycles have settled.
+ *
+ * While either side is still loading, the load worker is rebuilding
+ * `wallet_balance` absolutely from `address_balance`; attributing incremental
+ * deltas at the same time races that rebuild and the increment is silently lost.
+ * Note this must consider `ct_status` too — a shielded upgrade runs with
+ * `status = 'ready'` while `ct_status = 'creating'`.
+ *
+ * A failed upgrade (`ct_status = 'error'`) has settled too: the wallet-service
+ * rebuilds the wallet's totals in the transaction that records the failure, so
+ * deltas apply on top of them, and the transparent balance keeps moving.
+ */
+export const isWalletAttributable = (wallet: Pick<Wallet, 'status' | 'ctStatus'>): boolean => (
+  wallet.status === WalletStatus.READY
+  && (wallet.ctStatus === undefined
+    || wallet.ctStatus === 'none'
+    || wallet.ctStatus === WalletStatus.READY
+    || wallet.ctStatus === WalletStatus.ERROR)
+);
 
 export type TokenBalanceValue = {
   tokenId: string,
@@ -34,6 +57,13 @@ export type TokenBalanceValue = {
   unlockedAuthorities: Record<string, unknown>;
   lockExpires: number | null;
   total: bigint;
+  // Gross shielded amount RECEIVED in this tx for this token: the sum of the
+  // positive (recovered) shielded receipts, suppressed to 0 on a pure spend.
+  // Always >= 0 — NOT a net delta. The push builder gates on `shieldedAmount > 0`
+  // and adds it to the displayed amount, so it must never carry a negative value
+  // (a "net" reading would emit -value on spends and break the gate). `total`
+  // stays transparent-only; the push builder combines the two.
+  shieldedAmount: bigint;
 }
 
 export interface WalletBalanceValue {

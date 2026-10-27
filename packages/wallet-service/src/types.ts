@@ -11,6 +11,7 @@ import { TxInput, TxOutput } from '@wallet-service/common/src/types';
 
 import hathorLib, { TokenVersion } from '@hathor/wallet-lib';
 import { isAuthority } from '@wallet-service/common/src/utils/wallet.utils';
+import { RecoveryState, ShieldedOutputMode } from '@wallet-service/common';
 
 import {
   APIGatewayProxyEvent,
@@ -49,6 +50,7 @@ export interface EnvironmentConfig {
   network: string;
   serviceName: string;
   maxAddressGap: number;
+  shieldedMaxAddressGap: number;
   voidedTxOffset: number;
   confirmFirstAddress: boolean;
   wsDomain: string;
@@ -69,13 +71,7 @@ export interface EnvironmentConfig {
   healthCheckMaximumHeightDifference: number;
   awsRegion: string;
   firebaseProjectId: string;
-  firebasePrivateKeyId: string;
   firebaseClientEmail: string;
-  firebaseClientId: string;
-  firebaseAuthUri: string;
-  firebaseTokenUri: string;
-  firebaseAuthProviderX509CertUrl: string;
-  firebaseClientX509CertUrl: string;
   firebasePrivateKey: string | null;
   maxLoadWalletRetries: number;
   logLevel: string;
@@ -94,7 +90,10 @@ export interface FullNodeVersionData {
   minTxWeight: number;
   minTxWeightCoefficient: number;
   minTxWeightK: number;
-  tokenDepositPercentage: number;
+  /** @deprecated Use tokenDepositPercentageNumerator/tokenDepositPercentageDenominator for exact integer math. */
+  tokenDepositPercentage?: number;
+  tokenDepositPercentageNumerator?: number;
+  tokenDepositPercentageDenominator?: number;
   rewardSpendMinBlocks: number;
   maxNumberInputs: number;
   maxNumberOutputs: number;
@@ -118,7 +117,11 @@ export interface FullNodeApiVersionResponse {
   min_tx_weight: number;
   min_tx_weight_coefficient: number; // float
   min_tx_weight_k: number;
-  token_deposit_percentage: number; // float
+  /** @deprecated Float kept for backward compatibility; fullnodes may omit it in favor of the integer fraction fields below. */
+  token_deposit_percentage?: number;
+  // Deposit percentage as an integer fraction in parts per billion; absent on older fullnodes.
+  token_deposit_percentage_numerator?: number;
+  token_deposit_percentage_denominator?: number;
   reward_spend_min_blocks: number;
   max_number_inputs: number;
   max_number_outputs: number;
@@ -126,7 +129,7 @@ export interface FullNodeApiVersionResponse {
   genesis_block_hash?: string,
   genesis_tx1_hash?: string,
   genesis_tx2_hash?: string,
-  native_token?: { name: string, symbol: string };
+  native_token?: { name: string, symbol: string, version?: number };
 }
 
 export interface TxProposal {
@@ -143,6 +146,9 @@ export enum WalletStatus {
   ERROR = 'error',
 }
 
+/** Lifecycle of the shielded (ct) side of a wallet; `none` = no shielded keys registered. */
+export type CtStatus = 'none' | WalletStatus;
+
 export interface Wallet {
   walletId: string;
   xpubkey: string;
@@ -153,6 +159,12 @@ export interface Wallet {
   createdAt?: number;
   readyAt?: number;
   lastUsedAddressIndex?: number;
+  // Shielded-registration columns (NULL/`none` until a wallet registers shielded keys).
+  ctStatus?: CtStatus;
+  scanXpriv?: string | null;
+  spendXpub?: string | null;
+  shieldedMaxGap?: number | null;
+  lastUsedShieldedIndex?: number | null;
 }
 
 export interface AddressInfo {
@@ -160,12 +172,16 @@ export interface AddressInfo {
   index: number;
   transactions: number;
   seqnum: number;
+  ctAddress?: string | null;
+  bip32Account?: number | null;
 }
 
 export interface ShortAddressInfo {
   address: string;
   index: number;
   addressPath: string;
+  // The long-form CT address, populated only for CTSpend (account-2) rows.
+  ctAddress?: string | null;
 }
 
 export interface TokenBalance {
@@ -342,13 +358,22 @@ export class Balance {
 
   lockExpires: number | null;
 
-  constructor(totalAmountSent = 0n, unlockedAmount = 0n, lockedAmount = 0n, lockExpires = null, unlockedAuthorities = null, lockedAuthorities = null) {
+  unlockedShieldedAmount: bigint;
+
+  lockedShieldedAmount: bigint;
+
+  totalShieldedReceived: bigint;
+
+  constructor(totalAmountSent = 0n, unlockedAmount = 0n, lockedAmount = 0n, lockExpires = null, unlockedAuthorities = null, lockedAuthorities = null, unlockedShieldedAmount = 0n, lockedShieldedAmount = 0n, totalShieldedReceived = 0n) {
     this.totalAmountSent = totalAmountSent;
     this.unlockedAmount = unlockedAmount;
     this.lockedAmount = lockedAmount;
     this.lockExpires = lockExpires;
     this.unlockedAuthorities = unlockedAuthorities || new Authorities();
     this.lockedAuthorities = lockedAuthorities || new Authorities();
+    this.unlockedShieldedAmount = unlockedShieldedAmount;
+    this.lockedShieldedAmount = lockedShieldedAmount;
+    this.totalShieldedReceived = totalShieldedReceived;
   }
 
   /**
@@ -382,6 +407,9 @@ export class Balance {
       this.lockExpires,
       this.unlockedAuthorities.clone(),
       this.lockedAuthorities.clone(),
+      this.unlockedShieldedAmount,
+      this.lockedShieldedAmount,
+      this.totalShieldedReceived,
     );
   }
 
@@ -411,6 +439,9 @@ export class Balance {
       lockExpires,
       Authorities.merge(b1.unlockedAuthorities, b2.unlockedAuthorities),
       Authorities.merge(b1.lockedAuthorities, b2.lockedAuthorities),
+      b1.unlockedShieldedAmount + b2.unlockedShieldedAmount,
+      b1.lockedShieldedAmount + b2.lockedShieldedAmount,
+      b1.totalShieldedReceived + b2.totalShieldedReceived,
     );
   }
 }
@@ -425,6 +456,9 @@ export type TokenBalanceValue = {
   unlockedAuthorities: Record<string, unknown>;
   lockExpires: number | null;
   total: bigint;
+  // Net shielded balance change for this tx (transparent `total` excludes it).
+  // Optional for backwards-compatibility with daemons that predate the field.
+  shieldedAmount?: bigint;
 }
 
 export class WalletTokenBalance {
@@ -445,8 +479,32 @@ export class WalletTokenBalance {
       token: this.token,
       transactions: this.transactions,
       balance: {
-        unlocked: this.balance.unlockedAmount,
-        locked: this.balance.lockedAmount,
+        unlocked: this.balance.unlockedAmount + this.balance.unlockedShieldedAmount,
+        locked: this.balance.lockedAmount + this.balance.lockedShieldedAmount,
+      },
+      tokenAuthorities: {
+        unlocked: this.balance.unlockedAuthorities,
+        locked: this.balance.lockedAuthorities,
+      },
+      lockExpires: this.balance.lockExpires,
+    };
+  }
+
+  toSplitJSON(): Record<string, unknown> {
+    return {
+      token: this.token,
+      transactions: this.transactions,
+      balance: {
+        unlocked: {
+          transparent: this.balance.unlockedAmount,
+          shielded: this.balance.unlockedShieldedAmount,
+          total: this.balance.unlockedAmount + this.balance.unlockedShieldedAmount,
+        },
+        locked: {
+          transparent: this.balance.lockedAmount,
+          shielded: this.balance.lockedShieldedAmount,
+          total: this.balance.lockedAmount + this.balance.lockedShieldedAmount,
+        },
       },
       tokenAuthorities: {
         unlocked: this.balance.unlockedAuthorities,
@@ -457,12 +515,19 @@ export class WalletTokenBalance {
   }
 }
 
+export type TxKind = 'transparent' | 'shielded' | 'mixed';
+
 export interface TxTokenBalance {
   txId: string;
   timestamp: number;
   voided: boolean;
   balance: bigint;
   version: number;
+  tx_kind: TxKind;
+  balanceBreakdown: {
+    transparent: bigint;
+    shielded: bigint;
+  };
 }
 
 export class TokenBalanceMap {
@@ -674,6 +739,8 @@ export interface DbTxOutput {
   txProposalId?: string;
   txProposalIndex?: number;
   voided?: boolean | null;
+  mode?: ShieldedOutputMode;
+  recoveryState?: RecoveryState | null;
 }
 
 export interface Block {
@@ -703,6 +770,7 @@ export interface IFilterTxOutput {
   index?: number;
   totalAmount?: bigint;
   maxAmount?: bigint;
+  kind?: 'transparent' | 'shielded';
 }
 
 export enum InputSelectionAlgo {
@@ -718,6 +786,29 @@ export interface IWalletInsufficientFunds {
 export interface DbTxOutputWithPath extends DbTxOutput {
   addressPath: string;
 }
+
+// The `/utxos` + `/tx_outputs` response entry: a discriminated union on `kind`.
+// Transparent entries are the tx_output-with-path shape; shielded entries add the
+// hydrated CT metadata and hex-encoded satellite bytes (mode-specific fields are
+// optional here — `tokenData` for AmountShielded, asset fields for FullyShielded).
+export interface TransparentTxOutputEntry extends DbTxOutputWithPath {
+  kind: 'transparent';
+}
+
+export interface ShieldedTxOutputEntry extends DbTxOutputWithPath {
+  kind: 'shielded';
+  ctAddress: string;
+  shieldedIndex: number;
+  commitment: string;
+  ephemeralPubkey: string;
+  rangeProof: string;
+  script: string;
+  tokenData?: number | null;
+  assetCommitment?: string;
+  surjectionProof?: string;
+}
+
+export type TxOutputEntry = TransparentTxOutputEntry | ShieldedTxOutputEntry;
 
 export interface Miner {
   address: string;
@@ -750,6 +841,7 @@ export interface PushDelete {
 
 export interface AddressAtIndexRequest {
   index?: number,
+  legacy?: boolean,
 }
 
 export interface TxByIdRequest {

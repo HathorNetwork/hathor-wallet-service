@@ -13,6 +13,7 @@ import {
   DbTxOutputWithPath,
   IFilterTxOutput,
   AddressInfo,
+  TxOutputEntry,
 } from '@src/types';
 import { closeDbAndGetError } from '@src/api/utils';
 import { getDbConnection } from '@src/utils';
@@ -20,8 +21,18 @@ import { constants, bigIntUtils, transactionUtils } from '@hathor/wallet-lib';
 import middy from '@middy/core';
 import cors from '@middy/http-cors';
 import errorHandler from '@src/api/middlewares/errorHandler';
+import {
+  getShieldedTxOutputDataByIds,
+  getShieldedAddressInfoByAddresses,
+  ShieldedTxOutputData,
+  ShieldedAddressApiInfo,
+} from '@src/db/shielded';
+import { Bip32Account, RecoveryState, Severity, ShieldedOutputMode, isShieldedMode } from '@wallet-service/common';
+import { addAlert } from '@wallet-service/common/src/utils/alerting.utils';
+import createDefaultLogger from '@src/logger';
 
 const mysql = getDbConnection();
+const logger = createDefaultLogger();
 
 const positiveBigInt = Joi.custom(value => {
   const newVal = BigInt(value);
@@ -50,6 +61,7 @@ const bodySchema = Joi.object({
   skipSpent: Joi.boolean().optional().default(true),
   txId: Joi.string().optional(),
   index: Joi.number().optional().min(0),
+  kind: Joi.string().valid('transparent', 'shielded').optional(),
 }).and('txId', 'index')
   .nand('totalAmount', 'maxAmount');
 
@@ -80,6 +92,7 @@ export const getFilteredUtxos = middy(walletIdProxyHandler(async (walletId, even
     totalAmount: queryString.totalAmount,
     maxAmount: queryString.maxAmount,
     maxOutputs: queryString.maxOutputs,
+    kind: queryString.kind,
   };
 
   const { value, error } = bodySchema.validate(eventBody, {
@@ -135,6 +148,7 @@ export const getFilteredTxOutputs = middy(walletIdProxyHandler(async (walletId, 
     totalAmount: queryString.totalAmount,
     maxAmount: queryString.maxAmount,
     maxOutputs: queryString.maxOutputs,
+    kind: queryString.kind,
   };
 
   const { value, error } = bodySchema.validate(eventBody, {
@@ -155,12 +169,34 @@ export const getFilteredTxOutputs = middy(walletIdProxyHandler(async (walletId, 
 })).use(cors())
   .use(errorHandler());
 
+const hydrateAndFormat = async (
+  walletId: string,
+  walletAddresses: AddressInfo[],
+  txOutputs: DbTxOutput[],
+): Promise<TxOutputEntry[]> => {
+  const withPath = mapTxOutputsWithPath(walletAddresses, txOutputs);
+  const shielded = withPath.filter((output) => isShieldedMode(output.mode ?? 0));
+  if (shielded.length === 0) {
+    return formatTxOutputEntries(withPath, new Map(), new Map());
+  }
+  const satellite = await getShieldedTxOutputDataByIds(
+    mysql,
+    shielded.map((output) => ({ txId: output.txId, index: output.index })),
+  );
+  const shieldedAddresses = await getShieldedAddressInfoByAddresses(
+    mysql,
+    walletId,
+    [...new Set(shielded.map((output) => output.address))],
+  );
+  return await formatTxOutputEntries(withPath, satellite, shieldedAddresses);
+};
+
 const _getFilteredTxOutputs = async (walletId: string, filters: IFilterTxOutput) => {
   const walletAddresses = await getWalletAddresses(mysql, walletId);
 
   // txId will only be on the body when the user is searching for specific tx outputs
   if (filters.txId !== undefined) {
-    let txOutputList: DbTxOutputWithPath[] = [];
+    let txOutputList: TxOutputEntry[] = [];
     const txOutput: DbTxOutput = await getTxOutput(mysql, filters.txId, filters.index, filters.skipSpent);
 
     if (txOutput) {
@@ -172,7 +208,15 @@ const _getFilteredTxOutputs = async (walletId: string, filters: IFilterTxOutput)
         return closeDbAndGetError(mysql, ApiError.TX_OUTPUT_NOT_IN_WALLET);
       }
 
-      txOutputList = mapTxOutputsWithPath(walletAddresses, [txOutput]);
+      const isUnrecoveredShielded = isShieldedMode(txOutput.mode ?? 0)
+        && txOutput.recoveryState !== RecoveryState.Recovered;
+
+      const kindMismatch = (filters.kind === 'transparent' && isShieldedMode(txOutput.mode ?? 0))
+        || (filters.kind === 'shielded' && !isShieldedMode(txOutput.mode ?? 0));
+
+      if (!isUnrecoveredShielded && !kindMismatch) {
+        txOutputList = await hydrateAndFormat(walletId, walletAddresses, [txOutput]);
+      }
     }
 
     return {
@@ -187,6 +231,15 @@ const _getFilteredTxOutputs = async (walletId: string, filters: IFilterTxOutput)
   const newFilters = {
     ...filters,
   };
+
+  // The amount-selection path exists to be spent: selectUtxos treats every row as
+  // fungible-by-value, but a shielded output carries a shielded script a
+  // transparent input can't consume. When the caller asks for an amount without an
+  // explicit kind, restrict selection to transparent; an explicit kind=shielded is
+  // still honored.
+  if ((newFilters.totalAmount || newFilters.maxAmount) && !newFilters.kind) {
+    newFilters.kind = 'transparent';
+  }
 
   if (newFilters.addresses) {
     const denied = validateAddresses(walletAddresses, newFilters.addresses);
@@ -242,7 +295,7 @@ const _getFilteredTxOutputs = async (walletId: string, filters: IFilterTxOutput)
     finalTxOutputs = selectedTxOutputs;
   }
 
-  const txOutputsWithPath: DbTxOutputWithPath[] = mapTxOutputsWithPath(walletAddresses, finalTxOutputs);
+  const txOutputsWithPath = await hydrateAndFormat(walletId, walletAddresses, finalTxOutputs);
 
   return {
     statusCode: 200,
@@ -266,9 +319,81 @@ export const mapTxOutputsWithPath = (walletAddresses: AddressInfo[], txOutputs: 
     // this should never happen, so we will throw here
     throw new Error('Tx output address not in user\'s wallet');
   }
-  const addressPath = `m/44'/${constants.HATHOR_BIP44_CODE}'/0'/0/${addressDetail.index}`;
+  const account = addressDetail.bip32Account === Bip32Account.CTSpend ? Bip32Account.CTSpend : Bip32Account.Legacy;
+  const addressPath = `m/44'/${constants.HATHOR_BIP44_CODE}'/${account}'/0/${addressDetail.index}`;
   return { ...txOutput, addressPath };
 });
+
+/**
+ * Attach the `kind` discriminator and, for shielded entries, the satellite
+ * crypto bytes (hex) and CTSpend ownership metadata.
+ *
+ * The recovered-only filtering upstream means every shielded row here is
+ * expected to have a satellite row and a claimed CTSpend address row, but a
+ * miss can still happen (e.g. a partially-written recovery). When that
+ * happens the offending entry is skipped and a MAJOR alert is raised instead
+ * of failing the whole request — one invisible UTXO is a far smaller blast
+ * radius than a 500 on the entire /utxos or /tx_outputs response, which
+ * would otherwise also hide the wallet's unrelated transparent funds.
+ */
+export const formatTxOutputEntries = async (
+  txOutputs: DbTxOutputWithPath[],
+  satellite: Map<string, ShieldedTxOutputData>,
+  shieldedAddresses: Map<string, ShieldedAddressApiInfo>,
+): Promise<TxOutputEntry[]> => {
+  const entries: TxOutputEntry[] = [];
+
+  for (const txOutput of txOutputs) {
+    if (!isShieldedMode(txOutput.mode ?? 0)) {
+      entries.push({ ...txOutput, kind: 'transparent' });
+      continue;
+    }
+
+    const data = satellite.get(`${txOutput.txId}:${txOutput.index}`);
+    const addressInfo = shieldedAddresses.get(txOutput.address);
+
+    const missing: string[] = [
+      ...(!data ? ['satellite'] : []),
+      ...(!addressInfo ? ['ownership'] : []),
+    ];
+    // A FullyShielded output requires both asset byte-fields; a present row with a
+    // NULL required field would crash serialization, so it is a data-integrity
+    // miss too and must degrade (skip + alert) rather than 500 the response.
+    if (data && txOutput.mode === ShieldedOutputMode.FullyShielded) {
+      if (data.assetCommitment === null) missing.push('asset_commitment');
+      if (data.surjectionProof === null) missing.push('surjection_proof');
+    }
+
+    if (missing.length > 0) {
+      await addAlert(
+        'Shielded tx output missing satellite/ownership data',
+        `tx_output ${txOutput.txId}:${txOutput.index} is missing its ${missing.join(', ')} data and was skipped.`,
+        Severity.MAJOR,
+        { txId: txOutput.txId, index: txOutput.index, missing },
+        logger,
+      );
+      continue;
+    }
+
+    entries.push({
+      ...txOutput,
+      kind: 'shielded',
+      ctAddress: addressInfo.ctAddress,
+      shieldedIndex: addressInfo.shieldedIndex,
+      commitment: data.commitment.toString('hex'),
+      ephemeralPubkey: data.ephemeralPubkey.toString('hex'),
+      rangeProof: data.rangeProof.toString('hex'),
+      script: data.script.toString('hex'),
+      ...(txOutput.mode === ShieldedOutputMode.AmountShielded ? { tokenData: data.tokenData } : {}),
+      ...(txOutput.mode === ShieldedOutputMode.FullyShielded ? {
+        assetCommitment: data.assetCommitment.toString('hex'),
+        surjectionProof: data.surjectionProof.toString('hex'),
+      } : {}),
+    });
+  }
+
+  return entries;
+};
 
 /**
  * Confirm that the requested addresses belongs to the user's wallet

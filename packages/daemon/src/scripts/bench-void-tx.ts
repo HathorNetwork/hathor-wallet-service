@@ -70,11 +70,8 @@ sdk.start();
 // -------------------------------------------------------------------
 // Now safe to import daemon modules
 // -------------------------------------------------------------------
-// eslint-disable-next-line import/first
 import * as mysql2 from 'mysql2/promise';
-// eslint-disable-next-line import/first
 import { voidTx } from '../services';
-// eslint-disable-next-line import/first
 import { EventTxInput, EventTxOutput } from '../types';
 
 // -------------------------------------------------------------------
@@ -133,6 +130,7 @@ async function cleanDb(conn: mysql2.Connection) {
   const tables = [
     'wallet_tx_history', 'wallet_balance', 'wallet',
     'address_tx_history', 'address_balance', 'address',
+    'public_address_tx_history', 'public_address_tokens',
     'tx_output', 'transaction', 'token',
     'token_creation', 'tx_proposal',
   ];
@@ -203,6 +201,7 @@ async function seedScenario(
       tx_id: prevHash,
       index: 0,
       spent_output: {
+        mode: 0,
         value: value,
         token_data: 0,
         script: 'dqkUCEboPJo9txn548FA/NLLaMLsfsSIrA==',
@@ -361,7 +360,7 @@ async function main() {
       collectedSpans.length = 0;
 
       const t0 = process.hrtime.bigint();
-      await voidTx(conn, fx.targetHash, fx.inputs, fx.outputs, fx.tokens, [], 1);
+      await voidTx(conn, fx.targetHash, fx.inputs, fx.outputs, [], fx.tokens, [], 1);
       const t1 = process.hrtime.bigint();
       const totalMs = Number(t1 - t0) / 1e6;
 

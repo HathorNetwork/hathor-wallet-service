@@ -31,6 +31,10 @@ const newTxbodySchema = Joi.object({
     .items(Joi.string())
     .min(1)
     .required(),
+  // `tx` is intentionally an unconstrained object: the daemon forwards the full
+  // Transaction shape, including the additive `shielded_outputs` and `addresses`
+  // fields that ride inside `data` on the realtime `new-tx` frame. Keep it
+  // keyless (or allow unknown) so those pass through untouched to the client.
   tx: Joi.object().required(),
 });
 

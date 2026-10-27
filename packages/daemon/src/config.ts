@@ -90,12 +90,21 @@ export const ACK_TIMEOUT_MS = parseInt(process.env.ACK_TIMEOUT_MS ?? '20000', 10
 // Monitoring configuration
 // Timeout (ms) before alerting when no fullnode events received while WebSocket connected
 export const IDLE_EVENT_TIMEOUT_MS = parseInt(process.env.IDLE_EVENT_TIMEOUT_MS ?? String(5 * 60 * 1000), 10);  // 5 minutes
+// Severity of the idle-event alert. Defaults to 'major' (P2). Low-activity networks
+// where quiet periods are normal can lower this to avoid paging on a benign,
+// self-healing restart. Validated against the Severity enum in
+// the MonitoringActor; an unrecognised value falls back to 'major'.
+export const IDLE_EVENT_SEVERITY = process.env.IDLE_EVENT_SEVERITY ?? 'major';
 // Timeout (ms) before alerting when stuck in a single processing state
 export const STUCK_PROCESSING_TIMEOUT_MS = parseInt(process.env.STUCK_PROCESSING_TIMEOUT_MS ?? String(60 * 60 * 1000), 10);  // 1 hour
 // Number of reconnections within RECONNECTION_STORM_WINDOW_MS to trigger a storm alert
 export const RECONNECTION_STORM_THRESHOLD = parseInt(process.env.RECONNECTION_STORM_THRESHOLD ?? '10', 10);
 // Time window (ms) for reconnection storm detection
 export const RECONNECTION_STORM_WINDOW_MS = parseInt(process.env.RECONNECTION_STORM_WINDOW_MS ?? String(5 * 60 * 1000), 10);  // 5 minutes
+// Severity of the reconnection storm alert. Defaults to 'major' (P2). Non-production
+// networks can lower this to avoid paging on a condition that does not affect users.
+// Validated like IDLE_EVENT_SEVERITY; an unrecognised value falls back to 'major'.
+export const RECONNECTION_STORM_SEVERITY = process.env.RECONNECTION_STORM_SEVERITY ?? 'major';
 
 // Other
 export const USE_SSL = process.env.USE_SSL === 'true';
@@ -152,9 +161,11 @@ export default () => ({
   HEALTHCHECK_PING_INTERVAL,
   ACK_TIMEOUT_MS,
   IDLE_EVENT_TIMEOUT_MS,
+  IDLE_EVENT_SEVERITY,
   STUCK_PROCESSING_TIMEOUT_MS,
   RECONNECTION_STORM_THRESHOLD,
   RECONNECTION_STORM_WINDOW_MS,
+  RECONNECTION_STORM_SEVERITY,
   BALANCE_VALIDATION_ENABLED,
   BALANCE_VALIDATION_INTERVAL_MS,
   BALANCE_VALIDATION_WINDOW_MS,

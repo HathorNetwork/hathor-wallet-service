@@ -18,10 +18,6 @@ build-service:
 push-daemon:
 	bash scripts/push-daemon.sh
 
-.PHONY: deploy-lambdas-ekvilibro-testnet
-deploy-lambdas-ekvilibro-testnet:
-	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage ekvilibro --region eu-central-1 --aws-profile ekvilibro
-
 .PHONY: deploy-lambdas-ekvilibro-mainnet
 deploy-lambdas-ekvilibro-mainnet:
 	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage ekvi-main --region eu-central-1 --aws-profile ekvilibro
@@ -34,9 +30,9 @@ deploy-lambdas-dev-testnet:
 deploy-lambdas-testnet-india:
 	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage india --region eu-central-1
 
-.PHONY: deploy-lambdas-testnet-playground
-deploy-lambdas-testnet-playground:
-	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage playground --region eu-central-1 --aws-profile testnet-playground
+.PHONY: deploy-lambdas-testnet-shielded-outputs
+deploy-lambdas-testnet-shielded-outputs:
+	AWS_SDK_LOAD_CONFIG=1 yarn workspace wallet-service run serverless deploy --stage shielded --region eu-central-1 --aws-profile testnet-shielded-outputs
 
 .PHONY: deploy-lambdas-mainnet-staging
 deploy-lambdas-mainnet-staging:

@@ -274,6 +274,9 @@ const _generatePolicy = (principalId: string, effect: string, resource: string, 
       `${resourcePrefix}/wallet/status`,
       `${resourcePrefix}/wallet/addresses`,
       `${resourcePrefix}/wallet/addresses/new`,
+      // Only reads which of the given addresses belong to the wallet. Clients browsing with a
+      // read-only token (e.g. xpub-only wallets) need it to process incoming transactions.
+      `${resourcePrefix}/wallet/addresses/check_mine`,
       `${resourcePrefix}/wallet/addresses/has-transactions-outside-first-address`,
       `${resourcePrefix}/wallet/balances`,
       `${resourcePrefix}/wallet/tokens`,

@@ -7,3 +7,6 @@
 
 export * from './src/types';
 export * from './src/utils/index.utils';
+export * from './src/shielded';
+export * from './src/crypto/ctRewind';
+export * from './src/crypto/shieldedAddress';

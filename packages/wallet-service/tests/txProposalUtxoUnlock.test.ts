@@ -97,6 +97,7 @@ describe('TxProposal UTXO unlocking on send failure', () => {
       index: 0,
       walletId: 'test-wallet',
       transactions: 1,
+      bip32_account: 0,
     }]);
 
     const tokenId = '00';
@@ -230,6 +231,7 @@ describe('TxProposal UTXO unlocking on send failure', () => {
       index: 0,
       walletId: 'test-wallet',
       transactions: 1,
+      bip32_account: 0,
     }]);
 
     const tokenId = '00';

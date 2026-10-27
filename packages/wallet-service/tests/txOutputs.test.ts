@@ -1,3 +1,5 @@
+import { mockedAddAlert } from '@tests/utils/alerting.utils.mock';
+import { Severity } from '@wallet-service/common';
 import {
   getFilteredTxOutputs,
   getFilteredUtxos,
@@ -7,12 +9,16 @@ import {
   addToUtxoTable,
   addToWalletTable,
   addToAddressTable,
+  addToShieldedTxOutputDataTable,
   makeGatewayEventWithAuthorizer,
   cleanDatabase,
   ADDRESSES,
   TX_IDS,
+  XPUBKEY,
+  AUTH_XPUBKEY,
 } from '@tests/utils';
 import { ApiError } from '@src/api/errors';
+import { DbTxOutput } from '@src/types';
 import { APIGatewayProxyResult } from 'aws-lambda';
 
 const mysql = getDbConnection();
@@ -42,11 +48,13 @@ test('filter utxos api with invalid parameters', async () => {
     index: 0,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }, {
     address: ADDRESSES[1],
     index: 1,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }]);
 
   const token1 = '004d75c1edd4294379e7e5b7ab6c118c53c8b07a506728feb5688c8d26a97e50';
@@ -172,11 +180,13 @@ test('filter tx_output api with invalid parameters', async () => {
     index: 0,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }, {
     address: ADDRESSES[1],
     index: 1,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }]);
 
   const token1 = '004d75c1edd4294379e7e5b7ab6c118c53c8b07a506728feb5688c8d26a97e50';
@@ -301,11 +311,13 @@ test('get utxos with wallet id', async () => {
     index: 0,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }, {
     address: ADDRESSES[1],
     index: 1,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }]);
 
   const token1 = '004d75c1edd4294379e7e5b7ab6c118c53c8b07a506728feb5688c8d26a97e50';
@@ -381,6 +393,9 @@ test('get utxos with wallet id', async () => {
     txProposalId: null,
     txProposalIndex: null,
     spentBy: null,
+    mode: 0,
+    recoveryState: null,
+    kind: 'transparent',
   });
 
   expect(result.statusCode).toBe(200);
@@ -407,11 +422,13 @@ test('get tx outputs with wallet id', async () => {
     index: 0,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }, {
     address: ADDRESSES[1],
     index: 1,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }]);
 
   const token1 = '004d75c1edd4294379e7e5b7ab6c118c53c8b07a506728feb5688c8d26a97e50';
@@ -487,6 +504,9 @@ test('get tx outputs with wallet id', async () => {
     txProposalId: null,
     txProposalIndex: null,
     spentBy: null,
+    mode: 0,
+    recoveryState: null,
+    kind: 'transparent',
   });
 
   expect(result.statusCode).toBe(200);
@@ -513,11 +533,13 @@ test('get authority utxos', async () => {
     index: 0,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }, {
     address: ADDRESSES[1],
     index: 1,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }]);
 
   const token1 = '004d75c1edd4294379e7e5b7ab6c118c53c8b07a506728feb5688c8d26a97e50';
@@ -595,6 +617,9 @@ test('get authority utxos', async () => {
     txProposalId: null,
     txProposalIndex: null,
     spentBy: null,
+    mode: 0,
+    recoveryState: null,
+    kind: 'transparent',
   });
 
   let event = makeGatewayEventWithAuthorizer('my-wallet', {
@@ -642,11 +667,13 @@ test('get a specific utxo', async () => {
     index: 0,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }, {
     address: ADDRESSES[1],
     index: 1,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }]);
 
   const token1 = '004d75c1edd4294379e7e5b7ab6c118c53c8b07a506728feb5688c8d26a97e50';
@@ -721,6 +748,9 @@ test('get a specific utxo', async () => {
     txProposalIndex: null,
     addressPath: `m/44'/280'/0'/0/${path}`,
     spentBy: null,
+    mode: 0,
+    recoveryState: null,
+    kind: 'transparent',
   });
 
   expect(result.statusCode).toBe(200);
@@ -746,11 +776,13 @@ test('get utxos from addresses that are not my own should fail with ApiError.ADD
     index: 0,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }, {
     address: ADDRESSES[1],
     index: 1,
     walletId: 'other-wallet',
     transactions: 4,
+    bip32_account: 0,
   }]);
 
   const token1 = '004d75c1edd4294379e7e5b7ab6c118c53c8b07a506728feb5688c8d26a97e50';
@@ -832,16 +864,18 @@ test('get spent tx_output', async () => {
     index: 0,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }, {
     address: ADDRESSES[1],
     index: 1,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }]);
 
   const token1 = '004d75c1edd4294379e7e5b7ab6c118c53c8b07a506728feb5688c8d26a97e50';
 
-  const txOutputs = [{
+  const txOutputs: DbTxOutput[] = [{
     txId: TX_IDS[0],
     index: 0,
     tokenId: token1,
@@ -852,6 +886,8 @@ test('get spent tx_output', async () => {
     heightlock: null,
     locked: false,
     spentBy: null,
+    mode: 0,
+    recoveryState: null,
   }, {
     txId: TX_IDS[1],
     index: 0,
@@ -863,6 +899,8 @@ test('get spent tx_output', async () => {
     heightlock: null,
     locked: false,
     spentBy: '004d75c1edd4294379e7e5b7ab6c118c53c8b07a506728feb5688c8d26a97e50',
+    mode: 0,
+    recoveryState: null,
   }];
 
   await addToUtxoTable(mysql, txOutputs);
@@ -881,6 +919,7 @@ test('get spent tx_output', async () => {
     txProposalIndex: null,
     txProposalId: null,
     addressPath: `m/44'/280'/0'/0/${path}`,
+    kind: 'transparent',
   });
 
   expect(result.statusCode).toBe(200);
@@ -904,17 +943,17 @@ test('filter utxos by addresses and max utxos', async () => {
   }]);
 
   await addToAddressTable(mysql, [
-    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[2], index: 2, walletId: 'my-wallet', transactions: 2 },
-    { address: ADDRESSES[3], index: 3, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[4], index: 4, walletId: 'my-wallet', transactions: 3 },
-    { address: ADDRESSES[5], index: 5, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[6], index: 6, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[7], index: 7, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[8], index: 8, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[9], index: 0, walletId: null, transactions: 0 },
-    { address: ADDRESSES[10], index: 0, walletId: 'test', transactions: 0 },
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[2], index: 2, walletId: 'my-wallet', transactions: 2, bip32_account: 0 },
+    { address: ADDRESSES[3], index: 3, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[4], index: 4, walletId: 'my-wallet', transactions: 3, bip32_account: 0 },
+    { address: ADDRESSES[5], index: 5, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[6], index: 6, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[7], index: 7, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[8], index: 8, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[9], index: 0, walletId: null, transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[10], index: 0, walletId: 'test', transactions: 0, bip32_account: 0 },
   ]);
 
   await addToUtxoTable(mysql, [{
@@ -998,11 +1037,13 @@ test('filter tx_outputs with totalAmount', async () => {
     index: 0,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }, {
     address: ADDRESSES[1],
     index: 1,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }]);
 
   const token1 = '00';
@@ -1122,6 +1163,7 @@ test('filter tx_outputs with totalAmount insufficient funds', async () => {
     index: 0,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }]);
 
   const token1 = '00';
@@ -1184,11 +1226,13 @@ test('filter tx_outputs with maxAmount', async () => {
     index: 0,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }, {
     address: ADDRESSES[1],
     index: 1,
     walletId: 'my-wallet',
     transactions: 4,
+    bip32_account: 0,
   }]);
 
   const token1 = '00';
@@ -1319,6 +1363,7 @@ test('filter tx_outputs with both totalAmount and maxAmount should fail', async 
     index: 0,
     walletId: 'my-wallet',
     transactions: 1,
+    bip32_account: 0,
   }]);
 
   const event = makeGatewayEventWithAuthorizer('my-wallet', {
@@ -1333,4 +1378,403 @@ test('filter tx_outputs with both totalAmount and maxAmount should fail', async 
   expect(result.statusCode).toBe(400);
   expect(returnBody.success).toBe(false);
   expect(returnBody.error).toBe('invalid-payload');
+});
+
+test('GET /wallet/tx_outputs returns merged transparent and shielded entries', async () => {
+  expect.hasAssertions();
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet', xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY,
+    status: 'ready', maxGap: 5, createdAt: 10000, readyAt: 10001,
+  }]);
+  await addToAddressTable(mysql, [
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 1, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 7, walletId: 'my-wallet', transactions: 1, bip32_account: 2, ct_address: 'HshLongCtAddress1' },
+  ]);
+  await addToUtxoTable(mysql, [{
+    txId: 'txT', index: 2, tokenId: '00', address: ADDRESSES[0], value: 500n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+  }, {
+    txId: 'txS', index: 5, tokenId: '00', address: ADDRESSES[1], value: 150n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+    mode: 1, recoveryState: 'recovered',
+  }]);
+  await addToShieldedTxOutputDataTable(mysql, [{
+    txId: 'txS', index: 5,
+    commitment: Buffer.from('aa'.repeat(33), 'hex'),
+    rangeProof: Buffer.from('bb'.repeat(64), 'hex'),
+    script: Buffer.from('cc'.repeat(4), 'hex'),
+    ephemeralPubkey: Buffer.from('dd'.repeat(33), 'hex'),
+    tokenData: 1,
+  }]);
+
+  const event = makeGatewayEventWithAuthorizer('my-wallet', {});
+  const result = await getFilteredTxOutputs(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.txOutputs).toHaveLength(2);
+
+  const transparent = returnBody.txOutputs.find((o) => o.txId === 'txT');
+  expect(transparent.kind === 'transparent').toBe(true);
+  expect(transparent.addressPath).toBe(`m/44'/280'/0'/0/0`);
+
+  const shielded = returnBody.txOutputs.find((o) => o.txId === 'txS');
+  expect(shielded).toStrictEqual({
+    kind: 'shielded',
+    txId: 'txS',
+    index: 5,
+    tokenId: '00',
+    address: ADDRESSES[1],
+    value: 150,
+    authorities: 0,
+    timelock: null,
+    heightlock: null,
+    locked: false,
+    spentBy: null,
+    txProposalId: null,
+    txProposalIndex: null,
+    addressPath: `m/44'/280'/2'/0/7`,
+    mode: 1,
+    recoveryState: 'recovered',
+    shieldedIndex: 7,
+    ctAddress: 'HshLongCtAddress1',
+    commitment: 'aa'.repeat(33),
+    ephemeralPubkey: 'dd'.repeat(33),
+    rangeProof: 'bb'.repeat(64),
+    script: 'cc'.repeat(4),
+    tokenData: 1,
+  });
+});
+
+test('GET /wallet/tx_outputs kind filter selects one side', async () => {
+  expect.hasAssertions();
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet', xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY,
+    status: 'ready', maxGap: 5, createdAt: 10000, readyAt: 10001,
+  }]);
+  await addToAddressTable(mysql, [
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 1, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 7, walletId: 'my-wallet', transactions: 1, bip32_account: 2, ct_address: 'HshLongCtAddress1' },
+  ]);
+  await addToUtxoTable(mysql, [{
+    txId: 'txT', index: 2, tokenId: '00', address: ADDRESSES[0], value: 500n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+  }, {
+    txId: 'txS', index: 5, tokenId: '00', address: ADDRESSES[1], value: 150n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+    mode: 1, recoveryState: 'recovered',
+  }]);
+  await addToShieldedTxOutputDataTable(mysql, [{
+    txId: 'txS', index: 5,
+    commitment: Buffer.from('aa'.repeat(33), 'hex'),
+    rangeProof: Buffer.from('bb'.repeat(64), 'hex'),
+    script: Buffer.from('cc'.repeat(4), 'hex'),
+    ephemeralPubkey: Buffer.from('dd'.repeat(33), 'hex'),
+    tokenData: 1,
+  }]);
+
+  let event = makeGatewayEventWithAuthorizer('my-wallet', { kind: 'transparent' });
+  let result = await getFilteredTxOutputs(event, null, null) as APIGatewayProxyResult;
+  let returnBody = JSON.parse(result.body as string);
+  expect(returnBody.txOutputs).toHaveLength(1);
+  expect(returnBody.txOutputs[0].kind === 'transparent').toBe(true);
+
+  event = makeGatewayEventWithAuthorizer('my-wallet', { kind: 'shielded' });
+  result = await getFilteredTxOutputs(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(returnBody.txOutputs).toHaveLength(1);
+  expect(returnBody.txOutputs[0].kind === 'shielded').toBe(true);
+
+  event = makeGatewayEventWithAuthorizer('my-wallet', { kind: 'purple' });
+  result = await getFilteredTxOutputs(event, null, null) as APIGatewayProxyResult;
+  expect(result.statusCode).toBe(400);
+});
+
+test('GET /wallet/tx_outputs totalAmount without kind selects only transparent UTXOs', async () => {
+  expect.hasAssertions();
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet', xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY,
+    status: 'ready', maxGap: 5, createdAt: 10000, readyAt: 10001,
+  }]);
+  await addToAddressTable(mysql, [
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 1, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 7, walletId: 'my-wallet', transactions: 1, bip32_account: 2, ct_address: 'HshLongCtAddress1' },
+  ]);
+  await addToUtxoTable(mysql, [{
+    txId: 'txT', index: 2, tokenId: '00', address: ADDRESSES[0], value: 100n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+  }, {
+    txId: 'txS', index: 5, tokenId: '00', address: ADDRESSES[1], value: 100n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+    mode: 1, recoveryState: 'recovered',
+  }]);
+  await addToShieldedTxOutputDataTable(mysql, [{
+    txId: 'txS', index: 5,
+    commitment: Buffer.from('aa'.repeat(33), 'hex'),
+    rangeProof: Buffer.from('bb'.repeat(64), 'hex'),
+    script: Buffer.from('cc'.repeat(4), 'hex'),
+    ephemeralPubkey: Buffer.from('dd'.repeat(33), 'hex'),
+    tokenData: 1,
+  }]);
+
+  // A funding selection with no explicit kind must not hand a shielded output to a
+  // transparent spend: only the transparent UTXO can satisfy totalAmount here.
+  const event = makeGatewayEventWithAuthorizer('my-wallet', { tokenId: '00', totalAmount: '50' });
+  const result = await getFilteredTxOutputs(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.txOutputs).toHaveLength(1);
+  expect(returnBody.txOutputs[0].txId).toBe('txT');
+  expect(returnBody.txOutputs[0].kind === 'transparent').toBe(true);
+});
+
+test('GET /wallet/tx_outputs mode-2 entry carries asset fields and no tokenData', async () => {
+  expect.hasAssertions();
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet', xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY,
+    status: 'ready', maxGap: 5, createdAt: 10000, readyAt: 10001,
+  }]);
+  await addToAddressTable(mysql, [
+    { address: ADDRESSES[1], index: 7, walletId: 'my-wallet', transactions: 1, bip32_account: 2, ct_address: 'HshLongCtAddress1' },
+  ]);
+  await addToUtxoTable(mysql, [{
+    txId: 'txF', index: 3, tokenId: 'token1', address: ADDRESSES[1], value: 200n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+    mode: 2, recoveryState: 'recovered',
+  }]);
+  await addToShieldedTxOutputDataTable(mysql, [{
+    txId: 'txF', index: 3,
+    commitment: Buffer.from('aa'.repeat(33), 'hex'),
+    rangeProof: Buffer.from('bb'.repeat(64), 'hex'),
+    script: Buffer.from('cc'.repeat(4), 'hex'),
+    ephemeralPubkey: Buffer.from('dd'.repeat(33), 'hex'),
+    tokenData: null,
+    assetCommitment: Buffer.from('ee'.repeat(33), 'hex'),
+    surjectionProof: Buffer.from('ff'.repeat(64), 'hex'),
+  }]);
+
+  const event = makeGatewayEventWithAuthorizer('my-wallet', { tokenId: 'token1' });
+  const result = await getFilteredTxOutputs(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.txOutputs).toHaveLength(1);
+  const entry = returnBody.txOutputs[0];
+  expect(entry.kind === 'shielded').toBe(true);
+  expect(entry.mode).toBe(2);
+  expect(entry.assetCommitment).toBe('ee'.repeat(33));
+  expect(entry.surjectionProof).toBe('ff'.repeat(64));
+  expect(entry.tokenData).toBeUndefined();
+});
+
+test('GET /wallet/tx_outputs txId+index of an unrecovered shielded output returns empty', async () => {
+  expect.hasAssertions();
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet', xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY,
+    status: 'ready', maxGap: 5, createdAt: 10000, readyAt: 10001,
+  }]);
+  await addToAddressTable(mysql, [
+    { address: ADDRESSES[1], index: 7, walletId: 'my-wallet', transactions: 1, bip32_account: 2, ct_address: 'HshLongCtAddress1' },
+  ]);
+  await addToUtxoTable(mysql, [{
+    txId: 'txU', index: 4, tokenId: null, address: ADDRESSES[1], value: null,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+    mode: 2, recoveryState: 'unowned',
+  } as any]);
+
+  const event = makeGatewayEventWithAuthorizer('my-wallet', { txId: 'txU', index: '4' });
+  const result = await getFilteredTxOutputs(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.txOutputs).toStrictEqual([]);
+});
+
+test('GET /wallet/tx_outputs txId+index honors the kind filter', async () => {
+  expect.hasAssertions();
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet', xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY,
+    status: 'ready', maxGap: 5, createdAt: 10000, readyAt: 10001,
+  }]);
+  await addToAddressTable(mysql, [
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 1, bip32_account: 0 },
+  ]);
+  await addToUtxoTable(mysql, [{
+    txId: 'txT', index: 2, tokenId: '00', address: ADDRESSES[0], value: 500n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+  }]);
+
+  // kind=transparent matches the transparent output
+  let event = makeGatewayEventWithAuthorizer('my-wallet', { txId: 'txT', index: '2', kind: 'transparent' });
+  let result = await getFilteredTxOutputs(event, null, null) as APIGatewayProxyResult;
+  let returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.txOutputs).toHaveLength(1);
+  expect(returnBody.txOutputs[0].kind === 'transparent').toBe(true);
+
+  // kind=shielded excludes the same transparent output
+  event = makeGatewayEventWithAuthorizer('my-wallet', { txId: 'txT', index: '2', kind: 'shielded' });
+  result = await getFilteredTxOutputs(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.txOutputs).toStrictEqual([]);
+});
+
+test('GET /wallet/tx_outputs degrades and alerts on a shielded row missing its satellite data', async () => {
+  expect.hasAssertions();
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet', xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY,
+    status: 'ready', maxGap: 5, createdAt: 10000, readyAt: 10001,
+  }]);
+  await addToAddressTable(mysql, [
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 1, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 7, walletId: 'my-wallet', transactions: 1, bip32_account: 2, ct_address: 'HshLongCtAddress1' },
+  ]);
+  await addToUtxoTable(mysql, [{
+    txId: 'txT', index: 2, tokenId: '00', address: ADDRESSES[0], value: 500n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+  }, {
+    // recovered shielded row, but its shielded_tx_output_data satellite row is never inserted
+    txId: 'txS', index: 5, tokenId: '00', address: ADDRESSES[1], value: 150n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+    mode: 1, recoveryState: 'recovered',
+  }]);
+
+  const event = makeGatewayEventWithAuthorizer('my-wallet', {});
+  const result = await getFilteredTxOutputs(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+  expect(returnBody.txOutputs).toHaveLength(1);
+  expect(returnBody.txOutputs[0].txId).toBe('txT');
+  expect(returnBody.txOutputs.find((o) => o.txId === 'txS')).toBeUndefined();
+
+  expect(mockedAddAlert).toHaveBeenCalledWith(
+    expect.any(String),
+    expect.any(String),
+    Severity.MAJOR,
+    { txId: 'txS', index: 5, missing: ['satellite'] },
+    expect.anything(),
+  );
+});
+
+test('GET /wallet/tx_outputs degrades and alerts on a shielded row missing its ownership row', async () => {
+  expect.hasAssertions();
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet', xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY,
+    status: 'ready', maxGap: 5, createdAt: 10000, readyAt: 10001,
+  }]);
+  // The shielded row sits on a Legacy address of the wallet: it passes the
+  // wallet-membership filter but has no CTSpend ownership row to resolve.
+  await addToAddressTable(mysql, [
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 1, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 1, bip32_account: 0 },
+  ]);
+  await addToUtxoTable(mysql, [{
+    txId: 'txT', index: 2, tokenId: '00', address: ADDRESSES[0], value: 500n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+  }, {
+    txId: 'txS', index: 5, tokenId: '00', address: ADDRESSES[1], value: 150n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+    mode: 1, recoveryState: 'recovered',
+  }]);
+  await addToShieldedTxOutputDataTable(mysql, [{
+    txId: 'txS', index: 5,
+    commitment: Buffer.from('aa'.repeat(33), 'hex'),
+    rangeProof: Buffer.from('bb'.repeat(64), 'hex'),
+    script: Buffer.from('cc'.repeat(4), 'hex'),
+    ephemeralPubkey: Buffer.from('dd'.repeat(33), 'hex'),
+    tokenData: 1,
+  }]);
+
+  const event = makeGatewayEventWithAuthorizer('my-wallet', {});
+  const result = await getFilteredTxOutputs(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.txOutputs).toHaveLength(1);
+  expect(returnBody.txOutputs[0].txId).toBe('txT');
+  expect(mockedAddAlert).toHaveBeenCalledWith(
+    expect.any(String),
+    expect.any(String),
+    Severity.MAJOR,
+    { txId: 'txS', index: 5, missing: ['ownership'] },
+    expect.anything(),
+  );
+});
+
+test('GET /wallet/tx_outputs degrades and pins both missing sides', async () => {
+  expect.hasAssertions();
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet', xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY,
+    status: 'ready', maxGap: 5, createdAt: 10000, readyAt: 10001,
+  }]);
+  await addToAddressTable(mysql, [
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 1, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 1, bip32_account: 0 },
+  ]);
+  // recovered shielded row with neither a satellite row nor a CTSpend ownership row
+  await addToUtxoTable(mysql, [{
+    txId: 'txS', index: 5, tokenId: '00', address: ADDRESSES[1], value: 150n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+    mode: 1, recoveryState: 'recovered',
+  }]);
+
+  const event = makeGatewayEventWithAuthorizer('my-wallet', {});
+  const result = await getFilteredTxOutputs(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.txOutputs).toStrictEqual([]);
+  expect(mockedAddAlert).toHaveBeenCalledWith(
+    expect.any(String),
+    expect.any(String),
+    Severity.MAJOR,
+    { txId: 'txS', index: 5, missing: ['satellite', 'ownership'] },
+    expect.anything(),
+  );
+});
+
+test('GET /wallet/tx_outputs degrades a FullyShielded row with a NULL asset field', async () => {
+  expect.hasAssertions();
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet', xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY,
+    status: 'ready', maxGap: 5, createdAt: 10000, readyAt: 10001,
+  }]);
+  await addToAddressTable(mysql, [
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 1, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 7, walletId: 'my-wallet', transactions: 1, bip32_account: 2, ct_address: 'HshLongCtAddress1' },
+  ]);
+  await addToUtxoTable(mysql, [{
+    txId: 'txT', index: 2, tokenId: '00', address: ADDRESSES[0], value: 500n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+  }, {
+    txId: 'txF', index: 3, tokenId: 'token1', address: ADDRESSES[1], value: 200n,
+    authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: null,
+    mode: 2, recoveryState: 'recovered',
+  }]);
+  // FullyShielded satellite row present but surjection_proof is NULL — would crash
+  // serialization; must degrade instead.
+  await addToShieldedTxOutputDataTable(mysql, [{
+    txId: 'txF', index: 3,
+    commitment: Buffer.from('aa'.repeat(33), 'hex'),
+    rangeProof: Buffer.from('bb'.repeat(64), 'hex'),
+    script: Buffer.from('cc'.repeat(4), 'hex'),
+    ephemeralPubkey: Buffer.from('dd'.repeat(33), 'hex'),
+    tokenData: null,
+    assetCommitment: Buffer.from('ee'.repeat(33), 'hex'),
+    surjectionProof: null,
+  }]);
+
+  const event = makeGatewayEventWithAuthorizer('my-wallet', { tokenId: 'token1' });
+  const result = await getFilteredTxOutputs(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.txOutputs).toStrictEqual([]);
+  expect(mockedAddAlert).toHaveBeenCalledWith(
+    expect.any(String),
+    expect.any(String),
+    Severity.MAJOR,
+    { txId: 'txF', index: 3, missing: ['surjection_proof'] },
+    expect.anything(),
+  );
 });

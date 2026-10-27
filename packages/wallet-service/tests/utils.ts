@@ -64,6 +64,8 @@ export const cleanDatabase = async (mysql: ServerlessMysql): Promise<void> => {
     'address',
     'address_balance',
     'address_tx_history',
+    'public_address_tx_history',
+    'public_address_tokens',
     'token',
     'tx_proposal',
     'transaction',
@@ -74,6 +76,7 @@ export const cleanDatabase = async (mysql: ServerlessMysql): Promise<void> => {
     'wallet_tx_history',
     'miner',
     'push_devices',
+    'shielded_tx_output_data',
   ];
   await mysql.query('SET FOREIGN_KEY_CHECKS = 0');
   for (const table of TABLES) {
@@ -600,6 +603,8 @@ export const addToUtxoTable = async (
     entry.txProposalId || null,
     entry.txProposalIndex,
     entry.voided || false,
+    entry.mode ?? 0,
+    entry.recoveryState ?? null,
   ]));
   await mysql.query(
     `INSERT INTO \`tx_output\`(
@@ -615,10 +620,48 @@ export const addToUtxoTable = async (
                  , \`spent_by\`
                  , \`tx_proposal\`
                  , \`tx_proposal_index\`
-                 , \`voided\`)
+                 , \`voided\`
+                 , \`mode\`
+                 , \`recovery_state\`)
      VALUES ?`,
     [payload],
   );
+};
+
+export interface ShieldedTxOutputDataEntry {
+  txId: string;
+  index: number;
+  commitment: Buffer;
+  rangeProof: Buffer;
+  script: Buffer;
+  ephemeralPubkey: Buffer;
+  tokenData?: number | null;
+  assetCommitment?: Buffer | null;
+  surjectionProof?: Buffer | null;
+}
+
+export const addToShieldedTxOutputDataTable = async (
+  mysql: ServerlessMysql,
+  entries: ShieldedTxOutputDataEntry[],
+): Promise<void> => {
+  const payload = entries.map((entry) => ([
+    entry.txId,
+    entry.index,
+    entry.commitment,
+    entry.rangeProof,
+    entry.script,
+    entry.ephemeralPubkey,
+    entry.tokenData ?? null,
+    entry.assetCommitment ?? null,
+    entry.surjectionProof ?? null,
+  ]));
+  await mysql.query(`
+    INSERT INTO \`shielded_tx_output_data\`(\`tx_id\`, \`index\`,
+                                            \`commitment\`, \`range_proof\`, \`script\`,
+                                            \`ephemeral_pubkey\`, \`token_data\`,
+                                            \`asset_commitment\`, \`surjection_proof\`)
+    VALUES ?`,
+  [payload]);
 };
 
 export const addToWalletTable = async (
@@ -634,13 +677,20 @@ export const addToWalletTable = async (
     entry.maxGap,
     entry.createdAt,
     entry.readyAt,
+    entry.ctStatus ?? 'none',
+    // Mirror the column default (SMALLINT DEFAULT 20) so seeding a wallet without
+    // an explicit shielded gap matches what production writes.
+    entry.shieldedMaxGap ?? 20,
+    entry.lastUsedShieldedIndex ?? null,
   ]);
   await mysql.query(`
     INSERT INTO \`wallet\`(\`id\`, \`xpubkey\`,
                            \`last_used_address_index\`,
                            \`auth_xpubkey\`,
                            \`status\`, \`max_gap\`,
-                           \`created_at\`, \`ready_at\`)
+                           \`created_at\`, \`ready_at\`,
+                           \`ct_status\`,
+                           \`shielded_max_gap\`, \`last_used_shielded_index\`)
     VALUES ?`,
   [payload]);
 };
@@ -658,13 +708,18 @@ export const addToWalletBalanceTable = async (
     entry.lockedAuthorities,
     entry.timelockExpires,
     entry.transactions,
+    entry.unlockedShieldedBalance ?? 0n,
+    entry.lockedShieldedBalance ?? 0n,
+    entry.totalShieldedReceived ?? 0n,
   ]));
 
   await mysql.query(`
     INSERT INTO \`wallet_balance\`(\`wallet_id\`, \`token_id\`,
                                    \`unlocked_balance\`, \`locked_balance\`,
                                    \`unlocked_authorities\`, \`locked_authorities\`,
-                                   \`timelock_expires\`, \`transactions\`)
+                                   \`timelock_expires\`, \`transactions\`,
+                                   \`unlocked_shielded_balance\`, \`locked_shielded_balance\`,
+                                   \`total_shielded_received\`)
     VALUES ?`,
   [payload]);
 };
@@ -673,12 +728,14 @@ export const addToWalletTxHistoryTable = async (
   mysql: ServerlessMysql,
   entries: unknown[][],
 ): Promise<void> => {
+  const payload = entries.map((entry) => (entry.length >= 7 ? entry : [...entry, 0]));
   await mysql.query(`
     INSERT INTO \`wallet_tx_history\`(\`wallet_id\`, \`tx_id\`,
                                       \`token_id\`, \`balance\`,
-                                      \`timestamp\`, \`voided\`)
+                                      \`timestamp\`, \`voided\`,
+                                      \`shielded_balance_delta\`)
     VALUES ?`,
-  [entries]);
+  [payload]);
 };
 
 export const addToAddressTable = async (
@@ -691,11 +748,17 @@ export const addToAddressTable = async (
     entry.walletId,
     entry.transactions,
     entry.seqnum ?? 0,
+    entry.bip32_account,
+    entry.scan_privkey ?? null,
+    entry.catchup_state ?? null,
+    entry.ct_address ?? null,
   ]));
 
   await mysql.query(`
     INSERT INTO \`address\`(\`address\`, \`index\`,
-                            \`wallet_id\`, \`transactions\`, \`seqnum\`)
+                            \`wallet_id\`, \`transactions\`, \`seqnum\`,
+                            \`bip32_account\`, \`scan_privkey\`,
+                            \`catchup_state\`, \`ct_address\`)
     VALUES ?`,
   [payload]);
 };

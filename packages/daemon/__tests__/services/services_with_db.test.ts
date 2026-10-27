@@ -5,10 +5,33 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+// Owned-wallet shielded tests trigger wallet-lib's gap-fill / address-derivation
+// path inside handleVertexAccepted (the wallet seed uses a real xpubkey, so each
+// ownership check derives a window of addresses, ~7-8s per test). Jest's default
+// 5000ms timeout fails these in CI; bump to 30s to give headroom. Follow-up: skip
+// gap-fill in these tests by pre-seeding addresses or mocking the derivation.
+jest.setTimeout(30000);
+
+// Shielded recovery tests register the deterministic mock provider via
+// resetCtCryptoMock() and prime it before ingesting; non-shielded tests never
+// touch it, so the real (unregistered) rewind wrapper stays inert for them.
+
+// Stub addAlert so the recovery-failed path doesn't reach SQS; keep the rest
+// of @wallet-service/common live by spreading the real module.
+const mockAddAlert = jest.fn();
+jest.mock('@wallet-service/common', () => {
+  const actual = jest.requireActual('@wallet-service/common');
+  return {
+    ...actual,
+    addAlert: mockAddAlert,
+  };
+});
+
 import { TokenVersion } from '@hathor/wallet-lib';
 import * as db from '../../src/db';
-import { handleVoidedTx, voidTx, handleTokenCreated } from '../../src/services';
-import { LRU } from '../../src/utils';
+import { handleVoidedTx, voidTx, handleTokenCreated, handleVertexAccepted, handleUnvoidedTx, handleVertexRemoved, resetMissingProviderAlert } from '../../src/services';
+import { LRU, unlockUtxos } from '../../src/utils';
+import { generateAddresses } from '../../src/utils/wallet';
 import {
   addOrUpdateTx,
   addUtxos,
@@ -26,9 +49,26 @@ import {
   getWalletBalance,
   insertWalletBalance,
   getWalletTxHistoryCount,
+  ADDRESSES,
+  XPUBKEY,
 } from '../utils';
 import { DbTxOutput, EventTxInput } from '../../src/types';
 import { Connection } from 'mysql2/promise';
+import eventsFixture from '../__fixtures__/events';
+import logger from '../../src/logger';
+import alphaV4ShieldedVertexEvent from '../__fixtures__/alpha-v4-shielded-vertex-event';
+import alphaV4FullyShieldedSpendEvent from '../__fixtures__/alpha-v4-fully-shielded-spend-event';
+import { FullNodeEventSchema } from '../../src/types/event';
+import {
+  primeAmountRewind,
+  primeFullyRewind,
+  lastAmountRewindArgs,
+  primeScanMiss,
+  primeAssetMismatch,
+  receivedRangeProofs,
+  resetCtCryptoMock,
+} from '../mocks/ct-crypto-node';
+import { Severity, clearShieldedCryptoProvider, deriveCtAddress } from '@wallet-service/common';
 
 /**
  * @jest-environment node
@@ -160,7 +200,7 @@ describe('voidTransaction with input unspending', () => {
       script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
     }];
 
-    await voidTx(mysql, txIdB, inputs, outputs, [tokenId], [], 1);
+    await voidTx(mysql, txIdB, inputs, outputs, [], [tokenId], [], 1);
 
     // Check if the UTXO from transaction A is unspent again
     utxo = await getTxOutput(mysql, txIdA, 0, false);
@@ -230,7 +270,7 @@ describe('voidTransaction with input unspending', () => {
       script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
     }];
 
-    await voidTx(mysql, txIdC, inputs, outputs, [tokenId], [], 1);
+    await voidTx(mysql, txIdC, inputs, outputs, [], [tokenId], [], 1);
 
     // Check if UTXOs from transactions A and B are unspent again
     utxoA = await getTxOutput(mysql, txIdA, 0, true);
@@ -269,7 +309,7 @@ describe('voidTransaction with input unspending', () => {
     await updateTxOutputSpentBy(mysql, [inputB], txIdB);
     const outputB = createOutput(0, 100n, address2, tokenId);
     await addUtxos(mysql, txIdB, [outputB], null);
-    
+
     // Only update address transaction counts (not balances) to prevent negative decrements
     await mysql.query('INSERT INTO address (address, transactions) VALUES (?, 1) ON DUPLICATE KEY UPDATE transactions = transactions + 1', [address1]);
     await mysql.query('INSERT INTO address (address, transactions) VALUES (?, 1) ON DUPLICATE KEY UPDATE transactions = transactions + 1', [address2]);
@@ -280,8 +320,8 @@ describe('voidTransaction with input unspending', () => {
     await updateTxOutputSpentBy(mysql, [inputC], txIdC);
     const outputC = createOutput(0, 100n, address3, tokenId);
     await addUtxos(mysql, txIdC, [outputC], null);
-    
-    // Only update address transaction counts (not balances) to prevent negative decrements  
+
+    // Only update address transaction counts (not balances) to prevent negative decrements
     await mysql.query('INSERT INTO address (address, transactions) VALUES (?, 1) ON DUPLICATE KEY UPDATE transactions = transactions + 1', [address2]);
     await mysql.query('INSERT INTO address (address, transactions) VALUES (?, 1) ON DUPLICATE KEY UPDATE transactions = transactions + 1', [address3]);
 
@@ -295,6 +335,7 @@ describe('voidTransaction with input unspending', () => {
         token_data: 0,
         script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
       }],
+      [],
       [tokenId],
       [],
       1
@@ -315,13 +356,14 @@ describe('voidTransaction with input unspending', () => {
         token_data: 0,
         script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
       }],
+      [],
       [tokenId],
       [],
       1
     );
 
     // A's output should be unspent now
-    let utxoA = await getTxOutput(mysql, txIdA, 0, true);
+    const utxoA = await getTxOutput(mysql, txIdA, 0, true);
     expect(utxoA).not.toBeNull();
     expect(utxoA?.spentBy).toBeNull(); // Should pass - should be null
 
@@ -376,7 +418,7 @@ describe('voidTransaction with input unspending', () => {
       script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
     }];
 
-    await voidTx(mysql, txIdC, inputs, outputs, [tokenId], [], 1);
+    await voidTx(mysql, txIdC, inputs, outputs, [], [tokenId], [], 1);
 
     // The UTXO should still be spent by B, not unspent
     const utxo = await getTxOutput(mysql, txIdA, 0, false);
@@ -433,7 +475,7 @@ describe('voidTransaction with input unspending', () => {
       }
     ];
 
-    await voidTx(mysql, txIdB, inputs, outputs, [hathorToken, customToken], [], 1);
+    await voidTx(mysql, txIdB, inputs, outputs, [], [hathorToken, customToken], [], 1);
 
     // Both UTXOs should be unspent
     const utxo1 = await getTxOutput(mysql, txIdA, 0, true);
@@ -486,7 +528,7 @@ describe('voidTransaction with input unspending', () => {
       script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
     }];
 
-    await voidTx(mysql, txIdB, inputs, outputs, [tokenId], [], 1);
+    await voidTx(mysql, txIdB, inputs, outputs, [], [tokenId], [], 1);
 
     // Verify the original UTXO is unspent again
     const unspentUtxo = await getTxOutput(mysql, txIdA, 0, true);
@@ -544,9 +586,9 @@ describe('unspentTxOutputs function', () => {
 
     // Now unspent them
     const txOutputsToUnspent: DbTxOutput[] = [
-      { txId: txIdA, index: 0, tokenId, address, value: 50n, authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: spendingTx, txProposalId: null, txProposalIndex: null },
-      { txId: txIdB, index: 0, tokenId, address, value: 75n, authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: spendingTx, txProposalId: null, txProposalIndex: null },
-      { txId: txIdC, index: 0, tokenId, address, value: 100n, authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: spendingTx, txProposalId: null, txProposalIndex: null },
+      { txId: txIdA, index: 0, tokenId, address, value: 50n, authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: spendingTx, txProposalId: null, txProposalIndex: null, mode: 0, recoveryState: null },
+      { txId: txIdB, index: 0, tokenId, address, value: 75n, authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: spendingTx, txProposalId: null, txProposalIndex: null, mode: 0, recoveryState: null },
+      { txId: txIdC, index: 0, tokenId, address, value: 100n, authorities: 0, timelock: null, heightlock: null, locked: false, spentBy: spendingTx, txProposalId: null, txProposalIndex: null, mode: 0, recoveryState: null },
     ];
 
     await unspendUtxos(mysql, txOutputsToUnspent);
@@ -639,7 +681,7 @@ describe('wallet balance voiding bug', () => {
       script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
     }];
 
-    await voidTx(mysql, txIdB, inputs, outputs, [tokenId], [], 1);
+    await voidTx(mysql, txIdB, inputs, outputs, [], [tokenId], [], 1);
 
     // Check wallet balance after voiding
     walletBalance = await getWalletBalance(mysql, walletId, tokenId);
@@ -725,7 +767,7 @@ describe('wallet balance voiding bug', () => {
       script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
     }];
 
-    await voidTx(mysql, txId, inputs, voidOutputs, [tokenId], [], 1);
+    await voidTx(mysql, txId, inputs, voidOutputs, [], [tokenId], [], 1);
 
     // Check wallet balances after voiding
     wallet1Balance = await getWalletBalance(mysql, wallet1Id, tokenId);
@@ -794,7 +836,7 @@ describe('wallet balance voiding bug', () => {
       script: 'dqkUH70YjKeoKdFwMX2TOYvGVbXOrKaIrA==',
     }];
 
-    await voidTx(mysql, txId, inputs, outputs, [tokenId], [], 1);
+    await voidTx(mysql, txId, inputs, outputs, [], [tokenId], [], 1);
 
     // Check wallet balance after voiding
     walletBalance = await getWalletBalance(mysql, walletId, tokenId);
@@ -869,7 +911,7 @@ describe('wallet balance voiding bug', () => {
       spent_by: null,
     }];
 
-    await voidTx(mysql, txIdB, inputs, outputs, [tokenId], [], 1);
+    await voidTx(mysql, txIdB, inputs, outputs, [], [tokenId], [], 1);
 
     // Check that the tx_proposal marks have been cleared
     const utxoAfterVoid = await getTxOutput(mysql, txIdA, 0, false);
@@ -936,7 +978,7 @@ describe('wallet balance voiding bug', () => {
       spent_by: null,
     }];
 
-    await voidTx(mysql, txIdB, inputs, outputs, [tokenId], [], 1);
+    await voidTx(mysql, txIdB, inputs, outputs, [], [tokenId], [], 1);
 
     // Check that tx_proposal marks have been cleared for both inputs
     const utxo1AfterVoid = await getTxOutput(mysql, txIdA, 0, false);
@@ -950,6 +992,135 @@ describe('wallet balance voiding bug', () => {
     expect(utxo2AfterVoid!.txProposalId).toBeNull();
     expect(utxo2AfterVoid!.txProposalIndex).toBeNull();
     expect(utxo2AfterVoid!.spentBy).toBeNull();
+  });
+
+  test('should clear tx_proposal marks from shielded inputs when voiding', async () => {
+    expect.hasAssertions();
+    await cleanDatabase(mysql);
+
+    const address1 = 'HBCQgVR8Xsyv3L8spWJLQCJkbgj1YABWMU';
+    const shieldedAddress = 'WShieldedSpendAddr';
+    const tokenId = '00';
+    const txProposalId = 'test-proposal-789';
+
+    // Transaction A: one transparent output and one recovered AmountShielded output
+    const txIdA = 'txA';
+    await addOrUpdateTx(mysql, txIdA, 10, 1000, 1, 10);
+    await addUtxos(mysql, txIdA, [createOutput(0, 50n, address1, tokenId)], null);
+    await mysql.query(
+      `INSERT INTO tx_output
+         (tx_id, \`index\`, mode, address, value, token_id, authorities,
+          timelock, heightlock, locked, voided, spent_by, recovery_state)
+       VALUES (?, 1, 1, ?, 50, ?, 0, NULL, NULL, FALSE, FALSE, NULL, 'recovered')`,
+      [txIdA, shieldedAddress, tokenId],
+    );
+
+    // Both outputs were locked under the same (sent) proposal
+    await mysql.query(
+      `UPDATE \`tx_output\`
+          SET \`tx_proposal\` = ?,
+              \`tx_proposal_index\` = \`index\`
+        WHERE tx_id = ?`,
+      [txProposalId, txIdA]
+    );
+
+    // Transaction B: spends both outputs from A
+    const txIdB = 'txB';
+    const inputs: EventTxInput[] = [
+      createEventTxInput(50n, address1, txIdA, 0),
+      {
+        tx_id: txIdA,
+        index: 1,
+        spent_output: {
+          mode: 1,
+          commitment: '02'.repeat(33),
+          range_proof: Buffer.alloc(64, 0x03).toString('base64'),
+          script: Buffer.alloc(20, 0x04).toString('base64'),
+          ephemeral_pubkey: '05'.repeat(33),
+          token_data: 0,
+          decoded: {
+            address: shieldedAddress,
+          },
+        },
+      },
+    ];
+    const outputsB = [createOutput(0, 100n, address1, tokenId)];
+
+    await addOrUpdateTx(mysql, txIdB, 11, 1001, 1, 11);
+    await addUtxos(mysql, txIdB, outputsB, null);
+    await updateTxOutputSpentBy(mysql, inputs, txIdB);
+
+    const outputs = [{
+      value: 100n,
+      token_data: 0,
+      script: 'dqkU',
+      decoded: {
+        type: 'P2PKH',
+        address: address1,
+        timelock: null,
+      },
+      token: tokenId,
+      spent_by: null,
+    }];
+
+    await voidTx(mysql, txIdB, inputs, outputs, [], [tokenId], [], 1);
+
+    // Both inputs are released, the shielded one included
+    for (const index of [0, 1]) {
+      const utxoAfterVoid = await getTxOutput(mysql, txIdA, index, false);
+      expect(utxoAfterVoid).not.toBeNull();
+      expect(utxoAfterVoid!.txProposalId).toBeNull();
+      expect(utxoAfterVoid!.txProposalIndex).toBeNull();
+      expect(utxoAfterVoid!.spentBy).toBeNull();
+    }
+  });
+
+  test('should keep the tx_proposal of a transparent row a shielded input resolves to', async () => {
+    expect.hasAssertions();
+    await cleanDatabase(mysql);
+
+    const address1 = 'HBCQgVR8Xsyv3L8spWJLQCJkbgj1YABWMU';
+    const tokenId = '00';
+    const otherProposalId = 'other-wallet-proposal';
+
+    // Transaction A: a transparent UTXO locked under another wallet's live proposal
+    const txIdA = 'txA';
+    await addOrUpdateTx(mysql, txIdA, 10, 1000, 1, 10);
+    await addUtxos(mysql, txIdA, [createOutput(0, 50n, address1, tokenId)], null);
+    await mysql.query(
+      `UPDATE \`tx_output\`
+          SET \`tx_proposal\` = ?,
+              \`tx_proposal_index\` = 0
+        WHERE tx_id = ? AND \`index\` = 0`,
+      [otherProposalId, txIdA]
+    );
+
+    // Transaction B: a wire-shielded input whose (tx_id, index) resolves to that
+    // transparent row. Ingest excludes it, so B never marked it spent.
+    const txIdB = 'txB';
+    const inputs: EventTxInput[] = [{
+      tx_id: txIdA,
+      index: 0,
+      spent_output: {
+        mode: 1,
+        commitment: '02'.repeat(33),
+        range_proof: Buffer.alloc(64, 0x03).toString('base64'),
+        script: Buffer.alloc(20, 0x04).toString('base64'),
+        ephemeral_pubkey: '05'.repeat(33),
+        token_data: 0,
+        decoded: {
+          address: address1,
+        },
+      },
+    }];
+    await addOrUpdateTx(mysql, txIdB, 11, 1001, 1, 11);
+
+    await voidTx(mysql, txIdB, inputs, [], [], [tokenId], [], 1);
+
+    const utxoAfterVoid = await getTxOutput(mysql, txIdA, 0, false);
+    expect(utxoAfterVoid).not.toBeNull();
+    expect(utxoAfterVoid!.txProposalId).toBe(otherProposalId);
+    expect(utxoAfterVoid!.txProposalIndex).toBe(0);
   });
 
   it('should delete tokens when voiding transaction that created them', async () => {
@@ -978,7 +1149,7 @@ describe('wallet balance voiding bug', () => {
     expect(tokens).toHaveLength(3);
 
     // Void the transaction with empty inputs/outputs/tokens
-    await voidTx(mysql, txId, [], [], [], [], 1);
+    await voidTx(mysql, txId, [], [], [], [], [], 1);
 
     // Verify all tokens created by this tx were deleted
     token1 = await db.getTokenInformation(mysql, tokenId1);
@@ -2105,5 +2276,4385 @@ describe('handleTokenCreated with TokenVersion.FEE (token_version: 2)', () => {
     );
     expect(rows).toHaveLength(1);
     expect(rows[0].first_block).toBe(newBlock);
+  });
+});
+
+describe('handleVertexAccepted with shielded outputs', () => {
+  beforeEach(async () => {
+    // `shielded_tx_output_data` is not yet part of the shared cleanDatabase
+    // TABLES list; wipe it manually to keep this test isolated from
+    // neighbouring suites. Address rows live in the unified `address` table
+    // (observations carry NULL bip32_account; CTSpend rows once claimed
+    // carry 2) and are cleaned up by cleanDatabase.
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  afterEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  it('ingests a real alpha-v4 shielded vertex, storing its base64 blobs as raw bytes', async () => {
+    expect.hasAssertions();
+
+    // Event 47541 of testnet-shielded-outputs, as the fullnode sends it. Parse it
+    // the way WebSocketActor does, then ingest it.
+    const event = FullNodeEventSchema.parse(JSON.parse(JSON.stringify(alphaV4ShieldedVertexEvent)));
+    const wire = alphaV4ShieldedVertexEvent.event.data;
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    // No transparent outputs, so the shielded outputs take indexes 0 and 1.
+    const [satelliteRows] = await mysql.query<any[]>(
+      'SELECT * FROM `shielded_tx_output_data` WHERE `tx_id` = ? ORDER BY `index`',
+      [wire.hash],
+    );
+    expect(satelliteRows).toHaveLength(wire.shielded_outputs.length);
+    wire.shielded_outputs.forEach((so, i) => {
+      expect(satelliteRows[i].script).toEqual(Buffer.from(so.script, 'base64'));
+      expect(satelliteRows[i].range_proof).toEqual(Buffer.from(so.range_proof, 'base64'));
+      expect(satelliteRows[i].commitment).toEqual(Buffer.from(so.commitment, 'hex'));
+      expect(satelliteRows[i].ephemeral_pubkey).toEqual(Buffer.from(so.ephemeral_pubkey, 'hex'));
+    });
+    // A P2PKH script is 25 bytes; hex decoding of the base64 text would not give that.
+    expect(satelliteRows[0].script).toHaveLength(25);
+  });
+
+  it('ingests a real alpha-v4 FullyShielded vertex, storing its base64 surjection proofs as raw bytes', async () => {
+    expect.hasAssertions();
+
+    // Event 70473 of testnet-shielded-outputs: two FullyShielded outputs, and an
+    // input that spends a shielded output this database never saw.
+    const event = FullNodeEventSchema.parse(JSON.parse(JSON.stringify(alphaV4FullyShieldedSpendEvent)));
+    const wire = alphaV4FullyShieldedSpendEvent.event.data;
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    const [satelliteRows] = await mysql.query<any[]>(
+      'SELECT * FROM `shielded_tx_output_data` WHERE `tx_id` = ? ORDER BY `index`',
+      [wire.hash],
+    );
+    expect(satelliteRows).toHaveLength(wire.shielded_outputs.length);
+    for (const [i, so] of wire.shielded_outputs.entries()) {
+      const txOutput = await getTxOutput(mysql, wire.hash, satelliteRows[i].index, false);
+      expect(txOutput!.mode).toBe(2);
+      expect(satelliteRows[i].surjection_proof).toEqual(Buffer.from(so.surjection_proof!, 'base64'));
+      expect(satelliteRows[i].asset_commitment).toEqual(Buffer.from(so.asset_commitment!, 'hex'));
+      expect(satelliteRows[i].range_proof).toEqual(Buffer.from(so.range_proof, 'base64'));
+      expect(satelliteRows[i].script).toEqual(Buffer.from(so.script, 'base64'));
+    }
+  });
+
+  it('writes the shielded tx_output, satellite, and unified address observation row', async () => {
+    expect.hasAssertions();
+
+    const fixture = eventsFixture.VERTEX_WITH_SHIELDED;
+    const txHash = fixture.event.data.hash;
+    const shieldedOutput = fixture.event.data.shielded_outputs[0];
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    // The fixture has 1 transparent output and 1 shielded mode=1 output.
+    // Concatenated index of the shielded entry: 1 (after 1 transparent at idx 0).
+    const txOutput = await getTxOutput(mysql, txHash, 1, false);
+    expect(txOutput).not.toBeNull();
+    expect(txOutput!.mode).toBe(1);
+    expect(txOutput!.recoveryState).toBe('unowned');
+    expect(txOutput!.value).toBeNull();
+
+    // Verify satellite row.
+    const [satelliteRows] = await mysql.query<any[]>(
+      'SELECT * FROM `shielded_tx_output_data` WHERE `tx_id` = ? AND `index` = ?',
+      [txHash, 1],
+    );
+    expect(satelliteRows).toHaveLength(1);
+    expect(satelliteRows[0].token_data).toBe(shieldedOutput.token_data);
+    // The blobs arrive base64-encoded on the wire and are stored as raw bytes.
+    expect(satelliteRows[0].range_proof).toEqual(Buffer.alloc(64, 0x03));
+    expect(satelliteRows[0].script).toEqual(Buffer.alloc(20, 0x04));
+    expect(satelliteRows[0].commitment).toEqual(Buffer.alloc(33, 0x02));
+
+    // Verify the shielded address observation row landed on the unified
+    // `address` table with NULL bip32_account (unclaimed; derivation account
+    // is set only when a wallet registration claims the row) and NULL
+    // wallet_id. `transactions` is bumped to 1 by the central involvement
+    // helper that runs once per vertex against the wire-level
+    // involved-addresses set, which always includes every shielded output's
+    // address regardless of ownership — observation itself still doesn't
+    // touch the counter.
+    const [shieldedAddrRows] = await mysql.query<any[]>(
+      'SELECT * FROM `address` WHERE `address` = ?',
+      [shieldedOutput.decoded.address],
+    );
+    expect(shieldedAddrRows).toHaveLength(1);
+    expect(shieldedAddrRows[0].bip32_account).toBeNull();
+    expect(shieldedAddrRows[0].wallet_id).toBeNull();
+    expect(shieldedAddrRows[0].transactions).toBe(1);
+
+    // Transparent output at concatenated index 0 is still written by the existing
+    // addUtxos path with mode=0 and recovery_state=NULL.
+    const transparentOutput = await getTxOutput(mysql, txHash, 0, false);
+    expect(transparentOutput).not.toBeNull();
+    expect(transparentOutput!.mode).toBe(0);
+    expect(transparentOutput!.recoveryState).toBeNull();
+  });
+
+  it('recovers a matched AmountShielded output via in-line rewind', async () => {
+    expect.hasAssertions();
+
+    // Clone the fixture and set token_data=0 so resolveShieldedTokenId() maps
+    // it to the native token (HTR). The default fixture uses token_data=1 with
+    // an empty `tokens[]`, which resolves to null and would force the failure
+    // path — that's the second test below.
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0].token_data = 0;
+    const txHash = fixture.event.data.hash;
+    const so = fixture.event.data.shielded_outputs[0];
+
+    // Seed an owned shielded address row on the unified `address` table so
+    // findShieldedAddressOwnership picks it up after
+    // upsertShieldedAddressObservation runs. `bip32_account = 2` discriminates
+    // the shielded scan-path row from any transparent row that might share
+    // the same P2PKH address.
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [so.decoded.address, Buffer.alloc(32, 0x42)],
+    );
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+    primeAmountRewind({
+      commitment: Buffer.from(so.commitment, 'hex'),
+      ephemeralPubkey: Buffer.from(so.ephemeral_pubkey, 'hex'),
+      value: 150n,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    const txOutput = await getTxOutput(mysql, txHash, 1, false);
+    expect(txOutput).not.toBeNull();
+    expect(txOutput!.recoveryState).toBe('recovered');
+    expect(txOutput!.value).toBe(150n);
+    expect(txOutput!.tokenId).toBe('00');
+    expect(mockAddAlert).not.toHaveBeenCalled();
+    // The rewind gets the range proof decoded from base64, as hathor-core sends it.
+    expect(receivedRangeProofs).toEqual([Buffer.alloc(64, 0x03)]);
+  });
+
+  it('groups multiple storage violations into one alert per vertex', async () => {
+    expect.hasAssertions();
+
+    // Two violating outputs. A regression to one alert per output would double
+    // this count, which nothing else in the suite would notice.
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    const template = fixture.event.data.shielded_outputs[0];
+    fixture.event.data.shielded_outputs = [
+      { ...JSON.parse(JSON.stringify(template)), token_data: 0, script: Buffer.alloc(1025, 0xab).toString('base64') },
+      { ...JSON.parse(JSON.stringify(template)), token_data: 0, script: Buffer.alloc(1025, 0xcd).toString('base64') },
+    ];
+    fixture.event.data.hash = 'ba'.repeat(32);
+    const txHash = fixture.event.data.hash;
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+
+    await expect(handleVertexAccepted({
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    } as any, undefined as any)).resolves.not.toThrow();
+
+    const violations = mockAddAlert.mock.calls
+      .filter(([title]) => title === 'Shielded output exceeds its storage limits');
+    expect(violations).toHaveLength(1);
+    expect(violations[0][3]).toMatchObject({ tx_id: txHash, count: 2 });
+    expect(violations[0][3].violations).toHaveLength(2);
+
+    // Both rows are parked, neither halts the vertex.
+    for (const index of [1, 2]) {
+      const row = await getTxOutput(mysql, txHash, index, false);
+      expect(row!.recoveryState).toBe('recovery_failed');
+    }
+  });
+
+  it('ingests the vertex when a shielded output address is wider than its column', async () => {
+    expect.hasAssertions();
+
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0].token_data = 0;
+    // 35 chars: one past tx_output.address and address.address VARCHAR(34).
+    // Skipping insertTxOutput alone is not enough — the address also reaches
+    // `address` through bumpAddressInvolvement.
+    fixture.event.data.shielded_outputs[0].decoded.address = 'W'.repeat(35);
+    const txHash = fixture.event.data.hash;
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+
+    await expect(handleVertexAccepted({
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    } as any, undefined as any)).resolves.not.toThrow();
+
+    // The vertex ingested and its transparent output is intact.
+    const [txRows] = await mysql.query<any[]>('SELECT `tx_id` FROM `transaction` WHERE `tx_id` = ?', [txHash]);
+    expect(txRows).toHaveLength(1);
+    expect(await getTxOutput(mysql, txHash, 0, false)).not.toBeNull();
+
+    // Neither the shielded tx_output nor an `address` row could be written.
+    expect(await getTxOutput(mysql, txHash, 1, false)).toBeNull();
+    const [addrRows] = await mysql.query<any[]>(
+      'SELECT `address` FROM `address` WHERE `address` = ?', ['W'.repeat(35)],
+    );
+    expect(addrRows).toHaveLength(0);
+
+    const violations = mockAddAlert.mock.calls
+      .filter(([title]) => title === 'Shielded output exceeds its storage limits');
+    expect(violations).toHaveLength(1);
+    expect(violations[0][3]).toMatchObject({ scope: 'output' });
+  });
+
+  it('parks an oversized shielded output and still ingests the vertex', async () => {
+    expect.hasAssertions();
+
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0].token_data = 0;
+    // One byte past the VARBINARY(1024) script column: under strict mode the
+    // INSERT raises ER_DATA_TOO_LONG inside the ingest transaction, which
+    // would halt sync.
+    fixture.event.data.shielded_outputs[0].script = Buffer.alloc(1025, 0xab).toString('base64');
+    const txHash = fixture.event.data.hash;
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+
+    // Must not throw: a throw here reaches the sync machine's terminal state.
+    await expect(handleVertexAccepted({
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    } as any, undefined as any)).resolves.not.toThrow();
+
+    // The vertex itself ingested, transparent output and all.
+    const [txRows] = await mysql.query<any[]>('SELECT `tx_id` FROM `transaction` WHERE `tx_id` = ?', [txHash]);
+    expect(txRows).toHaveLength(1);
+    expect(await getTxOutput(mysql, txHash, 0, false)).not.toBeNull();
+
+    // The output is recorded as a failed recovery, with no satellite row.
+    const txOutput = await getTxOutput(mysql, txHash, 1, false);
+    expect(txOutput!.recoveryState).toBe('recovery_failed');
+    const [satRows] = await mysql.query<any[]>(
+      'SELECT `tx_id` FROM `shielded_tx_output_data` WHERE `tx_id` = ?', [txHash],
+    );
+    expect(satRows).toHaveLength(0);
+
+    // And it is reported.
+    const violations = mockAddAlert.mock.calls
+      .filter(([title]) => title === 'Shielded output exceeds its storage limits');
+    expect(violations).toHaveLength(1);
+    expect(violations[0][2]).toBe(Severity.MAJOR);
+    expect(violations[0][3]).toMatchObject({ tx_id: txHash, index: 1, scope: 'satellite' });
+    // Sized from the decoded bytes, not from the length of the base64 string.
+    expect(violations[0][3].reason).toBe('script is 1025 bytes, column holds 1024');
+  });
+
+  it('parks an out-of-range token_data without recording a token for it', async () => {
+    expect.hasAssertions();
+
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    // One past the TINYINT UNSIGNED column. The token-index mask would fold
+    // 256 onto HTR, so the parked row must not claim a token at all.
+    fixture.event.data.shielded_outputs[0].token_data = 256;
+    const txHash = fixture.event.data.hash;
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+
+    await expect(handleVertexAccepted({
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    } as any, undefined as any)).resolves.not.toThrow();
+
+    const txOutput = await getTxOutput(mysql, txHash, 1, false);
+    expect(txOutput!.recoveryState).toBe('recovery_failed');
+    expect(txOutput!.tokenId).toBeNull();
+  });
+
+  it('hands the provider a 32-byte token uid for a native-token shielded output', async () => {
+    expect.hasAssertions();
+
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0].token_data = 0; // native token (HTR)
+    const so = fixture.event.data.shielded_outputs[0];
+
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [so.decoded.address, Buffer.alloc(32, 0x42)],
+    );
+
+    resetCtCryptoMock();
+    primeAmountRewind({
+      commitment: Buffer.from(so.commitment, 'hex'),
+      ephemeralPubkey: Buffer.from(so.ephemeral_pubkey, 'hex'),
+      value: 150n,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+
+    await handleVertexAccepted({
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    } as any, undefined as any);
+
+    // A 1-byte '00' would make every native-token rewind fail even with a
+    // working provider, because the asset generator is derived from this uid.
+    const args = lastAmountRewindArgs();
+    expect(args).not.toBeNull();
+    expect(args!.tokenUid).toHaveLength(32);
+
+    // The stored token id stays canonical.
+    const txOutput = await getTxOutput(mysql, fixture.event.data.hash, 1, false);
+    expect(txOutput!.tokenId).toBe('00');
+  });
+
+  it('recovers a matched FullyShielded output, taking token_id from the rewind result', async () => {
+    expect.hasAssertions();
+
+    // FullyShielded (mode=2) is a distinct correctness fork from AmountShielded:
+    // the token uid is NOT on the wire (`token_data` is absent) — it comes back
+    // from the rewind itself (`r.tokenUid`). Swap the fixture's mode=1 output
+    // for a mode=2 one carrying asset_commitment / surjection_proof.
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0] = {
+      mode: 2,
+      commitment: '02'.repeat(33),
+      range_proof: Buffer.alloc(64, 0x03).toString('base64'),
+      script: Buffer.alloc(20, 0x04).toString('base64'),
+      ephemeral_pubkey: '05'.repeat(33),
+      asset_commitment: '06'.repeat(33),
+      surjection_proof: Buffer.alloc(64, 0x07).toString('base64'),
+      decoded: {
+        address: 'WShieldedAddress1',
+      },
+    };
+    const txHash = fixture.event.data.hash;
+    const so = fixture.event.data.shielded_outputs[0];
+
+    // Seed an owned shielded address so findShieldedAddressOwnership matches
+    // and the in-line rewind runs (bip32_account = 2 = CTSpend).
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [so.decoded.address, Buffer.alloc(32, 0x42)],
+    );
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+    // Prime a distinctive custom token uid. resolveShieldedTokenId is never
+    // consulted on this path, so asserting this exact value proves the token_id
+    // was sourced from the rewind result rather than the wire.
+    const fullyTokenUid = Buffer.alloc(32, 0xab);
+    primeFullyRewind({
+      commitment: Buffer.from(so.commitment, 'hex'),
+      ephemeralPubkey: Buffer.from(so.ephemeral_pubkey, 'hex'),
+      value: 4242n,
+      tokenUid: fullyTokenUid,
+      assetCommitment: Buffer.from(so.asset_commitment, 'hex'),
+    });
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    const txOutput = await getTxOutput(mysql, txHash, 1, false);
+    expect(txOutput).not.toBeNull();
+    expect(txOutput!.mode).toBe(2);
+    expect(txOutput!.recoveryState).toBe('recovered');
+    expect(txOutput!.value).toBe(4242n);
+    expect(txOutput!.tokenId).toBe('ab'.repeat(32));
+    expect(mockAddAlert).not.toHaveBeenCalled();
+    expect(receivedRangeProofs).toEqual([Buffer.alloc(64, 0x03)]);
+
+    // The blobs arrive base64-encoded and the points hex-encoded; all are stored as raw bytes.
+    const [satelliteRows] = await mysql.query<any[]>(
+      'SELECT * FROM `shielded_tx_output_data` WHERE `tx_id` = ? AND `index` = ?',
+      [txHash, 1],
+    );
+    expect(satelliteRows).toHaveLength(1);
+    expect(satelliteRows[0].surjection_proof).toEqual(Buffer.alloc(64, 0x07));
+    expect(satelliteRows[0].asset_commitment).toEqual(Buffer.alloc(33, 0x06));
+    expect(satelliteRows[0].range_proof).toEqual(Buffer.alloc(64, 0x03));
+  });
+
+  it('marks a matched FullyShielded output recovery_failed and alerts when the rewind throws', async () => {
+    expect.hasAssertions();
+
+    // Mode-2 failure fork: distinct from the mode-1 failure test, which throws
+    // in token resolution before any rewind. Here the output is a genuine
+    // FullyShielded one and the rewind itself throws (unprimed mock), so the
+    // failure must come from the rewindFully call and land in the catch.
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0] = {
+      mode: 2,
+      commitment: '02'.repeat(33),
+      range_proof: Buffer.alloc(64, 0x03).toString('base64'),
+      script: Buffer.alloc(20, 0x04).toString('base64'),
+      ephemeral_pubkey: '05'.repeat(33),
+      asset_commitment: '06'.repeat(33),
+      surjection_proof: Buffer.alloc(64, 0x07).toString('base64'),
+      decoded: {
+        address: 'WShieldedAddress1',
+      },
+    };
+    const txHash = fixture.event.data.hash;
+    const so = fixture.event.data.shielded_outputs[0];
+
+    // Owned shielded address (bip32_account = 2 = CTSpend) so the in-line rewind runs.
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [so.decoded.address, Buffer.alloc(32, 0x42)],
+    );
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+    // Intentionally do NOT prime the FullyShielded rewind: the mock throws for an
+    // unprimed (commitment, ephemeralPubkey), driving the recovery-failed fork.
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    const txOutput = await getTxOutput(mysql, txHash, 1, false);
+    expect(txOutput).not.toBeNull();
+    expect(txOutput!.mode).toBe(2);
+    expect(txOutput!.recoveryState).toBe('recovery_failed');
+    expect(txOutput!.value).toBeNull();
+    expect(txOutput!.tokenId).toBeNull();
+
+    // Exactly one alert, carrying the shielded output's concatenated index.
+    expect(mockAddAlert).toHaveBeenCalledTimes(1);
+    const [title, , severity, metadata] = mockAddAlert.mock.calls[0];
+    expect(title).toBe('Shielded recovery failed');
+    expect(severity).toBe(Severity.MAJOR);
+    expect(metadata).toMatchObject({ tx_id: txHash, count: 1, outputs: [expect.objectContaining({ index: 1 })] });
+
+    // Nothing recovered → no per-token balance row for the shielded address.
+    const [balRows] = await mysql.query<any[]>(
+      'SELECT * FROM `address_balance` WHERE `address` = ?',
+      [so.decoded.address],
+    );
+    expect(balRows).toHaveLength(0);
+  });
+
+  it('leaves an owned shielded output unowned when no crypto provider is registered', async () => {
+    expect.hasAssertions();
+
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0].token_data = 0;
+    const txHash = fixture.event.data.hash;
+    const so = fixture.event.data.shielded_outputs[0];
+
+    // Owned shielded address (bip32_account = 2 = CTSpend): without the
+    // short-circuit this is the row that would attempt a rewind and fail.
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [so.decoded.address, Buffer.alloc(32, 0x42)],
+    );
+
+    clearShieldedCryptoProvider();
+    resetMissingProviderAlert();
+    mockAddAlert.mockClear();
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    const providerAlerts = () => mockAddAlert.mock.calls
+      .filter(([title]) => title === 'Shielded crypto provider not registered');
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    // A second vertex, to pin that the missing provider is reported once per
+    // process rather than per vertex (or per output).
+    const secondFixture = JSON.parse(JSON.stringify(fixture));
+    secondFixture.event.data.hash = 'cd'.repeat(32);
+    await handleVertexAccepted(
+      { ...context, txCache: new LRU(100), event: secondFixture } as any,
+      undefined as any,
+    );
+
+    // `recovery_failed` is unreachable for markTxOutputRecovered (guarded on
+    // `unowned`), so a failed attempt would strand the row permanently.
+    for (const hash of [txHash, secondFixture.event.data.hash]) {
+      const txOutput = await getTxOutput(mysql, hash, 1, false);
+      expect(txOutput).not.toBeNull();
+      expect(txOutput!.recoveryState).toBe('unowned');
+      expect(txOutput!.value).toBeNull();
+    }
+
+    // No per-output failure alert: the old path emitted one MAJOR per output.
+    const failureAlerts = mockAddAlert.mock.calls.filter(([title]) => title === 'Shielded recovery failed');
+    expect(failureAlerts).toHaveLength(0);
+
+    // Exactly one missing-provider alert across both vertices.
+    expect(providerAlerts()).toHaveLength(1);
+    expect(providerAlerts()[0][2]).toBe(Severity.MAJOR);
+  });
+
+  it('does not report a missing provider for a transparent-only vertex', async () => {
+    expect.hasAssertions();
+
+    // No shielded outputs at all: a deployment with no provider must stay quiet
+    // for ordinary traffic, or every block would page on-call.
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs = [];
+    fixture.event.data.hash = 'ef'.repeat(32);
+
+    clearShieldedCryptoProvider();
+    resetMissingProviderAlert();
+    mockAddAlert.mockClear();
+
+    await handleVertexAccepted({
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    } as any, undefined as any);
+
+    // The vertex still ingests.
+    const [txRows] = await mysql.query<any[]>(
+      'SELECT `tx_id` FROM `transaction` WHERE `tx_id` = ?', [fixture.event.data.hash],
+    );
+    expect(txRows).toHaveLength(1);
+
+    expect(mockAddAlert).not.toHaveBeenCalled();
+  });
+
+  it('recovers a later vertex once a provider is registered', async () => {
+    expect.hasAssertions();
+
+    const first = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    first.event.data.shielded_outputs[0].token_data = 0;
+    const so = first.event.data.shielded_outputs[0];
+
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [so.decoded.address, Buffer.alloc(32, 0x42)],
+    );
+
+    const baseContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      rewardMinBlocks: 300,
+    };
+
+    // Ingest with no provider: the output is skipped, not failed.
+    clearShieldedCryptoProvider();
+    mockAddAlert.mockClear();
+    await handleVertexAccepted(
+      { ...baseContext, txCache: new LRU(100), event: first } as any,
+      undefined as any,
+    );
+    expect((await getTxOutput(mysql, first.event.data.hash, 1, false))!.recoveryState).toBe('unowned');
+
+    // A provider becomes available. The skip must not be latched: the next
+    // vertex has to rewind normally.
+    const second = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    second.event.data.shielded_outputs[0].token_data = 0;
+    second.event.data.hash = 'ab'.repeat(32);
+
+    resetCtCryptoMock();
+    primeAmountRewind({
+      commitment: Buffer.from(so.commitment, 'hex'),
+      ephemeralPubkey: Buffer.from(so.ephemeral_pubkey, 'hex'),
+      value: 150n,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+
+    await handleVertexAccepted(
+      { ...baseContext, txCache: new LRU(100), event: second } as any,
+      undefined as any,
+    );
+
+    const recovered = await getTxOutput(mysql, second.event.data.hash, 1, false);
+    expect(recovered!.recoveryState).toBe('recovered');
+    expect(recovered!.value).toBe(150n);
+    expect(recovered!.tokenId).toBe('00');
+  });
+
+  it('writes shielded amount columns on the unified address_balance row for recovered shielded outputs', async () => {
+    expect.hasAssertions();
+
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0].token_data = 0;
+    const so = fixture.event.data.shielded_outputs[0];
+    const shieldedAddress = so.decoded.address;
+
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [shieldedAddress, Buffer.alloc(32, 0x42)],
+    );
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+    primeAmountRewind({
+      commitment: Buffer.from(so.commitment, 'hex'),
+      ephemeralPubkey: Buffer.from(so.ephemeral_pubkey, 'hex'),
+      value: 150n,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    const [rows] = await mysql.query<any[]>(
+      `SELECT unlocked_balance, locked_balance, total_received,
+              unlocked_shielded_balance, locked_shielded_balance,
+              total_shielded_received, transactions
+         FROM address_balance
+        WHERE address = ? AND token_id = ?`,
+      [shieldedAddress, '00'],
+    );
+    expect(rows).toHaveLength(1);
+    expect(BigInt(rows[0].unlocked_balance)).toBe(0n);
+    expect(BigInt(rows[0].locked_balance)).toBe(0n);
+    expect(BigInt(rows[0].total_received)).toBe(0n);
+    expect(BigInt(rows[0].unlocked_shielded_balance)).toBe(150n);
+    expect(BigInt(rows[0].locked_shielded_balance)).toBe(0n);
+    expect(BigInt(rows[0].total_shielded_received)).toBe(150n);
+    expect(rows[0].transactions).toBe(1);
+
+    // The unified `address` row gets exactly ONE transactions bump from the
+    // single central path in updateAddressTablesWithTx. The observation
+    // upsert that ran earlier in handleVertexAccepted must not bump it.
+    const [addrRows] = await mysql.query<any[]>(
+      'SELECT `transactions` FROM `address` WHERE `address` = ? AND `bip32_account` = 2',
+      [shieldedAddress],
+    );
+    expect(addrRows).toHaveLength(1);
+    expect(addrRows[0].transactions).toBe(1);
+  });
+
+  it('routes timelocked shielded credits to the locked_shielded_balance column', async () => {
+    expect.hasAssertions();
+
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0].token_data = 0;
+    // Set a timelock well in the future so `isOutputLocked` deterministically
+    // returns true regardless of test wall-clock timing.
+    const futureTimelock = Math.floor(Date.now() / 1000) + 3600;
+    fixture.event.data.shielded_outputs[0].decoded.timelock = futureTimelock;
+
+    const so = fixture.event.data.shielded_outputs[0];
+    const txHash = fixture.event.data.hash;
+    const shieldedAddress = so.decoded.address;
+
+    // Seed wallet + owned shielded address so the recovery path runs and the
+    // wallet_balance credit lands. The wallet row also unblocks the central
+    // `updateWalletTablesWithTx` bump for the seeded shielded-credit entry.
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES ('wallet_alice', ?, ?, 'ready', 20, ?, ?)`,
+      [XPUBKEY, XPUBKEY, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
+    );
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [shieldedAddress, Buffer.alloc(32, 0x42)],
+    );
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+    primeAmountRewind({
+      commitment: Buffer.from(so.commitment, 'hex'),
+      ephemeralPubkey: Buffer.from(so.ephemeral_pubkey, 'hex'),
+      value: 150n,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    // The shielded `tx_output` row carries the timelock verbatim and `locked = 1`.
+    const txOutput = await getTxOutput(mysql, txHash, 1, false);
+    expect(txOutput).not.toBeNull();
+    expect(txOutput!.locked).toBe(true);
+    expect(txOutput!.timelock).toBe(futureTimelock);
+
+    // The credit lands in the locked_shielded_balance column on
+    // address_balance — the unlocked column stays at zero.
+    const [addrBalRows] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, locked_shielded_balance, total_shielded_received
+         FROM address_balance
+        WHERE address = ? AND token_id = ?`,
+      [shieldedAddress, '00'],
+    );
+    expect(addrBalRows).toHaveLength(1);
+    expect(BigInt(addrBalRows[0].unlocked_shielded_balance)).toBe(0n);
+    expect(BigInt(addrBalRows[0].locked_shielded_balance)).toBe(150n);
+    expect(BigInt(addrBalRows[0].total_shielded_received)).toBe(150n);
+
+    // wallet_balance mirrors the same split: locked column carries the
+    // credit, unlocked stays at zero.
+    const [walletBalRows] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, locked_shielded_balance, total_shielded_received
+         FROM wallet_balance
+        WHERE wallet_id = ? AND token_id = ?`,
+      ['wallet_alice', '00'],
+    );
+    expect(walletBalRows).toHaveLength(1);
+    expect(BigInt(walletBalRows[0].unlocked_shielded_balance)).toBe(0n);
+    expect(BigInt(walletBalRows[0].locked_shielded_balance)).toBe(150n);
+    expect(BigInt(walletBalRows[0].total_shielded_received)).toBe(150n);
+  });
+
+  it('does NOT write address_balance for unrecovered shielded outputs', async () => {
+    expect.hasAssertions();
+
+    const fixture = eventsFixture.VERTEX_WITH_SHIELDED;
+    const shieldedAddress = fixture.event.data.shielded_outputs[0].decoded.address;
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    const [rows] = await mysql.query<any[]>(
+      `SELECT * FROM address_balance WHERE address = ?`,
+      [shieldedAddress],
+    );
+    expect(rows).toHaveLength(0);
+  });
+
+  it('writes wallet_balance shielded columns for recovered shielded outputs', async () => {
+    expect.hasAssertions();
+
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0].token_data = 0;
+    const so = fixture.event.data.shielded_outputs[0];
+    const shieldedAddress = so.decoded.address;
+
+    // wallet_alice must exist for getAddressWalletInfo's INNER JOIN to find
+    // the shielded address. The seedShieldedAddressBalanceEntries augmentation
+    // routes the shielded credit through the central transactions bump, which
+    // needs the wallet row to resolve.
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES ('wallet_alice', ?, ?, 'ready', 20, ?, ?)`,
+      [XPUBKEY, XPUBKEY, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
+    );
+
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [shieldedAddress, Buffer.alloc(32, 0x42)],
+    );
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+    primeAmountRewind({
+      commitment: Buffer.from(so.commitment, 'hex'),
+      ephemeralPubkey: Buffer.from(so.ephemeral_pubkey, 'hex'),
+      value: 150n,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    const [rows] = await mysql.query<any[]>(
+      `SELECT unlocked_balance, locked_balance,
+              unlocked_shielded_balance, locked_shielded_balance,
+              total_received, total_shielded_received, transactions
+         FROM wallet_balance
+        WHERE wallet_id = ? AND token_id = ?`,
+      ['wallet_alice', '00'],
+    );
+    expect(rows).toHaveLength(1);
+    expect(BigInt(rows[0].unlocked_balance)).toBe(0n);
+    expect(BigInt(rows[0].locked_balance)).toBe(0n);
+    expect(BigInt(rows[0].unlocked_shielded_balance)).toBe(150n);
+    expect(BigInt(rows[0].locked_shielded_balance)).toBe(0n);
+    expect(BigInt(rows[0].total_received)).toBe(0n);
+    expect(BigInt(rows[0].total_shielded_received)).toBe(150n);
+    expect(rows[0].transactions).toBe(1);
+  });
+
+  it('does NOT write wallet_balance for unrecovered shielded outputs', async () => {
+    expect.hasAssertions();
+
+    const fixture = eventsFixture.VERTEX_WITH_SHIELDED;
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    const [rows] = await mysql.query<any[]>(
+      `SELECT * FROM wallet_balance WHERE wallet_id = ?`,
+      ['wallet_alice'],
+    );
+    expect(rows).toHaveLength(0);
+  });
+
+  it('writes wallet_tx_history with shielded_balance_delta for recovered shielded outputs', async () => {
+    expect.hasAssertions();
+
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0].token_data = 0;
+    const txHash = fixture.event.data.hash;
+    const so = fixture.event.data.shielded_outputs[0];
+    const shieldedAddress = so.decoded.address;
+
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES ('wallet_alice', ?, ?, 'ready', 20, ?, ?)`,
+      [XPUBKEY, XPUBKEY, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
+    );
+
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [shieldedAddress, Buffer.alloc(32, 0x42)],
+    );
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+    primeAmountRewind({
+      commitment: Buffer.from(so.commitment, 'hex'),
+      ephemeralPubkey: Buffer.from(so.ephemeral_pubkey, 'hex'),
+      value: 150n,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    const [rows] = await mysql.query<any[]>(
+      `SELECT balance, shielded_balance_delta
+         FROM wallet_tx_history
+        WHERE wallet_id = ? AND tx_id = ?`,
+      ['wallet_alice', txHash],
+    );
+    expect(rows).toHaveLength(1);
+    expect(BigInt(rows[0].balance)).toBe(0n);
+    expect(BigInt(rows[0].shielded_balance_delta)).toBe(150n);
+  });
+
+  it('does NOT write wallet_tx_history for unrecovered shielded outputs', async () => {
+    expect.hasAssertions();
+
+    const fixture = eventsFixture.VERTEX_WITH_SHIELDED;
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    const [rows] = await mysql.query<any[]>(
+      `SELECT * FROM wallet_tx_history WHERE wallet_id = ?`,
+      ['wallet_alice'],
+    );
+    expect(rows).toHaveLength(0);
+  });
+
+  it('bumps address_balance and wallet_balance transactions for shielded-credit-only vertices', async () => {
+    // A shielded-credit-only vertex (no transparent inputs/outputs) must
+    // still bump `address_balance.transactions` and `wallet_balance.transactions`
+    // for the credited (address, token) pair. The shielded credit helpers
+    // themselves no longer carry that bump — the canonical single bump per
+    // (address, tx) / (wallet, tx) lives in updateAddressTablesWithTx /
+    // updateWalletTablesWithTx, which only see addresses in the balance map.
+    // handleVertexAccepted seeds zero-delta entries for shielded-credited
+    // addresses so the central bump fires; this test pins that behaviour.
+    expect.hasAssertions();
+
+    // Clone the fixture and strip the transparent output so the vertex's
+    // only owned touch is the shielded credit. token_data=0 routes the
+    // primed rewind to the native token.
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.outputs = [];
+    fixture.event.data.shielded_outputs[0].token_data = 0;
+    const so = fixture.event.data.shielded_outputs[0];
+    const shieldedAddress = so.decoded.address;
+
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES ('wallet_alice', ?, ?, 'ready', 20, ?, ?)`,
+      [XPUBKEY, XPUBKEY, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
+    );
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [shieldedAddress, Buffer.alloc(32, 0x42)],
+    );
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+    primeAmountRewind({
+      commitment: Buffer.from(so.commitment, 'hex'),
+      ephemeralPubkey: Buffer.from(so.ephemeral_pubkey, 'hex'),
+      value: 150n,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    const [addrRows] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, total_shielded_received, transactions
+         FROM address_balance
+        WHERE address = ? AND token_id = ?`,
+      [shieldedAddress, '00'],
+    );
+    expect(addrRows).toHaveLength(1);
+    expect(BigInt(addrRows[0].unlocked_shielded_balance)).toBe(150n);
+    expect(BigInt(addrRows[0].total_shielded_received)).toBe(150n);
+    expect(addrRows[0].transactions).toBe(1);
+
+    const [walletRows] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, total_shielded_received, transactions
+         FROM wallet_balance
+        WHERE wallet_id = ? AND token_id = ?`,
+      ['wallet_alice', '00'],
+    );
+    expect(walletRows).toHaveLength(1);
+    expect(BigInt(walletRows[0].unlocked_shielded_balance)).toBe(150n);
+    expect(BigInt(walletRows[0].total_shielded_received)).toBe(150n);
+    expect(walletRows[0].transactions).toBe(1);
+  });
+
+  it('marks recovery_failed and emits an alert when the rewind throws', async () => {
+    expect.hasAssertions();
+
+    // Use the fixture as-is: token_data=1 with empty tokens[] makes
+    // resolveShieldedTokenId() return null, which the recovery block treats
+    // as a hard failure (throws inside the try, jumping to the catch).
+    const fixture = eventsFixture.VERTEX_WITH_SHIELDED;
+    const txHash = fixture.event.data.hash;
+    const so = fixture.event.data.shielded_outputs[0];
+
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [so.decoded.address, Buffer.alloc(32, 0x42)],
+    );
+
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    const txOutput = await getTxOutput(mysql, txHash, 1, false);
+    expect(txOutput).not.toBeNull();
+    expect(txOutput!.recoveryState).toBe('recovery_failed');
+
+    expect(mockAddAlert).toHaveBeenCalledTimes(1);
+    const [title, , severity, metadata] = mockAddAlert.mock.calls[0];
+    expect(title).toBe('Shielded recovery failed');
+    expect(severity).toBe(Severity.MAJOR);
+    expect(metadata).toMatchObject({ tx_id: txHash, count: 1, outputs: [expect.objectContaining({ index: 1 })] });
+  });
+});
+
+describe('handleVertexAccepted with shielded spends', () => {
+  // The previously-recovered shielded UTXO that the spending vertex consumes.
+  const PREV_TX_ID = '1'.repeat(64);
+  const PREV_INDEX = 5;
+  const SHIELDED_ADDRESS = 'WShieldedSpendAddr';
+  const SPEND_TX_ID = '2'.repeat(64);
+  const TOKEN_ID = '00';
+  const SEEDED_VALUE = 400n;
+
+  // Build a NEW_VERTEX_ACCEPTED event that spends PREV_TX_ID:PREV_INDEX as an
+  // AmountShielded input with no outputs / shielded_outputs. The shielded
+  // fields just need to be valid hex; the reversal path doesn't crack them
+  // (it only reads spent_output.mode and the local tx_output row).
+  const buildSpendingVertex = () => ({
+    type: 'EVENT',
+    event: {
+      stream_id: 'stream-shielded-spend',
+      network: 'mainnet',
+      peer_id: 'peer-shielded-spend',
+      id: 200,
+      timestamp: 1700000100.0,
+      type: 'NEW_VERTEX_ACCEPTED',
+      data: {
+        hash: SPEND_TX_ID,
+        nonce: 12345,
+        timestamp: 1700000000,
+        version: 1,
+        weight: 21.5,
+        signal_bits: 0,
+        inputs: [{
+          tx_id: PREV_TX_ID,
+          index: PREV_INDEX,
+          spent_output: {
+            mode: 1,
+            commitment: '02'.repeat(33),
+            range_proof: Buffer.alloc(64, 0x03).toString('base64'),
+            script: Buffer.alloc(20, 0x04).toString('base64'),
+            ephemeral_pubkey: '05'.repeat(33),
+            token_data: 0,
+            decoded: {
+              address: SHIELDED_ADDRESS,
+            },
+          },
+        }],
+        outputs: [],
+        shielded_outputs: [],
+        parents: [
+          '16ba3dbe424c443e571b00840ca54b9ff4cff467e10b6a15536e718e2008f952',
+          '33e14cb555a96967841dcbe0f95e9eab5810481d01de8f4f73afb8cce365e869',
+        ],
+        tokens: [],
+        token_name: null,
+        token_symbol: null,
+        metadata: {
+          hash: SPEND_TX_ID,
+          voided_by: [],
+          first_block: null,
+          height: 101,
+        },
+        aux_pow: null,
+      },
+      group_id: null,
+    },
+    latest_event_id: 201,
+  });
+
+  // Seed the previously-recovered shielded UTXO: a tx_output row in mode=1 /
+  // recovered state plus the address_balance row that earlier recovery would
+  // have written. The wallet_balance row is seeded separately because the
+  // unowned-path test still wants it (to assert it stays untouched).
+  //
+  // The seeded address_balance row carries the shielded amount on the
+  // *_shielded_balance columns of the unified (address, token_id) row;
+  // transparent columns stay at zero (the recovery path on a fresh receive
+  // never writes the transparent columns).
+  const seedRecoveredShieldedUtxo = async () => {
+    await mysql.query(
+      `INSERT INTO tx_output
+         (tx_id, \`index\`, mode, address, value, token_id, authorities,
+          timelock, heightlock, locked, voided, spent_by, recovery_state)
+       VALUES (?, ?, 1, ?, ?, ?, 0, NULL, NULL, FALSE, FALSE, NULL, 'recovered')`,
+      [PREV_TX_ID, PREV_INDEX, SHIELDED_ADDRESS, SEEDED_VALUE.toString(), TOKEN_ID],
+    );
+
+    await mysql.query(
+      `INSERT INTO address_balance
+         (address, token_id,
+          unlocked_balance, locked_balance, total_received,
+          unlocked_shielded_balance, locked_shielded_balance, total_shielded_received,
+          transactions)
+       VALUES (?, ?, 0, 0, 0, ?, 0, ?, 1)`,
+      [SHIELDED_ADDRESS, TOKEN_ID, SEEDED_VALUE.toString(), SEEDED_VALUE.toString()],
+    );
+  };
+
+  const seedWalletBalance = async () => {
+    await mysql.query(
+      `INSERT INTO wallet_balance
+         (wallet_id, token_id,
+          unlocked_balance, locked_balance, total_received,
+          unlocked_shielded_balance, locked_shielded_balance,
+          total_shielded_received, transactions)
+       VALUES ('wallet_alice', ?, 0, 0, 0, ?, 0, ?, 1)`,
+      [TOKEN_ID, SEEDED_VALUE.toString(), SEEDED_VALUE.toString()],
+    );
+  };
+
+  beforeEach(async () => {
+    // `shielded_tx_output_data` is not in the shared cleanDatabase TABLES
+    // list; wipe it manually to stay isolated from neighbouring suites.
+    // Shielded address rows live in the unified `address` table now and
+    // are cleaned up by cleanDatabase.
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  afterEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  it('reverses the shielded balance when a shielded UTXO is spent', async () => {
+    expect.hasAssertions();
+
+    // wallet_alice must exist for getAddressWalletInfo's INNER JOIN to find
+    // the shielded address row. The central transactions bump for the spend
+    // vertex flows through that lookup.
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES ('wallet_alice', ?, ?, 'ready', 20, ?, ?)`,
+      [XPUBKEY, XPUBKEY, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
+    );
+
+    // Owned shielded address row (bip32_account = 2) on the unified `address`
+    // table so findShieldedAddressOwnership returns the owning wallet for
+    // SHIELDED_ADDRESS.
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 1)`,
+      [SHIELDED_ADDRESS, Buffer.alloc(32, 0x42)],
+    );
+    await seedRecoveredShieldedUtxo();
+    await seedWalletBalance();
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildSpendingVertex(),
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    // wallet_balance: shielded balance decremented by 400 → 0, but
+    // total_shielded_received is a lifetime credit accumulator and must NOT
+    // be decremented by a spend; it stays at the seeded 400. The wallet's
+    // transactions counter ticks up by 1 (1 from seed + 1 canonical bump
+    // for the spend vertex, driven by the transparent stub `prepareInputs`
+    // emits for the shielded input).
+    const [walletBalanceRows] = await mysql.query<any[]>(
+      `SELECT unlocked_balance, locked_balance,
+              unlocked_shielded_balance, locked_shielded_balance,
+              total_shielded_received, transactions
+         FROM wallet_balance
+        WHERE wallet_id = ? AND token_id = ?`,
+      ['wallet_alice', TOKEN_ID],
+    );
+    expect(walletBalanceRows).toHaveLength(1);
+    expect(BigInt(walletBalanceRows[0].unlocked_shielded_balance)).toBe(0n);
+    expect(BigInt(walletBalanceRows[0].locked_shielded_balance)).toBe(0n);
+    expect(BigInt(walletBalanceRows[0].total_shielded_received)).toBe(SEEDED_VALUE);
+    expect(Number(walletBalanceRows[0].transactions)).toBe(2);
+
+    // address_balance: shielded unlocked decremented to 0;
+    // total_shielded_received untouched (lifetime credits, not balance).
+    // transactions = 2 (1 from seed + 1 canonical bump for the spend
+    // vertex via the transparent stub).
+    const [addrBalanceRows] = await mysql.query<any[]>(
+      `SELECT unlocked_balance, locked_balance,
+              unlocked_shielded_balance, locked_shielded_balance,
+              total_received, total_shielded_received, transactions
+         FROM address_balance
+        WHERE address = ? AND token_id = ?`,
+      [SHIELDED_ADDRESS, TOKEN_ID],
+    );
+    expect(addrBalanceRows).toHaveLength(1);
+    expect(BigInt(addrBalanceRows[0].unlocked_balance)).toBe(0n);
+    expect(BigInt(addrBalanceRows[0].locked_balance)).toBe(0n);
+    expect(BigInt(addrBalanceRows[0].unlocked_shielded_balance)).toBe(0n);
+    expect(BigInt(addrBalanceRows[0].locked_shielded_balance)).toBe(0n);
+    expect(BigInt(addrBalanceRows[0].total_received)).toBe(0n);
+    expect(BigInt(addrBalanceRows[0].total_shielded_received)).toBe(SEEDED_VALUE);
+    expect(Number(addrBalanceRows[0].transactions)).toBe(2);
+
+    // wallet_tx_history: a new row tied to the spending tx with
+    // shielded_balance_delta = -400 and timestamp = the spending vertex's
+    // own timestamp (this row is created by the spend, so the INSERT path
+    // sets the timestamp column).
+    const [historyRows] = await mysql.query<any[]>(
+      `SELECT balance, shielded_balance_delta, timestamp
+         FROM wallet_tx_history
+        WHERE wallet_id = ? AND tx_id = ? AND token_id = ?`,
+      ['wallet_alice', SPEND_TX_ID, TOKEN_ID],
+    );
+    expect(historyRows).toHaveLength(1);
+    expect(BigInt(historyRows[0].shielded_balance_delta)).toBe(-SEEDED_VALUE);
+    expect(Number(historyRows[0].timestamp)).toBe(
+      buildSpendingVertex().event.data.timestamp,
+    );
+
+    // address_tx_history mirror: same (address, tx_id, token_id) row
+    // carries the signed shielded_balance_delta = -400 on the address grain.
+    const [addrHistoryRows] = await mysql.query<any[]>(
+      `SELECT balance, shielded_balance_delta, timestamp
+         FROM address_tx_history
+        WHERE address = ? AND tx_id = ? AND token_id = ?`,
+      [SHIELDED_ADDRESS, SPEND_TX_ID, TOKEN_ID],
+    );
+    expect(addrHistoryRows).toHaveLength(1);
+    expect(BigInt(addrHistoryRows[0].shielded_balance_delta)).toBe(-SEEDED_VALUE);
+    expect(Number(addrHistoryRows[0].timestamp)).toBe(
+      buildSpendingVertex().event.data.timestamp,
+    );
+
+    // The consumed tx_output is now marked spent by the spending vertex.
+    const prevOutput = await getTxOutput(mysql, PREV_TX_ID, PREV_INDEX, false);
+    expect(prevOutput).not.toBeNull();
+    expect(prevOutput!.spentBy).toBe(SPEND_TX_ID);
+  });
+
+  it('does NOT reverse when the spent shielded row is unowned', async () => {
+    expect.hasAssertions();
+
+    // No shielded ownership row on the `address` table →
+    // findShieldedAddressOwnership returns null and the reversal branch
+    // is skipped.
+    await seedRecoveredShieldedUtxo();
+    await seedWalletBalance();
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildSpendingVertex(),
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    // wallet_balance untouched.
+    const [walletBalanceRows] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, locked_shielded_balance,
+              total_shielded_received
+         FROM wallet_balance
+        WHERE wallet_id = ? AND token_id = ?`,
+      ['wallet_alice', TOKEN_ID],
+    );
+    expect(walletBalanceRows).toHaveLength(1);
+    expect(BigInt(walletBalanceRows[0].unlocked_shielded_balance)).toBe(SEEDED_VALUE);
+    expect(BigInt(walletBalanceRows[0].locked_shielded_balance)).toBe(0n);
+    expect(BigInt(walletBalanceRows[0].total_shielded_received)).toBe(SEEDED_VALUE);
+
+    // address_balance shielded columns untouched on the unified row.
+    const [addrBalanceRows] = await mysql.query<any[]>(
+      `SELECT unlocked_balance, locked_balance,
+              unlocked_shielded_balance, locked_shielded_balance
+         FROM address_balance
+        WHERE address = ? AND token_id = ?`,
+      [SHIELDED_ADDRESS, TOKEN_ID],
+    );
+    expect(addrBalanceRows).toHaveLength(1);
+    expect(BigInt(addrBalanceRows[0].unlocked_shielded_balance)).toBe(SEEDED_VALUE);
+    expect(BigInt(addrBalanceRows[0].locked_shielded_balance)).toBe(0n);
+
+    // No wallet_tx_history row written for the spend.
+    const [historyRows] = await mysql.query<any[]>(
+      `SELECT * FROM wallet_tx_history WHERE tx_id = ?`,
+      [SPEND_TX_ID],
+    );
+    expect(historyRows).toHaveLength(0);
+
+    // The kind-agnostic spent_by marking still ran.
+    const prevOutput = await getTxOutput(mysql, PREV_TX_ID, PREV_INDEX, false);
+    expect(prevOutput).not.toBeNull();
+    expect(prevOutput!.spentBy).toBe(SPEND_TX_ID);
+  });
+
+  it('does not produce a phantom (address, "") balance entry for a FullyShielded input', async () => {
+    // Regression for the FullyShielded-input phantom-row case. The wire
+    // payload for a FullyShielded spent_output carries no token uid, so
+    // the legacy prepareInputs path emitted a TxInput with token = '',
+    // which then flowed into getAddressBalanceMap and produced a
+    // (address, '') row in address_balance and an empty-string entry in
+    // token.transactions. After the unified-dispatch refactor those
+    // writes are sourced from the unified balance map, which never
+    // contains the empty token; this test pins that contract.
+    expect.hasAssertions();
+
+    // Wallet must exist for getAddressWalletInfo lookups in the spend
+    // path.
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES ('wallet_alice', ?, ?, 'ready', 20, ?, ?)`,
+      [XPUBKEY, XPUBKEY, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
+    );
+    // Owned shielded address row.
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 1)`,
+      [SHIELDED_ADDRESS, Buffer.alloc(32, 0x42)],
+    );
+    await seedRecoveredShieldedUtxo();
+    await seedWalletBalance();
+
+    // FullyShielded input: mode=2, no token_data, must carry
+    // asset_commitment + surjection_proof per the wire schema.
+    const fullyShieldedSpendEvent = {
+      type: 'EVENT',
+      event: {
+        stream_id: 'stream-shielded-fs-spend',
+        network: 'mainnet',
+        peer_id: 'peer-shielded-fs-spend',
+        id: 220,
+        timestamp: 1700000200.0,
+        type: 'NEW_VERTEX_ACCEPTED',
+        data: {
+          hash: SPEND_TX_ID,
+          nonce: 12345,
+          timestamp: 1700000000,
+          version: 1,
+          weight: 21.5,
+          signal_bits: 0,
+          inputs: [{
+            tx_id: PREV_TX_ID,
+            index: PREV_INDEX,
+            spent_output: {
+              mode: 2,
+              commitment: '02'.repeat(33),
+              range_proof: Buffer.alloc(64, 0x03).toString('base64'),
+              script: Buffer.alloc(20, 0x04).toString('base64'),
+              ephemeral_pubkey: '05'.repeat(33),
+              asset_commitment: '06'.repeat(33),
+              surjection_proof: Buffer.alloc(64, 0x07).toString('base64'),
+              decoded: {
+                address: SHIELDED_ADDRESS,
+              },
+            },
+          }],
+          outputs: [],
+          shielded_outputs: [],
+          parents: [
+            '16ba3dbe424c443e571b00840ca54b9ff4cff467e10b6a15536e718e2008f952',
+            '33e14cb555a96967841dcbe0f95e9eab5810481d01de8f4f73afb8cce365e869',
+          ],
+          tokens: [],
+          token_name: null,
+          token_symbol: null,
+          metadata: {
+            hash: SPEND_TX_ID,
+            voided_by: [],
+            first_block: null,
+            height: 102,
+          },
+          aux_pow: null,
+        },
+        group_id: null,
+      },
+      latest_event_id: 221,
+    };
+
+    const context = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fullyShieldedSpendEvent,
+    };
+
+    await handleVertexAccepted(context as any, undefined as any);
+
+    // No phantom (address, '') row was ever written to address_balance.
+    const [phantomBalanceRows] = await mysql.query<any[]>(
+      `SELECT address, token_id FROM address_balance WHERE token_id = ''`,
+    );
+    expect(phantomBalanceRows).toHaveLength(0);
+
+    // No phantom empty-token row in `token`.
+    const [phantomTokenRows] = await mysql.query<any[]>(
+      `SELECT id, transactions FROM token WHERE id = ''`,
+    );
+    expect(phantomTokenRows).toHaveLength(0);
+
+    // The unified balance map picked up the negative shielded delta from
+    // the local tx_output lookup, so the shielded balance is reversed
+    // on the real (address, TOKEN_ID) row.
+    const [addrBalanceRows] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, locked_shielded_balance,
+              total_shielded_received, transactions
+         FROM address_balance
+        WHERE address = ? AND token_id = ?`,
+      [SHIELDED_ADDRESS, TOKEN_ID],
+    );
+    expect(addrBalanceRows).toHaveLength(1);
+    expect(BigInt(addrBalanceRows[0].unlocked_shielded_balance)).toBe(0n);
+    expect(BigInt(addrBalanceRows[0].locked_shielded_balance)).toBe(0n);
+    expect(BigInt(addrBalanceRows[0].total_shielded_received)).toBe(SEEDED_VALUE);
+
+    // Wallet balance row was also updated through the unified writer.
+    const [walletBalanceRows] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance FROM wallet_balance
+        WHERE wallet_id = ? AND token_id = ?`,
+      ['wallet_alice', TOKEN_ID],
+    );
+    expect(walletBalanceRows).toHaveLength(1);
+    expect(BigInt(walletBalanceRows[0].unlocked_shielded_balance)).toBe(0n);
+  });
+  it('does not debit when a shielded input resolves to a transparent row', async () => {
+    expect.hasAssertions();
+
+    // The wire declares an AmountShielded input, but the row stored at that
+    // (tx_id, index) is transparent (mode 0, NULL recovery_state) — which is
+    // what a wrong index-space assumption would resolve to.
+    await mysql.query(
+      `INSERT INTO tx_output
+         (tx_id, \`index\`, mode, address, value, token_id, authorities,
+          timelock, heightlock, locked, voided, spent_by, recovery_state)
+       VALUES (?, ?, 0, ?, ?, ?, 0, NULL, NULL, FALSE, FALSE, NULL, NULL)`,
+      [PREV_TX_ID, PREV_INDEX, SHIELDED_ADDRESS, SEEDED_VALUE.toString(), TOKEN_ID],
+    );
+
+    const logSpy = jest.spyOn(logger, 'error').mockImplementation(() => logger);
+    mockAddAlert.mockClear();
+
+    await handleVertexAccepted({
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildSpendingVertex(),
+    } as any, undefined as any);
+
+    // No balance may be derived from the wrong row. The vertex has no outputs,
+    // so nothing should create a per-token row for this address at all.
+    const [balRows] = await mysql.query<any[]>(
+      'SELECT `unlocked_shielded_balance` FROM `address_balance` WHERE `address` = ? AND `token_id` = ?',
+      [SHIELDED_ADDRESS, TOKEN_ID],
+    );
+    expect(balRows).toHaveLength(0);
+
+    // The decisive assertion: the transparent row must NOT have been marked
+    // spent. updateTxOutputSpentBy runs before the balance map, so detecting
+    // the mismatch later would leave this irreversible write committed.
+    const [spentRows] = await mysql.query<any[]>(
+      'SELECT `spent_by` FROM `tx_output` WHERE `tx_id` = ? AND `index` = ?',
+      [PREV_TX_ID, PREV_INDEX],
+    );
+    expect(spentRows).toHaveLength(1);
+    expect(spentRows[0].spent_by).toBeNull();
+
+    // And the mismatch must be reported, not skipped quietly.
+    expect(logSpy).toHaveBeenCalledWith(
+      'shielded input resolved to a non-shielded tx_output',
+      expect.objectContaining({
+        txId: PREV_TX_ID,
+        index: PREV_INDEX,
+        wireMode: 1,
+        storedMode: 0,
+      }),
+    );
+
+    const anomalyAlerts = mockAddAlert.mock.calls
+      .filter(([title]) => title === 'Shielded input resolved to a non-shielded output');
+    expect(anomalyAlerts).toHaveLength(1);
+    expect(anomalyAlerts[0][2]).toBe(Severity.MAJOR);
+    // tx_id is the spending vertex, whose inputs were excluded; the funding
+    // tx whose layout is wrong is carried in first_input.
+    expect(anomalyAlerts[0][3]).toMatchObject({
+      tx_id: SPEND_TX_ID,
+      count: 1,
+      first_input: { tx_id: PREV_TX_ID, index: PREV_INDEX, stored_mode: 0 },
+    });
+    expect(anomalyAlerts[0][1]).toContain('no UTXO was unlocked or marked spent');
+
+    logSpy.mockRestore();
+  });
+});
+
+describe('handleVoidedTx with shielded', () => {
+  // The tx that carries a shielded output (same base fixture as the ingest tests).
+  // We clone and patch token_data=0 so the token resolves to HTR and the
+  // rewind mock can credit the balance.
+  const SHIELDED_ADDRESS = 'WShieldedAddress1';
+  const TOKEN_ID = '00';
+  const RECOVERED_VALUE = 150n;
+  // commitment / ephemeralPubkey must match what the fixture carries so the
+  // mock keyed by (commitment, ephemeralPubkey) fires correctly.
+  const COMMITMENT = Buffer.from('02'.repeat(33), 'hex');
+  const EPHEM_PUBKEY = Buffer.from('05'.repeat(33), 'hex');
+
+  // Build the ACCEPT event (token_data=0 → HTR, mode=1 AmountShielded).
+  const buildReceiveVertex = () => {
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0].token_data = 0;
+    return fixture;
+  };
+
+  // Build the matching VOID event for the same vertex.
+  const buildVoidEvent = (fixture: typeof eventsFixture.VERTEX_WITH_SHIELDED) => ({
+    stream_id: 'stream-void-shielded',
+    peer_id: 'peer-void',
+    network: 'mainnet',
+    type: 'FULLNODE_EVENT',
+    latest_event_id: 999,
+    event: {
+      id: 998,
+      data: {
+        hash: fixture.event.data.hash,
+        outputs: fixture.event.data.outputs,
+        inputs: fixture.event.data.inputs,
+        tokens: fixture.event.data.tokens,
+        shielded_outputs: fixture.event.data.shielded_outputs,
+        version: fixture.event.data.version,
+        headers: [],
+      },
+    },
+  });
+
+  beforeEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  afterEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  it('reverses a recovered shielded receive when the vertex is voided', async () => {
+    expect.hasAssertions();
+
+    const fixture = buildReceiveVertex();
+    const txHash = fixture.event.data.hash;
+    const so = fixture.event.data.shielded_outputs[0];
+
+    // Seed a claimed CTSpend address row so the in-line rewind runs and
+    // the balance is credited on accept.
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [so.decoded.address, Buffer.alloc(32, 0x42)],
+    );
+
+    // Wallet must exist for getAddressWalletInfo's INNER JOIN.
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES ('wallet_alice', ?, ?, 'ready', 20, ?, ?)`,
+      [XPUBKEY, XPUBKEY, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
+    );
+
+    resetCtCryptoMock();
+    primeAmountRewind({
+      commitment: COMMITMENT,
+      ephemeralPubkey: EPHEM_PUBKEY,
+      value: RECOVERED_VALUE,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+
+    const acceptContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(acceptContext as any, undefined as any);
+
+    // Sanity: shielded balance is credited after accept.
+    const [wbBefore] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, total_shielded_received
+         FROM wallet_balance WHERE wallet_id = ? AND token_id = ?`,
+      ['wallet_alice', TOKEN_ID],
+    );
+    expect(wbBefore).toHaveLength(1);
+    expect(BigInt(wbBefore[0].unlocked_shielded_balance)).toBe(RECOVERED_VALUE);
+    expect(BigInt(wbBefore[0].total_shielded_received)).toBe(RECOVERED_VALUE);
+
+    // Now void the same vertex.
+    const voidContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildVoidEvent(fixture),
+    };
+
+    await handleVoidedTx(voidContext as any);
+
+    // wallet_balance row is deleted by the all-zeros cleanup guard after void
+    // (no transparent balance was ever credited, so every column is zero).
+    const [wbAfter] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, total_shielded_received
+         FROM wallet_balance WHERE wallet_id = ? AND token_id = ?`,
+      ['wallet_alice', TOKEN_ID],
+    );
+    expect(wbAfter).toHaveLength(0);
+
+    // address_balance row is likewise deleted by the same all-zeros cleanup.
+    const [abAfter] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, total_shielded_received
+         FROM address_balance WHERE address = ? AND token_id = ?`,
+      [SHIELDED_ADDRESS, TOKEN_ID],
+    );
+    expect(abAfter).toHaveLength(0);
+
+    // address.transactions is decremented back to 0 (involvement reversal).
+    const [addrRows] = await mysql.query<any[]>(
+      `SELECT transactions FROM address WHERE address = ?`,
+      [SHIELDED_ADDRESS],
+    );
+    expect(addrRows).toHaveLength(1);
+    expect(Number(addrRows[0].transactions)).toBe(0);
+
+    // getTxOutput filters voided=FALSE, so the voided row is invisible to it.
+    const txOutput = await getTxOutput(mysql, txHash, 1, false);
+    expect(txOutput).toBeNull();
+    // Confirm voided flag and preserved recovery_state directly via raw query.
+    const [rawRows] = await mysql.query<any[]>(
+      `SELECT voided, recovery_state FROM tx_output WHERE tx_id = ? AND \`index\` = 1`,
+      [txHash],
+    );
+    expect(rawRows).toHaveLength(1);
+    expect(rawRows[0].voided).toBeTruthy();
+    expect(rawRows[0].recovery_state).toBe('recovered');
+  });
+
+  it('does NOT touch shielded totals when voiding an unowned shielded receive', async () => {
+    expect.hasAssertions();
+
+    // The raw fixture has token_data=1 (non-HTR, no mock primed) → the output
+    // lands as `unowned` and no balance row is ever created.
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+
+    resetCtCryptoMock();
+
+    const acceptContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(acceptContext as any, undefined as any);
+
+    // Sanity: no wallet_balance row was created (unowned receive → nothing credited).
+    const [wbBefore] = await mysql.query<any[]>(
+      `SELECT * FROM wallet_balance WHERE token_id = ?`,
+      [TOKEN_ID],
+    );
+    expect(wbBefore).toHaveLength(0);
+
+    const voidContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildVoidEvent(fixture),
+    };
+
+    await handleVoidedTx(voidContext as any);
+
+    // Still no wallet_balance row after void.
+    const [wbAfter] = await mysql.query<any[]>(
+      `SELECT * FROM wallet_balance WHERE token_id = ?`,
+      [TOKEN_ID],
+    );
+    expect(wbAfter).toHaveLength(0);
+  });
+
+  it('decrements the involvement counter for an unowned shielded receive on void', async () => {
+    expect.hasAssertions();
+
+    // Unowned shielded output: never enters the balance map, but the ingest
+    // path still bumps its address involvement counter via bumpAddressInvolvement.
+    // The void must reverse that bump symmetrically.
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    const unownedAddress = fixture.event.data.shielded_outputs[0].decoded.address;
+
+    resetCtCryptoMock();
+
+    const acceptContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+    await handleVertexAccepted(acceptContext as any, undefined as any);
+
+    // After ingest the observation row exists with transactions bumped to 1,
+    // even though no balance row was created.
+    const [addrBefore] = await mysql.query<any[]>(
+      `SELECT transactions FROM address WHERE address = ?`,
+      [unownedAddress],
+    );
+    expect(addrBefore).toHaveLength(1);
+    expect(Number(addrBefore[0].transactions)).toBe(1);
+
+    const voidContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildVoidEvent(fixture),
+    };
+    await handleVoidedTx(voidContext as any);
+
+    // Counter reversed back to 0 — the void event carries shielded_outputs, so
+    // the unowned address is in the involvement set decremented on void.
+    const [addrAfter] = await mysql.query<any[]>(
+      `SELECT transactions FROM address WHERE address = ?`,
+      [unownedAddress],
+    );
+    expect(addrAfter).toHaveLength(1);
+    expect(Number(addrAfter[0].transactions)).toBe(0);
+  });
+
+  it('restores shielded balance when voiding a vertex that spent a recovered shielded UTXO', async () => {
+    expect.hasAssertions();
+
+    // Reuse the constants from `handleVertexAccepted with shielded spends`.
+    const PREV_TX_ID = '1'.repeat(64);
+    const PREV_INDEX = 5;
+    const SPEND_TX_ID = '2'.repeat(64);
+    const SEEDED_VALUE = 400n;
+
+    // Wallet must exist for getAddressWalletInfo lookups.
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES ('wallet_alice', ?, ?, 'ready', 20, ?, ?)`,
+      [XPUBKEY, XPUBKEY, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
+    );
+
+    // Owned CTSpend address row so findShieldedAddressOwnership recognises it.
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 1)`,
+      ['WShieldedSpendAddr', Buffer.alloc(32, 0x42)],
+    );
+
+    // Seed the previously-recovered shielded UTXO.
+    await mysql.query(
+      `INSERT INTO tx_output
+         (tx_id, \`index\`, mode, address, value, token_id, authorities,
+          timelock, heightlock, locked, voided, spent_by, recovery_state)
+       VALUES (?, ?, 1, 'WShieldedSpendAddr', ?, ?, 0, NULL, NULL, FALSE, FALSE, NULL, 'recovered')`,
+      [PREV_TX_ID, PREV_INDEX, SEEDED_VALUE.toString(), TOKEN_ID],
+    );
+    await mysql.query(
+      `INSERT INTO address_balance
+         (address, token_id,
+          unlocked_balance, locked_balance, total_received,
+          unlocked_shielded_balance, locked_shielded_balance, total_shielded_received,
+          transactions)
+       VALUES ('WShieldedSpendAddr', ?, 0, 0, 0, ?, 0, ?, 1)`,
+      [TOKEN_ID, SEEDED_VALUE.toString(), SEEDED_VALUE.toString()],
+    );
+    // Production writes the recovered receive to address_tx_history alongside the
+    // balance; seed it so the post-void consistency check has a matching
+    // non-voided sum (the spend's own history row is voided by the void under test).
+    await mysql.query(
+      `INSERT INTO \`address_tx_history\`
+         (address, tx_id, token_id, balance, shielded_balance_delta, timestamp, voided)
+       VALUES ('WShieldedSpendAddr', ?, ?, 0, ?, 1700000000, FALSE)`,
+      [PREV_TX_ID, TOKEN_ID, SEEDED_VALUE.toString()],
+    );
+    await mysql.query(
+      `INSERT INTO wallet_balance
+         (wallet_id, token_id,
+          unlocked_balance, locked_balance, total_received,
+          unlocked_shielded_balance, locked_shielded_balance,
+          total_shielded_received, transactions)
+       VALUES ('wallet_alice', ?, 0, 0, 0, ?, 0, ?, 1)`,
+      [TOKEN_ID, SEEDED_VALUE.toString(), SEEDED_VALUE.toString()],
+    );
+
+    // The spending vertex: AmountShielded input, no outputs.
+    const buildSpendingVertex = () => ({
+      type: 'EVENT',
+      event: {
+        stream_id: 'stream-void-spend',
+        network: 'mainnet',
+        peer_id: 'peer-void-spend',
+        id: 300,
+        timestamp: 1700000100.0,
+        type: 'NEW_VERTEX_ACCEPTED',
+        data: {
+          hash: SPEND_TX_ID,
+          nonce: 12345,
+          timestamp: 1700000000,
+          version: 1,
+          weight: 21.5,
+          signal_bits: 0,
+          inputs: [{
+            tx_id: PREV_TX_ID,
+            index: PREV_INDEX,
+            spent_output: {
+              mode: 1,
+              commitment: '02'.repeat(33),
+              range_proof: Buffer.alloc(64, 0x03).toString('base64'),
+              script: Buffer.alloc(20, 0x04).toString('base64'),
+              ephemeral_pubkey: '05'.repeat(33),
+              token_data: 0,
+              decoded: {
+                address: 'WShieldedSpendAddr',
+              },
+            },
+          }],
+          outputs: [],
+          shielded_outputs: [],
+          parents: [
+            '16ba3dbe424c443e571b00840ca54b9ff4cff467e10b6a15536e718e2008f952',
+            '33e14cb555a96967841dcbe0f95e9eab5810481d01de8f4f73afb8cce365e869',
+          ],
+          tokens: [],
+          token_name: null,
+          token_symbol: null,
+          metadata: {
+            hash: SPEND_TX_ID,
+            voided_by: [],
+            first_block: null,
+            height: 101,
+          },
+          aux_pow: null,
+        },
+        group_id: null,
+      },
+      latest_event_id: 301,
+    });
+
+    // Accept the spending vertex → shielded balance drops to 0.
+    const acceptContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildSpendingVertex(),
+    };
+    await handleVertexAccepted(acceptContext as any, undefined as any);
+
+    // Sanity: balance zeroed by the spend.
+    const [wbMid] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, total_shielded_received
+         FROM wallet_balance WHERE wallet_id = 'wallet_alice' AND token_id = ?`,
+      [TOKEN_ID],
+    );
+    expect(wbMid).toHaveLength(1);
+    expect(BigInt(wbMid[0].unlocked_shielded_balance)).toBe(0n);
+    expect(BigInt(wbMid[0].total_shielded_received)).toBe(SEEDED_VALUE);
+
+    // Void the spending vertex.
+    const voidContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: {
+        stream_id: 'stream-void-spend',
+        peer_id: 'peer-void-spend',
+        network: 'mainnet',
+        type: 'FULLNODE_EVENT',
+        latest_event_id: 302,
+        event: {
+          id: 301,
+          data: {
+            hash: SPEND_TX_ID,
+            outputs: [],
+            inputs: buildSpendingVertex().event.data.inputs,
+            tokens: [],
+            version: 1,
+            headers: [],
+          },
+        },
+      },
+    };
+    await handleVoidedTx(voidContext as any);
+
+    // After void: shielded balance restored to SEEDED_VALUE; total_shielded_received
+    // stays at SEEDED_VALUE (spend reversal only restores the running balance,
+    // not the lifetime accumulator which was never decremented by the spend).
+    const [wbAfter] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, locked_shielded_balance, total_shielded_received
+         FROM wallet_balance WHERE wallet_id = 'wallet_alice' AND token_id = ?`,
+      [TOKEN_ID],
+    );
+    expect(wbAfter).toHaveLength(1);
+    expect(BigInt(wbAfter[0].unlocked_shielded_balance)).toBe(SEEDED_VALUE);
+    expect(BigInt(wbAfter[0].locked_shielded_balance)).toBe(0n);
+    expect(BigInt(wbAfter[0].total_shielded_received)).toBe(SEEDED_VALUE);
+
+    // spent_by on the original UTXO is cleared.
+    const prevOutput = await getTxOutput(mysql, PREV_TX_ID, PREV_INDEX, false);
+    expect(prevOutput).not.toBeNull();
+    expect(prevOutput!.spentBy).toBeNull();
+  });
+
+  it('reverses a recovered shielded receive that landed in the locked column', async () => {
+    expect.hasAssertions();
+
+    // Same flow as the recovered-receive void above, but the shielded output
+    // is timelocked, so the credit lands in `locked_shielded_balance`. This is
+    // the only void test that drives the `locked_shielded_balance` subtract
+    // (and its cleanup-guard arm) with a non-zero value.
+    const fixture = buildReceiveVertex();
+    const so = fixture.event.data.shielded_outputs[0];
+    const futureTimelock = Math.floor(Date.now() / 1000) + 3600;
+    so.decoded.timelock = futureTimelock;
+
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [so.decoded.address, Buffer.alloc(32, 0x42)],
+    );
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES ('wallet_alice', ?, ?, 'ready', 20, ?, ?)`,
+      [XPUBKEY, XPUBKEY, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
+    );
+
+    resetCtCryptoMock();
+    primeAmountRewind({
+      commitment: COMMITMENT,
+      ephemeralPubkey: EPHEM_PUBKEY,
+      value: RECOVERED_VALUE,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+
+    const acceptContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+    await handleVertexAccepted(acceptContext as any, undefined as any);
+
+    // Sanity: the credit is in the LOCKED shielded column after accept.
+    const [wbBefore] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, locked_shielded_balance, total_shielded_received
+         FROM wallet_balance WHERE wallet_id = ? AND token_id = ?`,
+      ['wallet_alice', TOKEN_ID],
+    );
+    expect(wbBefore).toHaveLength(1);
+    expect(BigInt(wbBefore[0].unlocked_shielded_balance)).toBe(0n);
+    expect(BigInt(wbBefore[0].locked_shielded_balance)).toBe(RECOVERED_VALUE);
+    expect(BigInt(wbBefore[0].total_shielded_received)).toBe(RECOVERED_VALUE);
+
+    const voidContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildVoidEvent(fixture),
+    };
+    await handleVoidedTx(voidContext as any);
+
+    // The locked_shielded_balance subtract drops it back to zero, so the
+    // all-zeros cleanup removes both balance rows. A dropped subtract would
+    // leave locked_shielded_balance non-zero and the rows would survive.
+    const [wbAfter] = await mysql.query<any[]>(
+      `SELECT 1 FROM wallet_balance WHERE wallet_id = ? AND token_id = ?`,
+      ['wallet_alice', TOKEN_ID],
+    );
+    expect(wbAfter).toHaveLength(0);
+
+    const [abAfter] = await mysql.query<any[]>(
+      `SELECT 1 FROM address_balance WHERE address = ? AND token_id = ?`,
+      [SHIELDED_ADDRESS, TOKEN_ID],
+    );
+    expect(abAfter).toHaveLength(0);
+  });
+
+  it('reverses each row once when one voided tx has multiple shielded outputs to the same address', async () => {
+    expect.hasAssertions();
+
+    // Two recovered shielded outputs land on the SAME owned (address, token)
+    // row in a single tx. The void must reverse BOTH contributions — counting
+    // each tx_output row once despite the ownership lookup deduping the address.
+    const VALUE_A = 150n;
+    const VALUE_B = 250n;
+    const COMMITMENT_B = Buffer.from('0a'.repeat(33), 'hex');
+    const EPHEM_PUBKEY_B = Buffer.from('0b'.repeat(33), 'hex');
+
+    const fixture = buildReceiveVertex();
+    const so = fixture.event.data.shielded_outputs[0];
+    // Second shielded output to the same address, distinct commitment/ephemeral
+    // so the rewind mock keys them apart.
+    const secondOutput = JSON.parse(JSON.stringify(so));
+    secondOutput.commitment = COMMITMENT_B.toString('hex');
+    secondOutput.ephemeral_pubkey = EPHEM_PUBKEY_B.toString('hex');
+    fixture.event.data.shielded_outputs.push(secondOutput);
+
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [so.decoded.address, Buffer.alloc(32, 0x42)],
+    );
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES ('wallet_alice', ?, ?, 'ready', 20, ?, ?)`,
+      [XPUBKEY, XPUBKEY, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
+    );
+
+    resetCtCryptoMock();
+    primeAmountRewind({
+      commitment: COMMITMENT,
+      ephemeralPubkey: EPHEM_PUBKEY,
+      value: VALUE_A,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+    primeAmountRewind({
+      commitment: COMMITMENT_B,
+      ephemeralPubkey: EPHEM_PUBKEY_B,
+      value: VALUE_B,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+
+    const acceptContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+    await handleVertexAccepted(acceptContext as any, undefined as any);
+
+    // Sanity: both outputs credited the single row → sum of both values.
+    const [abBefore] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, total_shielded_received
+         FROM address_balance WHERE address = ? AND token_id = ?`,
+      [SHIELDED_ADDRESS, TOKEN_ID],
+    );
+    expect(abBefore).toHaveLength(1);
+    expect(BigInt(abBefore[0].unlocked_shielded_balance)).toBe(VALUE_A + VALUE_B);
+    expect(BigInt(abBefore[0].total_shielded_received)).toBe(VALUE_A + VALUE_B);
+
+    const voidContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildVoidEvent(fixture),
+    };
+    await handleVoidedTx(voidContext as any);
+
+    // Exact reversal of both contributions zeroes the row → it is cleaned up.
+    // Under-counting (treating the deduped address as one recovery) would leave
+    // a residual balance and the row would survive.
+    const [abAfter] = await mysql.query<any[]>(
+      `SELECT 1 FROM address_balance WHERE address = ? AND token_id = ?`,
+      [SHIELDED_ADDRESS, TOKEN_ID],
+    );
+    expect(abAfter).toHaveLength(0);
+
+    const [wbAfter] = await mysql.query<any[]>(
+      `SELECT 1 FROM wallet_balance WHERE wallet_id = ? AND token_id = ?`,
+      ['wallet_alice', TOKEN_ID],
+    );
+    expect(wbAfter).toHaveLength(0);
+  });
+});
+
+describe('handleUnvoidedTx with shielded', () => {
+  const SHIELDED_ADDRESS = 'WShieldedAddress1';
+  const TOKEN_ID = '00';
+  const RECOVERED_VALUE = 150n;
+  const COMMITMENT = Buffer.from('02'.repeat(33), 'hex');
+  const EPHEM_PUBKEY = Buffer.from('05'.repeat(33), 'hex');
+
+  const buildReceiveVertex = () => {
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0].token_data = 0;
+    return fixture;
+  };
+
+  const buildVoidEvent = (fixture: typeof eventsFixture.VERTEX_WITH_SHIELDED) => ({
+    stream_id: 'stream-unvoid-shielded',
+    peer_id: 'peer-unvoid',
+    network: 'mainnet',
+    type: 'FULLNODE_EVENT',
+    latest_event_id: 999,
+    event: {
+      id: 998,
+      data: {
+        hash: fixture.event.data.hash,
+        outputs: fixture.event.data.outputs,
+        inputs: fixture.event.data.inputs,
+        tokens: fixture.event.data.tokens,
+        shielded_outputs: fixture.event.data.shielded_outputs,
+        version: fixture.event.data.version,
+        headers: [],
+      },
+    },
+  });
+
+  beforeEach(async () => {
+    // Restore any spies left active by earlier tests (e.g. db.voidTransaction spy)
+    // so the real implementations run throughout the void→unvoid cycle.
+    jest.restoreAllMocks();
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  afterEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  it('round-trip restores shielded balance for a recovered receive', async () => {
+    expect.hasAssertions();
+
+    const fixture = buildReceiveVertex();
+    const txHash = fixture.event.data.hash;
+    const so = fixture.event.data.shielded_outputs[0];
+
+    // Seed a claimed CTSpend address row (bip32_account = 2) so the rewind
+    // mock fires during ingest and the balance is credited.
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [so.decoded.address, Buffer.alloc(32, 0x42)],
+    );
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES ('wallet_alice', ?, ?, 'ready', 20, ?, ?)`,
+      [XPUBKEY, XPUBKEY, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
+    );
+
+    // Prime the mock once; do NOT call resetCtCryptoMock between steps so the
+    // re-ingest triggered by unvoid can recover the same value.
+    primeAmountRewind({
+      commitment: COMMITMENT,
+      ephemeralPubkey: EPHEM_PUBKEY,
+      value: RECOVERED_VALUE,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+
+    const acceptContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(acceptContext as any, undefined as any);
+
+    // Post-ingest: balance credited.
+    const [wbIngest] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, total_shielded_received
+         FROM wallet_balance WHERE wallet_id = 'wallet_alice' AND token_id = ?`,
+      [TOKEN_ID],
+    );
+    expect(wbIngest).toHaveLength(1);
+    expect(BigInt(wbIngest[0].unlocked_shielded_balance)).toBe(RECOVERED_VALUE);
+    expect(BigInt(wbIngest[0].total_shielded_received)).toBe(RECOVERED_VALUE);
+
+    // Void the vertex.
+    const voidContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildVoidEvent(fixture),
+    };
+    await handleVoidedTx(voidContext as any);
+
+    // Post-void: the all-zeros cleanup deletes the balance row entirely.
+    const [wbVoided] = await mysql.query<any[]>(
+      `SELECT * FROM wallet_balance WHERE wallet_id = 'wallet_alice' AND token_id = ?`,
+      [TOKEN_ID],
+    );
+    expect(wbVoided).toHaveLength(0);
+
+    // address.transactions decremented back to 0 (involvement reversal).
+    const [addrRowVoided] = await mysql.query<any[]>(
+      `SELECT transactions FROM address WHERE address = ?`,
+      [SHIELDED_ADDRESS],
+    );
+    expect(addrRowVoided).toHaveLength(1);
+    expect(Number(addrRowVoided[0].transactions)).toBe(0);
+
+    // Unvoid step 1: cleanupVoidedTx (DELETE the voided rows).
+    const unvoidContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildVoidEvent(fixture),
+    };
+    await handleUnvoidedTx(unvoidContext as any);
+
+    // Unvoid step 2: re-ingest (mirrors what the state machine chains to).
+    await handleVertexAccepted(acceptContext as any, undefined as any);
+
+    // Post-unvoid: balance restored to the same post-ingest state.
+    const [wbRestored] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, total_shielded_received
+         FROM wallet_balance WHERE wallet_id = 'wallet_alice' AND token_id = ?`,
+      [TOKEN_ID],
+    );
+    expect(wbRestored).toHaveLength(1);
+    expect(BigInt(wbRestored[0].unlocked_shielded_balance)).toBe(RECOVERED_VALUE);
+    expect(BigInt(wbRestored[0].total_shielded_received)).toBe(RECOVERED_VALUE);
+
+    const [abRestored] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, total_shielded_received
+         FROM address_balance WHERE address = ? AND token_id = ?`,
+      [SHIELDED_ADDRESS, TOKEN_ID],
+    );
+    expect(abRestored).toHaveLength(1);
+    expect(BigInt(abRestored[0].unlocked_shielded_balance)).toBe(RECOVERED_VALUE);
+    expect(BigInt(abRestored[0].total_shielded_received)).toBe(RECOVERED_VALUE);
+
+    // address.transactions involvement counter restored to 1.
+    const [addrRows] = await mysql.query<any[]>(
+      `SELECT transactions FROM address WHERE address = ?`,
+      [SHIELDED_ADDRESS],
+    );
+    expect(addrRows).toHaveLength(1);
+    expect(Number(addrRows[0].transactions)).toBe(1);
+
+    // tx_output visible again (voided = FALSE) with recovery_state preserved.
+    const txOutput = await getTxOutput(mysql, txHash, 1, false);
+    expect(txOutput).not.toBeNull();
+    const [rawRows] = await mysql.query<any[]>(
+      `SELECT voided, recovery_state FROM tx_output WHERE tx_id = ? AND \`index\` = 1`,
+      [txHash],
+    );
+    expect(rawRows).toHaveLength(1);
+    expect(rawRows[0].voided).toBeFalsy();
+    expect(rawRows[0].recovery_state).toBe('recovered');
+  });
+
+  it('no-op on balance for an unowned shielded receive round-trip', async () => {
+    expect.hasAssertions();
+
+    // Raw fixture: token_data = 1 (non-HTR), no claimed address row, no mock
+    // primed → output ingests as `unowned`, no balance row created.
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    const txHash = fixture.event.data.hash;
+
+    const acceptContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+
+    await handleVertexAccepted(acceptContext as any, undefined as any);
+
+    // No balance row after ingest (unowned).
+    const [wbIngest] = await mysql.query<any[]>(
+      `SELECT * FROM wallet_balance WHERE token_id = ?`,
+      [TOKEN_ID],
+    );
+    expect(wbIngest).toHaveLength(0);
+
+    // tx_output written with recovery_state = 'unowned'.
+    const [rawIngest] = await mysql.query<any[]>(
+      `SELECT voided, recovery_state FROM tx_output WHERE tx_id = ? AND \`index\` = 1`,
+      [txHash],
+    );
+    expect(rawIngest).toHaveLength(1);
+    expect(rawIngest[0].voided).toBeFalsy();
+    expect(rawIngest[0].recovery_state).toBe('unowned');
+
+    // Void the vertex.
+    const voidContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildVoidEvent(fixture),
+    };
+    await handleVoidedTx(voidContext as any);
+
+    // tx_output row still exists but is now voided.
+    const [rawVoided] = await mysql.query<any[]>(
+      `SELECT voided, recovery_state FROM tx_output WHERE tx_id = ? AND \`index\` = 1`,
+      [txHash],
+    );
+    expect(rawVoided).toHaveLength(1);
+    expect(rawVoided[0].voided).toBeTruthy();
+    expect(rawVoided[0].recovery_state).toBe('unowned');
+
+    // Unvoid step 1: cleanup DELETE.
+    const unvoidContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildVoidEvent(fixture),
+    };
+    await handleUnvoidedTx(unvoidContext as any);
+
+    // Unvoid step 2: re-ingest.
+    await handleVertexAccepted(acceptContext as any, undefined as any);
+
+    // Still no balance row after unvoid (unowned → never credited).
+    const [wbRestored] = await mysql.query<any[]>(
+      `SELECT * FROM wallet_balance WHERE token_id = ?`,
+      [TOKEN_ID],
+    );
+    expect(wbRestored).toHaveLength(0);
+
+    // tx_output visible again (voided = FALSE), recovery_state still 'unowned'.
+    const [rawRestored] = await mysql.query<any[]>(
+      `SELECT voided, recovery_state FROM tx_output WHERE tx_id = ? AND \`index\` = 1`,
+      [txHash],
+    );
+    expect(rawRestored).toHaveLength(1);
+    expect(rawRestored[0].voided).toBeFalsy();
+    expect(rawRestored[0].recovery_state).toBe('unowned');
+  });
+});
+
+describe('handleVertexRemoved with shielded', () => {
+  // Vertex removal (reorg) is the destructive sibling of void: voidTx reverses
+  // the balances (same unified map), then cleanupVoidedTx DELETEs the rows.
+  // The satellite is cleaned by the FK ON DELETE CASCADE to tx_output.
+  const SHIELDED_ADDRESS = 'WShieldedAddress1';
+  const TOKEN_ID = '00';
+  const RECOVERED_VALUE = 150n;
+  const COMMITMENT = Buffer.from('02'.repeat(33), 'hex');
+  const EPHEM_PUBKEY = Buffer.from('05'.repeat(33), 'hex');
+
+  const buildReceiveVertex = () => {
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    fixture.event.data.shielded_outputs[0].token_data = 0;
+    return fixture;
+  };
+
+  // VERTEX_REMOVED carries the same data shape voidTx reads; handleVertexRemoved
+  // pulls hash / outputs / inputs / tokens / version / headers off event.data.
+  const buildRemovedEvent = (fixture: typeof eventsFixture.VERTEX_WITH_SHIELDED) => ({
+    stream_id: 'stream-removed-shielded',
+    peer_id: 'peer-removed',
+    network: 'mainnet',
+    type: 'FULLNODE_EVENT',
+    latest_event_id: 999,
+    event: {
+      id: 998,
+      data: {
+        hash: fixture.event.data.hash,
+        outputs: fixture.event.data.outputs,
+        inputs: fixture.event.data.inputs,
+        tokens: fixture.event.data.tokens,
+        shielded_outputs: fixture.event.data.shielded_outputs,
+        version: fixture.event.data.version,
+        headers: [],
+      },
+    },
+  });
+
+  beforeEach(async () => {
+    jest.restoreAllMocks();
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  afterEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  it('deletes tx_output rows, reverses balances, and cascades the satellite', async () => {
+    expect.hasAssertions();
+
+    const fixture = buildReceiveVertex();
+    const txHash = fixture.event.data.hash;
+    const so = fixture.event.data.shielded_outputs[0];
+
+    // Claimed CTSpend address so the in-line rewind credits the balance on accept.
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [so.decoded.address, Buffer.alloc(32, 0x42)],
+    );
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES ('wallet_alice', ?, ?, 'ready', 20, ?, ?)`,
+      [XPUBKEY, XPUBKEY, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)],
+    );
+
+    resetCtCryptoMock();
+    primeAmountRewind({
+      commitment: COMMITMENT,
+      ephemeralPubkey: EPHEM_PUBKEY,
+      value: RECOVERED_VALUE,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+
+    const acceptContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+    await handleVertexAccepted(acceptContext as any, undefined as any);
+
+    // Sanity: balance credited and satellite written after accept.
+    const [wbBefore] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance, total_shielded_received
+         FROM wallet_balance WHERE wallet_id = 'wallet_alice' AND token_id = ?`,
+      [TOKEN_ID],
+    );
+    expect(wbBefore).toHaveLength(1);
+    expect(BigInt(wbBefore[0].unlocked_shielded_balance)).toBe(RECOVERED_VALUE);
+    const [satBefore] = await mysql.query<any[]>(
+      `SELECT * FROM shielded_tx_output_data WHERE tx_id = ? AND \`index\` = 1`,
+      [txHash],
+    );
+    expect(satBefore).toHaveLength(1);
+
+    // Remove the vertex (reorg).
+    const removedContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildRemovedEvent(fixture),
+    };
+    await handleVertexRemoved(removedContext as any, undefined as any);
+
+    // tx_output row is DELETED (not just voided) — removal cleans up the rows.
+    const [txoAfter] = await mysql.query<any[]>(
+      `SELECT * FROM tx_output WHERE tx_id = ? AND \`index\` = 1`,
+      [txHash],
+    );
+    expect(txoAfter).toHaveLength(0);
+
+    // Satellite is gone via the FK ON DELETE CASCADE to tx_output.
+    const [satAfter] = await mysql.query<any[]>(
+      `SELECT * FROM shielded_tx_output_data WHERE tx_id = ? AND \`index\` = 1`,
+      [txHash],
+    );
+    expect(satAfter).toHaveLength(0);
+
+    // The transaction row itself is removed.
+    const [txAfter] = await mysql.query<any[]>(
+      `SELECT * FROM \`transaction\` WHERE tx_id = ?`,
+      [txHash],
+    );
+    expect(txAfter).toHaveLength(0);
+
+    // Balances reversed: the all-zeros cleanup deletes both balance rows.
+    const [wbAfter] = await mysql.query<any[]>(
+      `SELECT * FROM wallet_balance WHERE wallet_id = 'wallet_alice' AND token_id = ?`,
+      [TOKEN_ID],
+    );
+    expect(wbAfter).toHaveLength(0);
+    const [abAfter] = await mysql.query<any[]>(
+      `SELECT * FROM address_balance WHERE address = ? AND token_id = ?`,
+      [SHIELDED_ADDRESS, TOKEN_ID],
+    );
+    expect(abAfter).toHaveLength(0);
+
+    // address.transactions involvement counter decremented back to 0.
+    const [addrRows] = await mysql.query<any[]>(
+      `SELECT transactions FROM address WHERE address = ?`,
+      [SHIELDED_ADDRESS],
+    );
+    expect(addrRows).toHaveLength(1);
+    expect(Number(addrRows[0].transactions)).toBe(0);
+  });
+
+  it('does NOT touch balances when removing an unowned shielded receive', async () => {
+    expect.hasAssertions();
+
+    // Raw fixture (token_data = 1, no claimed address, no primed mock) → the
+    // output ingests as `unowned`; no balance row is ever created.
+    const fixture = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    const txHash = fixture.event.data.hash;
+
+    resetCtCryptoMock();
+
+    const acceptContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: fixture,
+    };
+    await handleVertexAccepted(acceptContext as any, undefined as any);
+
+    // Sanity: unowned satellite written, no balance row.
+    const [satBefore] = await mysql.query<any[]>(
+      `SELECT * FROM shielded_tx_output_data WHERE tx_id = ? AND \`index\` = 1`,
+      [txHash],
+    );
+    expect(satBefore).toHaveLength(1);
+    const [wbBefore] = await mysql.query<any[]>(
+      `SELECT * FROM wallet_balance WHERE token_id = ?`,
+      [TOKEN_ID],
+    );
+    expect(wbBefore).toHaveLength(0);
+
+    const removedContext = {
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event: buildRemovedEvent(fixture),
+    };
+    await handleVertexRemoved(removedContext as any, undefined as any);
+
+    // tx_output + satellite deleted; still no balance row anywhere.
+    const [txoAfter] = await mysql.query<any[]>(
+      `SELECT * FROM tx_output WHERE tx_id = ? AND \`index\` = 1`,
+      [txHash],
+    );
+    expect(txoAfter).toHaveLength(0);
+    const [satAfter] = await mysql.query<any[]>(
+      `SELECT * FROM shielded_tx_output_data WHERE tx_id = ? AND \`index\` = 1`,
+      [txHash],
+    );
+    expect(satAfter).toHaveLength(0);
+    const [wbAfter] = await mysql.query<any[]>(
+      `SELECT * FROM wallet_balance WHERE token_id = ?`,
+      [TOKEN_ID],
+    );
+    expect(wbAfter).toHaveLength(0);
+  });
+});
+
+describe('a shielded vertex with optional fields left out', () => {
+  // The real alpha-v4 event, parsed the way WebSocketActor parses it, after
+  // `mutate` changes exactly the field under test. Both of its shielded
+  // outputs are AmountShielded HTR outputs to the same address, at indexes 0
+  // and 1 (the vertex has no transparent outputs).
+  const parseReal = (mutate: (data: any) => void) => {
+    const raw = JSON.parse(JSON.stringify(alphaV4ShieldedVertexEvent));
+    mutate(raw.event.data);
+    return FullNodeEventSchema.parse(raw);
+  };
+  const wire = alphaV4ShieldedVertexEvent.event.data;
+  const address = wire.shielded_outputs[0].decoded.address;
+
+  const ingest = (event: unknown) => handleVertexAccepted({
+    socket: expect.any(Object),
+    healthcheck: expect.any(Object),
+    retryAttempt: 0,
+    initialEventId: null,
+    txCache: new LRU(100),
+    rewardMinBlocks: 300,
+    event,
+  } as any, undefined as any);
+
+  const alertTitles = () => mockAddAlert.mock.calls.map(([title]) => title);
+
+  beforeEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+  });
+
+  afterEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  it.each([
+    ['absent', null],
+    ['sent as zero bytes', '00'.repeat(33)],
+  ])('treats an ephemeral pubkey that is %s as absent: zero bytes stored, no rewind', async (_label, wireValue) => {
+    expect.hasAssertions();
+
+    // Claimed by a wallet, with a provider registered: everything a rewind
+    // needs except the pubkey itself.
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [address, Buffer.alloc(32, 0x42)],
+    );
+    const event = parseReal((data) => {
+      for (const so of data.shielded_outputs) {
+        so.ephemeral_pubkey = wireValue;
+      }
+    });
+
+    const warnSpy = jest.spyOn(logger, 'warn');
+
+    await expect(ingest(event)).resolves.not.toThrow();
+
+    expect(lastAmountRewindArgs()).toBeNull();
+    for (const index of [0, 1]) {
+      const row = await getTxOutput(mysql, wire.hash, index, false);
+      expect(row!.recoveryState).toBe('unowned');
+    }
+    const [satRows] = await mysql.query<any[]>(
+      'SELECT `ephemeral_pubkey` FROM `shielded_tx_output_data` WHERE `tx_id` = ?', [wire.hash],
+    );
+    expect(satRows).toHaveLength(2);
+    for (const r of satRows) {
+      expect(r.ephemeral_pubkey).toEqual(Buffer.alloc(33));
+    }
+    expect(mockAddAlert).not.toHaveBeenCalled();
+    // The address is claimed, so the funds it cannot see are traced.
+    expect(warnSpy).toHaveBeenCalledWith(
+      'Shielded output to a claimed address has no ephemeral pubkey; left unowned',
+      expect.objectContaining({ txId: wire.hash, index: 0, address }),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('skips a shielded output whose script has no address, without an alert', async () => {
+    expect.hasAssertions();
+
+    const event = parseReal((data) => {
+      data.shielded_outputs[0].decoded = null;
+    });
+
+    await expect(ingest(event)).resolves.not.toThrow();
+
+    expect(await getTxOutput(mysql, wire.hash, 0, false)).toBeNull();
+    expect(await getTxOutput(mysql, wire.hash, 1, false)).not.toBeNull();
+    expect(alertTitles()).toStrictEqual([]);
+  });
+
+  it('skips a shielded output with an empty script, without an alert', async () => {
+    expect.hasAssertions();
+
+    // Valid in hathor-core: an empty script is not an address script.
+    const event = parseReal((data) => {
+      data.shielded_outputs[0].script = '';
+      data.shielded_outputs[0].decoded = null;
+    });
+
+    await expect(ingest(event)).resolves.not.toThrow();
+
+    expect(await getTxOutput(mysql, wire.hash, 0, false)).toBeNull();
+    expect(await getTxOutput(mysql, wire.hash, 1, false)).not.toBeNull();
+    expect(alertTitles()).toStrictEqual([]);
+  });
+
+  it('ingests a spend of a shielded output with no pubkey and no address', async () => {
+    expect.hasAssertions();
+
+    // Event 70473 spends a shielded output; strip both optional fields from
+    // the spent output, as hathor-core sends them for such an output.
+    const raw = JSON.parse(JSON.stringify(alphaV4FullyShieldedSpendEvent));
+    const shieldedInput = raw.event.data.inputs.find((i: any) => i.spent_output.mode === 1);
+    shieldedInput.spent_output.ephemeral_pubkey = null;
+    shieldedInput.spent_output.decoded = null;
+    const event = FullNodeEventSchema.parse(raw);
+
+    await expect(ingest(event)).resolves.not.toThrow();
+
+    const [txRows] = await mysql.query<any[]>(
+      'SELECT `tx_id` FROM `transaction` WHERE `tx_id` = ?', [raw.event.data.hash],
+    );
+    expect(txRows).toHaveLength(1);
+    // The spent output's missing address contributes nothing; the vertex's own
+    // shielded outputs still land.
+    expect(await getTxOutput(mysql, raw.event.data.hash, 0, false)).not.toBeNull();
+    expect(alertTitles()).toStrictEqual([]);
+  });
+
+  it('voids a vertex with an addressless shielded output back to where it started', async () => {
+    expect.hasAssertions();
+
+    // The addressless output sits next to an owned output that is recovered,
+    // so the void has a balance to reverse as well as the involvement counter.
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [address, Buffer.alloc(32, 0x42)],
+    );
+    const sibling = wire.shielded_outputs[1];
+    primeAmountRewind({
+      commitment: Buffer.from(sibling.commitment, 'hex'),
+      ephemeralPubkey: Buffer.from(sibling.ephemeral_pubkey, 'hex'),
+      value: 150n,
+      tokenUid: Buffer.alloc(32, 0x00),
+    });
+    const event = parseReal((data) => {
+      data.shielded_outputs[0].decoded = null;
+    });
+    await ingest(event);
+
+    const shieldedBalance = async () => {
+      const [rows] = await mysql.query<any[]>(
+        `SELECT \`unlocked_shielded_balance\` AS b FROM \`address_balance\`
+          WHERE \`address\` = ? AND \`token_id\` = '00'`, [address],
+      );
+      return rows.length === 0 ? 0n : BigInt(rows[0].b);
+    };
+    const transactions = async () => {
+      const [rows] = await mysql.query<any[]>(
+        'SELECT `transactions` FROM `address` WHERE `address` = ?', [address],
+      );
+      return Number(rows[0].transactions);
+    };
+    expect((await getTxOutput(mysql, wire.hash, 1, false))!.recoveryState).toBe('recovered');
+    expect(await shieldedBalance()).toBe(150n);
+    expect(await transactions()).toBe(1);
+
+    const { data } = event.event as any;
+    await expect(voidTx(
+      mysql, data.hash, data.inputs, data.outputs, data.shielded_outputs,
+      data.tokens, data.headers ?? [], data.version,
+    )).resolves.not.toThrow();
+
+    // Ingest and void walk the same sources, so both return to where they
+    // started rather than going negative or staying raised.
+    expect(await shieldedBalance()).toBe(0n);
+    expect(await transactions()).toBe(0);
+  });
+});
+
+describe('a scan miss on a claimed shielded address', () => {
+  // The real alpha-v4 vertex: two AmountShielded HTR outputs to one address.
+  const wire = alphaV4ShieldedVertexEvent.event.data;
+  const [missed, opened] = wire.shielded_outputs;
+  const address = missed.decoded.address;
+
+  beforeEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [address, Buffer.alloc(32, 0x42)],
+    );
+  });
+
+  afterEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  it('leaves every missed output unowned, without an alert or a failed recovery', async () => {
+    expect.hasAssertions();
+
+    // Both outputs miss: a per-output alert, or a per-vertex one, would show.
+    for (const so of [missed, opened]) {
+      primeScanMiss({
+        commitment: Buffer.from(so.commitment, 'hex'),
+        ephemeralPubkey: Buffer.from(so.ephemeral_pubkey, 'hex'),
+      });
+    }
+    const event = FullNodeEventSchema.parse(JSON.parse(JSON.stringify(alphaV4ShieldedVertexEvent)));
+    const warnSpy = jest.spyOn(logger, 'warn');
+
+    await handleVertexAccepted({
+      socket: expect.any(Object),
+      healthcheck: expect.any(Object),
+      retryAttempt: 0,
+      initialEventId: null,
+      txCache: new LRU(100),
+      rewardMinBlocks: 300,
+      event,
+    } as any, undefined as any);
+
+    for (const index of [0, 1]) {
+      expect((await getTxOutput(mysql, wire.hash, index, false))!.recoveryState).toBe('unowned');
+    }
+    // Anyone can send a claimed address an output its scan key won't open, so
+    // a miss never pages from here; the wallet-service pages on the pattern.
+    expect(mockAddAlert).not.toHaveBeenCalled();
+    const missWarnings = (warnSpy.mock.calls as unknown as [string, Record<string, unknown>][])
+      .filter(([message]) => message === "Shielded output did not open with its wallet's scan key");
+    expect(missWarnings.map(([, meta]) => meta.index)).toStrictEqual([0, 1]);
+    expect(missWarnings[0][1]).toMatchObject({ walletId: 'wallet_alice', mode: 1, tokenId: '00' });
+    warnSpy.mockRestore();
+  });
+});
+
+describe('shielded recovery failures', () => {
+  const ingest = (event: unknown) => handleVertexAccepted({
+    socket: expect.any(Object),
+    healthcheck: expect.any(Object),
+    retryAttempt: 0,
+    initialEventId: null,
+    txCache: new LRU(100),
+    rewardMinBlocks: 300,
+    event,
+  } as any, undefined as any);
+  const failureAlerts = () => mockAddAlert.mock.calls.filter(([title]) => title === 'Shielded recovery failed');
+
+  beforeEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+    resetCtCryptoMock();
+    mockAddAlert.mockClear();
+  });
+
+  afterEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  it('pages once per vertex, not once per failed output', async () => {
+    expect.hasAssertions();
+
+    // Event 47541: two AmountShielded outputs to one address. Neither is
+    // primed, so both rewinds fail.
+    const wire = alphaV4ShieldedVertexEvent.event.data;
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [wire.shielded_outputs[0].decoded.address, Buffer.alloc(32, 0x42)],
+    );
+
+    await ingest(FullNodeEventSchema.parse(JSON.parse(JSON.stringify(alphaV4ShieldedVertexEvent))));
+
+    for (const index of [0, 1]) {
+      expect((await getTxOutput(mysql, wire.hash, index, false))!.recoveryState).toBe('recovery_failed');
+    }
+    expect(failureAlerts()).toHaveLength(1);
+    expect(failureAlerts()[0][2]).toBe(Severity.MAJOR);
+    expect(failureAlerts()[0][3]).toMatchObject({
+      tx_id: wire.hash,
+      count: 2,
+      outputs: [
+        expect.objectContaining({ index: 0, mode: 1, token_id: '00' }),
+        expect.objectContaining({ index: 1, mode: 1, token_id: '00' }),
+      ],
+    });
+  });
+
+  it('does not page when every failure is a sender-made asset mismatch', async () => {
+    expect.hasAssertions();
+
+    // Event 70473: two FullyShielded outputs. A sender alone can make them
+    // fail the asset cross-check, so they are recorded but only reported.
+    const wire = alphaV4FullyShieldedSpendEvent.event.data;
+    const shielded = wire.shielded_outputs;
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0)`,
+      [shielded[0].decoded.address, Buffer.alloc(32, 0x42)],
+    );
+    for (const so of shielded) {
+      primeAssetMismatch({
+        commitment: Buffer.from(so.commitment, 'hex'),
+        ephemeralPubkey: Buffer.from(so.ephemeral_pubkey!, 'hex'),
+      });
+    }
+
+    await ingest(FullNodeEventSchema.parse(JSON.parse(JSON.stringify(alphaV4FullyShieldedSpendEvent))));
+
+    const owned = shielded.filter((so) => so.decoded.address === shielded[0].decoded.address).length;
+    expect(failureAlerts()).toHaveLength(1);
+    expect(failureAlerts()[0][2]).toBe(Severity.MINOR);
+    expect(failureAlerts()[0][3]).toMatchObject({ count: owned });
+  });
+});
+
+describe('voiding a shielded output the wallet-service recovered', () => {
+  // The daemon ingests a shielded output while its address is unclaimed, so it
+  // stays `unowned` and is credited to no balance. The wallet later registers
+  // and the wallet-service's sweep recovers it. Its effect is reproduced here
+  // in SQL: the history and balance rebuilds (the balance taking its
+  // `transactions` from the history rows) and the wallet-level rebuild.
+  // Before the void counted only pairs with history rows for the voided tx,
+  // these voids underflowed `transactions` and halted sync for good.
+  const WALLET = 'wallet_recovered_later';
+
+  const receive = () => {
+    const f = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    f.event.data.shielded_outputs[0].token_data = 0;
+    return f;
+  };
+  // Spends the shielded output of `t` into a transparent output.
+  const spend = (t: any) => {
+    const f = JSON.parse(JSON.stringify(t));
+    const so = t.event.data.shielded_outputs[0];
+    const hash = 'b2'.repeat(32);
+    f.event.id = 102;
+    f.event.data.hash = hash;
+    f.event.data.metadata.hash = hash;
+    f.event.data.inputs = [{
+      tx_id: t.event.data.hash,
+      index: t.event.data.outputs.length,
+      spent_output: { ...so, mode: 1, token_data: 0 },
+    }];
+    f.event.data.outputs = [{
+      value: 90, script: 'dqkU91U6sMdzgT3zxOtdIVGbqobP0FmIrA==', token_data: 0,
+      decoded: { type: 'P2PKH', address: 'WTransparentAddress2', timelock: null },
+    }];
+    f.event.data.shielded_outputs = [];
+    return f;
+  };
+
+  const ingest = (event: unknown) => handleVertexAccepted({
+    socket: expect.any(Object),
+    healthcheck: expect.any(Object),
+    retryAttempt: 0,
+    initialEventId: null,
+    txCache: new LRU(100),
+    rewardMinBlocks: 300,
+    event,
+  } as any, undefined as any);
+
+  const voidTxOf = (f: any) => handleVoidedTx({
+    event: {
+      stream_id: 's', peer_id: 'p', network: 'mainnet', type: 'FULLNODE_EVENT', latest_event_id: 99999,
+      event: {
+        id: 99000 + f.event.id,
+        data: { ...f.event.data, metadata: { ...f.event.data.metadata, voided_by: [f.event.data.hash] } },
+      },
+    },
+  } as any);
+
+  const recoverInWalletService = async (t: any) => {
+    const address = t.event.data.shielded_outputs[0].decoded.address;
+    const now = Math.floor(Date.now() / 1000);
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at, ready_at)
+       VALUES (?, ?, ?, 'ready', 20, ?, ?)`,
+      [WALLET, XPUBKEY, XPUBKEY, now, now],
+    );
+    await mysql.query(
+      `UPDATE \`address\` SET wallet_id = ?, bip32_account = 2, scan_privkey = ? WHERE address = ?`,
+      [WALLET, Buffer.alloc(32, 0x42), address],
+    );
+    await mysql.query(
+      "UPDATE `tx_output` SET recovery_state = 'recovered', value = 100, token_id = '00' WHERE tx_id = ? AND `index` = ?",
+      [t.event.data.hash, t.event.data.outputs.length],
+    );
+    // rebuildShieldedAddressTxHistory, then rebuildShieldedAddressBalances.
+    await mysql.query(
+      `INSERT INTO address_tx_history (address, tx_id, token_id, balance, shielded_balance_delta, timestamp, voided)
+       SELECT t.address, t.tx_id, t.token_id, 0, SUM(t.value), tx.timestamp, FALSE
+         FROM tx_output t INNER JOIN \`transaction\` tx ON tx.tx_id = t.tx_id
+        WHERE t.address = ? AND t.mode IN (1, 2) AND t.recovery_state = 'recovered' AND t.voided = FALSE
+        GROUP BY t.address, t.tx_id, t.token_id, tx.timestamp
+       ON DUPLICATE KEY UPDATE shielded_balance_delta = VALUES(shielded_balance_delta)`,
+      [address],
+    );
+    await mysql.query(
+      `INSERT INTO address_balance (address, token_id, unlocked_balance, locked_balance,
+          unlocked_shielded_balance, locked_shielded_balance, total_shielded_received,
+          unlocked_authorities, locked_authorities, transactions)
+       SELECT t.address, t.token_id, 0, 0,
+          SUM(CASE WHEN t.spent_by IS NULL AND t.locked = FALSE THEN t.value ELSE 0 END),
+          SUM(CASE WHEN t.spent_by IS NULL AND t.locked = TRUE THEN t.value ELSE 0 END),
+          SUM(t.value), 0, 0,
+          (SELECT COUNT(*) FROM address_tx_history h
+            WHERE h.address = t.address AND h.token_id = t.token_id AND h.voided = FALSE)
+         FROM tx_output t
+        WHERE t.address = ? AND t.mode IN (1, 2) AND t.recovery_state = 'recovered' AND t.voided = FALSE
+        GROUP BY t.address, t.token_id
+       ON DUPLICATE KEY UPDATE
+          unlocked_shielded_balance = VALUES(unlocked_shielded_balance),
+          locked_shielded_balance = VALUES(locked_shielded_balance),
+          total_shielded_received = VALUES(total_shielded_received),
+          transactions = VALUES(transactions)`,
+      [address],
+    );
+    // rebuildWalletTxHistory and rebuildWalletBalance, for this one address.
+    await mysql.query(
+      `INSERT INTO wallet_tx_history (wallet_id, token_id, tx_id, balance, shielded_balance_delta, timestamp)
+       SELECT ?, token_id, tx_id, SUM(balance), SUM(shielded_balance_delta), MAX(timestamp)
+         FROM address_tx_history WHERE address = ? AND voided = FALSE GROUP BY token_id, tx_id`,
+      [WALLET, address],
+    );
+    await mysql.query(
+      `INSERT INTO wallet_balance (wallet_id, token_id, total_received, unlocked_balance, locked_balance,
+          unlocked_authorities, locked_authorities, transactions,
+          unlocked_shielded_balance, locked_shielded_balance, total_shielded_received)
+       SELECT ?, token_id, total_received, unlocked_balance, locked_balance, 0, 0, transactions,
+          unlocked_shielded_balance, locked_shielded_balance, total_shielded_received
+         FROM address_balance WHERE address = ?`,
+      [WALLET, address],
+    );
+    return address;
+  };
+
+  const addressRow = async (address: string) => {
+    const [rows] = await mysql.query<any[]>(
+      `SELECT transactions, unlocked_shielded_balance AS unlocked FROM address_balance
+        WHERE address = ? AND token_id = '00'`, [address],
+    );
+    return rows[0] ? { transactions: Number(rows[0].transactions), unlocked: BigInt(rows[0].unlocked) } : null;
+  };
+  const walletRow = async () => {
+    const [rows] = await mysql.query<any[]>(
+      `SELECT transactions, unlocked_shielded_balance AS unlocked FROM wallet_balance
+        WHERE wallet_id = ? AND token_id = '00'`, [WALLET],
+    );
+    return rows[0] ? { transactions: Number(rows[0].transactions), unlocked: BigInt(rows[0].unlocked) } : null;
+  };
+
+  beforeEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+    clearShieldedCryptoProvider();
+  });
+
+  afterEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  it('voids the receive without underflowing, and clears what the sweep credited', async () => {
+    expect.hasAssertions();
+
+    const t = receive();
+    await ingest(t);
+    const address = await recoverInWalletService(t);
+    expect(await addressRow(address)).toStrictEqual({ transactions: 1, unlocked: 100n });
+
+    await expect(voidTxOf(t)).resolves.not.toThrow();
+
+    expect(await addressRow(address)).toBeNull();
+    expect(await walletRow()).toBeNull();
+  });
+
+  it('voids a spend made before the wallet registered, leaving the receive counted', async () => {
+    expect.hasAssertions();
+
+    const t = receive();
+    const t2 = spend(t);
+    await ingest(t);
+    await ingest(t2);
+    const address = await recoverInWalletService(t);
+    // Recovered already spent: counted for its receive, with nothing unspent.
+    expect(await addressRow(address)).toStrictEqual({ transactions: 1, unlocked: 0n });
+    expect(await walletRow()).toStrictEqual({ transactions: 1, unlocked: 0n });
+
+    await expect(voidTxOf(t2)).resolves.not.toThrow();
+
+    // The spend never counted for these pairs, so neither count moves; the
+    // output is unspent again.
+    expect(await addressRow(address)).toStrictEqual({ transactions: 1, unlocked: 100n });
+    expect(await walletRow()).toStrictEqual({ transactions: 1, unlocked: 100n });
+
+    await expect(voidTxOf(t)).resolves.not.toThrow();
+
+    expect(await addressRow(address)).toBeNull();
+    expect(await walletRow()).toBeNull();
+  });
+});
+
+describe('ingest under lock contention', () => {
+  // The wallet-service's recovery commit locks a wallet's balance rows for its
+  // whole transaction, so the daemon can lose a deadlock to it or wait on it.
+  const lockError = (errno: number) => Object.assign(new Error(`lock error ${errno}`), { errno });
+  const ingest = (event: unknown) => handleVertexAccepted({
+    socket: expect.any(Object),
+    healthcheck: expect.any(Object),
+    retryAttempt: 0,
+    initialEventId: null,
+    txCache: new LRU(100),
+    rewardMinBlocks: 300,
+    event,
+  } as any, undefined as any);
+  const vertex = () => JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+  const TRANSPARENT_ADDRESS = 'WTransparentAddress1'; // the fixture's transparent output, 5000 HTR
+
+  beforeEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  afterEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  it('re-runs an ingest that lost a lock conflict and writes everything once', async () => {
+    expect.hasAssertions();
+
+    const fixture = vertex();
+    const hash = fixture.event.data.hash;
+    // Fails the first attempt at its last statement, after every other write.
+    const spy = jest.spyOn(db, 'updateLastSyncedEvent').mockRejectedValueOnce(lockError(1213));
+
+    await expect(ingest(fixture)).resolves.not.toThrow();
+    spy.mockRestore();
+
+    const [txRows] = await mysql.query<any[]>('SELECT `tx_id` FROM `transaction` WHERE `tx_id` = ?', [hash]);
+    expect(txRows).toHaveLength(1);
+    const [outputs] = await mysql.query<any[]>('SELECT `index` FROM `tx_output` WHERE `tx_id` = ?', [hash]);
+    expect(outputs).toHaveLength(2);
+    const [addr] = await mysql.query<any[]>('SELECT `transactions` FROM `address` WHERE `address` = ?', [TRANSPARENT_ADDRESS]);
+    expect(Number(addr[0].transactions)).toBe(1);
+  });
+
+  it('still fails once its retries are exhausted, leaving nothing behind', async () => {
+    expect.hasAssertions();
+
+    const fixture = vertex();
+    const spy = jest.spyOn(db, 'updateLastSyncedEvent').mockRejectedValue(lockError(1205));
+
+    await expect(ingest(fixture)).rejects.toMatchObject({ errno: 1205 });
+    spy.mockRestore();
+
+    const [txRows] = await mysql.query<any[]>(
+      'SELECT `tx_id` FROM `transaction` WHERE `tx_id` = ?', [fixture.event.data.hash],
+    );
+    expect(txRows).toHaveLength(0);
+  });
+
+  it('credits a wallet whose load finished while the ingest waited on its rows', async () => {
+    expect.hasAssertions();
+
+    const walletId = 'wallet_loading';
+    const now = Math.floor(Date.now() / 1000);
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, max_gap, created_at)
+       VALUES (?, ?, ?, 'creating', 20, ?)`,
+      [walletId, XPUBKEY, XPUBKEY, now],
+    );
+    await mysql.query(
+      'INSERT INTO `address` (address, wallet_id, `index`, transactions) VALUES (?, ?, 0, 0)',
+      [TRANSPARENT_ADDRESS, walletId],
+    );
+    await mysql.query(
+      `INSERT INTO \`address_balance\` (address, token_id, unlocked_balance, locked_balance,
+          unlocked_authorities, locked_authorities, transactions)
+       VALUES (?, '00', 0, 0, 0, 0, 0)`,
+      [TRANSPARENT_ADDRESS],
+    );
+
+    // A load's settle holds the address's balance row...
+    const load = await db.getDbConnection();
+    try {
+      await load.beginTransaction();
+      await load.query('SELECT 1 FROM `address_balance` WHERE `address` = ? FOR UPDATE', [TRANSPARENT_ADDRESS]);
+
+      // ...so the ingest waits on it once it reaches its balance writes. A
+      // vertex with inputs reads (its locked inputs, for one) before then, which
+      // fixes its snapshot with the wallet still loading; this fixture has no
+      // inputs, so make that read here, on the ingest's own connection.
+      let reached!: () => void;
+      const atBalanceWrites = new Promise<void>((resolve) => { reached = resolve; });
+      const realUpdate = db.updateAddressTablesWithTx;
+      const spy = jest.spyOn(db, 'updateAddressTablesWithTx').mockImplementationOnce(async (...args) => {
+        await args[0].query('SELECT `status` FROM `wallet` WHERE `id` = ?', [walletId]);
+        reached();
+        return realUpdate(...args);
+      });
+      const ingesting = ingest(vertex());
+      await atBalanceWrites;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // The load flips the wallet ready and commits, releasing the row.
+      await load.query("UPDATE `wallet` SET `status` = 'ready' WHERE `id` = ?", [walletId]);
+      await load.commit();
+      await ingesting;
+      spy.mockRestore();
+    } finally {
+      load.release();
+    }
+
+    // The load's rebuild did not include this tx, so the ingest must credit the
+    // wallet; deciding from its stale snapshot would skip it for good.
+    const [rows] = await mysql.query<any[]>(
+      "SELECT `unlocked_balance` FROM `wallet_balance` WHERE `wallet_id` = ? AND `token_id` = '00'",
+      [walletId],
+    );
+    expect(rows).toHaveLength(1);
+    expect(BigInt(rows[0].unlocked_balance)).toBe(5000n);
+  });
+
+  it('credits a wallet whose shielded upgrade failed while the ingest waited on its rows', async () => {
+    expect.hasAssertions();
+
+    const walletId = 'wallet_upgrading';
+    const now = Math.floor(Date.now() / 1000);
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, ct_status, max_gap, created_at, ready_at)
+       VALUES (?, ?, ?, 'ready', 'creating', 20, ?, ?)`,
+      [walletId, XPUBKEY, XPUBKEY, now, now],
+    );
+    await mysql.query(
+      'INSERT INTO `address` (address, wallet_id, `index`, transactions) VALUES (?, ?, 0, 0)',
+      [TRANSPARENT_ADDRESS, walletId],
+    );
+    await mysql.query(
+      `INSERT INTO \`address_balance\` (address, token_id, unlocked_balance, locked_balance,
+          unlocked_authorities, locked_authorities, transactions)
+       VALUES (?, '00', 0, 0, 0, 0, 0)`,
+      [TRANSPARENT_ADDRESS],
+    );
+
+    // The upgrade's failure path holds the address's balance row while it
+    // rebuilds the wallet's totals...
+    const load = await db.getDbConnection();
+    try {
+      await load.beginTransaction();
+      await load.query('SELECT 1 FROM `address_balance` WHERE `address` = ? FOR UPDATE', [TRANSPARENT_ADDRESS]);
+
+      let reached!: () => void;
+      const atBalanceWrites = new Promise<void>((resolve) => { reached = resolve; });
+      const realUpdate = db.updateAddressTablesWithTx;
+      const spy = jest.spyOn(db, 'updateAddressTablesWithTx').mockImplementationOnce(async (...args) => {
+        await args[0].query('SELECT `ct_status` FROM `wallet` WHERE `id` = ?', [walletId]);
+        reached();
+        return realUpdate(...args);
+      });
+      const ingesting = ingest(vertex());
+      await atBalanceWrites;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // ...then records the failure and commits, releasing the row.
+      await load.query("UPDATE `wallet` SET `ct_status` = 'error' WHERE `id` = ?", [walletId]);
+      await load.commit();
+      await ingesting;
+      spy.mockRestore();
+    } finally {
+      load.release();
+    }
+
+    // The rebuild did not include this tx, so the ingest must credit the
+    // wallet, or its transparent balance would stay short for good.
+    const [rows] = await mysql.query<any[]>(
+      "SELECT `unlocked_balance` FROM `wallet_balance` WHERE `wallet_id` = ? AND `token_id` = '00'",
+      [walletId],
+    );
+    expect(rows).toHaveLength(1);
+    expect(BigInt(rows[0].unlocked_balance)).toBe(5000n);
+  });
+
+  it('moves a recovered output\'s value on unlock even when it was read as unowned', async () => {
+    expect.hasAssertions();
+
+    // The wallet-service recovered and credited this locked output after the
+    // daemon's plain read saw it unowned.
+    await mysql.query(
+      `INSERT INTO \`tx_output\` (tx_id, \`index\`, address, value, token_id, authorities, timelock,
+          heightlock, locked, voided, mode, recovery_state)
+       VALUES ('unlock-tx', 0, 'WShieldedAddress1', 100, '00', 0, NULL, 10, TRUE, FALSE, 1, 'recovered')`,
+    );
+    await mysql.query(
+      `INSERT INTO \`address_balance\` (address, token_id, unlocked_balance, locked_balance,
+          unlocked_shielded_balance, locked_shielded_balance, total_shielded_received,
+          unlocked_authorities, locked_authorities, transactions)
+       VALUES ('WShieldedAddress1', '00', 0, 0, 0, 100, 100, 0, 0, 1)`,
+    );
+    const current = (await db.getTxOutput(mysql, 'unlock-tx', 0, false))!;
+    const stale: DbTxOutput = { ...current, recoveryState: 'unowned', value: null, tokenId: '00' };
+
+    await mysql.beginTransaction();
+    await unlockUtxos(mysql, [stale], false);
+    await mysql.commit();
+
+    const [rows] = await mysql.query<any[]>(
+      `SELECT locked_shielded_balance AS locked, unlocked_shielded_balance AS unlocked
+         FROM address_balance WHERE address = 'WShieldedAddress1' AND token_id = '00'`,
+    );
+    expect({ locked: BigInt(rows[0].locked), unlocked: BigInt(rows[0].unlocked) })
+      .toStrictEqual({ locked: 0n, unlocked: 100n });
+  });
+});
+
+describe('void under lock contention', () => {
+  // The wallet-service promotes a stored shielded output and credits it in one
+  // transaction. A void that waits on that transaction must decide what to
+  // reverse from the committed row, not from its own earlier snapshot.
+  const ingest = (event: unknown) => handleVertexAccepted({
+    socket: expect.any(Object),
+    healthcheck: expect.any(Object),
+    retryAttempt: 0,
+    initialEventId: null,
+    txCache: new LRU(100),
+    rewardMinBlocks: 300,
+    event,
+  } as any, undefined as any);
+  const voidTxOf = (f: any) => handleVoidedTx({
+    event: {
+      stream_id: 's', peer_id: 'p', network: 'mainnet', type: 'FULLNODE_EVENT', latest_event_id: 99999,
+      event: {
+        id: 99000 + f.event.id,
+        data: { ...f.event.data, metadata: { ...f.event.data.metadata, voided_by: [f.event.data.hash] } },
+      },
+    },
+  } as any);
+  const receive = () => {
+    const f = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    f.event.data.shielded_outputs[0].token_data = 0;
+    return f;
+  };
+  const spend = (t: any) => {
+    const f = JSON.parse(JSON.stringify(t));
+    const hash = 'c3'.repeat(32);
+    f.event.id = 103;
+    f.event.data.hash = hash;
+    f.event.data.metadata.hash = hash;
+    f.event.data.inputs = [{
+      tx_id: t.event.data.hash,
+      index: t.event.data.outputs.length,
+      spent_output: { ...t.event.data.shielded_outputs[0], mode: 1, token_data: 0 },
+    }];
+    f.event.data.outputs = [{
+      value: 90, script: 'dqkU91U6sMdzgT3zxOtdIVGbqobP0FmIrA==', token_data: 0,
+      decoded: { type: 'P2PKH', address: 'WTransparentAddress2', timelock: null },
+    }];
+    f.event.data.shielded_outputs = [];
+    return f;
+  };
+  const SHIELDED_ADDRESS = 'WShieldedAddress1';
+
+  /**
+   * On a second connection, do what the wallet-service's recovery commit does
+   * for the receive's output, and leave it uncommitted. Returns the connection.
+   */
+  const recoverUncommitted = async (t: any) => {
+    const recoverer = await db.getDbConnection();
+    await recoverer.beginTransaction();
+    await recoverer.query(
+      "UPDATE `address` SET wallet_id = 'wallet_alice', bip32_account = 2, scan_privkey = ? WHERE address = ?",
+      [Buffer.alloc(32, 0x42), SHIELDED_ADDRESS],
+    );
+    const [rows] = await recoverer.query<any[]>(
+      'SELECT `spent_by` FROM `tx_output` WHERE `tx_id` = ? AND `index` = ?',
+      [t.event.data.hash, t.event.data.outputs.length],
+    );
+    const spent = rows[0].spent_by !== null;
+    await recoverer.query(
+      "UPDATE `tx_output` SET recovery_state = 'recovered', value = 100, token_id = '00' WHERE tx_id = ? AND `index` = ?",
+      [t.event.data.hash, t.event.data.outputs.length],
+    );
+    await recoverer.query(
+      `INSERT INTO address_balance (address, token_id, unlocked_balance, locked_balance,
+          unlocked_shielded_balance, locked_shielded_balance, total_shielded_received,
+          unlocked_authorities, locked_authorities, transactions)
+       VALUES (?, '00', 0, 0, ?, 0, 100, 0, 0, 1)`,
+      [SHIELDED_ADDRESS, spent ? 0 : 100],
+    );
+    await recoverer.query(
+      `INSERT INTO address_tx_history (address, tx_id, token_id, balance, shielded_balance_delta, timestamp, voided)
+       VALUES (?, ?, '00', 0, 100, 0, FALSE)`,
+      [SHIELDED_ADDRESS, t.event.data.hash],
+    );
+    return recoverer;
+  };
+  const shieldedRow = async () => {
+    const [rows] = await mysql.query<any[]>(
+      `SELECT unlocked_shielded_balance AS unlocked, total_shielded_received AS total
+         FROM address_balance WHERE address = ? AND token_id = '00'`, [SHIELDED_ADDRESS],
+    );
+    return rows[0] ? { unlocked: BigInt(rows[0].unlocked), total: BigInt(rows[0].total) } : null;
+  };
+
+  /** Start `run`, let it reach the recoverer's locks, then commit the recovery. */
+  const raceRecovery = async (recoverer: any, run: () => Promise<unknown>) => {
+    try {
+      const pending = run();
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await recoverer.commit();
+      await pending;
+    } finally {
+      recoverer.release();
+    }
+  };
+
+  beforeEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+    clearShieldedCryptoProvider();
+  });
+
+  afterEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  it('reverses an output recovered while the void waited on it', async () => {
+    expect.hasAssertions();
+
+    const t = receive();
+    await ingest(t);
+    const recoverer = await recoverUncommitted(t);
+
+    await raceRecovery(recoverer, () => voidTxOf(t));
+
+    // The void reversed the credit the recovery committed, leaving no balance.
+    expect(await shieldedRow()).toBeNull();
+  });
+
+  it('re-credits an output recovered while the void of its spender waited on it', async () => {
+    expect.hasAssertions();
+
+    const t = receive();
+    const t2 = spend(t);
+    await ingest(t);
+    await ingest(t2);
+    const recoverer = await recoverUncommitted(t);
+
+    await raceRecovery(recoverer, () => voidTxOf(t2));
+
+    // Unspent again: its value is back in the unlocked balance.
+    expect(await shieldedRow()).toStrictEqual({ unlocked: 100n, total: 100n });
+  });
+});
+
+describe('flagging wallets for a shielded sweep', () => {
+  // VERTEX_WITH_SHIELDED: one shielded output, index 1, to WShieldedAddress1,
+  // commitment 02…, ephemeral pubkey 05…; token_data 0 makes it HTR.
+  const ADDRESS = 'WShieldedAddress1';
+  const COMMITMENT = Buffer.from('02'.repeat(33), 'hex');
+  const EPHEMERAL = Buffer.from('05'.repeat(33), 'hex');
+  const vertex = () => {
+    const f = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    f.event.data.shielded_outputs[0].token_data = 0;
+    return f;
+  };
+  const ingest = (event: unknown) => handleVertexAccepted({
+    socket: expect.any(Object),
+    healthcheck: expect.any(Object),
+    retryAttempt: 0,
+    initialEventId: null,
+    txCache: new LRU(100),
+    rewardMinBlocks: 300,
+    event,
+  } as any, undefined as any);
+  const claim = () => mysql.query(
+    `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions, catchup_state)
+     VALUES (?, 'wallet_alice', 7, 2, ?, 0, 'done')`,
+    [ADDRESS, Buffer.alloc(32, 0x42)],
+  );
+  const catchupState = async () => {
+    const [rows] = await mysql.query<any[]>('SELECT `catchup_state` FROM `address` WHERE `address` = ?', [ADDRESS]);
+    return rows[0]?.catchup_state ?? null;
+  };
+
+  beforeEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+    resetCtCryptoMock();
+  });
+
+  afterEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  it('flags an output stored while no provider was registered', async () => {
+    expect.hasAssertions();
+    await claim();
+    clearShieldedCryptoProvider();
+
+    await ingest(vertex());
+
+    expect(await catchupState()).toBe('pending');
+  });
+
+  it('flags an output whose recovery failed', async () => {
+    expect.hasAssertions();
+    await claim();
+    // Registered but not primed: the rewind fails.
+
+    await ingest(vertex());
+
+    expect(await catchupState()).toBe('pending');
+  });
+
+  it.each([
+    ['recovered', () => primeAmountRewind({
+      commitment: COMMITMENT, ephemeralPubkey: EPHEMERAL, value: 150n, tokenUid: Buffer.alloc(32),
+    })],
+    ['missed', () => primeScanMiss({ commitment: COMMITMENT, ephemeralPubkey: EPHEMERAL })],
+  ])('does not flag an output that was %s', async (_label, prime) => {
+    expect.hasAssertions();
+    await claim();
+    prime();
+
+    await ingest(vertex());
+
+    expect(await catchupState()).toBe('done');
+  });
+
+  it('does not flag an asset mismatch, which fails the same way every time', async () => {
+    expect.hasAssertions();
+    // Event 70473: FullyShielded outputs to one address.
+    const wire = alphaV4FullyShieldedSpendEvent.event.data;
+    const address = wire.shielded_outputs[0].decoded.address;
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions, catchup_state)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0, 'done')`,
+      [address, Buffer.alloc(32, 0x42)],
+    );
+    for (const so of wire.shielded_outputs) {
+      primeAssetMismatch({
+        commitment: Buffer.from(so.commitment, 'hex'),
+        ephemeralPubkey: Buffer.from(so.ephemeral_pubkey!, 'hex'),
+      });
+    }
+
+    await ingest(FullNodeEventSchema.parse(JSON.parse(JSON.stringify(alphaV4FullyShieldedSpendEvent))));
+
+    const [rows] = await mysql.query<any[]>('SELECT `catchup_state` FROM `address` WHERE `address` = ?', [address]);
+    expect(rows[0].catchup_state).toBe('done');
+  });
+
+  it('does not flag an output a sweep cannot recover either', async () => {
+    expect.hasAssertions();
+    await claim();
+    clearShieldedCryptoProvider();
+    const noPubkey = vertex();
+    noPubkey.event.data.shielded_outputs[0].ephemeral_pubkey = null;
+
+    await ingest(noPubkey);
+
+    expect(await catchupState()).toBe('done');
+  });
+
+  it('does not flag a parked output, which has no payload to recover', async () => {
+    expect.hasAssertions();
+    await claim();
+    clearShieldedCryptoProvider();
+    const parked = vertex();
+    parked.event.data.shielded_outputs[0].script = Buffer.alloc(1025, 0xab).toString('base64');
+
+    await ingest(parked);
+
+    expect(await catchupState()).toBe('done');
+  });
+
+  it('leaves an unclaimed address alone', async () => {
+    expect.hasAssertions();
+    clearShieldedCryptoProvider();
+
+    await ingest(vertex());
+
+    // An observation row only; nothing could recover its outputs yet.
+    expect(await catchupState()).toBeNull();
+  });
+
+  it('rolls the flag back with a failed ingest', async () => {
+    expect.hasAssertions();
+    await claim();
+    clearShieldedCryptoProvider();
+    const spy = jest.spyOn(db, 'updateLastSyncedEvent').mockRejectedValue(new Error('disk full'));
+
+    await expect(ingest(vertex())).rejects.toThrow('disk full');
+    spy.mockRestore();
+
+    expect(await catchupState()).toBe('done');
+  });
+
+  it('flags a fully-shielded output whose recovery failed', async () => {
+    expect.hasAssertions();
+    const wire = alphaV4FullyShieldedSpendEvent.event.data;
+    const address = wire.shielded_outputs[0].decoded.address;
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions, catchup_state)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0, 'done')`,
+      [address, Buffer.alloc(32, 0x42)],
+    );
+
+    await ingest(FullNodeEventSchema.parse(JSON.parse(JSON.stringify(alphaV4FullyShieldedSpendEvent))));
+
+    const [rows] = await mysql.query<any[]>('SELECT `catchup_state` FROM `address` WHERE `address` = ?', [address]);
+    expect(rows[0].catchup_state).toBe('pending');
+  });
+
+  it('flags an address when one of its outputs fails even though another recovered', async () => {
+    expect.hasAssertions();
+    // Event 47541: two AmountShielded outputs to one address.
+    const wire = alphaV4ShieldedVertexEvent.event.data;
+    const address = wire.shielded_outputs[0].decoded.address;
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions, catchup_state)
+       VALUES (?, 'wallet_alice', 7, 2, ?, 0, 'done')`,
+      [address, Buffer.alloc(32, 0x42)],
+    );
+    const opened = wire.shielded_outputs[1];
+    primeAmountRewind({
+      commitment: Buffer.from(opened.commitment, 'hex'),
+      ephemeralPubkey: Buffer.from(opened.ephemeral_pubkey, 'hex'),
+      value: 5n,
+      tokenUid: Buffer.alloc(32),
+    });
+
+    await ingest(FullNodeEventSchema.parse(JSON.parse(JSON.stringify(alphaV4ShieldedVertexEvent))));
+
+    const [rows] = await mysql.query<any[]>('SELECT `catchup_state` FROM `address` WHERE `address` = ?', [address]);
+    expect(rows[0].catchup_state).toBe('pending');
+  });
+
+  it('leaves an address claimed on the legacy account alone', async () => {
+    expect.hasAssertions();
+    await mysql.query(
+      `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, transactions, catchup_state)
+       VALUES (?, 'wallet_alice', 7, 0, 0, NULL)`,
+      [ADDRESS],
+    );
+    clearShieldedCryptoProvider();
+
+    await ingest(vertex());
+
+    expect(await catchupState()).toBeNull();
+  });
+
+  it('recovers an output to an address claimed after the ingest took its snapshot', async () => {
+    expect.hasAssertions();
+    primeAmountRewind({ commitment: COMMITMENT, ephemeralPubkey: EPHEMERAL, value: 150n, tokenUid: Buffer.alloc(32) });
+    const claimer = await db.getDbConnection();
+    const real = db.upsertShieldedAddressObservation;
+    const spy = jest.spyOn(db, 'upsertShieldedAddressObservation').mockImplementationOnce(async (...args) => {
+      // The ingest has read before now, fixing its snapshot; a wallet load
+      // then claims the address and commits.
+      await args[0].query('SELECT 1 FROM `address` LIMIT 1');
+      await claimer.query(
+        `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, transactions, catchup_state)
+         VALUES (?, 'wallet_alice', 7, 2, ?, 0, 'done')`,
+        [ADDRESS, Buffer.alloc(32, 0x42)],
+      );
+      return real(...args);
+    });
+
+    try {
+      await ingest(vertex());
+    } finally {
+      spy.mockRestore();
+      claimer.release();
+    }
+
+    // Read from the snapshot, the address would look unclaimed: the output
+    // would stay unowned, with nothing to recover it.
+    const out = await getTxOutput(mysql, eventsFixture.VERTEX_WITH_SHIELDED.event.data.hash, 1, false);
+    expect(out!.recoveryState).toBe('recovered');
+  });
+
+  it('does not credit an output that was already recovered', async () => {
+    expect.hasAssertions();
+    await claim();
+    const f = vertex();
+    // Left over without its transaction row, so the vertex ingests again and
+    // meets an output already recovered and credited.
+    await mysql.query(
+      `INSERT INTO \`tx_output\` (tx_id, \`index\`, address, value, token_id, authorities, timelock,
+          heightlock, locked, voided, mode, recovery_state)
+       VALUES (?, 1, ?, 150, '00', 0, NULL, NULL, FALSE, FALSE, 1, 'recovered')`,
+      [f.event.data.hash, ADDRESS],
+    );
+    primeAmountRewind({ commitment: COMMITMENT, ephemeralPubkey: EPHEMERAL, value: 150n, tokenUid: Buffer.alloc(32) });
+
+    await ingest(f);
+
+    const [rows] = await mysql.query<any[]>(
+      "SELECT `unlocked_shielded_balance` AS b FROM `address_balance` WHERE `address` = ? AND `token_id` = '00'",
+      [ADDRESS],
+    );
+    expect(rows.length === 0 ? 0n : BigInt(rows[0].b)).toBe(0n);
+  });
+});
+
+describe('extending a wallet\'s legacy window', () => {
+  const WALLET = 'wallet_legacy';
+  const GAP = 5;
+  let derived: Record<number, string>;
+
+  const ingest = (event: unknown) => handleVertexAccepted({
+    socket: expect.any(Object),
+    healthcheck: expect.any(Object),
+    retryAttempt: 0,
+    initialEventId: null,
+    txCache: new LRU(100),
+    rewardMinBlocks: 300,
+    event,
+  } as any, undefined as any);
+
+  /** A transparent vertex paying each `[index, value]` to the wallet's legacy address at that index. */
+  const paying = (hash: string, ...payments: [number, number][]) => {
+    const f = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    f.event.data.hash = hash;
+    f.event.data.metadata.hash = hash;
+    f.event.data.inputs = [];
+    const template = f.event.data.outputs[0];
+    f.event.data.outputs = payments.map(([index, value]) => ({
+      ...JSON.parse(JSON.stringify(template)),
+      value,
+      decoded: { ...template.decoded, address: derived[index] },
+    }));
+    f.event.data.shielded_outputs = [];
+    return f;
+  };
+
+  beforeAll(async () => {
+    const byAddress = await generateAddresses('mainnet', XPUBKEY, 0, 30);
+    derived = Object.fromEntries(Object.entries(byAddress).map(([address, index]) => [index, address]));
+  });
+
+  /** A loaded wallet with nothing used yet: its window is indices 0..GAP - 1, as the load claims it. */
+  const seedLoadedWallet = async (ctStatus = 'none', status = 'ready') => {
+    const now = Math.floor(Date.now() / 1000);
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, ct_status, max_gap, created_at, ready_at, last_used_address_index)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, -1)`,
+      [WALLET, XPUBKEY, XPUBKEY, status, ctStatus, GAP, now, now],
+    );
+    await mysql.query(
+      'INSERT INTO `address` (address, `index`, wallet_id, transactions, bip32_account) VALUES ?',
+      [Array.from({ length: GAP }, (_, index) => [derived[index], index, WALLET, 0, 0])],
+    );
+  };
+
+  const claimed = async () => {
+    const [rows] = await mysql.query<any[]>(
+      'SELECT `index`, `bip32_account` FROM `address` WHERE `wallet_id` = ? ORDER BY `index`', [WALLET],
+    );
+    return rows;
+  };
+  const lastUsedIndex = async () => {
+    const [[wallet]] = await mysql.query<any[]>('SELECT `last_used_address_index` AS i FROM `wallet` WHERE `id` = ?', [WALLET]);
+    return Number(wallet.i);
+  };
+  const walletTotals = async () => {
+    const [rows] = await mysql.query<any[]>(
+      "SELECT `unlocked_balance` AS b, `transactions` AS t FROM `wallet_balance` WHERE `wallet_id` = ? AND `token_id` = '00'", [WALLET],
+    );
+    return rows.length ? { unlocked: BigInt(rows[0].b), transactions: Number(rows[0].t) } : null;
+  };
+  const walletHistory = async () => {
+    const [rows] = await mysql.query<any[]>(
+      'SELECT `tx_id`, `balance` FROM `wallet_tx_history` WHERE `wallet_id` = ? ORDER BY `tx_id`', [WALLET],
+    );
+    return rows.map((r: any) => [r.tx_id, Number(r.balance)]);
+  };
+  const T1 = 'a1'.repeat(32);
+  const T2 = 'a2'.repeat(32);
+
+  /** A payment to index 8, past the window, then one to 3, which extends the window over it. */
+  const takeOverAPaidAddress = async () => {
+    await ingest(paying(T1, [8, 1000]));
+    await ingest(paying(T2, [3, 10]));
+  };
+
+  it('takes over an address that was paid before the window reached it', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet();
+    await ingest(paying(T1, [8, 1000]));
+
+    // This used to fail the ingest with a duplicate key, halting sync.
+    await expect(ingest(paying(T2, [3, 10]))).resolves.not.toThrow();
+
+    // 8 is used, so the window runs on to 8 + GAP, as the load's would.
+    const rows = await claimed();
+    expect(rows.map((r: any) => Number(r.index))).toStrictEqual(Array.from({ length: 14 }, (_, i) => i));
+    expect(Number(rows[8].bip32_account)).toBe(0);
+    expect(await lastUsedIndex()).toBe(8);
+  });
+
+  it('credits the wallet with the taken-over balance and history', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet();
+    await takeOverAPaidAddress();
+
+    expect(await walletTotals()).toStrictEqual({ unlocked: 1010n, transactions: 2 });
+    expect(await walletHistory()).toStrictEqual([[T1, 1000], [T2, 10]]);
+  });
+
+  it('ingests a spend of more than the window held before the takeover', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet();
+    await takeOverAPaidAddress();
+    const spend = paying('a3'.repeat(32), [3, 1]);
+    spend.event.data.outputs[0].decoded.address = 'WExternalAddress9';
+    spend.event.data.outputs[0].value = 1000;
+    spend.event.data.inputs = [{
+      tx_id: T1,
+      index: 0,
+      spent_output: {
+        mode: 0, value: 1000, token_data: 0, locked: false,
+        script: eventsFixture.VERTEX_WITH_SHIELDED.event.data.outputs[0].script,
+        decoded: { type: 'P2PKH', address: derived[8], timelock: null },
+      },
+    }];
+
+    await ingest(spend);
+
+    expect((await walletTotals())!.unlocked).toBe(10n);
+  });
+
+  it('counts a vertex once when it pays both the window and the address past it', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet();
+
+    await ingest(paying(T1, [3, 10], [8, 1000]));
+
+    expect(await walletTotals()).toStrictEqual({ unlocked: 1010n, transactions: 1 });
+    expect(await walletHistory()).toStrictEqual([[T1, 1010]]);
+  });
+
+  it('keeps going past each used address it reaches', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet();
+    await ingest(paying(T1, [8, 1000]));
+    await ingest(paying(T2, [13, 500]));
+
+    await ingest(paying('a3'.repeat(32), [3, 10]));
+
+    expect((await claimed()).map((r: any) => Number(r.index))).toStrictEqual(Array.from({ length: 19 }, (_, i) => i));
+    expect(await lastUsedIndex()).toBe(13);
+    expect((await walletTotals())!.unlocked).toBe(1510n);
+  });
+
+  it('reverses the earlier payment when it is voided after the takeover', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet();
+    await takeOverAPaidAddress();
+    const { data } = paying(T1, [8, 1000]).event;
+
+    await voidTx(mysql, T1, data.inputs, data.outputs, [], data.tokens, [], data.version);
+
+    expect(await walletTotals()).toStrictEqual({ unlocked: 10n, transactions: 1 });
+  });
+
+  it('never moves the last used index backwards', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet();
+    await mysql.query('UPDATE `wallet` SET `last_used_address_index` = 30 WHERE `id` = ?', [WALLET]);
+
+    await ingest(paying(T1, [3, 10]));
+
+    expect(await lastUsedIndex()).toBe(30);
+  });
+
+  it('credits a ready wallet whose shielded upgrade failed', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet('error');
+    await takeOverAPaidAddress();
+
+    expect((await walletTotals())!.unlocked).toBe(1010n);
+  });
+
+  it('leaves a mid-load wallet\'s taken-over address to its load', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet('creating');
+    await takeOverAPaidAddress();
+
+    // Claimed all the same, but the load's settle rebuilds the wallet's tables
+    // from all of its addresses.
+    expect(Number((await claimed())[8].index)).toBe(8);
+    expect(await walletTotals()).toBeNull();
+  });
+});
+
+describe('extending a wallet\'s CTSpend window', () => {
+  // A wallet's shielded keys as wallet-lib derives them from a seed.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { walletUtils, cryptoUtils, Network } = require('@hathor/wallet-lib');
+  const PIN = '123456';
+  const access = walletUtils.generateAccessDataFromSeed(`${'abandon '.repeat(23)}art`, {
+    pin: PIN, password: 'password', networkName: 'mainnet',
+  });
+  const scanXpriv: string = cryptoUtils.decryptData(access.scanMainKey, PIN);
+  const spendXpub: string = access.spendXpubkey;
+  const network = new Network('mainnet');
+  const derive = (index: number) => deriveCtAddress(scanXpriv, spendXpub, index, network);
+  const WALLET = 'wallet_ct';
+  const GAP = 3;
+
+  const ingest = (event: unknown) => handleVertexAccepted({
+    socket: expect.any(Object),
+    healthcheck: expect.any(Object),
+    retryAttempt: 0,
+    initialEventId: null,
+    txCache: new LRU(100),
+    rewardMinBlocks: 300,
+    event,
+  } as any, undefined as any);
+
+  /** A loaded wallet whose CTSpend window is indices 0..maxIndex. */
+  const seedLoadedWallet = async (maxIndex: number, scanXprivBytes = Buffer.from(scanXpriv, 'utf8')) => {
+    const now = Math.floor(Date.now() / 1000);
+    await mysql.query(
+      `INSERT INTO \`wallet\` (id, xpubkey, auth_xpubkey, status, ct_status, max_gap, created_at, ready_at,
+          scan_xpriv, spend_xpub, shielded_max_gap, last_used_shielded_index)
+       VALUES (?, ?, ?, 'ready', 'ready', 20, ?, ?, ?, ?, ?, NULL)`,
+      [WALLET, XPUBKEY, XPUBKEY, now, now, scanXprivBytes, spendXpub, GAP],
+    );
+    for (let index = 0; index <= maxIndex; index++) {
+      const d = derive(index);
+      await mysql.query(
+        `INSERT INTO address (address, wallet_id, \`index\`, bip32_account, scan_privkey, ct_address, transactions, catchup_state)
+         VALUES (?, ?, ?, 2, ?, ?, 0, 'done')`,
+        [d.spendAddress, WALLET, index, d.scanPrivkey, d.ctAddress],
+      );
+    }
+  };
+  /** VERTEX_WITH_SHIELDED, its shielded output paying the address at `index`. */
+  const paying = (index: number) => {
+    const f = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    f.event.data.shielded_outputs[0].token_data = 0;
+    f.event.data.shielded_outputs[0].decoded.address = derive(index).spendAddress;
+    return f;
+  };
+  const claimedIndices = async () => {
+    const [rows] = await mysql.query<any[]>(
+      'SELECT `index`, `address`, `catchup_state` FROM `address` WHERE `wallet_id` = ? AND `bip32_account` = 2 ORDER BY `index`',
+      [WALLET],
+    );
+    return rows;
+  };
+
+  beforeEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+    clearShieldedCryptoProvider();
+    mockAddAlert.mockClear();
+  });
+
+  afterEach(async () => {
+    await mysql.query('DELETE FROM shielded_tx_output_data');
+  });
+
+  it('claims the next addresses when a payment lands near the end of the window', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet(3);
+
+    // Index 2 leaves one address beyond it; the gap is 3, so two more.
+    await ingest(paying(2));
+
+    const rows = await claimedIndices();
+    expect(rows.map((r: any) => Number(r.index))).toStrictEqual([0, 1, 2, 3, 4, 5]);
+    // The same addresses the wallet's own load derives.
+    expect(rows[4].address).toBe(derive(4).spendAddress);
+    expect(rows[5].address).toBe(derive(5).spendAddress);
+    // Nothing was ever paid to them, so there is nothing for a sweep to do.
+    expect(rows[4].catchup_state).toBe('done');
+    expect(rows[5].catchup_state).toBe('done');
+    const [[wallet]] = await mysql.query<any[]>('SELECT `last_used_shielded_index` AS i FROM `wallet` WHERE `id` = ?', [WALLET]);
+    expect(Number(wallet.i)).toBe(2);
+  });
+
+  it('leaves the window alone while a payment is well inside it', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet(3);
+
+    await ingest(paying(0));
+
+    expect((await claimedIndices()).map((r: any) => Number(r.index))).toStrictEqual([0, 1, 2, 3]);
+  });
+
+  it('counts a transparent payment to a CTSpend address as use', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet(3);
+    const f = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    f.event.data.outputs[0].decoded.address = derive(3).spendAddress;
+    f.event.data.shielded_outputs = [];
+
+    await ingest(f);
+
+    expect((await claimedIndices()).map((r: any) => Number(r.index))).toStrictEqual([0, 1, 2, 3, 4, 5, 6]);
+  });
+
+  it('does not report a vertex that touched only the wallet\'s CTSpend addresses', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet(3);
+    await mysql.query(
+      'INSERT INTO address (address, wallet_id, `index`, bip32_account, transactions) VALUES (?, ?, 0, 0, 0)',
+      [ADDRESSES[0], WALLET],
+    );
+    const errorSpy = jest.spyOn(logger, 'error');
+    const f = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+    f.event.data.outputs[0].decoded.address = derive(1).spendAddress;
+    f.event.data.shielded_outputs = [];
+
+    try {
+      await ingest(f);
+      expect(errorSpy.mock.calls.map(([message]) => message)).not.toContainEqual(
+        expect.stringContaining('A wallet marked as READY does not have a max wallet index'),
+      );
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('claims an earlier payment\'s observation row and flags it for a sweep', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet(3);
+    // A payment past the window was observed before any wallet claimed it.
+    await mysql.query(
+      'INSERT INTO address (address, transactions) VALUES (?, 1)', [derive(5).spendAddress],
+    );
+
+    await ingest(paying(3));
+
+    const row = (await claimedIndices()).find((r: any) => Number(r.index) === 5);
+    expect(row).toMatchObject({ address: derive(5).spendAddress, catchup_state: 'pending' });
+  });
+
+  describe('crediting a row taken over with a balance', () => {
+    /** A transparent vertex spending `inputs`, paying `value` to `address`. */
+    const transparentVertex = (hash: string, inputs: unknown[], value: number, address: string) => {
+      const f = JSON.parse(JSON.stringify(eventsFixture.VERTEX_WITH_SHIELDED));
+      f.event.data.hash = hash;
+      f.event.data.metadata.hash = hash;
+      f.event.data.inputs = inputs;
+      f.event.data.outputs[0].value = value;
+      f.event.data.outputs[0].decoded.address = address;
+      f.event.data.shielded_outputs = [];
+      return f;
+    };
+    const walletUnlocked = async () => {
+      const [rows] = await mysql.query<any[]>(
+        "SELECT `unlocked_balance` AS b FROM `wallet_balance` WHERE `wallet_id` = ? AND `token_id` = '00'", [WALLET],
+      );
+      return rows.length ? BigInt(rows[0].b) : 0n;
+    };
+    const addressesUnlocked = async () => {
+      const [rows] = await mysql.query<any[]>(
+        `SELECT COALESCE(SUM(ab.\`unlocked_balance\`), 0) AS b FROM \`address_balance\` ab
+           JOIN \`address\` a ON a.\`address\` = ab.\`address\` WHERE a.\`wallet_id\` = ? AND ab.\`token_id\` = '00'`,
+        [WALLET],
+      );
+      return BigInt(rows[0].b);
+    };
+    const walletHistory = async () => {
+      const [rows] = await mysql.query<any[]>(
+        'SELECT `tx_id`, `balance` FROM `wallet_tx_history` WHERE `wallet_id` = ? ORDER BY `tx_id`', [WALLET],
+      );
+      return rows.map((r: any) => [r.tx_id, Number(r.balance)]);
+    };
+    const T1 = '11'.repeat(32);
+    const T2 = '22'.repeat(32);
+
+    /** A payment to index 6 before any wallet claimed it, then one to 3 that extends the window over it. */
+    const takeOverAPaidRow = async () => {
+      await seedLoadedWallet(3);
+      await ingest(transparentVertex(T1, [], 1000, derive(6).spendAddress));
+      await ingest(transparentVertex(T2, [], 10, derive(3).spendAddress));
+    };
+
+    it('credits the wallet with the row\'s balance and history', async () => {
+      expect.hasAssertions();
+      await takeOverAPaidRow();
+
+      expect(await walletUnlocked()).toBe(1010n);
+      expect(await addressesUnlocked()).toBe(1010n);
+      expect(await walletHistory()).toStrictEqual([[T1, 1000], [T2, 10]]);
+      const [[balance]] = await mysql.query<any[]>(
+        "SELECT `transactions` FROM `wallet_balance` WHERE `wallet_id` = ? AND `token_id` = '00'", [WALLET],
+      );
+      expect(Number(balance.transactions)).toBe(2);
+    });
+
+    it('ingests a spend of the taken-over balance', async () => {
+      expect.hasAssertions();
+      await takeOverAPaidRow();
+      const spend = transparentVertex('33'.repeat(32), [{
+        tx_id: T1,
+        index: 0,
+        spent_output: {
+          mode: 0, value: 1000, token_data: 0, locked: false,
+          script: eventsFixture.VERTEX_WITH_SHIELDED.event.data.outputs[0].script,
+          decoded: { type: 'P2PKH', address: derive(6).spendAddress, timelock: null },
+        },
+      }], 1000, 'WExternalAddress9');
+
+      await ingest(spend);
+
+      expect(await walletUnlocked()).toBe(10n);
+    });
+
+    it('counts a vertex once when it pays both an owned address and the row it takes over', async () => {
+      expect.hasAssertions();
+      await seedLoadedWallet(3);
+      const v = transparentVertex('44'.repeat(32), [], 10, derive(3).spendAddress);
+      const past = JSON.parse(JSON.stringify(v.event.data.outputs[0]));
+      past.value = 1000;
+      past.decoded.address = derive(6).spendAddress;
+      v.event.data.outputs.push(past);
+
+      await ingest(v);
+
+      expect(await walletUnlocked()).toBe(1010n);
+      expect(await walletHistory()).toStrictEqual([['44'.repeat(32), 1010]]);
+      const [[balance]] = await mysql.query<any[]>(
+        "SELECT `transactions` FROM `wallet_balance` WHERE `wallet_id` = ? AND `token_id` = '00'", [WALLET],
+      );
+      expect(Number(balance.transactions)).toBe(1);
+    });
+
+    it('leaves a mid-load wallet\'s taken-over row to its load', async () => {
+      expect.hasAssertions();
+      await seedLoadedWallet(3);
+      await mysql.query("UPDATE `wallet` SET `ct_status` = 'creating' WHERE `id` = ?", [WALLET]);
+      await ingest(transparentVertex(T1, [], 1000, derive(6).spendAddress));
+      await ingest(transparentVertex(T2, [], 10, derive(3).spendAddress));
+
+      // The row was taken over all the same...
+      const row = (await claimedIndices()).find((r: any) => Number(r.index) === 6);
+      expect(row).toMatchObject({ address: derive(6).spendAddress, catchup_state: 'pending' });
+      // ...but the load's settle rebuilds the wallet's tables from all its addresses.
+      expect(await walletUnlocked()).toBe(0n);
+      expect(await walletHistory()).toStrictEqual([]);
+    });
+
+    it('credits a legacy and a CTSpend row taken over by the same vertex', async () => {
+      expect.hasAssertions();
+      await seedLoadedWallet(3);
+      // The same wallet's legacy window, 0..2, with a legacy gap of 3 to keep
+      // the derivation short.
+      await mysql.query('UPDATE `wallet` SET `max_gap` = 3 WHERE `id` = ?', [WALLET]);
+      const legacy = Object.fromEntries(Object.entries(await generateAddresses('mainnet', XPUBKEY, 0, 10))
+        .map(([address, index]) => [index, address]));
+      await mysql.query(
+        'INSERT INTO `address` (address, `index`, wallet_id, transactions, bip32_account) VALUES ?',
+        [Array.from({ length: 3 }, (_, index) => [legacy[index], index, WALLET, 0, 0])],
+      );
+      // Both paid past their windows...
+      const first = transparentVertex(T1, [], 1000, legacy[4]);
+      const ct = JSON.parse(JSON.stringify(first.event.data.outputs[0]));
+      ct.value = 500;
+      ct.decoded.address = derive(6).spendAddress;
+      first.event.data.outputs.push(ct);
+      await ingest(first);
+      // ...and both windows then extended over them by one vertex.
+      const second = transparentVertex(T2, [], 10, legacy[1]);
+      const ct2 = JSON.parse(JSON.stringify(second.event.data.outputs[0]));
+      ct2.value = 20;
+      ct2.decoded.address = derive(3).spendAddress;
+      second.event.data.outputs.push(ct2);
+      await ingest(second);
+
+      expect(await walletUnlocked()).toBe(1530n);
+      expect(await walletHistory()).toStrictEqual([[T1, 1500], [T2, 30]]);
+    });
+
+    it('counts a tx once when it paid several rows taken over together', async () => {
+      expect.hasAssertions();
+      await seedLoadedWallet(3);
+      const v = transparentVertex(T1, [], 1000, derive(5).spendAddress);
+      const second = JSON.parse(JSON.stringify(v.event.data.outputs[0]));
+      second.value = 500;
+      second.decoded.address = derive(6).spendAddress;
+      v.event.data.outputs.push(second);
+      await ingest(v);
+      await ingest(transparentVertex(T2, [], 10, derive(3).spendAddress));
+
+      expect(await walletUnlocked()).toBe(1510n);
+      expect(await walletHistory()).toStrictEqual([[T1, 1500], [T2, 10]]);
+      const [[balance]] = await mysql.query<any[]>(
+        "SELECT `transactions` FROM `wallet_balance` WHERE `wallet_id` = ? AND `token_id` = '00'", [WALLET],
+      );
+      expect(Number(balance.transactions)).toBe(2);
+    });
+  });
+
+  it('sizes the window as the load would when a claimed row already holds an output', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet(3);
+    // A payment to index 5, stored before any wallet claimed the address.
+    await mysql.query(
+      'INSERT INTO address (address, transactions) VALUES (?, 1)', [derive(5).spendAddress],
+    );
+    await mysql.query(
+      `INSERT INTO tx_output (tx_id, \`index\`, token_id, address, value, authorities, locked, voided)
+       VALUES (?, 0, '00', ?, 10, 0, FALSE, FALSE)`,
+      ['ab'.repeat(32), derive(5).spendAddress],
+    );
+
+    // Index 2 brings 4 and 5 into the window; 5 is used, so the load's window
+    // runs on to 5 + 3.
+    await ingest(paying(2));
+
+    const rows = await claimedIndices();
+    expect(rows.map((r: any) => Number(r.index))).toStrictEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(rows[8].address).toBe(derive(8).spendAddress);
+    const [[wallet]] = await mysql.query<any[]>('SELECT `last_used_shielded_index` AS i FROM `wallet` WHERE `id` = ?', [WALLET]);
+    expect(Number(wallet.i)).toBe(5);
+  });
+
+  it('ingests the vertex, and alerts after commit, when the wallet\'s keys do not derive', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet(3, Buffer.from('not an xpriv', 'utf8'));
+
+    await expect(ingest(paying(2))).resolves.not.toThrow();
+
+    const [txRows] = await mysql.query<any[]>(
+      'SELECT `tx_id` FROM `transaction` WHERE `tx_id` = ?', [eventsFixture.VERTEX_WITH_SHIELDED.event.data.hash],
+    );
+    expect(txRows).toHaveLength(1);
+    expect(mockAddAlert.mock.calls.map(([title]) => title)).toContain('Shielded address window not extended');
+  });
+
+  it('never moves the last used index backwards', async () => {
+    expect.hasAssertions();
+    await seedLoadedWallet(3);
+    await mysql.query('UPDATE `wallet` SET `last_used_shielded_index` = 10 WHERE `id` = ?', [WALLET]);
+
+    await ingest(paying(2));
+
+    const [[wallet]] = await mysql.query<any[]>('SELECT `last_used_shielded_index` AS i FROM `wallet` WHERE `id` = ?', [WALLET]);
+    expect(Number(wallet.i)).toBe(10);
   });
 });

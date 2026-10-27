@@ -22,6 +22,7 @@ import { walletIdProxyHandler } from '@src/commons';
 import middy from '@middy/core';
 import cors from '@middy/http-cors';
 import errorHandler from '@src/api/middlewares/errorHandler';
+import { Bip32Account } from '@wallet-service/common';
 
 const mysql = getDbConnection();
 
@@ -37,6 +38,7 @@ const checkMineBodySchema = Joi.object({
 class AddressAtIndexValidator {
   static readonly bodySchema = Joi.object({
     index: Joi.number().min(0).optional(),
+    legacy: Joi.boolean().default(true),
   });
 
   static validate(payload: unknown): { value: AddressAtIndexRequest, error: ValidationError } {
@@ -87,6 +89,9 @@ export const checkMine: APIGatewayProxyHandler = middy(walletIdProxyHandler(asyn
   }
 
   const sentAddresses = value.addresses;
+  // Membership is account-agnostic: an address is "mine" if the wallet owns it,
+  // whether it is a Legacy or a CTSpend address. The response is a boolean map
+  // with no account-specific fields, so there is nothing to scope by account.
   const dbWalletAddresses: AddressInfo[] = await getWalletAddresses(mysql, walletId, sentAddresses);
   const walletAddresses: Set<string> = dbWalletAddresses.reduce((acc, { address }) => acc.add(address), new Set([]));
 
@@ -107,6 +112,31 @@ export const checkMine: APIGatewayProxyHandler = middy(walletIdProxyHandler(asyn
   };
 })).use(cors())
   .use(errorHandler());
+
+// The default (legacy) response must keep the same field set the API returned
+// before the shielded columns existed, so we build entries explicitly instead of
+// returning the internal AddressInfo shape as-is.
+// `ct_address` is only surfaced on CTSpend (legacy=false) entries.
+const toAddressResponse = (address: AddressInfo, legacy: boolean): Record<string, unknown> => {
+  // Legacy: the on-chain address is the address. CTSpend (legacy=false): the
+  // user-facing CT address is the address, and the on-chain spend address is
+  // surfaced under `spendAddress`.
+  if (legacy) {
+    return {
+      address: address.address,
+      index: address.index,
+      transactions: address.transactions,
+      seqnum: address.seqnum,
+    };
+  }
+  return {
+    address: address.ctAddress,
+    spendAddress: address.address,
+    index: address.index,
+    transactions: address.transactions,
+    seqnum: address.seqnum,
+  };
+};
 
 /**
  * Get the addresses of a wallet, allowing an index filter
@@ -138,10 +168,12 @@ export const get: APIGatewayProxyHandler = middy(
       return closeDbAndGetError(mysql, ApiError.INVALID_PAYLOAD, { details });
     }
 
+    const account = body.legacy ? Bip32Account.Legacy : Bip32Account.CTSpend;
+
     let response = null;
 
     if ('index' in body) {
-      const address: AddressInfo | null = await dbGetAddressAtIndex(mysql, walletId, body.index);
+      const address: AddressInfo | null = await dbGetAddressAtIndex(mysql, walletId, body.index, account);
 
       if (!address) {
         return closeDbAndGetError(mysql, ApiError.ADDRESS_NOT_FOUND);
@@ -151,17 +183,17 @@ export const get: APIGatewayProxyHandler = middy(
         statusCode: 200,
         body: JSON.stringify({
           success: true,
-          addresses: [address],
+          addresses: [toAddressResponse(address, body.legacy)],
         }),
       };
     } else {
       // Searching for multiple addresses
-      const addresses = await getWalletAddresses(mysql, walletId);
+      const addresses = await getWalletAddresses(mysql, walletId, null, account);
       response = {
         statusCode: 200,
         body: JSON.stringify({
           success: true,
-          addresses,
+          addresses: addresses.map((address) => toAddressResponse(address, body.legacy)),
         }),
       };
     }

@@ -54,6 +54,7 @@ describe('MonitoringActor', () => {
     config['STUCK_PROCESSING_TIMEOUT_MS'] = 5 * 60 * 1000; // 5 min
     config['RECONNECTION_STORM_THRESHOLD'] = 3;              // low threshold for tests
     config['RECONNECTION_STORM_WINDOW_MS'] = 5 * 60 * 1000; // 5 min
+    config['RECONNECTION_STORM_SEVERITY'] = Severity.MAJOR;
     config['BALANCE_VALIDATION_ENABLED'] = false;
     config['BALANCE_VALIDATION_INTERVAL_MS'] = 5000;
     config['BALANCE_VALIDATION_WINDOW_MS'] = 900000;
@@ -114,6 +115,32 @@ describe('MonitoringActor', () => {
     expect(mockAddAlert.mock.calls[0][2]).toBe(Severity.MAJOR);
     expect(mockCallback).toHaveBeenCalledWith(MONITORING_IDLE_TIMEOUT_EVENT);
     expect(processExitSpy).not.toHaveBeenCalled();
+  });
+
+  it('should fire the idle alert with the configured IDLE_EVENT_SEVERITY', async () => {
+    config['IDLE_EVENT_SEVERITY'] = Severity.MINOR;
+    MonitoringActor(mockCallback, mockReceive, config);
+    sendEvent('CONNECTED');
+
+    jest.advanceTimersByTime(config['IDLE_EVENT_TIMEOUT_MS'] + 1);
+    await Promise.resolve();
+    await Promise.resolve(); // flush the .finally() microtask
+
+    expect(mockAddAlert).toHaveBeenCalledTimes(1);
+    expect(mockAddAlert.mock.calls[0][2]).toBe(Severity.MINOR);
+  });
+
+  it('should fall back to MAJOR when IDLE_EVENT_SEVERITY is not a valid severity', async () => {
+    config['IDLE_EVENT_SEVERITY'] = 'bogus';
+    MonitoringActor(mockCallback, mockReceive, config);
+    sendEvent('CONNECTED');
+
+    jest.advanceTimersByTime(config['IDLE_EVENT_TIMEOUT_MS'] + 1);
+    await Promise.resolve();
+    await Promise.resolve(); // flush the .finally() microtask
+
+    expect(mockAddAlert).toHaveBeenCalledTimes(1);
+    expect(mockAddAlert.mock.calls[0][2]).toBe(Severity.MAJOR);
   });
 
   it('should NOT fire an idle alert when events keep arriving', async () => {
@@ -289,6 +316,48 @@ describe('MonitoringActor', () => {
     await Promise.resolve();
     // Cooldown prevents a second alert
     expect(mockAddAlert).toHaveBeenCalledTimes(1);
+  });
+
+  it('should fire the storm alert with the configured RECONNECTION_STORM_SEVERITY', async () => {
+    config['RECONNECTION_STORM_SEVERITY'] = Severity.MINOR;
+    MonitoringActor(mockCallback, mockReceive, config);
+
+    sendEvent('RECONNECTING');
+    sendEvent('RECONNECTING');
+    sendEvent('RECONNECTING');
+
+    await Promise.resolve();
+    expect(mockAddAlert).toHaveBeenCalledTimes(1);
+    expect(mockAddAlert.mock.calls[0][2]).toBe(Severity.MINOR);
+  });
+
+  it('should fall back to MAJOR when RECONNECTION_STORM_SEVERITY is not a valid severity', async () => {
+    config['RECONNECTION_STORM_SEVERITY'] = 'bogus';
+    MonitoringActor(mockCallback, mockReceive, config);
+
+    sendEvent('RECONNECTING');
+    sendEvent('RECONNECTING');
+    sendEvent('RECONNECTING');
+
+    await Promise.resolve();
+    expect(mockAddAlert).toHaveBeenCalledTimes(1);
+    expect(mockAddAlert.mock.calls[0][2]).toBe(Severity.MAJOR);
+  });
+
+  it('should log the reconnection storm at warn level, not error', async () => {
+    const warnSpy = jest.spyOn(logger, 'warn');
+    const errorSpy = jest.spyOn(logger, 'error');
+    MonitoringActor(mockCallback, mockReceive, config);
+
+    sendEvent('RECONNECTING');
+    sendEvent('RECONNECTING');
+    sendEvent('RECONNECTING');
+
+    await Promise.resolve();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('[monitoring] Reconnection storm:'));
+    expect(errorSpy).not.toHaveBeenCalledWith(expect.stringContaining('Reconnection storm'));
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 
   it('should fire another storm alert after the 1-minute cooldown expires', async () => {
