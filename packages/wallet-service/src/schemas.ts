@@ -84,13 +84,7 @@ export const EnvironmentConfigSchema = Joi.object<EnvironmentConfig>({
   awsRegion: Joi.string().required(),
 
   firebaseProjectId: Joi.string().optional(),
-  firebasePrivateKeyId: Joi.string().optional(),
   firebaseClientEmail: Joi.string().optional(),
-  firebaseClientId: Joi.string().optional(),
-  firebaseAuthUri: Joi.string().optional(),
-  firebaseTokenUri: Joi.string().optional(),
-  firebaseAuthProviderX509CertUrl: Joi.string().optional(),
-  firebaseClientX509CertUrl: Joi.string().optional(),
   firebasePrivateKey: Joi.string().allow(null).optional(),
 
   maxLoadWalletRetries: Joi.number().required(),
