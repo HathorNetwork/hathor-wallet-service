@@ -3439,7 +3439,9 @@ export const getTokenSymbols = async (
 
 /**
  * Fetches the txProposals created before a given date that are still OPEN or
- * in SEND_ERROR, whose UTXOs may still be reserved.
+ * in SEND_ERROR, for the cleanup cron to release and cancel. An OPEN proposal
+ * may still hold UTXOs; a SEND_ERROR one released them when it failed to send,
+ * and is selected only to be marked CANCELLED.
  *
  * CANCELLED proposals are left out: both ways a proposal gets cancelled (the
  * destroy API and the cleanup cron) release its UTXOs, so selecting them again

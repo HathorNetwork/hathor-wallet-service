@@ -4091,6 +4091,7 @@ describe('Clear unsent txProposals utxos', () => {
     expect(txProposals[2].status).toStrictEqual(TxProposalStatus.CANCELLED);
 
     // The proposals it cancelled are not picked up again on the next run
+    logger.debug.mockClear();
     await cleanUnsentTxProposalsUtxos();
     expect(logger.debug).toHaveBeenCalledWith('No txproposals utxos to clean.');
 
@@ -4114,6 +4115,7 @@ describe('Clear unsent txProposals utxos', () => {
   it('should not fail when there is nothing to clear', async () => {
     expect.hasAssertions();
 
+    logger.debug.mockClear();
     await cleanUnsentTxProposalsUtxos();
 
     expect(logger.debug).toHaveBeenCalledWith('No txproposals utxos to clean.');
