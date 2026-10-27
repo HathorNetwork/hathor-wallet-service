@@ -40,13 +40,7 @@ export function loadEnvConfig(): EnvironmentConfig {
     awsRegion: process.env.AWS_REGION,
 
     firebaseProjectId: process.env.FIREBASE_PROJECT_ID,
-    firebasePrivateKeyId: process.env.FIREBASE_PRIVATE_KEY_ID,
     firebaseClientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    firebaseClientId: process.env.FIREBASE_CLIENT_ID,
-    firebaseAuthUri: process.env.FIREBASE_AUTH_URI,
-    firebaseTokenUri: process.env.FIREBASE_TOKEN_URI,
-    firebaseAuthProviderX509CertUrl: process.env.FIREBASE_AUTH_PROVIDER_X509_CERT_URL,
-    firebaseClientX509CertUrl: process.env.FIREBASE_CLIENT_X509_CERT_URL,
     firebasePrivateKey: process.env.FIREBASE_PRIVATE_KEY,
 
     maxLoadWalletRetries: Number.parseInt(process.env.MAX_LOAD_WALLET_RETRIES || '5', 10),
