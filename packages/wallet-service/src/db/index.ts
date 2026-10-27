@@ -2850,6 +2850,46 @@ export const getMinersList = async (
 };
 
 /**
+ * Get the total sum of a token's utxos, excluding the burned and voided ones
+ *
+ * Only transparent outputs (mode = 0) are summed. A shielded row carries a
+ * `value` only once its owner's wallet recovered it, so including them would
+ * make the result depend on which wallets happen to be registered.
+ *
+ * @param mysql - Database connection
+
+ * @returns The calculated sum
+ */
+export const getTotalSupply = async (
+  mysql: ServerlessMysql,
+  tokenId: string,
+): Promise<bigint> => {
+  const results: DbSelectResult = await mysql.query(`
+    SELECT COALESCE(SUM(value), 0) as value
+      FROM tx_output
+     WHERE spent_by IS NULL
+       AND token_id = ?
+       AND voided = FALSE
+       AND mode = 0
+       AND address != '${BURN_ADDRESS}'
+  `, [tokenId]);
+
+  if (!results.length) {
+    // This should never happen.
+    await addAlert(
+      'Total supply query returned no results',
+      '-',
+      Severity.MINOR,
+      { tokenId },
+      logger,
+    );
+    throw new Error('Total supply query returned no results');
+  }
+
+  return BigInt(results[0].value as string);
+};
+
+/**
  * Get from database utxos that must be unlocked because their timelocks expired
  *
  * @param mysql - Database connection

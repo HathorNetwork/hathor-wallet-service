@@ -66,6 +66,7 @@ import {
 } from '@tests/utils';
 import fullnode from '@src/fullnode';
 import { getHealthcheck } from '@src/api/healthcheck';
+import { onTotalSupplyRequest } from '@src/api/totalSupply';
 import { resetCtCryptoMock } from '@tests/utils/ct-crypto-mock';
 import { Severity, clearShieldedCryptoProvider } from '@wallet-service/common';
 import { deriveCtAddress } from '@wallet-service/common/src/crypto/shieldedAddress';
@@ -3460,4 +3461,52 @@ describe('shielded wallet registration', () => {
     expect(w.ctStatus).toBe(WalletStatus.CREATING);
     expect(w.scanXpriv).toBe(body.scanXpriv);
   }, SHIELDED_TEST_TIMEOUT_MS);
+});
+
+test('onTotalSupplyRequest', async () => {
+  expect.hasAssertions();
+
+  await addToUtxoTable(mysql, [{
+    txId: 'txId1',
+    index: 0,
+    tokenId: '00',
+    address: ADDRESSES[0],
+    value: 50n,
+    authorities: 0,
+    timelock: null,
+    heightlock: null,
+    locked: false,
+    spentBy: null,
+  }, {
+    txId: 'txId1',
+    index: 1,
+    tokenId: 'token1',
+    address: ADDRESSES[0],
+    value: 30n,
+    authorities: 0,
+    timelock: null,
+    heightlock: null,
+    locked: false,
+    spentBy: null,
+  }]);
+
+  // The network-monitor invokes the lambda with an empty body, so the token
+  // defaults to HTR.
+  let event = makeGatewayEvent({}, {});
+  let result = await onTotalSupplyRequest(event, null, null) as APIGatewayProxyResult;
+  let returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody).toStrictEqual({ success: true, totalSupply: 50 });
+
+  event = makeGatewayEvent({}, { tokenId: 'token1' });
+  result = await onTotalSupplyRequest(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody).toStrictEqual({ success: true, totalSupply: 30 });
+
+  event = makeGatewayEvent({}, { tokenId: 'not-alphanum!' });
+  result = await onTotalSupplyRequest(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(STATUS_CODE_TABLE[ApiError.INVALID_PAYLOAD]);
+  expect(returnBody.error).toBe(ApiError.INVALID_PAYLOAD);
 });
