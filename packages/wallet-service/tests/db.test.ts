@@ -87,6 +87,7 @@ import {
   deleteStalePushDevices,
   releaseTxProposalUtxos,
   getUnsentTxProposals,
+  lockUnsentTxProposals,
   getLatestBlockByHeight,
   cleanupVoidedTx,
   checkTxWasVoided,
@@ -4091,6 +4092,7 @@ describe('Clear unsent txProposals utxos', () => {
     expect(txProposals[2].status).toStrictEqual(TxProposalStatus.CANCELLED);
 
     // The proposals it cancelled are not picked up again on the next run
+    logger.debug.mockClear();
     await cleanUnsentTxProposalsUtxos();
     expect(logger.debug).toHaveBeenCalledWith('No txproposals utxos to clean.');
 
@@ -4114,6 +4116,7 @@ describe('Clear unsent txProposals utxos', () => {
   it('should not fail when there is nothing to clear', async () => {
     expect.hasAssertions();
 
+    logger.debug.mockClear();
     await cleanUnsentTxProposalsUtxos();
 
     expect(logger.debug).toHaveBeenCalledWith('No txproposals utxos to clean.');
@@ -4141,6 +4144,53 @@ describe('Clear unsent txProposals utxos', () => {
 
     expect(unsent).toHaveLength(2);
     expect(unsent).toStrictEqual(expect.arrayContaining([openId, sendErrorId]));
+
+    // Re-read under lock, only the ones still unsent come back
+    const stillUnsent = await lockUnsentTxProposals(mysql, [openId, sendErrorId, cancelledId, sentId]);
+
+    expect(stillUnsent).toHaveLength(2);
+    expect(stillUnsent).toStrictEqual(expect.arrayContaining([openId, sendErrorId]));
+  });
+
+  it('should not cancel or release a txProposal sent after the cleanup read it', async () => {
+    expect.hasAssertions();
+
+    const walletId = 'wallet-id';
+    const openId: string = uuidv4() as string;
+    const sentId: string = uuidv4() as string;
+
+    await createTxProposal(mysql, openId, walletId, 1);
+    await createTxProposal(mysql, sentId, walletId, 1);
+    await addToUtxoTable(mysql, [openId, sentId].map((txProposalId, i) => ({
+      txId: `tx${i}`,
+      index: 0,
+      tokenId: '00',
+      address: 'address1',
+      value: 5n,
+      authorities: 0,
+      timelock: 0,
+      heightlock: 0,
+      locked: false,
+      spentBy: null,
+      txProposalId,
+      txProposalIndex: 0,
+    })));
+
+    // The cron read both while they were open; one is sent before it cancels them
+    const spy = jest.spyOn(Db, 'getUnsentTxProposals');
+    spy.mockImplementationOnce(async () => {
+      await updateTxProposal(mysql, [sentId], getUnixTimestamp(), TxProposalStatus.SENT);
+      return [openId, sentId];
+    });
+
+    await cleanUnsentTxProposalsUtxos();
+
+    await expect(getTxProposal(mysql, openId)).resolves.toHaveProperty('status', TxProposalStatus.CANCELLED);
+    await expect(getTxProposal(mysql, sentId)).resolves.toHaveProperty('status', TxProposalStatus.SENT);
+    await expect(getTxOutput(mysql, 'tx0', 0, false)).resolves.toHaveProperty('txProposalId', null);
+    await expect(getTxOutput(mysql, 'tx1', 0, false)).resolves.toHaveProperty('txProposalId', sentId);
+
+    spy.mockRestore();
   });
 });
 

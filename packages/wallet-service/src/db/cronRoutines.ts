@@ -8,11 +8,17 @@
 import 'source-map-support/register';
 import {
   getUnsentTxProposals,
+  lockUnsentTxProposals,
   releaseTxProposalUtxos,
   countStalePushDevices,
   deleteStalePushDevices,
   updateTxProposal,
 } from '@src/db';
+import {
+  beginTransaction,
+  commitTransaction,
+  rollbackTransaction,
+} from '@src/db/utils';
 import {
   closeDbConnection,
   getDbConnection,
@@ -63,9 +69,17 @@ export const cleanUnsentTxProposalsUtxos = async (): Promise<void> => {
     logger.debug(`Will clean utxos from ${unsentTxProposals.length} txproposals`);
 
     try {
-      await releaseTxProposalUtxos(mysql, unsentTxProposals);
-      await updateTxProposal(mysql, unsentTxProposals, now, TxProposalStatus.CANCELLED);
+      await beginTransaction(mysql);
+      // Re-read under lock: a proposal sent since the read above keeps its
+      // SENT status and its UTXOs.
+      const stillUnsent = await lockUnsentTxProposals(mysql, unsentTxProposals);
+      if (stillUnsent.length > 0) {
+        await releaseTxProposalUtxos(mysql, stillUnsent);
+        await updateTxProposal(mysql, stillUnsent, now, TxProposalStatus.CANCELLED);
+      }
+      await commitTransaction(mysql);
     } catch (e) {
+      await rollbackTransaction(mysql);
       logger.error('Failed to release unspent tx proposals: ', unsentTxProposals, e);
     }
   } else {

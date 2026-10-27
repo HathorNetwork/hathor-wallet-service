@@ -3439,7 +3439,9 @@ export const getTokenSymbols = async (
 
 /**
  * Fetches the txProposals created before a given date that are still OPEN or
- * in SEND_ERROR, whose UTXOs may still be reserved.
+ * in SEND_ERROR, for the cleanup cron to release and cancel. An OPEN proposal
+ * may still hold UTXOs; a SEND_ERROR one released them when it failed to send,
+ * and is selected only to be marked CANCELLED.
  *
  * CANCELLED proposals are left out: both ways a proposal gets cancelled (the
  * destroy API and the cleanup cron) release its UTXOs, so selecting them again
@@ -3461,6 +3463,37 @@ export const getUnsentTxProposals = async (
      WHERE created_at < ?
        AND status IN (?)`,
     [txProposalsBefore, [
+      TxProposalStatus.OPEN,
+      TxProposalStatus.SEND_ERROR,
+    ]],
+  );
+
+  return result.map((row) => row.id);
+};
+
+/**
+ * Locks the given txProposals that are still OPEN or in SEND_ERROR, and
+ * returns their ids. Run it inside a transaction: a proposal sent since
+ * {@link getUnsentTxProposals} read it is left out, and a send that is in
+ * progress waits for the transaction to end before setting SENT.
+ *
+ * @param mysql - Database connection
+ * @param txProposalIds - The candidate txProposals, as read by getUnsentTxProposals
+ *
+ * @returns The ids of the txProposals that are still unsent
+ */
+export const lockUnsentTxProposals = async (
+  mysql: ServerlessMysql,
+  txProposalIds: string[],
+): Promise<string[]> => {
+  const result = await mysql.query<{ id: string }[]>(
+    `
+    SELECT id
+      FROM \`tx_proposal\`
+     WHERE id IN (?)
+       AND status IN (?)
+       FOR UPDATE`,
+    [txProposalIds, [
       TxProposalStatus.OPEN,
       TxProposalStatus.SEND_ERROR,
     ]],
