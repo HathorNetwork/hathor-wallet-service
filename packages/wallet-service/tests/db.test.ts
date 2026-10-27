@@ -4021,6 +4021,13 @@ describe('Clear unsent txProposals utxos', () => {
     expect(txProposals[1].status).toStrictEqual(TxProposalStatus.CANCELLED);
     expect(txProposals[2].status).toStrictEqual(TxProposalStatus.CANCELLED);
 
+    // The proposals it cancelled are not picked up again on the next run
+    await cleanUnsentTxProposalsUtxos();
+    expect(logger.debug).toHaveBeenCalledWith('No txproposals utxos to clean.');
+
+    const txProposalId4: string = uuidv4() as string;
+    await createTxProposal(mysql, txProposalId4, walletId, 1);
+
     const spy = jest.spyOn(Db, 'releaseTxProposalUtxos');
     spy.mockImplementationOnce(() => {
       throw new Error('error-releasing-tx-proposal');
@@ -4041,6 +4048,30 @@ describe('Clear unsent txProposals utxos', () => {
     await cleanUnsentTxProposalsUtxos();
 
     expect(logger.debug).toHaveBeenCalledWith('No txproposals utxos to clean.');
+  });
+
+  it('should select stale open and send_error txProposals, but not cancelled or sent ones', async () => {
+    expect.hasAssertions();
+
+    const walletId = 'wallet-id';
+    const now = getUnixTimestamp();
+
+    const openId: string = uuidv4() as string;
+    const sendErrorId: string = uuidv4() as string;
+    const cancelledId: string = uuidv4() as string;
+    const sentId: string = uuidv4() as string;
+
+    for (const id of [openId, sendErrorId, cancelledId, sentId]) {
+      await createTxProposal(mysql, id, walletId, 1);
+    }
+    await updateTxProposal(mysql, [sendErrorId], now, TxProposalStatus.SEND_ERROR);
+    await updateTxProposal(mysql, [cancelledId], now, TxProposalStatus.CANCELLED);
+    await updateTxProposal(mysql, [sentId], now, TxProposalStatus.SENT);
+
+    const unsent = await getUnsentTxProposals(mysql, now - (5 * 60));
+
+    expect(unsent).toHaveLength(2);
+    expect(unsent).toStrictEqual(expect.arrayContaining([openId, sendErrorId]));
   });
 });
 

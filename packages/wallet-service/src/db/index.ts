@@ -3398,11 +3398,17 @@ export const getTokenSymbols = async (
 };
 
 /**
- * Fetches all txProposals that are either in the OPEN, SEND_ERROR or CANCELLED status
+ * Fetches the txProposals created before a given date that are still OPEN or
+ * in SEND_ERROR, whose UTXOs may still be reserved.
+ *
+ * CANCELLED proposals are left out: both ways a proposal gets cancelled (the
+ * destroy API and the cleanup cron) release its UTXOs, so selecting them again
+ * would only re-process every cancelled proposal on every run.
  *
  * @param mysql - Database connection
+ * @param txProposalsBefore - Only proposals created before this timestamp are returned
  *
- * @returns The number of txProposals before a given date
+ * @returns The ids of the unsent txProposals
  */
 export const getUnsentTxProposals = async (
   mysql: ServerlessMysql,
@@ -3417,7 +3423,6 @@ export const getUnsentTxProposals = async (
     [txProposalsBefore, [
       TxProposalStatus.OPEN,
       TxProposalStatus.SEND_ERROR,
-      TxProposalStatus.CANCELLED,
     ]],
   );
 
