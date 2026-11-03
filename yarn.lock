@@ -17581,10 +17581,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"serverless-plugin-warmup@npm:8.2.1":
-  version: 8.2.1
-  resolution: "serverless-plugin-warmup@npm:8.2.1"
-  checksum: 10/9404bd15f9f5456ad088c179ae8bba30a58fd89ba6f453f69a4ca20773beb904097e4b12cff9c9cd6aaa6cd178fd31b305f1552e84ac90c463aa4ecaf7912c9c
+"serverless-plugin-warmup@npm:8.4.1":
+  version: 8.4.1
+  resolution: "serverless-plugin-warmup@npm:8.4.1"
+  checksum: 10/60a2f0cf7a79b2010898edcebdc0adaf8b1d50fe78bc57d1af58c8ff25fc2d08d47a8390bc61ff1ec2419521c736fe6e08b139272489343fe75f0517e6355111
   languageName: node
   linkType: hard
 
@@ -19531,7 +19531,7 @@ __metadata:
     serverless-offline: "npm:14.4.0"
     serverless-plugin-aws-alerts: "npm:1.7.5"
     serverless-plugin-monorepo: "npm:0.11.0"
-    serverless-plugin-warmup: "npm:8.2.1"
+    serverless-plugin-warmup: "npm:8.4.1"
     serverless-prune-plugin: "npm:2.0.2"
     serverless-webpack: "npm:5.13.0"
     source-map-support: "npm:0.5.19"
