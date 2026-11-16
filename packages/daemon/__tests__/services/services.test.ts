@@ -43,6 +43,8 @@ import {
 import logger from '../../src/logger';
 import {
   getAddressBalanceMap,
+  getInvolvedAddresses,
+  getUnifiedBalanceMap,
   prepareInputs,
   prepareOutputs,
   hashTxData,
@@ -79,6 +81,8 @@ jest.mock('../../src/db', () => ({
   getTxOutput: jest.fn(),
   voidTransaction: jest.fn(),
   voidAddressTransaction: jest.fn(),
+  addPublicAddressTxHistory: jest.fn(),
+  voidPublicAddressTransaction: jest.fn(),
   voidWalletTransaction: jest.fn(),
   markUtxosAsVoided: jest.fn(),
   unspendUtxos: jest.fn(),
@@ -94,9 +98,16 @@ jest.mock('../../src/db', () => ({
   updateTxOutputSpentBy: jest.fn(),
   incrementTokensTxCount: jest.fn(),
   updateAddressTablesWithTx: jest.fn(),
+  bumpAddressInvolvement: jest.fn(),
+  decrementAddressInvolvement: jest.fn(),
   getAddressWalletInfo: jest.fn(),
+  refreshWalletLifecycles: jest.fn(async () => undefined),
+  flagAddressesForSweep: jest.fn(async () => undefined),
+  getCurrentShieldedRecovery: jest.fn(async () => new Map()),
   generateAddresses: jest.fn(),
-  addNewAddresses: jest.fn(),
+  addNewAddresses: jest.fn(async () => []),
+  getUsedAddresses: jest.fn(async () => new Set()),
+  getCurrentWalletLifecycle: jest.fn(async () => null),
   updateWalletTablesWithTx: jest.fn(),
   getMaxIndicesForWallets: jest.fn(() => new Map([
     ['wallet1', { maxAmongAddresses: 10, maxWalletIndex: 15 }]
@@ -104,12 +115,18 @@ jest.mock('../../src/db', () => ({
   getTokensCreatedByTx: jest.fn(() => []),
   deleteTokens: jest.fn(),
   insertTokenCreation: jest.fn(),
+  findShieldedAddressOwnershipBatch: jest.fn().mockResolvedValue(new Map()),
 }));
 
 jest.mock('../../src/utils', () => ({
   prepareOutputs: jest.fn(),
   prepareInputs: jest.fn(),
   getAddressBalanceMap: jest.fn(),
+  getInvolvedAddresses: jest.fn(() => new Set<string>()),
+  getUnifiedBalanceMap: jest.fn().mockResolvedValue({}),
+  // These vertices carry no shielded inputs, so every input is spendable.
+  partitionShieldedInputs: jest.fn(async (_mysql, inputs) => inputs),
+  getVertexPublicInvolvement: jest.fn(() => []),
   validateAddressBalances: jest.fn(),
   LRU: jest.fn(),
   unlockTimelockedUtxos: jest.fn(),
@@ -125,10 +142,16 @@ jest.mock('../../src/utils', () => ({
   getWalletBalancesForTx: jest.fn(),
   generateAddresses: jest.fn(),
   retryWithBackoff: jest.fn((fn) => fn()),
+  retryOnLockConflict: jest.fn((fn) => fn()),
 }));
 
 jest.mock('@wallet-service/common', () => {
   const addAlertMock = jest.fn();
+  const ShieldedOutputMode = {
+    Transparent: 0,
+    AmountShielded: 1,
+    FullyShielded: 2,
+  };
   return {
     addAlert: addAlertMock,
     Severity: {
@@ -142,6 +165,18 @@ jest.mock('@wallet-service/common', () => {
       invokeNftHandlerLambda: jest.fn(),
       processNftEvent: jest.fn().mockReturnValue(Promise.resolve()),
     },
+    ShieldedOutputMode,
+    RecoveryState: {
+      Unowned: 'unowned',
+      Recovered: 'recovered',
+      RecoveryFailed: 'recovery_failed',
+    },
+    isShieldedMode: (mode: number) =>
+      mode === ShieldedOutputMode.AmountShielded
+        || mode === ShieldedOutputMode.FullyShielded,
+    // These vertices carry no shielded outputs, so the value only has to let
+    // ingestion take its usual path; `true` keeps the pre-shielded behaviour.
+    isShieldedCryptoProviderRegistered: () => true,
   };
 });
 
@@ -679,6 +714,9 @@ describe('handleVertexAccepted', () => {
     (prepareOutputs as jest.Mock).mockReturnValue([]);
     (prepareInputs as jest.Mock).mockReturnValue([]);
     (getAddressBalanceMap as jest.Mock).mockReturnValue({});
+    // Non-empty involvement so the per-token / wallet branch executes.
+    (getInvolvedAddresses as jest.Mock).mockReturnValue(new Set(['address1']));
+    (getUnifiedBalanceMap as jest.Mock).mockResolvedValue({});
     (getUtxosLockedAtHeight as jest.Mock).mockResolvedValue([]);
     (hashTxData as jest.Mock).mockReturnValue('hashedData');
     (getAddressWalletInfo as jest.Mock).mockResolvedValue({

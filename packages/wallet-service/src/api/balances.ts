@@ -15,6 +15,7 @@ import {
   getWallet,
   getTokenInformation,
 } from '@src/db';
+import { computeUnifiedStatus } from '@src/db/utils';
 import {
   closeDbConnection,
   getDbConnection,
@@ -33,6 +34,8 @@ const paramsSchema = Joi.object({
   token_id: Joi.string()
     .alphanum()
     .optional(),
+  split: Joi.boolean()
+    .default(false),
 });
 
 /*
@@ -49,7 +52,7 @@ export const get: APIGatewayProxyHandler = middy(walletIdProxyHandler(async (wal
 
   const { value, error } = paramsSchema.validate(params, {
     abortEarly: false,
-    convert: false,
+    convert: true, // query-string params always arrive as strings
   });
 
   if (error) {
@@ -90,7 +93,11 @@ export const get: APIGatewayProxyHandler = middy(walletIdProxyHandler(async (wal
 
   return {
     statusCode: 200,
-    body: bigIntUtils.JSONBigInt.stringify({ success: true, balances }),
+    body: bigIntUtils.JSONBigInt.stringify({
+      success: true,
+      balances: value.split ? balances.map((balance) => balance.toSplitJSON()) : balances,
+      status: computeUnifiedStatus(status.status, status.ctStatus ?? 'none'),
+    }),
   };
 })).use(cors())
   .use(warmupMiddleware())

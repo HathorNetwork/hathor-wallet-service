@@ -51,6 +51,9 @@ export function convertApiVersionData(data: FullNodeApiVersionResponse): FullNod
     minTxWeightCoefficient: data.min_tx_weight_coefficient,
     minTxWeightK: data.min_tx_weight_k,
     tokenDepositPercentage: data.token_deposit_percentage,
+    // Integer fraction that lets clients do exact integer math; both fields are absent on older fullnodes.
+    tokenDepositPercentageNumerator: data.token_deposit_percentage_numerator,
+    tokenDepositPercentageDenominator: data.token_deposit_percentage_denominator,
     rewardSpendMinBlocks: data.reward_spend_min_blocks,
     maxNumberInputs: data.max_number_inputs,
     maxNumberOutputs: data.max_number_outputs,

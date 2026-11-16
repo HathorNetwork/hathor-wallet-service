@@ -30,10 +30,14 @@ custom:
   stage: ${opt:stage, 'dev'}
   explorerServiceStage: ${env:EXPLORER_STAGE, 'dev'}
   alerts:
+    # Alarm actions publish to the production OpsGenie topics, so a stage belongs
+    # here only if its failures should page the production on-call rotation.
     stages: # Select which stages to deploy alarms to
       - mainnet
       - mainnet-stg
       - testnet
+      - shielded
+      - india
     topics: # SNS Topics to send alerts to
       major:
         alarm:
@@ -71,7 +75,10 @@ custom:
         namespace: 'AWS/Lambda'
         metric: "Duration"
         statistic: Average
-        threshold: 1000 # This is in milliseconds
+        # In milliseconds. Kept below the 2s timeout of the WS lambdas. At low
+        # traffic one cold-start invocation (~1.1s) is the whole 1-min average,
+        # so 1000 fired on single slow calls.
+        threshold: 1500
         period: 60
         evaluationPeriods: 1
         comparisonOperator: GreaterThanThreshold
@@ -181,6 +188,7 @@ provider:
     DB_USER: ${env:DB_USER}
     DB_PASS: ${env:DB_PASS}
     MAX_ADDRESS_GAP: ${env:MAX_ADDRESS_GAP}
+    SHIELDED_MAX_ADDRESS_GAP: ${env:SHIELDED_MAX_ADDRESS_GAP, '20'}
     NETWORK: ${env:NETWORK}
     NEW_TX_SQS: { Ref: WalletServiceNewTxQueue }
     REDIS_URL: ${env:REDIS_URL}
@@ -198,15 +206,11 @@ provider:
     WALLET_SERVICE_LAMBDA_ENDPOINT: ${env:WALLET_SERVICE_LAMBDA_ENDPOINT}
     PUSH_NOTIFICATION_ENABLED: ${env:PUSH_NOTIFICATION_ENABLED}
     PUSH_ALLOWED_PROVIDERS: ${env:PUSH_ALLOWED_PROVIDERS}
+    # Only the three fields firebase-admin reads. Every variable here goes to every
+    # function, and Lambda caps a function's environment at 4 KB.
     FIREBASE_PROJECT_ID: ${env:FIREBASE_PROJECT_ID, null}
-    FIREBASE_PRIVATE_KEY_ID: ${env:FIREBASE_PRIVATE_KEY_ID, null}
     FIREBASE_PRIVATE_KEY: ${env:FIREBASE_PRIVATE_KEY, null}
     FIREBASE_CLIENT_EMAIL: ${env:FIREBASE_CLIENT_EMAIL, null}
-    FIREBASE_CLIENT_ID: ${env:FIREBASE_CLIENT_ID, null}
-    FIREBASE_AUTH_URI: ${env:FIREBASE_AUTH_URI, null}
-    FIREBASE_TOKEN_URI: ${env:FIREBASE_TOKEN_URI, null}
-    FIREBASE_AUTH_PROVIDER_X509_CERT_URL: ${env:FIREBASE_AUTH_PROVIDER_X509_CERT_URL, null}
-    FIREBASE_CLIENT_X509_CERT_URL: ${env:FIREBASE_CLIENT_X509_CERT_URL, null}
     LOG_LEVEL: ${env:LOG_LEVEL}
     ALERT_MANAGER_REGION: ${env:ALERT_MANAGER_REGION}
     ALERT_MANAGER_TOPIC: ${env:ALERT_MANAGER_TOPIC}
@@ -215,6 +219,10 @@ provider:
     # OTEL_EXPORTER_OTLP_ENDPOINT must be set per-function (env budget is tight).
     # Set OTEL_CONSOLE_DEBUG=true to print spans to CloudWatch logs.
     OTEL_CONSOLE_DEBUG: ${env:OTEL_CONSOLE_DEBUG, ""}
+    # Disabled by default: no OTLP receiver is reachable from the Lambdas yet, and
+    # loading the SDK adds ~0.7s to every cold start. Set to "false" in the deploy
+    # env together with OTEL_EXPORTER_OTLP_ENDPOINT to enable tracing.
+    OTEL_SDK_DISABLED: ${env:OTEL_SDK_DISABLED, "true"}
 
 functions:
   getLatestBlock:
@@ -245,12 +253,11 @@ functions:
           - lambda:InvokeFunction
           - lambda:InvokeAsync
         Resource:
-          arn:aws:lambda:${self:provider.region}:${self:provider.environment.ACCOUNT_ID}:function:hathor-explorer-service-${self:custom.explorerServiceStage}-create_or_update_dag_metadata
+          arn:aws:lambda:${self:provider.region}:${self:provider.environment.ACCOUNT_ID}:function:${self:provider.environment.EXPLORER_SERVICE_PREFIX}-${self:custom.explorerServiceStage}-create_or_update_dag_metadata
   loadWalletAsync:
+    # Canonical async load: derives transparent + shielded address paths and
+    # reconstructs both balances in one pass.
     handler: src/api/wallet.loadWallet
-    # This lambda is currently running out of memory when wallets with a big
-    # number of transactions (> 300k) is being loaded. I chose 1024 because the
-    # average memory usage of the largest test wallet we have is 800mb.
     memorySize: 1024
     timeout: 600 # 10 minutes should be enough for most wallets
     onError: arn:aws:sns:${self:provider.region}:${self:provider.environment.ACCOUNT_ID}:WalletServiceLoadAsyncFailed_${self:custom.stage}
@@ -770,6 +777,20 @@ functions:
     handler: src/db/cronRoutines.cleanStalePushDevices
     events:
       - schedule: cron(17 3 */15 * ? *) # run every 15 days at 3:17 (GMT)
+    warmup:
+      walletWarmer:
+        enabled: false
+  shieldedCatchupSweep:
+    # Recovers shielded outputs of ready wallets that the daemon or a load
+    # flagged (address.catchup_state). One run at a time, finishing well
+    # before the next is scheduled.
+    handler: src/shieldedSweep.handler
+    timeout: 240 # 4 minutes
+    memorySize: 1024 # CPU-bound rewinds, as in loadWalletAsync
+    reservedConcurrency: 1
+    maximumRetryAttempts: 0
+    events:
+      - schedule: rate(5 minutes)
     warmup:
       walletWarmer:
         enabled: false

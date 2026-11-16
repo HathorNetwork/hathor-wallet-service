@@ -165,7 +165,7 @@ test('load wallet, and simulate DLQ event', async () => {
                   'MessageId': '1',
                   'TopicArn': 'arn',
                   'Subject': null,
-                  'Message': `{\"xpubkey\":\"${XPUBKEY}\",\"maxGap\":20}`,
+                  'Message': `{"xpubkey":"${XPUBKEY}","maxGap":20}`,
                   'Timestamp': '2024-03-19T15:12:24.741Z',
                   'SignatureVersion': '1',
                   'Signature': '',

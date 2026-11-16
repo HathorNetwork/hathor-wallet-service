@@ -10,7 +10,18 @@ import hathorLib from '@hathor/wallet-lib';
 import { Connection as MysqlConnection, PoolConnection } from 'mysql2/promise';
 import axios from 'axios';
 import { get } from 'lodash';
-import { NftUtils } from '@wallet-service/common';
+import {
+  NftUtils,
+  ShieldedOutputMode,
+  RecoveryState,
+  isShieldedMode,
+  checkShieldedOutputStorable,
+  ShieldedStorageCheck,
+  EPHEMERAL_PUBKEY_BYTES,
+  ShieldedScanMissError,
+  ShieldedAssetMismatchError,
+  deriveCtAddress,
+} from '@wallet-service/common';
 import {
   StringMap,
   Wallet,
@@ -27,6 +38,8 @@ import {
   StandardFullNodeEvent,
   EventTxHeader,
   isNanoHeader,
+  isWalletAttributable,
+  ShieldedOutput,
 } from '../types';
 import {
   TxInput,
@@ -37,7 +50,11 @@ import {
 } from '@wallet-service/common';
 import {
   prepareOutputs,
-  getAddressBalanceMap,
+  getInvolvedAddresses,
+  getUnifiedBalanceMap,
+  ShieldedRecoveryResult,
+  ShieldedInputAnomaly,
+  partitionShieldedInputs,
   getUnixTimestamp,
   unlockUtxos,
   unlockTimelockedUtxos,
@@ -50,6 +67,9 @@ import {
   getFullnodeHttpUrl,
   generateAddresses,
   sendRealtimeTx,
+  getVertexPublicInvolvement,
+  PublicSpentRow,
+  StoredShieldedOutput,
 } from '../utils';
 import {
   getDbConnection,
@@ -69,10 +89,21 @@ import {
   getLockedUtxoFromInputs,
   incrementTokensTxCount,
   getAddressWalletInfo,
+  refreshWalletLifecycles,
+  flagAddressesForSweep,
+  getShieldedWindows,
+  getUsedAddresses,
+  getAddressesWithOutputs,
+  claimShieldedAddresses,
+  creditTakenOverAddresses,
+  getCurrentWalletLifecycle,
+  ShieldedAddressClaim,
   addNewAddresses,
   updateWalletTablesWithTx,
   voidTransaction,
   voidAddressTransaction,
+  addPublicAddressTxHistory,
+  voidPublicAddressTransaction,
   updateLastSyncedEvent as dbUpdateLastSyncedEvent,
   getLastSyncedEvent,
   getTxOutputsFromTx,
@@ -85,14 +116,76 @@ import {
   voidWalletTransaction,
   getTxOutputs,
   clearTxProposalForVoidedTx,
+  insertTxOutput,
+  insertShieldedTxOutputData,
+  upsertShieldedAddressObservation,
+  findShieldedAddressOwnership,
+  findShieldedAddressOwnershipBatch,
+  markTxOutputRecovered,
+  markTxOutputRecoveryFailed,
+  bumpAddressInvolvement,
+  decrementAddressInvolvement,
 } from '../db';
+import {
+  rewindAmount,
+  rewindFully,
+  isShieldedCryptoProviderRegistered,
+  MISSING_SHIELDED_PROVIDER_ALERT,
+} from '@wallet-service/common';
 import getConfig, { VALIDATE_ADDRESS_BALANCES } from '../config';
 import logger from '../logger';
-import { invokeOnTxPushNotificationRequestedLambda, getDaemonUptime, retryWithBackoff } from '../utils';
+import { invokeOnTxPushNotificationRequestedLambda, getDaemonUptime, retryWithBackoff, retryOnLockConflict } from '../utils';
 import { addAlert, Severity } from '@wallet-service/common';
 import { JSONBigInt } from '@hathor/wallet-lib/lib/utils/bigint';
 
 const tracer = trace.getTracer('wallet-service-daemon');
+
+/**
+ * How many per-item entries an aggregated alert embeds. The alert body is a
+ * single SQS message and the downstream alert manager maps metadata into a much
+ * smaller details field, so the list is capped; `count` carries the real total.
+ */
+const ALERT_LIST_CAP = 10;
+
+/** Set once this process has reported the missing shielded crypto provider. */
+let missingProviderAlerted = false;
+
+/** Clear the missing-provider report guard — for test isolation. */
+export const resetMissingProviderAlert = (): void => {
+  missingProviderAlerted = false;
+};
+
+/**
+ * Record that the missing provider was already reported — by the startup
+ * alert, which carries the load error — so the first shielded vertex does
+ * not page for it a second time.
+ */
+export const markMissingProviderReported = (): void => {
+  missingProviderAlerted = true;
+};
+
+/**
+ * Emit an alert that is deferred past a commit, swallowing any failure.
+ *
+ * `addAlert` catches a failed SQS *send*, but building the client and the
+ * command happens outside that catch, so it can still throw. A throw after
+ * `mysql.commit()` would reach the ingest catch, attempt a rollback on an
+ * already-committed transaction and report the vertex as failed — turning a
+ * reportable condition into a sync halt. Alerting must never change the
+ * outcome of work that is already durable.
+ */
+const emitDeferredAlert = async (
+  title: string,
+  message: string,
+  severity: Severity,
+  metadata: unknown,
+): Promise<void> => {
+  try {
+    await addAlert(title, message, severity, metadata, logger);
+  } catch (e) {
+    logger.error('deferred alert failed to emit', { title, error: String(e) });
+  }
+};
 
 async function withSpan<T>(name: string, fn: () => Promise<T>): Promise<T> {
   return tracer.startActiveSpan(name, async (s) => {
@@ -257,6 +350,98 @@ export function isNanoContract(headers: EventTxHeader[]) {
 }
 
 /**
+ * Keep each wallet's CTSpend window ahead of its use, as the legacy gap
+ * extension does for legacy addresses: when a vertex uses a CTSpend address
+ * within `shielded_max_gap` of the wallet's highest claimed index, derive and
+ * claim the addresses up to that many past it. Without this the window, set
+ * by the wallet's load, is used up and later payments land on addresses no
+ * wallet has claimed, which nothing ever recovers.
+ *
+ * Usage is a balance-map address (a transparent payment to, or spend from, a
+ * CTSpend address) or the address of any shielded output stored here, whether
+ * or not it was recovered. Each newly derived block is then checked the way
+ * the load sizes a window — an address holding any stored output is used — so
+ * an observation row this takes over, paid before any wallet claimed it,
+ * pushes the window on as the load would have.
+ *
+ * A wallet whose keys fail to derive is logged and alerted after commit; it
+ * never fails the ingest.
+ *
+ * The claimed addresses that had been paid before any wallet claimed them go
+ * to `recordTakeovers`, for `creditTakenOverAddresses` once the vertex's own
+ * wallet writes are done.
+ */
+const extendShieldedWindows = async (
+  mysql: MysqlConnection,
+  hash: string,
+  walletIndices: Map<string, { maxCtAmongAddresses: number | null }>,
+  storedShieldedAddresses: Set<string>,
+  afterCommit: (() => Promise<void>)[],
+  recordTakeovers: (walletId: string, addresses: string[]) => Promise<void>,
+): Promise<void> => {
+  const used = new Map<string, number>();
+  const use = (walletId: string, index: number) => {
+    used.set(walletId, Math.max(used.get(walletId) ?? -1, index));
+  };
+  for (const [walletId, indices] of walletIndices) {
+    if (indices.maxCtAmongAddresses != null) use(walletId, indices.maxCtAmongAddresses);
+  }
+  // Owned rows are already locked by this ingest's involvement write.
+  const owned = await findShieldedAddressOwnershipBatch(mysql, [...storedShieldedAddresses]);
+  for (const ownership of owned.values()) {
+    use(ownership.wallet_id, ownership.shielded_index);
+  }
+  if (used.size === 0) return;
+
+  const windows = await getShieldedWindows(mysql, [...used.keys()]);
+  const network = new hathorLib.Network(getConfig().NETWORK);
+  for (const [walletId, window] of windows) {
+    let lastUsed = used.get(walletId)!;
+    const gap = window.shieldedMaxGap;
+    // `maxIndex` is a plain read, so it can predate a load's claim that this
+    // ingest waited on. Both writers claim from 0 without holes, so the owned
+    // row at `lastUsed` proves everything up to it is claimed already.
+    let highestDerived = Math.max(window.maxIndex ?? -1, lastUsed);
+    const claims: ShieldedAddressClaim[] = [];
+    try {
+      while (lastUsed + gap > highestDerived) {
+        const block: ShieldedAddressClaim[] = [];
+        for (let index = highestDerived + 1; index <= lastUsed + gap; index++) {
+          const derived = deriveCtAddress(window.scanXpriv, window.spendXpub, index, network);
+          block.push({
+            index,
+            spendAddress: derived.spendAddress,
+            ctAddress: derived.ctAddress,
+            scanPrivkey: derived.scanPrivkey,
+          });
+        }
+        highestDerived = lastUsed + gap;
+        claims.push(...block);
+        const withOutputs = await getAddressesWithOutputs(mysql, block.map((c) => c.spendAddress));
+        for (const claim of block) {
+          if (withOutputs.has(claim.spendAddress)) lastUsed = Math.max(lastUsed, claim.index);
+        }
+      }
+    } catch (e) {
+      logger.error('Could not derive CTSpend addresses to extend a wallet\'s window', {
+        txId: hash, walletId, error: String(e),
+      });
+      afterCommit.push(() => emitDeferredAlert(
+        'Shielded address window not extended',
+        `Wallet ${walletId}'s CTSpend addresses could not be derived while ingesting ${hash}, so its `
+        + 'window was not extended; payments past it will not be recovered.',
+        Severity.MAJOR,
+        { tx_id: hash, wallet_id: walletId, error: String(e), source: 'daemon' },
+      ));
+      continue;
+    }
+    // Most payments land well inside the window: leave the wallet row alone.
+    if (claims.length === 0 && lastUsed <= (window.lastUsedIndex ?? -1)) continue;
+    await recordTakeovers(walletId, await claimShieldedAddresses(mysql, walletId, claims, lastUsed));
+  }
+};
+
+/**
  * Handles a vertex (transaction or block) being accepted by the fullnode.
  *
  * This function processes VERTEX_METADATA_CHANGED and NEW_VERTEX_ACCEPTED events.
@@ -296,7 +481,7 @@ export function isNanoContract(headers: EventTxHeader[]) {
  * @param context - The context containing the event and other metadata
  * @param _event - The event being processed (unused, context.event is used instead)
  */
-export const handleVertexAccepted = async (context: Context, _event: Event) => {
+const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
   return tracer.startActiveSpan('handleVertexAccepted', async (span) => {
     let mysql: PoolConnection | undefined;
     try {
@@ -337,8 +522,6 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       span.setAttribute('tx.hash', hash);
       span.setAttribute('tx.version', version);
 
-      const isNano = isNanoContract(headers);
-
       // Duplicate check is a read-only lookup and runs outside the transaction
       // so an early return cannot leave a BEGIN open on a pooled connection.
       const dbTx: DbTransaction | null = await withSpan('getTransactionById', () => getTransactionById(mysql!, hash));
@@ -359,6 +542,10 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
       }
 
       await mysql.beginTransaction();
+      // Notifications that leave the database, sent only once the transaction
+      // has committed: a transaction re-run after a lock conflict must not
+      // send them twice, nor send them for a vertex that was never stored.
+      const afterCommit: (() => Promise<void>)[] = [];
       try {
         let height: number | null = metadata.height;
 
@@ -406,10 +593,30 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
           await unlockTimelockedUtxos(mysql, now);
         }
 
+        // Validate the shielded inputs before anything acts on them. A
+        // wire-shielded input whose stored row is transparent means the
+        // concatenated-index assumption does not hold for the vertex that
+        // created that output, and every path below would otherwise mutate the
+        // wrong row: the unlock moves value between the locked and unlocked
+        // columns (with no re-lock path), and updateTxOutputSpentBy marks a
+        // real transparent UTXO spent.
+        // Both are committed in this transaction, so the exclusion has to come
+        // first — detecting it afterwards would only describe the damage.
+        //
+        // `getInvolvedAddresses` below deliberately keeps using the raw inputs:
+        // the involvement counter is wire-level and the void path reverses it
+        // from the same wire set, so filtering here would break that symmetry.
+        const shieldedInputAnomalies: ShieldedInputAnomaly[] = [];
+        const spentShieldedRows: PublicSpentRow[] = [];
+        const spendableInputs = await withSpan(
+          'partitionShieldedInputs',
+          () => partitionShieldedInputs(mysql!, inputs, shieldedInputAnomalies, spentShieldedRows),
+        );
+
         // check if any of the inputs are still marked as locked and update tables accordingly.
         // See remarks on getLockedUtxoFromInputs for more explanation. It's important to perform this
         // before updating the balances
-        const lockedInputs = await getLockedUtxoFromInputs(mysql, inputs);
+        const lockedInputs = await getLockedUtxoFromInputs(mysql, spendableInputs);
         await unlockUtxos(mysql, lockedInputs, true);
 
         // add transaction outputs to the tx_outputs table
@@ -432,24 +639,391 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         // Add utxos
         await withSpan('addUtxos', () => addUtxos(mysql, hash, txOutputs, heightlock));
 
-        // Mark tx utxos as spent
-        await withSpan('updateTxOutputSpentBy', () => updateTxOutputSpentBy(mysql, txInputs, hash));
+        // Resolve a shielded output's token_data to the matching token UID.
+        // Mirrors the transparent-path logic in `prepareOutputs`: a token_data
+        // of 0 selects the native token; otherwise it indexes into `vertex.tokens[]`.
+        const shieldedOutputs = fullNodeEvent.event.data.shielded_outputs ?? [];
+        const transparentCount = outputs.length;
+        const resolveShieldedTokenId = (tokenData: number): string | null => {
+          // Out of range for the TINYINT column: the index mask below would
+          // otherwise fold it onto a real token and record a false token_id
+          // on the parked row.
+          if (tokenData < 0 || tokenData > 0xFF) {
+            return null;
+          }
+          const idx = hathorLib.tokensUtils.getTokenIndexFromData(tokenData) - 1;
+          if (idx < 0) {
+            return hathorLib.constants.NATIVE_TOKEN_UID;
+          }
+          return tokens[idx] ?? null;
+        };
 
-        // Genesis tx has no inputs and outputs, so nothing to be updated, avoid it
-        // Nano contracts are a special case since they can have an address to update even without inputs/outputs
-        if (inputs.length > 0 || outputs.length > 0 || isNano) {
+        // Per-shielded-output rewind outcomes collected by the loop below
+        // and consumed by the unified balance-map builder. Only owned,
+        // successful recoveries land here; unowned outputs and rewind
+        // failures contribute nothing to the balance map (involvement is
+        // already covered by bumpAddressInvolvement).
+        const shieldedRecoveryResults: ShieldedRecoveryResult[] = [];
+        // Credit a recovery only if the promote changed the row. A row that was
+        // no longer unowned was not promoted here, and one already recovered
+        // was credited when that happened; crediting it would count it twice.
+        const creditIfPromoted = (affectedRows: number, index: number, result: ShieldedRecoveryResult): void => {
+          if (affectedRows === 1) {
+            shieldedRecoveryResults.push(result);
+            return;
+          }
+          logger.error('Shielded output was no longer unowned when promoted; not crediting it', { txId: hash, index });
+        };
+
+        // Shielded-recovery failures are collected here and alerted on AFTER
+        // the transaction commits, once per vertex. addAlert performs an SQS
+        // round-trip, which must not run while the ingest transaction holds
+        // tx_output/address row locks.
+        const failedShieldedRecoveries: {
+          index: number;
+          mode: number;
+          tokenId: string | null;
+          assetMismatch: boolean;
+          error: string;
+        }[] = [];
+        // Addresses whose stored outputs a later sweep should recover: stored
+        // without a rewind (no provider), or whose rewind failed in a way a
+        // retry can fix. Flagged in this transaction, so the flag rolls back
+        // with the ingest.
+        const needsSweep = new Set<string>();
+        // Addresses that got a stored shielded output here: usage, for
+        // extending their wallets' CTSpend windows, whether or not the output
+        // was recovered.
+        const storedShieldedAddresses = new Set<string>();
+        // The shielded outputs that got a `tx_output` row, with their public
+        // columns only, for the public address tables.
+        const storedShieldedOutputs: StoredShieldedOutput[] = [];
+
+        // Read once per vertex, not cached across vertices: a provider can be
+        // registered at any time, and a stale `false` would hide real failures.
+        const canRewind = isShieldedCryptoProviderRegistered();
+        let missingProviderAlertPending = false;
+        const shieldedStorageViolations: ({ index: number }
+          & Pick<Extract<ShieldedStorageCheck, { storable: false }>, 'scope' | 'reason'>)[] = [];
+
+        // Walk shielded_outputs[] with concatenated index = transparentCount + i.
+        // A storable output produces three rows: the `tx_output` row, the
+        // `shielded_tx_output_data` satellite carrying the per-output crypto payload,
+        // and an `address` observation row (address + involvement only; the
+        // CTSpend account and scan key are set when a wallet claims it).
+        // It lands in `recovery_state = 'unowned'` and is promoted in-line below
+        // when a wallet has claimed the spend address, a crypto provider is
+        // registered and the output carries an ephemeral pubkey; otherwise it
+        // stays `unowned`.
+        //
+        // An output that does not fit its columns produces fewer: a satellite-scope
+        // violation skips the payload and records `recovery_failed`; an output-scope
+        // violation writes no `tx_output` row at all (a timelock violation still
+        // leaves its address in the involvement set, which the void path reverses;
+        // an address violation leaves nothing). Either way the vertex still
+        // ingests — see checkShieldedOutputStorable.
+        //
+        // An output with no address produces no rows at all — see the check at
+        // the top of the loop.
+        for (let i = 0; i < shieldedOutputs.length; i++) {
+          const so = shieldedOutputs[i];
+          const idx = transparentCount + i;
+
+          if (!so.decoded) {
+            // The script is not an address script, so no wallet can own this
+            // output. Skipped without an alert, like a transparent output
+            // whose script does not decode (see prepareOutputs).
+            logger.info('Shielded output skipped: its script has no address', { txId: hash, index: idx });
+            continue;
+          }
+
+          const isAmount = so.mode === ShieldedOutputMode.AmountShielded;
+
+          // Decoded once: the storage guard sizes these exact bytes, and the
+          // satellite insert and the rewind consume them unchanged.
+          const commitment = Buffer.from(so.commitment, 'hex');
+          // An absent ephemeral pubkey is stored as 33 zero bytes, the encoding
+          // hathor-core itself uses for "not present" on the wire. Zero bytes
+          // that arrive explicitly mean the same, as they do to the sweep.
+          const absentPubkey = Buffer.alloc(EPHEMERAL_PUBKEY_BYTES);
+          const ephemeralPubkey = so.ephemeral_pubkey
+            ? Buffer.from(so.ephemeral_pubkey, 'hex')
+            : absentPubkey;
+          const hasEphemeralPubkey = !ephemeralPubkey.equals(absentPubkey);
+          const rangeProof = Buffer.from(so.range_proof, 'base64');
+          const script = Buffer.from(so.script, 'base64');
+          const assetCommitment = !isAmount ? Buffer.from(so.asset_commitment, 'hex') : null;
+          const surjectionProof = !isAmount ? Buffer.from(so.surjection_proof, 'base64') : null;
+
+          // Reject before any INSERT: an over-cap field raises an error inside
+          // this transaction, which reaches the sync machine's terminal state
+          // and halts sync for good. Parking the single output keeps the rest
+          // of the vertex ingesting.
+          const storage = checkShieldedOutputStorable({
+            mode: so.mode,
+            script,
+            range_proof: rangeProof,
+            surjection_proof: surjectionProof,
+            token_data: isAmount ? so.token_data : null,
+            decoded: so.decoded,
+          });
+          if (!storage.storable) {
+            shieldedStorageViolations.push({
+              index: idx, scope: storage.scope, reason: storage.reason,
+            });
+            // Logged here as well as alerted: the alert is only sent after
+            // commit, and an output-scope park leaves no row behind.
+            logger.error('Shielded output parked: it does not fit its storage columns', {
+              txId: hash, index: idx, scope: storage.scope, reason: storage.reason,
+            });
+            if (storage.scope === 'output') {
+              // The violation is on tx_output itself; no row can be written.
+              continue;
+            }
+          }
+
+          // Shielded outputs don't carry a wire-level `locked` flag, so the
+          // daemon derives it locally from `decoded.timelock` (if present) and
+          // the vertex's `heightlock`. Mirrors the transparent path
+          // (`markLockedOutputs` in utils/wallet): locked iff any heightlock
+          // is in effect, or the explicit timelock is still in the future.
+          const shieldedTimelock = so.decoded.timelock ?? null;
+          const shieldedLocked = heightlock !== null
+            || (shieldedTimelock !== null && shieldedTimelock > now);
+
+          storedShieldedAddresses.add(so.decoded.address);
+          await insertTxOutput(mysql, {
+            tx_id: hash,
+            index: idx,
+            mode: so.mode,
+            address: so.decoded.address,
+            value: null,
+            token_id: isAmount ? resolveShieldedTokenId(so.token_data) : null,
+            authorities: 0,
+            timelock: shieldedTimelock,
+            heightlock,
+            locked: shieldedLocked,
+            voided: false,
+            recovery_state: storage.storable ? RecoveryState.Unowned : RecoveryState.RecoveryFailed,
+          });
+          storedShieldedOutputs.push(isAmount
+            ? {
+              mode: ShieldedOutputMode.AmountShielded,
+              address: so.decoded.address,
+              tokenId: resolveShieldedTokenId(so.token_data),
+            }
+            : { mode: ShieldedOutputMode.FullyShielded, address: so.decoded.address });
+
+          if (!storage.storable) {
+            // `recovery_failed` because that is the true state: the crypto
+            // payload is never stored, so nothing in this system can rewind
+            // this output. The recovery sweep cannot reach it in either state —
+            // it inner-joins on `shielded_tx_output_data`, which this output
+            // never gets.
+            await upsertShieldedAddressObservation(mysql, so.decoded.address);
+            continue;
+          }
+
+          await insertShieldedTxOutputData(mysql, {
+            tx_id: hash,
+            index: idx,
+            mode: so.mode,
+            commitment,
+            range_proof: rangeProof,
+            script,
+            ephemeral_pubkey: ephemeralPubkey,
+            token_data: isAmount ? so.token_data : null,
+            asset_commitment: assetCommitment,
+            surjection_proof: surjectionProof,
+          });
+
+          await upsertShieldedAddressObservation(mysql, so.decoded.address);
+
+          if (!canRewind && hasEphemeralPubkey) {
+            needsSweep.add(so.decoded.address);
+          }
+
+          // If a wallet has claimed this shielded address, attempt the rewind
+          // in line. Success → mark the output recovered with the revealed
+          // value/token; failure → mark it recovery_failed and emit an alert.
+          //
+          // Skip the ownership lookup entirely when no rewind is possible: its
+          // only purpose is to decide whether to rewind, and recording the
+          // output as recovery_failed would strand it — the promote helper only
+          // advances rows that are still `unowned`.
+          const owned = canRewind
+            ? await findShieldedAddressOwnership(mysql, so.decoded.address)
+            : null;
+          if (owned && !hasEphemeralPubkey) {
+            // No shared secret to rewind from, so the output stays `unowned`
+            // and the recovery sweep skips it too. Wallet-lib likewise treats
+            // such an output as not the wallet's, but its funds then never
+            // show up for the address's owner, so it is traced.
+            logger.warn('Shielded output to a claimed address has no ephemeral pubkey; left unowned', {
+              txId: hash, index: idx, address: so.decoded.address,
+            });
+          }
+          if (owned && hasEphemeralPubkey) {
+            try {
+              if (isAmount) {
+                const tokenIdHex = resolveShieldedTokenId(so.token_data);
+                if (tokenIdHex === null) {
+                  throw new Error('AmountShielded token_data does not resolve to a known token');
+                }
+                const r = await rewindAmount({
+                  scanPrivkey: owned.scan_privkey,
+                  ephemeralPubkey,
+                  commitment,
+                  rangeProof,
+                  tokenId: tokenIdHex,
+                });
+                const { affectedRows } = await markTxOutputRecovered(mysql, hash, idx, {
+                  value: r.value,
+                  token_id: tokenIdHex,
+                });
+                creditIfPromoted(affectedRows, idx, {
+                  address: so.decoded.address,
+                  tokenId: tokenIdHex,
+                  value: r.value,
+                  locked: shieldedLocked,
+                });
+              } else {
+                const r = await rewindFully({
+                  scanPrivkey: owned.scan_privkey,
+                  ephemeralPubkey,
+                  commitment,
+                  rangeProof,
+                  // Non-null on this branch: decoded above for every non-amount output.
+                  assetCommitment: assetCommitment!,
+                });
+                const tokenIdHexFull = r.tokenUid; // canonicalized by rewindFully
+                const { affectedRows } = await markTxOutputRecovered(mysql, hash, idx, {
+                  value: r.value,
+                  token_id: tokenIdHexFull,
+                });
+                creditIfPromoted(affectedRows, idx, {
+                  address: so.decoded.address,
+                  tokenId: tokenIdHexFull,
+                  value: r.value,
+                  locked: shieldedLocked,
+                });
+              }
+            } catch (e) {
+              const tokenId = isAmount ? resolveShieldedTokenId(so.token_data) : null;
+              if (e instanceof ShieldedScanMissError) {
+                // Not a failed recovery: nothing shows the output belongs to
+                // this wallet, and anyone can send such an output to a claimed
+                // address. It stays `unowned`, the state for outputs that
+                // cannot be attributed to the wallet, which keeps
+                // `recovery_failed` for outputs that are the wallet's. No alert
+                // here, for the same reason: a single miss cannot tell a
+                // foreign sender from a scan-key mismatch, so the wallet-service
+                // pages on the wallet-level pattern instead.
+                logger.warn('Shielded output did not open with its wallet\'s scan key', {
+                  txId: hash,
+                  index: idx,
+                  address: so.decoded.address,
+                  walletId: owned.wallet_id,
+                  mode: so.mode,
+                  tokenId,
+                });
+              } else {
+                await markTxOutputRecoveryFailed(mysql, hash, idx);
+                // A sender-made asset mismatch fails the same way every time,
+                // so only other failures are worth a sweep's retry.
+                if (!(e instanceof ShieldedAssetMismatchError)) {
+                  needsSweep.add(so.decoded.address);
+                }
+                // Defer the alert until after commit — see failedShieldedRecoveries.
+                failedShieldedRecoveries.push({
+                  index: idx,
+                  mode: so.mode,
+                  tokenId,
+                  assetMismatch: e instanceof ShieldedAssetMismatchError,
+                  error: String(e),
+                });
+              }
+            }
+          }
+        }
+
+        if (!canRewind && shieldedOutputs.length > 0) {
+          logger.warn('Shielded outputs ingested without a rewind: no shielded crypto provider is registered', {
+            txId: hash,
+            shieldedOutputs: shieldedOutputs.length,
+          });
+          missingProviderAlertPending = true;
+        }
+
+        // Bump address.transactions once per involved address using the
+        // pure wire-data set (transparent in/out + every shielded out +
+        // shielded in spent_output.decoded.address + nano-header addresses).
+        // This is now the single canonical writer of the involvement
+        // counter — updateAddressTablesWithTx no longer touches the
+        // address row directly; it only writes per-token rows.
+        const involvedAddresses = getInvolvedAddresses(inputs, outputs, shieldedOutputs, headers, hash);
+        await withSpan('bumpAddressInvolvement', () => bumpAddressInvolvement(mysql, involvedAddresses));
+        // Rows this transaction already holds (the bump above), so this adds no
+        // lock-order edge. Not a balance value: a void leaves it alone, and a
+        // sweep of an address with nothing left to recover is a no-op.
+        await flagAddressesForSweep(mysql, [...needsSweep]);
+
+        // Mark tx utxos as spent. Kind-agnostic: only uses tx_id+index, so it
+        // takes the event inputs — transparent and shielded alike — even though
+        // prepareInputs only emits transparent TxInput rows. `spendableInputs`
+        // rather than the raw set: the anomalous ones must not be marked spent.
+        await withSpan('updateTxOutputSpentBy', () => updateTxOutputSpentBy(mysql, spendableInputs, hash));
+
+        // Genesis tx has no inputs and outputs, so nothing to be updated.
+        // Nano contracts contribute an address even without inputs/outputs
+        // — covered by involvedAddresses through the header walk.
+        // Shielded-credit-only and shielded-spend-only vertices also flow
+        // through here because the involvement set always includes any
+        // shielded output / input address.
+        if (involvedAddresses.size > 0) {
           const tokenList: string[] = getTokenListFromInputsAndOutputs(txInputs, txOutputs);
 
           // Update transaction count with the new tx
           await incrementTokensTxCount(mysql, tokenList);
 
-          const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputs, headers);
+          // Unified per-(address, token) balance map. Includes:
+          //   - transparent inputs/outputs from prepared lists,
+          //   - shielded receives from the in-line rewind results above,
+          //   - shielded spend reversals sourced from local tx_output rows
+          //     (only for `recovery_state = 'recovered'` rows owned by us),
+          //   - header-only addresses seeded with an empty HTR entry.
+          // The spent rows were already updated above (spent_by), so they hold
+          // their locks; reading them as locking reads keeps that from being
+          // the only thing that makes these reads current.
+          const addressBalanceMap: StringMap<TokenBalanceMap> = await getUnifiedBalanceMap(
+            mysql,
+            txInputs,
+            txOutputs,
+            shieldedRecoveryResults,
+            spendableInputs,
+            headers,
+            { lockRows: true },
+          );
 
           // update address tables (address, address_balance, address_tx_history)
           await withSpan('updateAddressTablesWithTx', () => updateAddressTablesWithTx(mysql, hash, timestamp, addressBalanceMap));
 
+          // The public address tables, from on-chain data only. Not derived
+          // from the balance map, which also holds recovered values and is
+          // empty for a vertex whose shielded outputs were not recovered.
+          const publicInvolvement = getVertexPublicInvolvement(
+            hash,
+            txOutputs,
+            txInputs,
+            storedShieldedOutputs,
+            spentShieldedRows,
+            headers,
+          );
+          await withSpan('addPublicAddressTxHistory', () => addPublicAddressTxHistory(mysql!, hash, timestamp, publicInvolvement));
+
           // for the addresses present on the tx, check if there are any wallets associated
           const addressWalletMap: StringMap<Wallet> = await withSpan('getAddressWalletInfo', () => getAddressWalletInfo(mysql!, Object.keys(addressBalanceMap)));
+          await refreshWalletLifecycles(mysql, addressWalletMap);
 
           const addressesPerWallet = Object.entries(addressWalletMap).reduce(
             (result: StringMap<{ addresses: string[], walletDetails: Wallet }>, [address, wallet]: [string, Wallet]) => {
@@ -480,6 +1054,18 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
           // Get all max indices in a single query
           const walletIndices = await getMaxIndicesForWallets(mysql, walletDataArray);
 
+          // Per wallet, claimed addresses that a payment reached before any
+          // wallet claimed them; credited once this vertex's wallet writes are done.
+          const takenOver = new Map<string, string[]>();
+          const recordTakeovers = async (walletId: string, addresses: string[]) => {
+            if (addresses.length === 0) return;
+            // A wallet mid-load is left to its load, which rebuilds the
+            // wallet's tables from all of its addresses, these included.
+            const lifecycle = await getCurrentWalletLifecycle(mysql!, walletId);
+            if (!lifecycle || !isWalletAttributable(lifecycle)) return;
+            takenOver.set(walletId, [...(takenOver.get(walletId) ?? []), ...addresses]);
+          };
+
           // Process each wallet
           for (const [walletId, data] of Object.entries(addressesPerWallet)) {
             const { walletDetails } = data;
@@ -491,28 +1077,53 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
               continue;
             }
 
-            const { maxAmongAddresses, maxWalletIndex } = indices;
+            // Legacy gap extension reads the legacy pair only — a
+            // claimed shielded (CTSpend) index must never drive or suppress
+            // legacy derivation. The CT pair feeds extendShieldedWindows.
+            const { maxLegacyAmongAddresses, maxLegacyWalletIndex, maxCtAmongAddresses } = indices;
 
-            if (maxAmongAddresses == null || maxWalletIndex == null) {
-              // Do nothing, wallet is most likely not loaded yet.
-              if (walletDetails.status === WalletStatus.READY) {
+            if (maxLegacyAmongAddresses == null || maxLegacyWalletIndex == null) {
+              // Do nothing, wallet is most likely not loaded yet. A vertex that
+              // touched only the wallet's CTSpend addresses has no legacy
+              // address here either, and that is expected.
+              const ctOnly = maxLegacyWalletIndex != null && maxCtAmongAddresses != null;
+              if (walletDetails.status === WalletStatus.READY && !ctOnly) {
                 logger.error('[ERROR] A wallet marked as READY does not have a max wallet index or address index was not found in the database');
               }
               continue;
             }
 
-            const diff = maxWalletIndex - maxAmongAddresses;
+            const diff = maxLegacyWalletIndex - maxLegacyAmongAddresses;
 
             if (diff < walletDetails.maxGap) {
-              // We need to generate addresses
-              const addresses = await generateAddresses(NETWORK as string, walletDetails.xpubkey, maxWalletIndex + 1, walletDetails.maxGap - diff);
-              await addNewAddresses(mysql, walletId, addresses, maxAmongAddresses);
+              // Extend the window to `maxGap` past the last used address. A
+              // derived address that already has transactions (a payment
+              // reached it before the window did) is used too, so keep going
+              // past it, as the load's window does.
+              const { maxGap, xpubkey } = walletDetails;
+              let lastUsed = maxLegacyAmongAddresses;
+              let highestDerived = maxLegacyWalletIndex;
+              const addresses: StringMap<number> = {};
+              while (lastUsed + maxGap > highestDerived) {
+                const block = await generateAddresses(NETWORK as string, xpubkey, highestDerived + 1, lastUsed + maxGap - highestDerived);
+                highestDerived = lastUsed + maxGap;
+                Object.assign(addresses, block);
+                for (const address of await getUsedAddresses(mysql, Object.keys(block))) {
+                  lastUsed = Math.max(lastUsed, block[address]);
+                }
+              }
+              await recordTakeovers(walletId, await addNewAddresses(mysql, walletId, addresses, lastUsed));
             }
           }
+
+          await extendShieldedWindows(mysql, hash, walletIndices, storedShieldedAddresses, afterCommit, recordTakeovers);
 
           // update wallet_balance and wallet_tx_history tables
           const walletBalanceMap: StringMap<TokenBalanceMap> = getWalletBalanceMap(addressWalletMap, addressBalanceMap);
           await withSpan('updateWalletTablesWithTx', () => updateWalletTablesWithTx(mysql!, hash, timestamp, walletBalanceMap));
+          for (const [walletId, addresses] of takenOver) {
+            await creditTakenOverAddresses(mysql, walletId, addresses);
+          }
 
           // prepare the transaction data to be sent to the SQS queue
           const txData: Transaction = {
@@ -525,45 +1136,76 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
             parents,
             inputs: txInputs,
             outputs: txOutputs,
-            headers,
+            // The realtime contract carries nano headers only; other header
+            // types hold nothing a client acts on.
+            headers: headers.filter(isNanoHeader),
             height: metadata.height,
             token_name,
             token_symbol,
             signal_bits: 0, // TODO: we should actually receive this and store in the database
+            // Additive realtime fields: a lightweight shielded-output projection
+            // (no crypto blobs) and the full involved-address set (reusing the
+            // same set bumpAddressInvolvement consumed). Clients intersect
+            // `addresses` with their own and refetch.
+            // One entry per shielded output, so a client can still count
+            // positions: an addressless output reports no address.
+            shielded_outputs: shieldedOutputs.map((so) => {
+              const decoded = so.decoded ? { address: so.decoded.address } : null;
+              // token_data only exists on AmountShielded; FullyShielded hides it.
+              return so.mode === ShieldedOutputMode.AmountShielded
+                ? { mode: so.mode, token_data: so.token_data, decoded }
+                : { mode: so.mode, decoded };
+            }),
+            addresses: Array.from(involvedAddresses),
           };
 
-          try {
-            if (seenWallets.length > 0) {
-              await sendRealtimeTx(
-                Array.from(seenWallets),
-                txData,
-              );
-            }
-          } catch (e) {
-            logger.error('Failed to send transaction to SQS queue');
-            logger.error(e);
-          }
-
-          try {
-            if (PUSH_NOTIFICATION_ENABLED) {
-              const walletBalanceMap = await getWalletBalancesForTx(mysql, txData);
-              const { length: hasAffectWallets } = Object.keys(walletBalanceMap);
-              if (hasAffectWallets) {
-                invokeOnTxPushNotificationRequestedLambda(walletBalanceMap)
-                  .catch((err: Error) => logger.error('Error on invokeOnTxPushNotificationRequestedLambda invocation', err));
+          afterCommit.push(async () => {
+            try {
+              if (seenWallets.length > 0) {
+                await sendRealtimeTx(
+                  Array.from(seenWallets),
+                  txData,
+                );
               }
+            } catch (e) {
+              logger.error('Failed to send transaction to SQS queue');
+              logger.error(e);
             }
-          } catch (e) {
-            logger.error('Failed to send push notification to wallet-service lambda');
-            logger.error(e);
+          });
+
+          afterCommit.push(async () => {
+            try {
+              if (PUSH_NOTIFICATION_ENABLED) {
+                const walletBalanceMap = await getWalletBalancesForTx(mysql!, txData, addressBalanceMap);
+                const { length: hasAffectWallets } = Object.keys(walletBalanceMap);
+                if (hasAffectWallets) {
+                  invokeOnTxPushNotificationRequestedLambda(walletBalanceMap)
+                    .catch((err: Error) => logger.error('Error on invokeOnTxPushNotificationRequestedLambda invocation', err));
+                }
+              }
+            } catch (e) {
+              logger.error('Failed to send push notification to wallet-service lambda');
+              logger.error(e);
+            }
+          });
+
+          // NFT detection on transactions that touch shielded data is deferred —
+          // shielded NFT detection is technical debt, so skip the handler when the
+          // vertex carries any shielded outputs OR spends any shielded input.
+          const hasShieldedInputs = inputs.some(
+            (input) => input?.spent_output && isShieldedMode(input.spent_output.mode),
+          );
+          if (shieldedOutputs.length === 0 && !hasShieldedInputs) {
+            const network = new hathorLib.Network(NETWORK);
+
+            // Call to process the data for NFT handling (if applicable)
+            // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
+            afterCommit.push(async () => {
+              // @ts-ignore - wallet-lib's FullNodeTransaction will be updated to know about the new spent_output union in the next release
+              NftUtils.processNftEvent(fullNodeData, STAGE, SERVERLESS_DEPLOY_PREFIX, network, logger)
+                .catch((err: unknown) => logger.error('[ALERT] Error processing NFT event', err));
+            });
           }
-
-          const network = new hathorLib.Network(NETWORK);
-
-          // Call to process the data for NFT handling (if applicable)
-          // This process is not critical, so we run it in a fire-and-forget manner, not waiting for the promise.
-          NftUtils.processNftEvent(fullNodeData, STAGE, SERVERLESS_DEPLOY_PREFIX, network, logger)
-            .catch((err: unknown) => logger.error('[ALERT] Error processing NFT event', err));
         }
 
         // Need to check if there is a nano header and update the nc_address's seqnum if needed
@@ -581,6 +1223,104 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
         await dbUpdateLastSyncedEvent(mysql, fullNodeEvent.event.id);
 
         await mysql.commit();
+
+        for (const send of afterCommit) {
+          await send();
+        }
+
+        // Transaction committed and its row locks released: now emit the
+        // deferred recovery-failure alert, one per vertex. Routed through
+        // emitDeferredAlert so an alerting failure cannot be mistaken for an
+        // ingest failure. A sender alone can produce an asset mismatch, so a
+        // vertex whose failures are all of that kind does not page.
+        if (failedShieldedRecoveries.length > 0) {
+          const first = failedShieldedRecoveries[0];
+          const senderMade = failedShieldedRecoveries.every((f) => f.assetMismatch);
+          await emitDeferredAlert(
+            'Shielded recovery failed',
+            `${failedShieldedRecoveries.length} shielded output(s) of ${hash} paid to a claimed `
+            + `address could not be recovered and were marked recovery_failed. First: index `
+            + `${first.index} — ${first.error}`,
+            senderMade ? Severity.MINOR : Severity.MAJOR,
+            {
+              tx_id: hash,
+              count: failedShieldedRecoveries.length,
+              outputs: failedShieldedRecoveries.slice(0, ALERT_LIST_CAP).map((f) => ({
+                index: f.index,
+                mode: f.mode,
+                token_id: f.tokenId,
+                error: f.error,
+              })),
+              source: 'daemon',
+            },
+          );
+        }
+
+        // Deferred past the commit like the recovery-failure alerts: addAlert
+        // performs an SQS round-trip, which must not run while the ingest
+        // transaction holds row locks. One alert per vertex rather than per
+        // output, so a malformed stream cannot become an alert storm.
+        if (shieldedStorageViolations.length > 0) {
+          const first = shieldedStorageViolations[0];
+          await emitDeferredAlert(
+            'Shielded output exceeds its storage limits',
+            `${shieldedStorageViolations.length} shielded output(s) of ${hash} were not fully `
+            + `stored (satellite-scope keeps the tx_output row as recovery_failed; output-scope `
+            + `writes no tx_output row). First: index ${first.index}, scope ${first.scope} — ${first.reason}`,
+            Severity.MAJOR,
+            {
+              tx_id: hash,
+              count: shieldedStorageViolations.length,
+              index: first.index,
+              scope: first.scope,
+              reason: first.reason,
+              violations: shieldedStorageViolations.slice(0, ALERT_LIST_CAP),
+              source: 'daemon',
+            },
+          );
+        }
+
+        // One alert per vertex, matching the storage-violation alert above.
+        if (shieldedInputAnomalies.length > 0) {
+          const first = shieldedInputAnomalies[0];
+          await emitDeferredAlert(
+            'Shielded input resolved to a non-shielded output',
+            `${shieldedInputAnomalies.length} input(s) of ${hash} are declared shielded on the `
+            + `wire while the stored row is transparent, so the concatenated-index assumption `
+            + `does not hold for the transaction(s) that created those outputs (first: `
+            + `${first.txId}). They were excluded before anything read or wrote `
+            + `them, so no UTXO was unlocked or marked spent and no balance moved. Their `
+            + `addresses do still count toward address.transactions, which the void path `
+            + `reverses. First: ${first.txId}:${first.index}, stored mode ${first.storedMode}.`,
+            Severity.MAJOR,
+            {
+              // The spending vertex, whose inputs were excluded. The funding
+              // tx whose layout is wrong is in first_input / inputs.
+              tx_id: hash,
+              count: shieldedInputAnomalies.length,
+              first_input: { tx_id: first.txId, index: first.index, stored_mode: first.storedMode },
+              // snake_case to match the sibling keys, and capped: the alert body
+              // is one SQS message and `count` already carries the total.
+              inputs: shieldedInputAnomalies.slice(0, ALERT_LIST_CAP).map((a) => ({
+                tx_id: a.txId, index: a.index, stored_mode: a.storedMode,
+              })),
+              source: 'daemon',
+            },
+          );
+        }
+
+        // Once per process (see `missingProviderAlerted`), not per vertex, and
+        // best-effort: addAlert swallows a failed send, so a process that fails
+        // to deliver this will not try again.
+        if (missingProviderAlertPending && !missingProviderAlerted) {
+          missingProviderAlerted = true;
+          await emitDeferredAlert(
+            MISSING_SHIELDED_PROVIDER_ALERT.title,
+            MISSING_SHIELDED_PROVIDER_ALERT.message,
+            MISSING_SHIELDED_PROVIDER_ALERT.severity,
+            { tx_id: hash, shielded_outputs: shieldedOutputs.length, source: 'daemon' },
+          );
+        }
       } catch (e) {
         try {
           await mysql.rollback();
@@ -610,7 +1350,12 @@ export const handleVertexAccepted = async (context: Context, _event: Event) => {
   });
 };
 
-export const handleVertexRemoved = async (context: Context, _event: Event) => {
+/** handleVertexAccepted, re-run when its transaction loses a lock conflict (see retryOnLockConflict). */
+export const handleVertexAccepted = (context: Context, event: Event) => (
+  retryOnLockConflict(() => handleVertexAcceptedOnce(context, event))
+);
+
+const handleVertexRemovedOnce = async (context: Context, _event: Event) => {
   return tracer.startActiveSpan('handleVertexRemoved', async (span) => {
     let mysql: PoolConnection | undefined;
     try {
@@ -624,6 +1369,7 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
           hash,
           outputs,
           inputs,
+          shielded_outputs: shieldedOutputs = [],
           tokens,
           headers = [],
           version,
@@ -644,6 +1390,7 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
           hash,
           inputs,
           outputs,
+          shieldedOutputs,
           tokens,
           headers,
           version,
@@ -677,6 +1424,11 @@ export const handleVertexRemoved = async (context: Context, _event: Event) => {
     }
   });
 };
+
+/** handleVertexRemoved, re-run when its transaction loses a lock conflict (see retryOnLockConflict). */
+export const handleVertexRemoved = (context: Context, event: Event) => (
+  retryOnLockConflict(() => handleVertexRemovedOnce(context, event))
+);
 
 /**
  * Voids a transaction and all its associated data.
@@ -720,11 +1472,15 @@ export const voidTx = async (
   hash: string,
   inputs: EventTxInput[],
   outputs: EventTxOutput[],
+  shieldedOutputs: ShieldedOutput[],
   tokens: string[],
   headers: EventTxHeader[],
   version: number,
 ) => {
-  const dbTxOutputs: DbTxOutput[] = await withSpan('getTxOutputsFromTx', () => getTxOutputsFromTx(mysql, hash));
+  // Locking reads, here and for the spent outputs below: what gets reversed is
+  // decided from these rows, and the wallet-service may have promoted and
+  // credited one of them after this transaction's snapshot was taken.
+  const dbTxOutputs: DbTxOutput[] = await withSpan('getTxOutputsFromTx', () => getTxOutputsFromTx(mysql, hash, true));
   const txOutputs: TxOutputWithIndex[] = prepareOutputs(outputs, tokens);
   const txInputs: TxInput[] = prepareInputs(inputs, tokens);
 
@@ -741,14 +1497,53 @@ export const voidTx = async (
     };
   });
 
-  const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(txInputs, txOutputsWithLocked, headers);
+  // Build shielded output contributions from local tx_output rows.
+  // A shielded receive is only credited when it was recovered against an
+  // owned address; those same rows must be reversed when the vertex is voided.
+  // We read them from the DB now — before markUtxosAsVoided — so the rows
+  // are still present and still carry value / token_id.
+  //
+  // Ownership is resolved in one batch query to avoid N round-trips.
+  const candidateRows = dbTxOutputs.filter(
+    (r) => r.mode !== 0 && r.recoveryState === RecoveryState.Recovered && r.value !== null && r.tokenId !== null,
+  );
+  const ownershipMap = await findShieldedAddressOwnershipBatch(
+    mysql,
+    candidateRows.map((r) => r.address),
+  );
+  const shieldedRecoveryResults: ShieldedRecoveryResult[] = candidateRows
+    .filter((r) => ownershipMap.has(r.address))
+    .map((r) => ({
+      address: r.address,
+      tokenId: r.tokenId!,
+      value: r.value!,
+      locked: r.locked,
+    }));
+
+  const addressBalanceMap: StringMap<TokenBalanceMap> = await getUnifiedBalanceMap(
+    mysql,
+    txInputs,
+    txOutputsWithLocked,
+    shieldedRecoveryResults,
+    inputs,
+    headers,
+    { lockRows: true },
+  );
 
   await withSpan('voidTransaction', () => voidTransaction(mysql, hash));
+
   // CRITICAL: markUtxosAsVoided must be called before voidAddressTransaction
   // and voidWalletTransaction as those methods recalculate balances based on
   // the UTXOs table.
   await withSpan('markUtxosAsVoided', () => markUtxosAsVoided(mysql, dbTxOutputs));
   await withSpan('voidAddressTransaction', () => voidAddressTransaction(mysql, hash, addressBalanceMap, version));
+  // Reversed from the transaction's own public rows, not from the balance map.
+  await withSpan('voidPublicAddressTransaction', () => voidPublicAddressTransaction(mysql, hash));
+
+  // Reverse the address-grain involvement counter for the SAME set the ingest
+  // path bumped via bumpAddressInvolvement.
+  const involvedAddresses = getInvolvedAddresses(inputs, outputs, shieldedOutputs, headers, hash);
+  await withSpan('decrementAddressInvolvement', () => decrementAddressInvolvement(mysql, involvedAddresses));
 
   // CRITICAL: Unspend the inputs when voiding a transaction
   // The inputs of the voided transaction need to be marked as unspent
@@ -775,8 +1570,17 @@ export const voidTx = async (
   await withSpan('voidWalletTransaction', () => voidWalletTransaction(mysql, hash, addressBalanceMap));
 
   // CRITICAL: Clear tx_proposal marks from inputs that were used in this voided transaction
-  // This ensures the UTXOs can be used in new transactions after the void
-  await withSpan('clearTxProposalForVoidedTx', () => clearTxProposalForVoidedTx(mysql, txInputs));
+  // This ensures the UTXOs can be used in new transactions after the void.
+  // Takes the event inputs rather than `txInputs`: prepareInputs drops shielded
+  // inputs, and those can be locked under a proposal too. Filtered the same way
+  // ingest filters them: a wire-shielded input that resolves to a transparent
+  // row was never spent by this transaction, and that row may be locked under
+  // another wallet's live proposal. Ingest already alerted on it.
+  const releasableInputs = await withSpan(
+    'partitionShieldedInputs',
+    () => partitionShieldedInputs(mysql, inputs, []),
+  );
+  await withSpan('clearTxProposalForVoidedTx', () => clearTxProposalForVoidedTx(mysql, releasableInputs));
 
   /**
    * Delete ALL tokens created by this voided transaction.
@@ -811,7 +1615,7 @@ export const voidTx = async (
   }
 };
 
-export const handleVoidedTx = async (context: Context) => {
+const handleVoidedTxOnce = async (context: Context) => {
   return tracer.startActiveSpan('handleVoidedTx', async (span) => {
     let mysql: PoolConnection | undefined;
     try {
@@ -825,6 +1629,7 @@ export const handleVoidedTx = async (context: Context) => {
           hash,
           outputs,
           inputs,
+          shielded_outputs: shieldedOutputs = [],
           tokens,
           headers = [],
           version,
@@ -837,6 +1642,7 @@ export const handleVoidedTx = async (context: Context) => {
           hash,
           inputs,
           outputs,
+          shieldedOutputs,
           tokens,
           headers,
           version,
@@ -869,7 +1675,12 @@ export const handleVoidedTx = async (context: Context) => {
   });
 };
 
-export const handleUnvoidedTx = async (context: Context) => {
+/** handleVoidedTx, re-run when its transaction loses a lock conflict (see retryOnLockConflict). */
+export const handleVoidedTx = (context: Context) => (
+  retryOnLockConflict(() => handleVoidedTxOnce(context))
+);
+
+const handleUnvoidedTxOnce = async (context: Context) => {
   return tracer.startActiveSpan('handleUnvoidedTx', async (span) => {
     let mysql: PoolConnection | undefined;
     try {
@@ -914,7 +1725,12 @@ export const handleUnvoidedTx = async (context: Context) => {
   });
 };
 
-export const handleTxFirstBlock = async (context: Context) => {
+/** handleUnvoidedTx, re-run when its transaction loses a lock conflict (see retryOnLockConflict). */
+export const handleUnvoidedTx = (context: Context) => (
+  retryOnLockConflict(() => handleUnvoidedTxOnce(context))
+);
+
+const handleTxFirstBlockOnce = async (context: Context) => {
   return tracer.startActiveSpan('handleTxFirstBlock', async (span) => {
     let mysql: PoolConnection | undefined;
     try {
@@ -971,6 +1787,11 @@ export const handleTxFirstBlock = async (context: Context) => {
   });
 };
 
+/** handleTxFirstBlock, re-run when its transaction loses a lock conflict (see retryOnLockConflict). */
+export const handleTxFirstBlock = (context: Context) => (
+  retryOnLockConflict(() => handleTxFirstBlockOnce(context))
+);
+
 /**
  * Handle NC_EXEC_VOIDED event - nc_execution changed from 'success' to something else.
  *
@@ -983,7 +1804,7 @@ export const handleTxFirstBlock = async (context: Context) => {
  * because the token creation is inherent to the transaction itself, not dependent
  * on nano contract execution.
  */
-export const handleNcExecVoided = async (context: Context) => {
+const handleNcExecVoidedOnce = async (context: Context) => {
   return tracer.startActiveSpan('handleNcExecVoided', async (span) => {
     let mysql: PoolConnection | undefined;
     try {
@@ -1035,6 +1856,11 @@ export const handleNcExecVoided = async (context: Context) => {
     }
   });
 };
+
+/** handleNcExecVoided, re-run when its transaction loses a lock conflict (see retryOnLockConflict). */
+export const handleNcExecVoided = (context: Context) => (
+  retryOnLockConflict(() => handleNcExecVoidedOnce(context))
+);
 
 export const updateLastSyncedEvent = async (context: Context) => {
   let mysql: PoolConnection | undefined;
@@ -1163,7 +1989,7 @@ export const handleReorgStarted = async (context: Context): Promise<void> => {
   });
 };
 
-export const handleTokenCreated = async (context: Context) => {
+const handleTokenCreatedOnce = async (context: Context) => {
   return tracer.startActiveSpan('handleTokenCreated', async (span) => {
     let mysql: PoolConnection | undefined;
     try {
@@ -1218,6 +2044,7 @@ export const handleTokenCreated = async (context: Context) => {
           // Insert the new token
           await storeTokenInformation(mysql, token_uid, token_name, token_symbol, token_version);
           await insertTokenCreation(mysql, token_uid, txId, firstBlock);
+
           logger.debug(`Inserted new token ${token_uid} with first_block=${firstBlock}, version=${token_version}`);
         } else {
           logger.debug(`Token ${token_uid} already exists, skipping insertion`);
@@ -1250,6 +2077,11 @@ export const handleTokenCreated = async (context: Context) => {
     }
   });
 };
+
+/** handleTokenCreated, re-run when its transaction loses a lock conflict (see retryOnLockConflict). */
+export const handleTokenCreated = (context: Context) => (
+  retryOnLockConflict(() => handleTokenCreatedOnce(context))
+);
 
 /**
  * Checks the HTTP API for missed events after the last ACK

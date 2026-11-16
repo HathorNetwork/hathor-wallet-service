@@ -48,6 +48,10 @@ jobs:
       run: |
         nix develop . -c yarn install
 
+    - name: Lint
+      run: |
+        nix develop . -c yarn lint
+
     - name: Initialize DB
       run: |
         nix develop . -c yarn sequelize db:migrate
@@ -74,6 +78,7 @@ jobs:
         DB_PORT: 3306
         STREAM_ID: f7d9157c-9906-4bd2-bc84-cfb9f5b607d1
         FULLNODE_PEER_ID: bdf4fa876f5cdba84be0cab53b21fc9eb45fe4b3d6ede99f493119d37df4e560
+        NETWORK: mainnet
 
     - name: Run tests on the wallet-service
       run: |
@@ -101,14 +106,8 @@ jobs:
         AUTH_SECRET: "foobar"
         WALLET_SERVICE_LAMBDA_ENDPOINT: ""
         FIREBASE_PROJECT_ID: ""
-        FIREBASE_PRIVATE_KEY_ID: ""
         FIREBASE_PRIVATE_KEY: ""
         FIREBASE_CLIENT_EMAIL: ""
-        FIREBASE_CLIENT_ID: ""
-        FIREBASE_AUTH_URI: ""
-        FIREBASE_TOKEN_URI: ""
-        FIREBASE_AUTH_PROVIDER_X509_CERT_URL: ""
-        FIREBASE_CLIENT_X509_CERT_URL: ""
         APPLICATION_NAME: "hathor-wallet-service"
         ACCOUNT_ID: 1234
         ALERT_MANAGER_REGION: us-east-1

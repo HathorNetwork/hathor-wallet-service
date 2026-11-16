@@ -21,13 +21,7 @@ const logger = createDefaultLogger();
 // Extend the base schema to make Firebase fields required
 const FirebaseConfigSchema = EnvironmentConfigSchema.fork([
   'firebaseProjectId',
-  'firebasePrivateKeyId',
   'firebaseClientEmail',
-  'firebaseClientId',
-  'firebaseAuthUri',
-  'firebaseTokenUri',
-  'firebaseAuthProviderX509CertUrl',
-  'firebaseClientX509CertUrl',
   'firebasePrivateKey',
 ], (schema) => schema.required());
 
@@ -46,13 +40,7 @@ const WALLET_SERVICE_LAMBDA_ENDPOINT = config.walletServiceLambdaEndpoint;
 const SEND_NOTIFICATION_FUNCTION_NAME = buildFunctionName(FunctionName.SEND_NOTIFICATION_TO_DEVICE);
 const ON_TX_PUSH_NOTIFICATION_REQUESTED_FUNCTION_NAME = buildFunctionName(FunctionName.ON_TX_PUSH_NOTIFICATION_REQUESTED);
 const FIREBASE_PROJECT_ID = config.firebaseProjectId;
-const FIREBASE_PRIVATE_KEY_ID = config.firebasePrivateKeyId;
 const FIREBASE_CLIENT_EMAIL = config.firebaseClientEmail;
-const FIREBASE_CLIENT_ID = config.firebaseClientId;
-const FIREBASE_AUTH_URI = config.firebaseAuthUri;
-const FIREBASE_TOKEN_URI = config.firebaseTokenUri;
-const FIREBASE_AUTH_PROVIDER_X509_CERT_URL = config.firebaseAuthProviderX509CertUrl;
-const FIREBASE_CLIENT_X509_CERT_URL = config.firebaseClientX509CertUrl;
 const FIREBASE_PRIVATE_KEY = (() => {
   try {
     /**
@@ -119,17 +107,12 @@ if (isPushNotificationEnabled()) {
       throw error;
     }
 
+    // credential.cert() reads only project_id, private_key and client_email.
     const serviceAccount = {
       type: 'service_account',
       project_id: FIREBASE_PROJECT_ID,
-      private_key_id: FIREBASE_PRIVATE_KEY_ID,
       private_key: FIREBASE_PRIVATE_KEY,
       client_email: FIREBASE_CLIENT_EMAIL,
-      client_id: FIREBASE_CLIENT_ID,
-      auth_uri: FIREBASE_AUTH_URI,
-      token_uri: FIREBASE_TOKEN_URI,
-      auth_provider_x509_cert_url: FIREBASE_AUTH_PROVIDER_X509_CERT_URL,
-      client_x509_cert_url: FIREBASE_CLIENT_X509_CERT_URL,
     };
 
     fcmAdmin.initializeApp({

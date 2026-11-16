@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { assign, AssignAction, sendTo, choose } from 'xstate';
+import { assign, AssignAction, sendTo, choose, stop } from 'xstate';
 import { Context, Event, EventTypes, MonitoringEvent, StandardFullNodeEvent } from '../types';
 import { get } from 'lodash';
 import logger from '../logger';
@@ -105,6 +105,23 @@ export const startStream = sendTo(
 export const clearSocket = assign({
   socket: null,
 });
+
+/*
+ * The websocket actor is spawned with this fixed id so it can be stopped by id.
+ */
+export const WEBSOCKET_ACTOR_ID = 'websocket';
+
+/*
+ * This action stops the websocket actor, which closes its socket and makes xstate
+ * drop any event it sends afterwards. Assigning null to the socket ref does not
+ * stop a spawned actor, so without this every reconnect leaked the previous socket,
+ * and a later close of that stale socket forced the live connection to reconnect.
+ *
+ * It stops by id instead of by the ref in context because, without
+ * predictableActionArguments, xstate applies assign actions (like clearSocket)
+ * before the other actions of the transition, so the ref would already be null.
+ */
+export const stopSocket = stop(WEBSOCKET_ACTOR_ID);
 
 /*
  * This action stores the event on the machine's context. It also asserts that

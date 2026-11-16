@@ -104,3 +104,40 @@ export async function retryWithBackoff<T>(
   // This should never be reached, but TypeScript needs it
   throw lastError;
 }
+
+/**
+ * Whether a database error is a lock conflict that re-running the whole
+ * transaction can clear: InnoDB chose the transaction as a deadlock victim
+ * (1213) or it waited longer than `innodb_lock_wait_timeout` for a lock (1205).
+ */
+export const isLockConflict = (error: unknown): boolean => {
+  const errno = (error as { errno?: unknown } | null)?.errno;
+  return errno === 1213 || errno === 1205;
+};
+
+/**
+ * Run a handler's transaction again when it loses a lock conflict.
+ *
+ * The daemon shares rows with the wallet-service, whose recovery commit locks
+ * a wallet's balance rows for its whole transaction. InnoDB rolls back the
+ * side with fewer locks, which is usually the daemon, and no single lock order
+ * rules every conflict out because the daemon's own paths take its tables in
+ * different orders. Without a retry, losing one conflict ends sync: the sync
+ * machine treats a failed handler as final.
+ *
+ * Safe for the transactional handlers because each one rolls back fully on
+ * error, reads what it needs again from the start, and sends nothing outside
+ * the database until after it commits (ingest queues its notifications for
+ * then).
+ *
+ * Two retries at most: a lock wait timeout takes `innodb_lock_wait_timeout`
+ * (50 s by default) per attempt, and time spent in a handler counts toward
+ * the monitor's idle timeout (5 minutes), past which it stops sync anyway.
+ */
+export const retryOnLockConflict = <T>(fn: () => Promise<T>): Promise<T> => retryWithBackoff(fn, {
+  maxRetries: 2,
+  initialDelayMs: 100,
+  maxDelayMs: 1000,
+  backoffMultiplier: 2,
+  retryableErrors: isLockConflict,
+});

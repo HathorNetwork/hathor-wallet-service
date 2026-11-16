@@ -16,6 +16,7 @@ import * as bitcoinMessage from 'bitcoinjs-message';
 import * as ecc from 'tiny-secp256k1';
 import BIP32Factory from 'bip32';
 import config from '@src/config';
+import { Bip32Account } from '@wallet-service/common';
 
 const bip32 = BIP32Factory(ecc);
 
@@ -117,7 +118,7 @@ export const closeDbConnection = async (mysql: ServerlessMysql): Promise<void> =
  *
  * @param array - An array containing the items
  */
-export const arrayShuffle = <T extends unknown>(array: T[]): T[] => {
+export const arrayShuffle = <T>(array: T[]): T[] => {
   /* eslint-disable no-param-reassign */
   let j;
   let x;
@@ -170,12 +171,12 @@ export const fetchBlockHeight = async (txId: string, logger: Logger): Promise<[n
 };
 
 /**
- * Creates default address path from address index
+ * Creates an address derivation path from an address index and its bip32 account.
  *
  * @returns {string} The address path
  */
-export const getAddressPath = (index: number): string => (
-  `m/44'/${hathorLib.constants.HATHOR_BIP44_CODE}'/0'/0/${index}`
+export const getAddressPath = (index: number, account: Bip32Account = Bip32Account.Legacy): string => (
+  `m/44'/${hathorLib.constants.HATHOR_BIP44_CODE}'/${account}'/0/${index}`
 );
 
 /**
@@ -279,28 +280,41 @@ export const xpubDeriveChild = (xpubkey: string, index: number): string => (
 );
 
 /**
- * Verify a signature for a given timestamp and xpubkey
- *
- * @param signature - The signature done by the xpriv of the wallet
- * @param timestamp - Unix Timestamp of the signature
- * @param address - The address of the xpubkey used to create the walletId
- * @param walletId - The walletId, a sha512d of the xpubkey
- *
- * @returns true if the signature matches the other params
+ * Build the canonical message an authenticated request signs: the timestamp,
+ * the walletId, and a payload (an address, an xpub, or a ct_address),
+ * concatenated in that order.
  */
-export const verifySignature = (
-  signature: string,
-  timestamp: number,
-  address: string,
-  walletId: string,
-): boolean => {
-  try {
-    const message = String(timestamp).concat(walletId).concat(address);
+export const buildAuthMessage = (timestamp: number, walletId: string, payload: string): string =>
+  String(timestamp).concat(walletId).concat(payload);
 
+/**
+ * Verify that `address` produced `signature` over `message` using the Hathor
+ * message prefix. Never throws — user-supplied input that can't be parsed
+ * verifies as false.
+ */
+/** A compact signature: a header byte, then r and s at 32 bytes each. */
+const COMPACT_SIGNATURE_LENGTH = 65;
+
+/**
+ * Restore the zero bytes bitcore drops from the front of r.
+ *
+ * bitcore computes r as one of elliptic's BNs, which lacks bitcore's padded
+ * `toBuffer({ size: 32 })`, so an r with leading zero bytes is written without
+ * them: about 1 signature in 256 comes out 64 bytes long, fewer shorter still.
+ * s is always padded. wallet-lib signs with bitcore, and the verifier only
+ * takes the 65-byte form, so these valid signatures failed.
+ */
+const padCompactSignature = (raw: Buffer): Buffer => {
+  if (raw.length >= COMPACT_SIGNATURE_LENGTH || raw.length < 2) return raw;
+  return Buffer.concat([raw.subarray(0, 1), Buffer.alloc(COMPACT_SIGNATURE_LENGTH - raw.length), raw.subarray(1)]);
+};
+
+export const verifyMessageSignature = (signature: string, message: string, address: string): boolean => {
+  try {
     return bitcoinMessage.verify(
       message,
       address,
-      Buffer.from(signature, 'base64'),
+      padCompactSignature(Buffer.from(signature, 'base64')),
       // Different from bitcore-lib, bitcoinjs-lib does not prefix the messagePrefix
       // length on the message, so we need to do this by using a "End of Transmission
       // Block" with the length (22) in hex (17). This is the same thing that is done
@@ -313,6 +327,19 @@ export const verifySignature = (
     return false;
   }
 };
+
+/**
+ * Verify a signature for a given timestamp and xpubkey — the signed message is
+ * `timestamp || walletId || address`.
+ *
+ * @returns true if the signature matches the other params
+ */
+export const verifySignature = (
+  signature: string,
+  timestamp: number,
+  address: string,
+  walletId: string,
+): boolean => verifyMessageSignature(signature, buildAuthMessage(timestamp, walletId, address), address);
 
 /**
  * Returns an address (as a string) from a string xpubkey

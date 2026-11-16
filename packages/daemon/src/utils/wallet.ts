@@ -16,14 +16,15 @@ import {
   EventTxInput,
   EventTxOutput,
   isNanoHeader,
+  ShieldedOutput,
   StringMap,
   TokenBalanceValue,
   Wallet,
   WalletBalance,
   WalletBalanceValue,
+  isWalletAttributable,
 } from '../types';
 import {
-  DecodedOutput,
   Transaction,
   TxOutputWithIndex,
   TxInput,
@@ -34,15 +35,26 @@ import {
 import {
   fetchAddressBalance,
   fetchAddressTxHistorySum,
+  findShieldedAddressOwnership,
   getAddressWalletInfo,
+  refreshWalletLifecycles,
+  getCurrentShieldedRecovery,
   getExpiredTimelocksUtxos,
   getTokenSymbols,
+  getTxOutput,
   unlockUtxos as dbUnlockUtxos,
   updateAddressLockedBalance,
   updateWalletLockedBalance,
 } from '../db';
+import {
+  ShieldedOutputMode,
+  RecoveryState,
+  isShieldedMode,
+  ADDRESS_COLUMN_MAX_CHARS,
+} from '@wallet-service/common';
 import logger from '../logger';
 import { stringMapIterator } from './helpers';
+import { PublicSpentRow } from './publicInvolvement';
 
 /**
  * Prepares transaction outputs with additional metadata and indexing.
@@ -134,7 +146,7 @@ export const getAddressBalanceMap = (
       continue;
     }
 
-    const address = input.decoded?.address!;
+    const address = input.decoded.address;
 
     // get the TokenBalanceMap from this input
     const tokenBalanceMap = TokenBalanceMap.fromTxInput(input);
@@ -182,7 +194,290 @@ export const getAddressBalanceMap = (
 };
 
 /**
+ * Compute the set of addresses involved in a vertex.
+ *
+ * The involvement set drives the `address.transactions` counter — every
+ * address that appears anywhere on the vertex is bumped once regardless
+ * of whether the daemon can resolve a token/value for it. Sources:
+ *
+ *  - Transparent inputs: `spent_output.decoded.address` (when decode succeeded).
+ *  - Transparent outputs: `decoded.address` (when decode succeeded).
+ *  - Shielded outputs: `decoded.address` of every shielded output that has
+ *    one, regardless of ownership or recovery state. Unowned shielded
+ *    outputs still mark their address as involved so an observer can see
+ *    something happened; an output with no address contributes nothing.
+ *  - Shielded inputs: `spent_output.decoded.address`, when the spent
+ *    output has an address and its payload validated.
+ *  - Nano-contract headers: `nc_address`.
+ *
+ * Pure function over wire data; no DB lookups. The caller is responsible
+ * for using the returned set to drive `address.transactions` separately
+ * from the per-(address, token) balance map.
+ */
+export const getInvolvedAddresses = (
+  inputs: EventTxInput[],
+  outputs: EventTxOutput[],
+  shieldedOutputs: ShieldedOutput[],
+  headers: EventTxHeader[],
+  txId?: string,
+): Set<string> => {
+  const involved = new Set<string>();
+
+  // An address wider than its column can have no row in `address` or
+  // `tx_output`, and letting one reach bumpAddressInvolvement fails the whole
+  // ingest transaction — which halts sync permanently. Dropping it here covers
+  // every source this function walks, including a shielded input's address,
+  // which the output loop never sees. Nano header addresses reach
+  // `updateAddressTablesWithTx` by a separate route and are not covered.
+  const addInvolved = (address: string | undefined | null): void => {
+    if (!address) return;
+    if (address.length > ADDRESS_COLUMN_MAX_CHARS) {
+      logger.error('dropping an over-cap address from the involvement set', {
+        txId,
+        length: address.length,
+        max: ADDRESS_COLUMN_MAX_CHARS,
+      });
+      return;
+    }
+    involved.add(address);
+  };
+
+  for (const input of inputs) {
+    const spent = input?.spent_output;
+    if (!spent) continue;
+    // A transparent spent output may have failed to decode and a shielded
+    // one may have no address; neither contributes anything.
+    const decoded = (spent as { decoded?: { address?: string } | null }).decoded;
+    const address = decoded && (decoded as { address?: string }).address;
+    addInvolved(address);
+  }
+
+  for (const output of outputs) {
+    if (!isDecodedValid(output.decoded, ['address'])) continue;
+    const address = (output.decoded as { address?: string }).address;
+    addInvolved(address);
+  }
+
+  for (const so of shieldedOutputs) {
+    addInvolved(so.decoded?.address);
+  }
+
+  for (const header of headers) {
+    if (!isNanoHeader(header)) continue;
+    addInvolved(header.nc_address);
+  }
+
+  return involved;
+};
+
+/**
+ * Per-shielded-output rewind outcome captured during the
+ * handleVertexAccepted shielded loop. Only successful recoveries against an
+ * owned address contribute; unowned outputs and rewind failures are not
+ * included because no balance was credited.
+ */
+export interface ShieldedRecoveryResult {
+  address: string;
+  tokenId: string;
+  value: bigint;
+  locked: boolean;
+}
+
+/**
+ * A shielded input whose stored row contradicts the mode declared on the wire.
+ * Collected so the caller can alert after the ingest transaction commits.
+ */
+export interface ShieldedInputAnomaly {
+  txId: string;
+  index: number;
+  storedMode: number;
+}
+
+/**
+ * Split the event inputs into those safe to act on and those whose stored row
+ * contradicts the mode declared on the wire.
+ *
+ * Shielded outputs are assumed to occupy the concatenated index space after the
+ * transparent ones. If that is ever wrong, `(tx_id, index)` for a shielded
+ * input resolves to the funding vertex's *transparent* output at that index,
+ * and acting on it writes against a real user UTXO: the unlock moves value
+ * between the locked and unlocked balance columns (there is no re-lock path) and
+ * `updateTxOutputSpentBy` marks the row spent. Ingestion therefore runs this
+ * before either, and excludes the offenders, rather than detecting the
+ * mismatch once the writes are already in the transaction.
+ *
+ * Mismatches are logged here and pushed to `anomalies` for the caller to alert
+ * on after the transaction commits — an SQS round-trip must not hold row locks.
+ *
+ * When `spentShieldedRows` is given, the stored row of each kept shielded
+ * input that has one is pushed to it, projected to its public columns, so the
+ * caller can derive public involvement without reading the rows again.
+ */
+export const partitionShieldedInputs = async (
+  mysql: MysqlConnection,
+  eventInputs: EventTxInput[],
+  anomalies: ShieldedInputAnomaly[],
+  spentShieldedRows?: PublicSpentRow[],
+): Promise<EventTxInput[]> => {
+  const safe: EventTxInput[] = [];
+  for (const ei of eventInputs) {
+    if (!ei?.spent_output || !isShieldedMode(ei.spent_output.mode)) {
+      safe.push(ei);
+      continue;
+    }
+    const row = await getTxOutput(mysql, ei.tx_id, ei.index, false);
+    if (row && !isShieldedMode(row.mode)) {
+      logger.error('shielded input resolved to a non-shielded tx_output', {
+        txId: ei.tx_id,
+        index: ei.index,
+        wireMode: ei.spent_output.mode,
+        storedMode: row.mode,
+      });
+      anomalies.push({ txId: ei.tx_id, index: ei.index, storedMode: row.mode });
+      continue;
+    }
+    if (row && spentShieldedRows) {
+      spentShieldedRows.push({
+        txId: row.txId,
+        index: row.index,
+        mode: row.mode,
+        address: row.address,
+        tokenId: row.tokenId,
+      });
+    }
+    safe.push(ei);
+  }
+  return safe;
+};
+
+/**
+ * Build the unified per-(address, token) balance map for a vertex.
+ *
+ * Combines four contribution sources into a single map so the address /
+ * wallet writers can issue one statement per (address, token) row that
+ * carries both transparent and shielded deltas:
+ *
+ *  - Transparent outputs: read from prepared outputs; standard
+ *    TokenBalanceMap.fromTxOutput semantics (positive delta, locked vs
+ *    unlocked column routed by `output.locked`).
+ *  - Transparent inputs: read from prepared inputs; standard
+ *    TokenBalanceMap.fromTxInput semantics (negative delta plus any
+ *    authority bookkeeping).
+ *  - Shielded outputs that recovered against an owned address: the rewind
+ *    revealed (value, token) — contribute a positive shielded delta
+ *    routed to the locked or unlocked shielded column by `locked`.
+ *  - Shielded inputs whose original `tx_output` row is in recovery_state =
+ *    'recovered' AND owned by us: look up the local row to learn the
+ *    value and contribute a negative shielded delta. Unowned or
+ *    recovery_failed shielded inputs contribute nothing — the bump in
+ *    `address.transactions` from the involvement helper already accounts
+ *    for them.
+ *
+ * Shielded-input contributions are sourced from local state rather than
+ * the wire because the shielded `spent_output` payload doesn't carry the
+ * recovered value, and for FullyShielded inputs it doesn't carry the
+ * token either.
+ *
+ * Headers (currently only nano-contract `nc_address`) seed an empty HTR
+ * entry, matching the legacy `getAddressBalanceMap` behaviour so the
+ * downstream wallet lookup can still attach to the address. This is the
+ * only zero-delta seed produced by the unified builder.
+ *
+ * `txInputs` is expected to be the transparent-only slice produced by
+ * `prepareInputs` (shielded inputs are dropped there). `eventInputs` is
+ * the raw wire-level input array, used here only to drive the shielded
+ * spend reversal lookup.
+ */
+export const getUnifiedBalanceMap = async (
+  mysql: MysqlConnection,
+  txInputs: TxInput[],
+  txOutputs: TxOutputWithIndex[],
+  shieldedRecoveryResults: ShieldedRecoveryResult[],
+  eventInputs: EventTxInput[],
+  headers: EventTxHeader[],
+  /**
+   * Read the spent shielded outputs as currently committed (locking reads)
+   * rather than from the transaction's snapshot. A caller that hasn't already
+   * updated those rows itself must pass it: the wallet-service can promote and
+   * credit one after the snapshot was taken.
+   */
+  { lockRows = false }: { lockRows?: boolean } = {},
+): Promise<StringMap<TokenBalanceMap>> => {
+  const map: StringMap<TokenBalanceMap> = {};
+
+  for (const input of txInputs) {
+    if (!isDecodedValid(input.decoded)) continue;
+    const address = input.decoded.address;
+    const tokenMap = TokenBalanceMap.fromTxInput(input);
+    map[address] = TokenBalanceMap.merge(map[address], tokenMap);
+  }
+
+  for (const output of txOutputs) {
+    if (!isDecodedValid(output.decoded)) {
+      throw new Error('Output has no decoded script');
+    }
+    if (!output.decoded.address) {
+      throw new Error('Decoded output data has no address');
+    }
+    const address = output.decoded.address;
+    const tokenMap = TokenBalanceMap.fromTxOutput(output);
+    map[address] = TokenBalanceMap.merge(map[address], tokenMap);
+  }
+
+  for (const r of shieldedRecoveryResults) {
+    const tokenMap = TokenBalanceMap.fromShielded(r.tokenId, r.value, r.locked);
+    map[r.address] = TokenBalanceMap.merge(map[r.address], tokenMap);
+  }
+
+  // Shielded input reversals: look up the local tx_output row for each
+  // shielded input. Only owned, recovered rows contributed a balance
+  // originally; unowned and recovery_failed are skipped.
+  for (const ei of eventInputs) {
+    if (!ei?.spent_output || !isShieldedMode(ei.spent_output.mode)) continue;
+    const row = await getTxOutput(mysql, ei.tx_id, ei.index, false, lockRows);
+    if (!row) continue;
+    // The wire says this input spends a shielded output. If the row stored at
+    // that (tx_id, index) is transparent, the concatenated-index assumption
+    // (shielded outputs numbered after the transparent ones) does not hold and
+    // deriving a debit from the wrong row would overstate the
+    // balance. Ingestion never reaches this branch — `partitionShieldedInputs`
+    // removes those inputs first, which is also what reports them — so this is
+    // the void path's safety net, where the raw inputs are passed. The next
+    // guard would skip a transparent row anyway (its `recovery_state` is NULL);
+    // this makes the reason explicit rather than incidental.
+    if (!isShieldedMode(row.mode)) continue;
+    if (row.recoveryState !== RecoveryState.Recovered) continue;
+    if (row.value === null || row.tokenId === null) continue;
+    const owned = await findShieldedAddressOwnership(mysql, row.address);
+    if (!owned) continue;
+    const tokenMap = TokenBalanceMap.fromShielded(row.tokenId, -row.value, row.locked);
+    map[row.address] = TokenBalanceMap.merge(map[row.address], tokenMap);
+  }
+
+  // Header-only addresses (nano-contract callers without an input/output)
+  // get an empty HTR seed so the downstream wallet lookup can attach.
+  for (const header of headers) {
+    if (!isNanoHeader(header)) continue;
+    const address = header.nc_address;
+    if (map[address]) continue;
+    const emptyHTR = new TokenBalanceMap();
+    emptyHTR.set(constants.NATIVE_TOKEN_UID, emptyHTR.get(constants.NATIVE_TOKEN_UID));
+    map[address] = emptyHTR;
+  }
+
+  return map;
+};
+
+/**
  * Update the unlocked/locked balances for addresses and wallets connected to the given UTXOs.
+ *
+ * Row-level `locked = FALSE` is flipped for every UTXO, regardless of mode or recovery state.
+ * Balance accounting then dispatches by `(mode, recovery_state)`:
+ * - transparent rows update transparent balance columns;
+ * - shielded rows in `recovered` state update shielded balance columns;
+ * - shielded rows in `unowned` / `recovery_failed` contribute no balance (the value is unknown
+ *   to this node), so they are skipped from balance updates while still getting their lock flag
+ *   flipped.
  *
  * @param mysql - Database connection
  * @param utxos - List of UTXOs that are unlocked by height
@@ -191,46 +486,81 @@ export const getAddressBalanceMap = (
 export const unlockUtxos = async (mysql: MysqlConnection, utxos: DbTxOutput[], updateTimelocks: boolean): Promise<void> => {
   if (utxos.length === 0) return;
 
-  const outputs: TxOutput[] = utxos.map((utxo) => {
-    const decoded: DecodedOutput = {
-      type: 'P2PKH',
-      address: utxo.address,
-      timelock: utxo.timelock,
-    };
-
-    return {
-      value: utxo.authorities > 0 ? BigInt(utxo.authorities) : utxo.value,
-      token: utxo.tokenId,
-      decoded,
-      locked: false,
-      // set authority bit if necessary
-      token_data: utxo.authorities > 0 ? constants.TOKEN_AUTHORITY_MASK : 0,
-      // we don't care about spent_by and script
-      spent_by: null,
-      script: '',
-    };
-  });
-
-  // mark as unlocked in database (this just changes the 'locked' flag)
+  // Row-level lock flip applies to every row regardless of mode. `dbUnlockUtxos` only reads
+  // `tx_id` and `index` to issue the UPDATE, so populating the other fields with placeholders
+  // (including the null `value` of unowned shielded rows) is safe.
   await dbUnlockUtxos(mysql, utxos.map((utxo: DbTxOutput): TxInput => ({
     tx_id: utxo.txId,
     index: utxo.index,
-    value: utxo.value,
+    value: utxo.value ?? 0n,
     token_data: 0,
     script: '',
-    token: utxo.tokenId,
+    token: utxo.tokenId ?? '',
     decoded: null,
   })));
 
-  const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap([], outputs, []);
-  // update address_balance table
+  // Build a unified per-(address, token) balance map via getUnifiedBalanceMap by classifying
+  // each UTXO: transparent rows feed the `txOutputs` slot (which populates the transparent
+  // `unlockedAmount` field via `fromTxOutput`); recovered shielded rows feed
+  // `shieldedRecoveryResults` (which populates the `unlockedShieldedAmount` field via
+  // `fromShielded`). Unowned / recovery_failed shielded rows are skipped — they never
+  // contributed to balance, so unlocking them touches no column. `locked: false` on both
+  // sides routes the value to the unlocked column families.
+  //
+  // Shielded rows are classified from their current state, not from `utxos`: the
+  // caller read those with a plain SELECT, and the wallet-service may have
+  // promoted and credited an output since. Deciding from the stale `unowned`
+  // would flip its lock flag without moving its value, leaving it in the locked
+  // column for good.
+  const currentShielded = await getCurrentShieldedRecovery(
+    mysql,
+    utxos.filter((utxo) => utxo.mode !== ShieldedOutputMode.Transparent),
+  );
+  const synthOutputs: TxOutputWithIndex[] = [];
+  const synthRecoveryResults: ShieldedRecoveryResult[] = [];
+  for (const utxo of utxos) {
+    const current = currentShielded.get(`${utxo.txId}:${utxo.index}`);
+    if (utxo.mode === ShieldedOutputMode.Transparent) {
+      synthOutputs.push({
+        value: utxo.authorities > 0 ? BigInt(utxo.authorities) : utxo.value!,
+        token: utxo.tokenId!,
+        decoded: {
+          type: 'P2PKH',
+          address: utxo.address,
+          timelock: utxo.timelock,
+        },
+        locked: false,
+        token_data: utxo.authorities > 0 ? constants.TOKEN_AUTHORITY_MASK : 0,
+        spent_by: null,
+        script: '',
+        index: utxo.index,
+      });
+    } else if (current?.recoveryState === RecoveryState.Recovered) {
+      synthRecoveryResults.push({
+        address: utxo.address,
+        tokenId: current.tokenId!,
+        value: current.value!,
+        locked: false,
+      });
+    }
+  }
+
+  const addressBalanceMap = await getUnifiedBalanceMap(
+    mysql,
+    [],
+    synthOutputs,
+    synthRecoveryResults,
+    [],
+    [],
+  );
+
   await updateAddressLockedBalance(mysql, addressBalanceMap, updateTimelocks);
 
-  // check if addresses belong to any started wallet
-  const addressWalletMap: StringMap<Wallet> = await getAddressWalletInfo(mysql, Object.keys(addressBalanceMap));
-
-  // update wallet_balance table
-  const walletBalanceMap: StringMap<TokenBalanceMap> = getWalletBalanceMap(addressWalletMap, addressBalanceMap);
+  // The address table is unified — getAddressWalletInfo returns wallet info for
+  // rows of any Bip32Account slot, so the lookup is account-agnostic.
+  const addressWalletMap = await getAddressWalletInfo(mysql, Object.keys(addressBalanceMap));
+  await refreshWalletLifecycles(mysql, addressWalletMap);
+  const walletBalanceMap = getWalletBalanceMap(addressWalletMap, addressBalanceMap);
   await updateWalletLockedBalance(mysql, walletBalanceMap, updateTimelocks);
 };
 
@@ -266,6 +596,13 @@ export const getWalletBalanceMap = (
     // if this address is not from a started wallet, ignore
     if (!walletId) continue;
 
+    // A wallet mid-load is skipped: its load worker rebuilds `wallet_balance`
+    // absolutely from `address_balance`, so an incremental delta written here
+    // would be clobbered by that rebuild and lost for good. `address_balance`
+    // is still updated (it is written before this map is built), so the
+    // rebuild picks the transaction up and the wallet stays correct.
+    if (!isWalletAttributable(wallet)) continue;
+
     walletBalanceMap[walletId] = TokenBalanceMap.merge(walletBalanceMap[walletId], balanceMap);
   }
   return walletBalanceMap;
@@ -287,19 +624,34 @@ export const unlockTimelockedUtxos = async (mysql: MysqlConnection, now: number)
 /**
  * Prepares transaction input data for processing or display.
  *
- * This function takes an array of EventTxInput objects and an array of token identifiers
- * to prepare an array of TxInput objects. Each input is processed to include additional information
- * such as the token involved and the decoded output data.
+ * Only transparent inputs (`spent_output.mode === 0`) flow into the
+ * returned array. Shielded inputs are dropped here because the wire
+ * payload does not carry the recovered value (for both shielded modes)
+ * or the token uid (for FullyShielded), so they cannot contribute a
+ * full TxInput. The shielded balance contribution is handled by
+ * `getUnifiedBalanceMap` via a local tx_output lookup, and the
+ * spent-by marking is handled by `updateTxOutputSpentBy` which takes a
+ * thin `{tx_id, index}` shape and is called with the raw event inputs
+ * (covering both kinds).
  *
  * @param inputs - An array of transaction inputs, each containing data like
  *                                  transaction hash, index, and spent output information.
  * @param tokens - An array of token identifiers corresponding to different tokens involved
  *                            in the transaction.
- * @returns - An array of prepared inputs, each enriched with additional data.
+ * @returns - An array of prepared transparent inputs, each enriched with additional data.
  */
 export const prepareInputs = (inputs: EventTxInput[], tokens: string[]): TxInput[] => {
   const preparedInputs: TxInput[] = inputs.reduce((newInputs: TxInput[], _input: EventTxInput): TxInput[] => {
     const output = _input.spent_output;
+
+    if (output.mode !== 0) {
+      // Drop shielded inputs from the prepared list; see function docstring.
+      return newInputs;
+    }
+
+    // Transparent input — TS narrows `output` to the mode=0 variant, so
+    // `output.value`, `output.token_data`, `output.script`, `output.decoded`
+    // are accessible without further guards.
     const utxo: Output = new Output(output.value, Buffer.from(output.script, 'base64'), {
       tokenData: output.token_data,
     });
@@ -407,14 +759,43 @@ export const validateAddressBalances = async (mysql: MysqlConnection, addresses:
     (addressBalance: AddressBalance) => addressBalance.transactions > 0
   );
 
-  for (let i = 0; i < addressTxHistorySums.length; i++) {
-    const addressBalance: AddressBalance = filteredAddressBalances[i];
-    const addressTxHistorySum: AddressTotalBalance = addressTxHistorySums[i];
+  // Key the history sums by (address, token_id) so each balance row is compared
+  // against its matching pair. A positional zip can misalign once a shielded-only
+  // token produces an address_balance row (transparent balance 0, shielded delta
+  // non-zero) whose ordering/length diverges from the history-sum list.
+  const sumByKey = new Map<string, AddressTotalBalance>();
+  for (const sum of addressTxHistorySums) {
+    sumByKey.set(`${sum.address}|${sum.tokenId}`, sum);
+  }
 
-    assert.strictEqual(addressBalance.tokenId, addressTxHistorySum.tokenId);
+  for (const addressBalance of filteredAddressBalances) {
+    const key = `${addressBalance.address}|${addressBalance.tokenId}`;
+    const addressTxHistorySum = sumByKey.get(key);
+    if (addressTxHistorySum === undefined) {
+      // No non-voided history rows for this (address, token): the running sum is
+      // 0, so both the transparent and shielded balances must also be 0.
+      assert.strictEqual(addressBalance.unlockedBalance + addressBalance.lockedBalance, 0n);
+      assert.strictEqual(
+        addressBalance.unlockedShieldedBalance + addressBalance.lockedShieldedBalance,
+        0n,
+      );
+      continue;
+    }
 
-    // balances must match
-    assert.strictEqual(Number(addressBalance.unlockedBalance + addressBalance.lockedBalance), Number(addressTxHistorySum.balance));
+    // transparent balances must match the running sum of per-tx `balance`.
+    // Compare as bigint directly (both operands already are): Number() would
+    // lose precision above 2^53 and could mask a real mismatch on large balances.
+    assert.strictEqual(
+      addressBalance.unlockedBalance + addressBalance.lockedBalance,
+      addressTxHistorySum.balance,
+    );
+
+    // shielded balances must match the signed running sum of per-tx
+    // `shielded_balance_delta` (the SUM can be 0 even with movement).
+    assert.strictEqual(
+      addressBalance.unlockedShieldedBalance + addressBalance.lockedShieldedBalance,
+      addressTxHistorySum.shieldedBalanceDelta,
+    );
   }
 };
 
@@ -425,8 +806,14 @@ export const validateAddressBalances = async (mysql: MysqlConnection, addresses:
  * @param tx - The transaction to get related wallets and their token balances
  * @returns
  */
-export const getWalletBalancesForTx = async (mysql: MysqlConnection, tx: Transaction): Promise<StringMap<WalletBalanceValue>> => {
-  const addressBalanceMap: StringMap<TokenBalanceMap> = getAddressBalanceMap(tx.inputs, tx.outputs, tx.headers ?? []);
+export const getWalletBalancesForTx = async (
+  mysql: MysqlConnection,
+  tx: Transaction,
+  addressBalanceMap: StringMap<TokenBalanceMap>,
+): Promise<StringMap<WalletBalanceValue>> => {
+  // The caller passes the unified balance map (transparent + shielded) computed
+  // for the vertex, so the push summary reflects recovered shielded receives —
+  // not just the transparent inputs/outputs on `tx`.
   // return only wallets that were started
   const addressWalletMap: StringMap<Wallet> = await getAddressWalletInfo(mysql, Object.keys(addressBalanceMap));
 
@@ -488,16 +875,24 @@ export class FromTokenBalanceMapToBalanceValueList {
       unlockedAuthorities: balance.unlockedAuthorities.toJSON(),
       totalAmountSent: balance.totalAmountSent,
       total: balance.total(),
+      // Gross shielded received this tx (the lifetime accumulator, suppressed
+      // to 0 on spends), so the receive-oriented push amount is never negative.
+      shieldedAmount: balance.totalShieldedReceived,
     } as TokenBalanceValue));
     return balances;
   }
 }
 
 export const sortBalanceValueByAbsTotal = (balanceA: TokenBalanceValue, balanceB: TokenBalanceValue): number => {
-  function abs(num: bigint) {
-    return num >= 0n ? num : -num;
-  }
-  if (abs(balanceA.total) - abs(balanceB.total) >= 0n) return -1;
+  const abs = (num: bigint): bigint => (num >= 0n ? num : -num);
+  // Rank by the combined magnitude of transparent and shielded movement so a
+  // shielded receive (transparent total 0) isn't pushed behind transparent
+  // tokens — which would otherwise mis-gate it out of the [0]-based push check
+  // or hide it past the top-N display.
+  const magnitudeA = abs(balanceA.total) + abs(balanceA.shieldedAmount);
+  const magnitudeB = abs(balanceB.total) + abs(balanceB.shieldedAmount);
+  if (magnitudeA > magnitudeB) return -1;
+  if (magnitudeA < magnitudeB) return 1;
   return 0;
 };
 

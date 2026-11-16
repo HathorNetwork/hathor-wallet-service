@@ -19,6 +19,7 @@ import {
   validateWalletBalances,
   performVoidingConsistencyChecks,
   validateVoidingConsistency,
+  validatePublicAddressTables,
 } from './utils';
 import unvoidedScenarioBalances from './scenario_configs/unvoided_transactions.balances';
 import reorgScenarioBalances from './scenario_configs/reorg.balances';
@@ -111,6 +112,11 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await cleanDatabase(mysql);
+});
+
+// Every scenario ends with the database it synced, before the next one cleans it.
+afterEach(async () => {
+  await validatePublicAddressTables(mysql);
 });
 
 afterAll(async () => {

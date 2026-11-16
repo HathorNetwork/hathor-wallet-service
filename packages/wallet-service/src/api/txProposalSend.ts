@@ -93,8 +93,10 @@ export const send: APIGatewayProxyHandler = middy(walletIdProxyHandler(async (wa
     return closeDbAndGetError(mysql, ApiError.FORBIDDEN);
   }
 
-  // we can only send if it's still open or there was an error sending before
-  if (txProposal.status !== TxProposalStatus.OPEN && txProposal.status !== TxProposalStatus.SEND_ERROR) {
+  // Only an open proposal can be sent. A failed send released the proposal's
+  // UTXOs, so a SEND_ERROR proposal has no inputs left to match the txHex; the
+  // client has to create a new proposal.
+  if (txProposal.status !== TxProposalStatus.OPEN) {
     return closeDbAndGetError(mysql, ApiError.TX_PROPOSAL_NOT_OPEN, { status: txProposal.status });
   }
 

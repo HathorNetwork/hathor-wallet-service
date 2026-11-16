@@ -73,8 +73,8 @@ describe('GET /wallet/addresses/has-transactions-outside-first-address', () => {
       readyAt: 10001,
     }]);
     await addToAddressTable(mysql, [
-      { address: ADDRESSES[0], index: 0, walletId, transactions: 10 },
-      { address: ADDRESSES[1], index: 1, walletId, transactions: 0 },
+      { address: ADDRESSES[0], index: 0, walletId, transactions: 10, bip32_account: 0 },
+      { address: ADDRESSES[1], index: 1, walletId, transactions: 0, bip32_account: 0 },
     ]);
 
     const event = makeGatewayEventWithAuthorizer(walletId, null);
@@ -100,8 +100,8 @@ describe('GET /wallet/addresses/has-transactions-outside-first-address', () => {
       readyAt: 10001,
     }]);
     await addToAddressTable(mysql, [
-      { address: ADDRESSES[0], index: 0, walletId, transactions: 10 },
-      { address: ADDRESSES[1], index: 1, walletId, transactions: 5 },
+      { address: ADDRESSES[0], index: 0, walletId, transactions: 10, bip32_account: 0 },
+      { address: ADDRESSES[1], index: 1, walletId, transactions: 5, bip32_account: 0 },
     ]);
 
     const event = makeGatewayEventWithAuthorizer(walletId, null);

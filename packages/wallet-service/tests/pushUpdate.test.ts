@@ -201,7 +201,7 @@ describe('statusCode:400', () => {
     expect(returnBody.details).toMatchInlineSnapshot(`
 [
   {
-    "message": "\"deviceId\" length must be less than or equal to 256 characters long",
+    "message": ""deviceId" length must be less than or equal to 256 characters long",
     "path": [
       "deviceId",
     ],

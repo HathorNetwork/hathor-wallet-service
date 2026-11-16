@@ -9,6 +9,8 @@ import 'source-map-support/register';
 import { v4 as uuidv4 } from 'uuid';
 import Joi from 'joi';
 
+import { Bip32Account } from '@wallet-service/common';
+
 import { ApiError } from '@src/api/errors';
 import { walletIdProxyHandler } from '@src/commons';
 import {
@@ -16,7 +18,6 @@ import {
   getUtxos,
   getWallet,
   getWalletAddresses,
-  getWalletAddressDetail,
   incrementAddressSeqnum,
   markUtxosWithProposalId,
 } from '@src/db';
@@ -31,10 +32,10 @@ import {
   DbTxOutput,
 } from '@src/types';
 import { closeDbAndGetError } from '@src/api/utils';
-import { closeDbConnection, getDbConnection, getUnixTimestamp } from '@src/utils';
+import { closeDbConnection, getAddressPath, getDbConnection, getUnixTimestamp } from '@src/utils';
 import middy from '@middy/core';
 import cors from '@middy/http-cors';
-import { constants, Network, Transaction, helpersUtils } from '@hathor/wallet-lib';
+import { Network, Transaction, helpersUtils } from '@hathor/wallet-lib';
 import { getFullnodeData } from '@src/nodeConfig';
 import config from '@src/config';
 import errorHandler from '@src/api/middlewares/errorHandler';
@@ -111,7 +112,9 @@ export const create = middy(walletIdProxyHandler(async (walletId, event) => {
   const denied = await validateUtxoAddresses(walletId, inputUtxos);
 
   if (denied.length > 0) {
-    return closeDbAndGetError(mysql, ApiError.INPUTS_NOT_IN_WALLET, { missing });
+    return closeDbAndGetError(mysql, ApiError.INPUTS_NOT_IN_WALLET, {
+      denied: denied.map((utxo) => ({ txId: utxo.txId, index: utxo.index })),
+    });
   }
 
   // check if inputs sent by user are not part of another tx proposal
@@ -149,16 +152,17 @@ export const create = middy(walletIdProxyHandler(async (walletId, event) => {
     return closeDbAndGetError(mysql, ApiError.UNKNOWN_ERROR, { message: e.message });
   }
 
-  const inputPromises = inputUtxos.map(async (utxo) => {
-    const addressDetail: AddressInfo = await getWalletAddressDetail(mysql, walletId, utxo.address);
-    // XXX We should store in address table the path of the address, not the index
-    // For now we return the hardcoded path with only the address index as variable
-    // The client will be prepared to receive any path when we add this in the service in the future
-    const addressPath = `m/44'/${constants.HATHOR_BIP44_CODE}'/0'/0/${addressDetail.index}`;
+  // Shielded outputs are received on CTSpend (account 2) addresses, so the
+  // signing path must use the account the address was derived from.
+  const inputAddresses = inputUtxos.length > 0
+    ? await getWalletAddresses(mysql, walletId, inputUtxos.map((utxo) => utxo.address))
+    : [];
+  const retInputs = inputUtxos.map((utxo) => {
+    const addressDetail: AddressInfo = inputAddresses.find((address) => address.address === utxo.address);
+    const account = addressDetail.bip32Account === Bip32Account.CTSpend ? Bip32Account.CTSpend : Bip32Account.Legacy;
+    const addressPath = getAddressPath(addressDetail.index, account);
     return { txId: utxo.txId, index: utxo.index, addressPath };
   });
-
-  const retInputs = await Promise.all(inputPromises);
 
   await closeDbConnection(mysql);
 
@@ -183,16 +187,8 @@ export const create = middy(walletIdProxyHandler(async (walletId, event) => {
 export const checkMissingUtxos = (inputs: IWalletInput[], utxos: DbTxOutput[]): IWalletInput[] => {
   if (inputs.length === utxos.length) return [];
 
-  const remaining = new Set(inputs.map((input) => `${input.txId}_${input.index}`));
-  for (const utxo of utxos) {
-    remaining.delete(`${utxo.txId}_${utxo.index}`);
-  }
-
-  const missing = [];
-  for (const utxo of remaining) {
-    missing.push({ txId: utxo[0], index: utxo[1] });
-  }
-  return missing;
+  const found = new Set(utxos.map((utxo) => `${utxo.txId}_${utxo.index}`));
+  return inputs.filter((input) => !found.has(`${input.txId}_${input.index}`));
 };
 
 /**

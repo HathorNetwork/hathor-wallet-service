@@ -19,6 +19,8 @@ export interface AddressBalance {
   tokenId: string;
   unlockedBalance: bigint;
   lockedBalance: bigint;
+  unlockedShieldedBalance: bigint;
+  lockedShieldedBalance: bigint;
   unlockedAuthorities: number;
   lockedAuthorities: number;
   timelockExpires: number;
@@ -29,6 +31,7 @@ export interface AddressTotalBalance {
   address: string;
   tokenId: string;
   balance: bigint;
+  shieldedBalanceDelta: bigint;
   transactions: number;
 }
 
@@ -38,5 +41,5 @@ export interface Miner {
   address: string;
   firstBlock: string;
   lastBlock: string;
-  count: number;
+  count: bigint;
 }

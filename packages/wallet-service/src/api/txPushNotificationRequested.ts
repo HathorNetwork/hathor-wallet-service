@@ -56,6 +56,8 @@ class TxPushNotificationRequestValidator {
       unlockedAuthorities: TxPushNotificationRequestValidator.authoritiesSchema,
       lockExpires: Joi.number().integer().min(0).allow(null),
       total: Joi.number().required(),
+      // Optional + defaulted so payloads from daemons predating the field still validate.
+      shieldedAmount: Joi.number().default(0),
     }),
   ).required();
 
@@ -122,8 +124,16 @@ export const handleRequest: Handler<StringMap<WalletBalanceValue>, { success: bo
     // filter wallets in which the token balance > 0
     .filter((eachSettings) => {
       const wallet = body[eachSettings.walletId];
-      // verify by the first token balance
-      return wallet.walletBalanceForTx[0].total > 0;
+      // verify by the first token balance — count the shielded amount too so a
+      // pure shielded receive (transparent total 0) still notifies.
+      const firstBalance = wallet.walletBalanceForTx[0];
+      // No balance entries for this wallet → nothing to notify; skip it rather
+      // than dereferencing index 0 (an empty-but-valid payload would otherwise
+      // throw and fail the whole handler).
+      if (!firstBalance) return false;
+      // Joi validates these as numbers, so compare as numbers (the declared
+      // bigint types don't reflect the runtime values arriving over JSON).
+      return Number(firstBalance.total) > 0 || Number(firstBalance.shieldedAmount ?? 0) > 0;
     });
 
   const genericMessages = devicesEnabledToPush
@@ -174,7 +184,9 @@ const _assembleSpecificMessage = (deviceId: string, txId: string, tokenBalanceLi
 
   const tokens = [];
   for (const eachBalance of tokenBalanceList.slice(0, upperLimit)) {
-    const amount = eachBalance.total;
+    // Combine the transparent and shielded amounts for the displayed value.
+    // Joi validates these as numbers; add as numbers to avoid a bigint/number mix.
+    const amount = Number(eachBalance.total) + Number(eachBalance.shieldedAmount ?? 0);
     const tokenSymbol = eachBalance.tokenSymbol;
     tokens.push(`${amount} ${tokenSymbol}`);
   }

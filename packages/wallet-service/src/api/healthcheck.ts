@@ -14,6 +14,9 @@ import { APIGatewayProxyHandler } from 'aws-lambda';
 import { getRedisClient, ping } from '@src/redis';
 import config from '@src/config';
 import errorHandler from '@src/api/middlewares/errorHandler';
+import { isShieldedCryptoProviderRegistered } from '@wallet-service/common';
+import { ensureShieldedCryptoProvider, shieldedCryptoLoadError } from '@src/shieldedCrypto';
+import createDefaultLogger from '@src/logger';
 
 const mysql = getDbConnection();
 
@@ -103,6 +106,25 @@ const checkFullnodeHealth: HealthcheckCallbackResponse = async () => {
   }
 };
 
+/**
+ * Whether this artifact can recover shielded outputs. Loads the provider the
+ * same way the recovery sweep does, so a binary missing from the package, or
+ * built for another platform, fails here rather than silently per output.
+ */
+export const checkShieldedCryptoProvider: HealthcheckCallbackResponse = async () => {
+  await ensureShieldedCryptoProvider(createDefaultLogger());
+  if (isShieldedCryptoProviderRegistered()) {
+    return new HealthcheckCallbackResponse({
+      status: HealthcheckStatus.PASS,
+      output: 'Shielded crypto provider is registered',
+    });
+  }
+  return new HealthcheckCallbackResponse({
+    status: HealthcheckStatus.FAIL,
+    output: `Shielded crypto provider failed to load: ${shieldedCryptoLoadError() ?? 'not registered'}`,
+  });
+};
+
 const setupHealthcheck: Healthcheck = () => {
   const healthcheck = new Healthcheck({ name: 'hathor-wallet-service', warnIsUnhealthy: true });
 
@@ -124,10 +146,17 @@ const setupHealthcheck: Healthcheck = () => {
   });
   fullnodeHealthcheck.add_healthcheck(checkFullnodeHealth);
 
+  // Shielded crypto provider healthcheck component
+  const shieldedCryptoHealthcheck = new HealthcheckInternalComponent({
+    name: 'shielded:crypto_provider',
+  });
+  shieldedCryptoHealthcheck.add_healthcheck(checkShieldedCryptoProvider);
+
   // Register components
   healthcheck.add_component(heightHealthcheck);
   healthcheck.add_component(redisHealthcheck);
   healthcheck.add_component(fullnodeHealthcheck);
+  healthcheck.add_component(shieldedCryptoHealthcheck);
 
   return healthcheck;
 };

@@ -12,6 +12,24 @@ send_slack_message() {
 deploy_hathor_network_account() {
     exit=false;
 
+    # Checks whether there is a file called "rollback_testnet_production", which is used by our other CodeBuild to indicate that this is a testnet-india rollback.
+    # Without this check, a testnet rollback to a tag would fall through to the release deploy below, which also deploys mainnet.
+    if [ -f "rollback_testnet_production" ]; then
+        # Gets all env vars with `testnetindia_` prefix and re-exports them without the prefix
+        for var in "${!testnetindia_@}"; do
+            export ${var#testnetindia_}="${!var}"
+        done
+        make deploy-lambdas-testnet-india;
+
+        # Unsets all the testnet env vars so we make sure they don't leak to a mainnet rollback in the same build
+        for var in "${!testnetindia_@}"; do
+            unset ${var#testnetindia_}
+        done
+
+        send_slack_message "Rollback performed on testnet-india to: ${GIT_REF_TO_DEPLOY}";
+        exit=true;
+    fi;
+
     # Checks whether there is a file called "rollback_mainnet_production", which is used by our other CodeBuild to indicate that this is a mainnet-production rollback
     if [ -f "rollback_mainnet_production" ]; then
         # Gets all env vars with `mainnet_` prefix and re-exports them without the prefix
@@ -108,7 +126,7 @@ deploy_hathor_network_account() {
 deploy_ekvilibro_mainnet() {
     # Deploys the releases to our ekvilibro-mainnet environment
 
-    # We deploy only the Lambdas here, because the daemon used in ekvilibro-testnet is the same as
+    # We deploy only the Lambdas here, because the daemon used in ekvilibro-mainnet is the same as
     # the one built in the hathor-network account, since it runs there as well
 
     echo "Building git ref ${GIT_REF_TO_DEPLOY}..."
@@ -138,10 +156,10 @@ deploy_ekvilibro_mainnet() {
 
 }
 
-deploy_ekvilibro_testnet() {
-    # Deploys the release-candidates and releases to our ekvilibro-testnet environment
+deploy_testnet_shielded_outputs() {
+    # Deploys master, the release-candidates and releases to our testnet-shielded-outputs environment
 
-    # We deploy only the Lambdas here, because the daemon used in ekvilibro-testnet is the same as
+    # We deploy only the Lambdas here, because the daemon used in testnet-shielded-outputs is the same as
     # the one built in the hathor-network account, since it runs there as well
 
     echo "Building git ref ${GIT_REF_TO_DEPLOY}..."
@@ -149,53 +167,31 @@ deploy_ekvilibro_testnet() {
     # This will match release-candidates or releases
     if expr "${GIT_REF_TO_DEPLOY}" : "v.*" >/dev/null; then
         make migrate;
-        make deploy-lambdas-ekvilibro-testnet;
+        make deploy-lambdas-testnet-shielded-outputs;
 
-        send_slack_message "New version deployed to ekvilibro-testnet: ${GIT_REF_TO_DEPLOY}"
+        send_slack_message "New version deployed to testnet-shielded-outputs: ${GIT_REF_TO_DEPLOY}"
+    # Temporary, with no end date: no release has shielded-outputs support yet, so this environment
+    # follows master. This deploys its Lambdas and migrations; its daemon follows master through the
+    # dev image policy in ops-tools, so the same merge also moves it once the dev image is pushed.
+    elif [ "${GIT_REF_TO_DEPLOY}" = "master" ]; then
+        make migrate;
+        make deploy-lambdas-testnet-shielded-outputs;
+
+        send_slack_message "master deployed to testnet-shielded-outputs: ${CODEBUILD_RESOLVED_SOURCE_VERSION}"
     elif expr "${MANUAL_DEPLOY}" : "true" >/dev/null; then
         make migrate;
-        make deploy-lambdas-ekvilibro-testnet;
+        make deploy-lambdas-testnet-shielded-outputs;
 
-        send_slack_message "Branch manually deployed to ekvilibro-testnet: ${GIT_REF_TO_DEPLOY}"
+        send_slack_message "Branch manually deployed to testnet-shielded-outputs: ${GIT_REF_TO_DEPLOY}"
     elif expr "${ROLLBACK}" : "true" >/dev/null; then
         make migrate;
-        make deploy-lambdas-ekvilibro-testnet;
+        make deploy-lambdas-testnet-shielded-outputs;
 
-        send_slack_message "Rollback performed on ekvilibro-testnet to: ${GIT_REF_TO_DEPLOY}";
+        send_slack_message "Rollback performed on testnet-shielded-outputs to: ${GIT_REF_TO_DEPLOY}";
     else
-        echo "We don't deploy ${GIT_REF_TO_DEPLOY} to ekvilibro-testnet. Nothing to do.";
+        echo "We don't deploy ${GIT_REF_TO_DEPLOY} to testnet-shielded-outputs. Nothing to do.";
     fi;
 }
-
-deploy_testnet_playground() {
-    # Deploys the release-candidates and releases to our testnet-playground environment
-
-    # We deploy only the Lambdas here, because the daemon used in testnet-playground is the same as
-    # the one built in the hathor-network account, since it runs there as well
-
-    echo "Building git ref ${GIT_REF_TO_DEPLOY}..."
-
-    # This will match release-candidates or releases
-    if expr "${GIT_REF_TO_DEPLOY}" : "v.*" >/dev/null; then
-        make migrate;
-        make deploy-lambdas-testnet-playground;
-
-        send_slack_message "New version deployed to testnet-playground: ${GIT_REF_TO_DEPLOY}"
-    elif expr "${MANUAL_DEPLOY}" : "true" >/dev/null; then
-        make migrate;
-        make deploy-lambdas-testnet-playground;
-
-        send_slack_message "Branch manually deployed to testnet-playground: ${GIT_REF_TO_DEPLOY}"
-    elif expr "${ROLLBACK}" : "true" >/dev/null; then
-        make migrate;
-        make deploy-lambdas-testnet-playground;
-
-        send_slack_message "Rollback performed on testnet-playground to: ${GIT_REF_TO_DEPLOY}";
-    else
-        echo "We don't deploy ${GIT_REF_TO_DEPLOY} to testnet-playground. Nothing to do.";
-    fi;
-}
-
 
 # Check the first argument for the desired deploy
 option=$1
@@ -205,14 +201,11 @@ case $option in
     hathor-network)
         deploy_hathor_network_account
         ;;
-    ekvilibro-testnet)
-        deploy_ekvilibro_testnet
-        ;;
     ekvilibro-mainnet)
         deploy_ekvilibro_mainnet
         ;;
-    testnet-playground)
-        deploy_testnet_playground
+    testnet-shielded-outputs)
+        deploy_testnet_shielded_outputs
         ;;
     *)
         echo "Invalid option: $option"

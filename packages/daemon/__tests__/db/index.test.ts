@@ -30,6 +30,7 @@ import {
   getTxOutputsFromTx,
   getUtxosLockedAtHeight,
   incrementTokensTxCount,
+  bumpAddressInvolvement,
   markUtxosAsVoided,
   storeTokenInformation,
   insertTokenCreation,
@@ -47,7 +48,7 @@ import {
   voidTransaction,
   voidAddressTransaction
 } from '../../src/db';
-import { Connection } from 'mysql2/promise';
+import { Connection, RowDataPacket } from 'mysql2/promise';
 import {
   ADDRESSES,
   addToAddressBalanceTable,
@@ -73,7 +74,7 @@ import {
   createOutput,
   XPUBKEY,
 } from '../utils';
-import { isAuthority } from '@wallet-service/common';
+import { isAuthority, Bip32Account } from '@wallet-service/common';
 import { DbTxOutput, StringMap, TokenInfo, WalletStatus } from '../../src/types';
 import { Authorities, TokenBalanceMap } from '@wallet-service/common';
 import { constants, TokenVersion } from '@hathor/wallet-lib';
@@ -268,6 +269,8 @@ describe('tx output methods', () => {
       spentBy: null,
       txProposalId: null,
       txProposalIndex: null,
+      mode: 0,
+      recoveryState: null,
     });
 
     // empty list should be fine
@@ -292,6 +295,8 @@ describe('tx output methods', () => {
       spentBy: txId,
       txProposalId: null,
       txProposalIndex: null,
+      mode: 0,
+      recoveryState: null,
     });
 
     // if the tx output is not found, it should return null
@@ -309,6 +314,8 @@ describe('tx output methods', () => {
       heightlock: null,
       timelock: null,
       index,
+      mode: 0,
+      recoveryState: null,
     }));
 
     await unspendUtxos(mysql, txOutputs);
@@ -379,19 +386,20 @@ describe('tx output methods', () => {
 
     const txId = 'txId';
     const utxos: DbTxOutput[] = [
-      { txId, index: 0, tokenId: 'token1', address: 'address1', value: 5n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null },
-      { txId, index: 1, tokenId: 'token1', address: 'address1', value: 15n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null},
-      { txId, index: 2, tokenId: 'token1', address: 'address1', value: 25n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null },
-      { txId, index: 3, tokenId: 'token1', address: 'address1', value: 1n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null },
-      { txId, index: 4, tokenId: 'token1', address: 'address1', value: 3n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null },
+      { txId, index: 0, tokenId: 'token1', address: 'address1', value: 5n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null, mode: 0, recoveryState: null },
+      { txId, index: 1, tokenId: 'token1', address: 'address1', value: 15n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null, mode: 0, recoveryState: null },
+      { txId, index: 2, tokenId: 'token1', address: 'address1', value: 25n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null, mode: 0, recoveryState: null },
+      { txId, index: 3, tokenId: 'token1', address: 'address1', value: 1n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null, mode: 0, recoveryState: null },
+      { txId, index: 4, tokenId: 'token1', address: 'address1', value: 3n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null, mode: 0, recoveryState: null },
     ];
 
     // add to utxo table
     const outputs = utxos.map((utxo, index) => createOutput(
       index,
-      utxo.value,
+      // transparent fixture: value and tokenId are non-null
+      utxo.value!,
       utxo.address,
-      utxo.tokenId,
+      utxo.tokenId!,
       utxo.timelock,
       utxo.locked,
       0,
@@ -411,16 +419,17 @@ describe('tx output methods', () => {
     await addOrUpdateTx(mysql, txId, 0, 1, 1, 65);
 
     const utxos: DbTxOutput[] = [
-      { txId, index: 0, tokenId: 'token1', address: 'address1', value: 5n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null },
-      { txId, index: 1, tokenId: 'token1', address: 'address1', value: 15n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null},
+      { txId, index: 0, tokenId: 'token1', address: 'address1', value: 5n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null, mode: 0, recoveryState: null },
+      { txId, index: 1, tokenId: 'token1', address: 'address1', value: 15n, authorities: 0, timelock: 0, heightlock: null, locked: false, spentBy: null, txProposalIndex: null, txProposalId: null, mode: 0, recoveryState: null },
     ];
 
     // add to utxo table
     const outputs = utxos.map((utxo, index) => createOutput(
       index,
-      utxo.value,
+      // transparent fixture: value and tokenId are non-null
+      utxo.value!,
       utxo.address,
-      utxo.tokenId,
+      utxo.tokenId!,
       utxo.timelock,
       utxo.locked,
       0,
@@ -572,9 +581,18 @@ describe('address and wallet related tests', () => {
       address2: TokenBalanceMap.fromStringMap({ token1: { unlocked: 8n, locked: 0n, unlockedAuthorities: new Authorities(0b01) } }),
     };
 
+    // Pre-seed address2 too — updateAddressTablesWithTx no longer inserts
+    // address rows on its own. The involvement counter is owned by
+    // bumpAddressInvolvement, which is exercised separately.
+    await addToAddressTable(mysql, [
+      { address: address2, index: null, walletId: null, transactions: 0 },
+    ]);
+
     await updateAddressTablesWithTx(mysql, txId1, timestamp1, addrMap1);
-    await expect(checkAddressTable(mysql, 2, address1, null, null, 2)).resolves.toBe(true);
-    await expect(checkAddressTable(mysql, 2, address2, null, null, 1)).resolves.toBe(true);
+    // updateAddressTablesWithTx leaves `address.transactions` untouched;
+    // the pre-seeded values survive the call.
+    await expect(checkAddressTable(mysql, 2, address1, null, null, 1)).resolves.toBe(true);
+    await expect(checkAddressTable(mysql, 2, address2, null, null, 0)).resolves.toBe(true);
     await expect(checkAddressBalanceTable(mysql, 4, address1, token1, 10n, 0n, null, 1)).resolves.toBe(true);
     await expect(checkAddressBalanceTable(mysql, 4, address1, token2, 7n, 0n, null, 1)).resolves.toBe(true);
     await expect(checkAddressBalanceTable(mysql, 4, address1, token3, 2n, 0n, null, 1, 0b01, 0)).resolves.toBe(true);
@@ -595,8 +613,8 @@ describe('address and wallet related tests', () => {
     };
 
     await updateAddressTablesWithTx(mysql, txId2, timestamp2, addrMap2);
-    await expect(checkAddressTable(mysql, 2, address1, null, null, 3)).resolves.toBe(true);
-    await expect(checkAddressTable(mysql, 2, address2, null, null, 2)).resolves.toBe(true);
+    await expect(checkAddressTable(mysql, 2, address1, null, null, 1)).resolves.toBe(true);
+    await expect(checkAddressTable(mysql, 2, address2, null, null, 0)).resolves.toBe(true);
     // final balance for each (address,token)
     await expect(checkAddressBalanceTable(mysql, 5, address1, 'token1', 5n, 0n, null, 2)).resolves.toBe(true);
     await expect(checkAddressBalanceTable(mysql, 5, address1, 'token2', 7n, 0n, null, 1)).resolves.toBe(true);
@@ -679,6 +697,8 @@ describe('address and wallet related tests', () => {
       heightlock: null,
       locked: true,
       spentBy: null,
+      mode: 0,
+      recoveryState: null,
     }]);
     const newMap = TokenBalanceMap.fromStringMap({ [tokenId]: { unlocked: 0, locked: 0, unlockedAuthorities: new Authorities(0b10) } });
     await updateAddressLockedBalance(mysql, { [addr1]: newMap });
@@ -746,19 +766,29 @@ describe('address and wallet related tests', () => {
 
   test('getAddressWalletInfo', async () => {
     expect.hasAssertions();
-    const wallet1 = { walletId: 'wallet1', xpubkey: 'xpubkey1', authXpubkey: 'authXpubkey', maxGap: 5 };
-    const wallet2 = { walletId: 'wallet2', xpubkey: 'xpubkey2', authXpubkey: 'authXpubkey2', maxGap: 5 };
+    // status/ctStatus come back too — callers need them to tell an attributable
+    // (fully loaded) wallet from one whose load is still rebuilding balances.
+    const wallet1 = {
+      walletId: 'wallet1', xpubkey: 'xpubkey1', authXpubkey: 'authXpubkey', maxGap: 5, status: WalletStatus.READY, ctStatus: 'none',
+    };
+    const wallet2 = {
+      walletId: 'wallet2', xpubkey: 'xpubkey2', authXpubkey: 'authXpubkey2', maxGap: 5, status: WalletStatus.READY, ctStatus: 'none',
+    };
     const finalMap = {
       addr1: wallet1,
       addr2: wallet1,
       addr3: wallet2,
     };
 
-    // populate address table
+    // populate address table; assign unique per-wallet indices so the
+    // (wallet_id, bip32_account, index) unique constraint isn't violated.
+    const walletIndexCounter: Record<string, number> = {};
     for (const [address, wallet] of Object.entries(finalMap)) {
+      const idx = walletIndexCounter[wallet.walletId] ?? 0;
+      walletIndexCounter[wallet.walletId] = idx + 1;
       await addToAddressTable(mysql, [{
         address,
-        index: 0,
+        index: idx,
         walletId: wallet.walletId,
         transactions: 0,
       }]);
@@ -946,6 +976,10 @@ describe('address and wallet related tests', () => {
     for (const [index, address] of ADDRESSES.entries()) {
       await expect(checkAddressTable(mysql, ADDRESSES.length, address, index, walletId, 0)).resolves.toBe(true);
     }
+
+    // claimed legacy addresses carry an explicit account (never NULL)
+    const [accountRows] = await mysql.query('SELECT DISTINCT `bip32_account` FROM `address`');
+    expect((accountRows as Array<{ bip32_account: number }>).map((row) => Number(row.bip32_account))).toStrictEqual([Bip32Account.Legacy]);
   });
 
   test('updateWalletTablesWithTx', async () => {
@@ -998,10 +1032,12 @@ describe('address and wallet related tests', () => {
       walletId2: TokenBalanceMap.fromStringMap({ token2: { unlocked: 10, locked: 0 } }),
     };
     // the tx above removes an authority, which will trigger a "refresh" on the available authorities.
-    // Let's pretend there's another utxo with some authorities as well
+    // Let's pretend there's another utxo with some authorities as well. The
+    // (walletId, bip32_account=0, index) unique constraint requires a fresh
+    // index since addr1..addr3 already occupy 0..2.
     await addToAddressTable(mysql, [{
       address: 'address1',
-      index: 0,
+      index: 3,
       walletId,
       transactions: 1,
     }]);
@@ -1114,9 +1150,9 @@ describe('miner list', () => {
 
     expect(results).toHaveLength(3);
     expect(new Set(results)).toStrictEqual(new Set([
-      { address: 'address1', firstBlock: 'txId1', lastBlock: 'txId1', count: 1 },
-      { address: 'address2', firstBlock: 'txId2', lastBlock: 'txId2', count: 1 },
-      { address: 'address3', firstBlock: 'txId3', lastBlock: 'txId3', count: 1 },
+      { address: 'address1', firstBlock: 'txId1', lastBlock: 'txId1', count: 1n },
+      { address: 'address2', firstBlock: 'txId2', lastBlock: 'txId2', count: 1n },
+      { address: 'address3', firstBlock: 'txId3', lastBlock: 'txId3', count: 1n },
     ]));
 
     await addMiner(mysql, 'address3', 'txId4');
@@ -1127,9 +1163,9 @@ describe('miner list', () => {
     expect(results).toHaveLength(3);
 
     expect(new Set(results)).toStrictEqual(new Set([
-      { address: 'address1', firstBlock: 'txId1', lastBlock: 'txId1', count: 1 },
-      { address: 'address2', firstBlock: 'txId2', lastBlock: 'txId2', count: 1 },
-      { address: 'address3', firstBlock: 'txId3', lastBlock: 'txId5', count: 3 },
+      { address: 'address1', firstBlock: 'txId1', lastBlock: 'txId1', count: 1n },
+      { address: 'address2', firstBlock: 'txId2', lastBlock: 'txId2', count: 1n },
+      { address: 'address3', firstBlock: 'txId3', lastBlock: 'txId5', count: 3n },
     ]));
   });
 });
@@ -1407,6 +1443,73 @@ describe('voidTransaction', () => {
 
     await expect(voidTransaction(mysql, 'mysterious-transaction')).rejects.toThrow('Tried to void a transaction that is not in the database.');
   });
+
+  it('keeps a row whose transparent columns zero out but still holds shielded balance', async () => {
+    expect.hasAssertions();
+
+    // A single (address, token) row carries BOTH a transparent balance from
+    // this tx and an independent, already-recovered shielded balance. Voiding
+    // the transparent tx must drop the transparent columns to zero WITHOUT
+    // deleting the row — the shielded `= 0` guards on the cleanup DELETE are
+    // what keep the surviving shielded balance alive.
+    const mixedAddr = 'addr-mixed';
+    const mixedToken = 'token-mixed';
+
+    await addToTransactionTable(mysql, [{
+      txId,
+      timestamp: 0,
+      version: constants.BLOCK_VERSION,
+      voided: false,
+      height: 1,
+    }]);
+
+    // Seed the row directly so the shielded columns can be populated
+    // (addToAddressBalanceTable does not cover them).
+    await mysql.query(
+      `INSERT INTO address_balance
+         (address, token_id, total_received, unlocked_balance, locked_balance,
+          timelock_expires, unlocked_authorities, locked_authorities,
+          unlocked_shielded_balance, locked_shielded_balance, total_shielded_received,
+          transactions)
+       VALUES (?, ?, 49, 49, 0, NULL, 0, 0, 100, 0, 100, 1)`,
+      [mixedAddr, mixedToken],
+    );
+
+    await addToAddressTxHistoryTable(mysql, [{
+      address: mixedAddr,
+      txId,
+      tokenId: mixedToken,
+      balance: 49,
+      timestamp: 1,
+    }]);
+
+    // The void only reverses the transparent contribution; no shielded amount
+    // is carried, mirroring a purely transparent voided tx.
+    const addressBalance: StringMap<TokenBalanceMap> = {
+      [mixedAddr]: TokenBalanceMap.fromStringMap({
+        [mixedToken]: { totalSent: 49n, unlocked: 49n, locked: 0n },
+      }),
+    };
+
+    await voidTransaction(mysql, txId);
+    await voidAddressTransaction(mysql, txId, addressBalance, 1);
+
+    // Row survives the cleanup DELETE: transparent columns zeroed, shielded intact.
+    const [rows] = await mysql.query<any[]>(
+      `SELECT total_received, unlocked_balance, locked_balance,
+              unlocked_shielded_balance, locked_shielded_balance,
+              total_shielded_received, transactions
+         FROM address_balance WHERE address = ? AND token_id = ?`,
+      [mixedAddr, mixedToken],
+    );
+    expect(rows).toHaveLength(1);
+    expect(BigInt(rows[0].total_received)).toBe(0n);
+    expect(BigInt(rows[0].unlocked_balance)).toBe(0n);
+    expect(BigInt(rows[0].locked_balance)).toBe(0n);
+    expect(BigInt(rows[0].unlocked_shielded_balance)).toBe(100n);
+    expect(BigInt(rows[0].total_shielded_received)).toBe(100n);
+    expect(Number(rows[0].transactions)).toBe(0);
+  });
 });
 
 describe('address generation and index methods', () => {
@@ -1466,14 +1569,14 @@ describe('address generation and index methods', () => {
     // Check wallet1 indices
     const wallet1Indices = indices.get(wallet1);
     expect(wallet1Indices).toBeDefined();
-    expect(wallet1Indices?.maxAmongAddresses).toBe(15);
-    expect(wallet1Indices?.maxWalletIndex).toBe(15);
+    expect(wallet1Indices?.maxLegacyAmongAddresses).toBe(15);
+    expect(wallet1Indices?.maxLegacyWalletIndex).toBe(15);
 
     // Check wallet2 indices
     const wallet2Indices = indices.get(wallet2);
     expect(wallet2Indices).toBeDefined();
-    expect(wallet2Indices?.maxAmongAddresses).toBe(12);
-    expect(wallet2Indices?.maxWalletIndex).toBe(12);
+    expect(wallet2Indices?.maxLegacyAmongAddresses).toBe(12);
+    expect(wallet2Indices?.maxLegacyWalletIndex).toBe(12);
 
     // Test with empty wallet data
     const emptyIndices = await getMaxIndicesForWallets(mysql, []);
@@ -1491,8 +1594,51 @@ describe('address generation and index methods', () => {
     ]);
     const subsetWallet1 = subsetIndices.get(wallet1);
     expect(subsetWallet1).toBeDefined();
-    expect(subsetWallet1?.maxAmongAddresses).toBe(10);
-    expect(subsetWallet1?.maxWalletIndex).toBe(15);
+    expect(subsetWallet1?.maxLegacyAmongAddresses).toBe(10);
+    expect(subsetWallet1?.maxLegacyWalletIndex).toBe(15);
+  });
+
+  test('getMaxIndicesForWallets partitions both index pairs by bip32 account', async () => {
+    expect.hasAssertions();
+
+    // transparent rows for w1: indices 0..3 (bip32_account 0 and NULL both count as transparent)
+    await mysql.query(
+      'INSERT INTO `address` (`address`, `index`, `wallet_id`, `transactions`, `bip32_account`) VALUES ' +
+      "('taddr0', 0, 'w1', 0, 0), ('taddr1', 1, 'w1', 2, NULL), ('taddr2', 2, 'w1', 0, 0), ('taddr3', 3, 'w1', 0, 0)",
+    );
+    // claimed CTSpend rows: frontier at 21, usage in this tx at 12
+    await mysql.query(
+      'INSERT INTO `address` (`address`, `index`, `wallet_id`, `transactions`, `bip32_account`) VALUES ' +
+      "('saddr12', 12, 'w1', 1, 2), ('saddr21', 21, 'w1', 0, 2)",
+    );
+
+    // the tx involves one transparent address (index 1) and one CTSpend address (index 12)
+    const result = await getMaxIndicesForWallets(mysql, [
+      { walletId: 'w1', addresses: ['taddr1', 'saddr12'] },
+    ]);
+    expect(result.get('w1')).toStrictEqual({
+      // transparent pair: CTSpend indices must not leak into either side
+      maxLegacyAmongAddresses: 1, // NOT 12 — the CTSpend involvement stays out
+      maxLegacyWalletIndex: 3,    // NOT 21 — the CTSpend frontier stays out
+      // CT pair: available for the shielded gap-extension follow-up
+      maxCtAmongAddresses: 12,
+      maxCtWalletIndex: 21,
+    });
+  });
+
+  test('getMaxIndicesForWallets yields null CT maxes for a wallet with no shielded rows', async () => {
+    expect.hasAssertions();
+
+    await mysql.query(
+      "INSERT INTO `address` (`address`, `index`, `wallet_id`, `transactions`, `bip32_account`) VALUES ('taddr0', 0, 'w1', 1, 0)",
+    );
+    const result = await getMaxIndicesForWallets(mysql, [{ walletId: 'w1', addresses: ['taddr0'] }]);
+    expect(result.get('w1')).toStrictEqual({
+      maxLegacyAmongAddresses: 0,
+      maxLegacyWalletIndex: 0,
+      maxCtAmongAddresses: null,
+      maxCtWalletIndex: null,
+    });
   });
 });
 
@@ -1700,5 +1846,67 @@ describe('token creation mapping methods', () => {
     // even though null != 'some-block' because token_id = tx_id
     const tokens = await getReexecNanoTokens(mysql, txId, 'some-block');
     expect(tokens).toHaveLength(0);
+  });
+});
+
+describe('bumpAddressInvolvement', () => {
+  const addrA = ADDRESSES[0];
+  const addrB = ADDRESSES[1];
+
+  const getTransactions = async (address: string): Promise<number | null> => {
+    const [rows] = await mysql.query<RowDataPacket[]>(
+      'SELECT `transactions` FROM `address` WHERE `address` = ?',
+      [address],
+    );
+    if (rows.length === 0) return null;
+    return rows[0].transactions;
+  };
+
+  test('inserts new address rows with transactions = 1', async () => {
+    await bumpAddressInvolvement(mysql, [addrA, addrB]);
+
+    expect(await checkAddressTable(mysql, 2, addrA, null, null, 1)).toBe(true);
+    expect(await checkAddressTable(mysql, 2, addrB, null, null, 1)).toBe(true);
+  });
+
+  test('increments transactions on existing address rows', async () => {
+    await addToAddressTable(mysql, [
+      { address: addrA, index: null, walletId: null, transactions: 5 },
+    ]);
+
+    await bumpAddressInvolvement(mysql, [addrA]);
+
+    expect(await getTransactions(addrA)).toBe(6);
+  });
+
+  test('handles a mix of new and existing addresses in one call', async () => {
+    await addToAddressTable(mysql, [
+      { address: addrA, index: null, walletId: null, transactions: 2 },
+    ]);
+
+    await bumpAddressInvolvement(mysql, [addrA, addrB]);
+
+    expect(await getTransactions(addrA)).toBe(3);
+    expect(await getTransactions(addrB)).toBe(1);
+  });
+
+  test('bumps once per call (two calls => +2)', async () => {
+    await bumpAddressInvolvement(mysql, [addrA]);
+    await bumpAddressInvolvement(mysql, [addrA]);
+
+    expect(await getTransactions(addrA)).toBe(2);
+  });
+
+  test('accepts any iterable (Set) of addresses', async () => {
+    await bumpAddressInvolvement(mysql, new Set([addrA, addrB]));
+
+    expect(await getTransactions(addrA)).toBe(1);
+    expect(await getTransactions(addrB)).toBe(1);
+  });
+
+  test('no-ops on an empty set, creating no rows', async () => {
+    await bumpAddressInvolvement(mysql, []);
+
+    expect(await checkAddressTable(mysql, 0)).toBe(true);
   });
 });

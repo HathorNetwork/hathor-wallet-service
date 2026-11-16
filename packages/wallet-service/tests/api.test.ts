@@ -9,6 +9,7 @@ import { get as balancesGet } from '@src/api/balances';
 import { get as txHistoryGet } from '@src/api/txhistory';
 import { get as walletTokensGet, getTokenDetails } from '@src/api/tokens';
 import { get as getVersionDataGet } from '@src/api/version';
+import * as LoggerModule from '@src/logger';
 import {
   getTransactionById,
   getConfirmationData,
@@ -21,10 +22,13 @@ import { getFilteredUtxos, getFilteredTxOutputs } from '@src/api/txOutputs';
 import {
   get as walletGet,
   load as walletLoad,
-  loadWallet,
   loadWalletFailed,
   changeAuthXpub,
+  validateShieldedRegistration,
 } from '@src/api/wallet';
+import BIP32Factory from 'bip32';
+import * as ecc from 'tiny-secp256k1';
+import * as bitcoinMessage from 'bitcoinjs-message';
 import {
   updateVersionData,
   createWallet,
@@ -32,10 +36,10 @@ import {
 import * as Wallet from '@src/api/wallet';
 import * as Db from '@src/db';
 import { ApiError } from '@src/api/errors';
-import { closeDbConnection, getDbConnection, getUnixTimestamp, getWalletId } from '@src/utils';
+import { closeDbConnection, getDbConnection, getUnixTimestamp, getWalletId, buildAuthMessage } from '@src/utils';
 import { STATUS_CODE_TABLE } from '@src/api/utils';
 import { WalletStatus, FullNodeApiVersionResponse } from '@src/types';
-import { walletUtils, addressUtils, constants, network, HathorWalletServiceWallet } from '@hathor/wallet-lib';
+import { walletUtils, addressUtils, constants, network, HathorWalletServiceWallet, Network } from '@hathor/wallet-lib';
 import bitcore from 'bitcore-lib';
 import {
   ADDRESSES,
@@ -62,7 +66,10 @@ import {
 } from '@tests/utils';
 import fullnode from '@src/fullnode';
 import { getHealthcheck } from '@src/api/healthcheck';
-import { Severity } from '@wallet-service/common';
+import { onTotalSupplyRequest } from '@src/api/totalSupply';
+import { resetCtCryptoMock } from '@tests/utils/ct-crypto-mock';
+import { Severity, clearShieldedCryptoProvider } from '@wallet-service/common';
+import { deriveCtAddress } from '@wallet-service/common/src/crypto/shieldedAddress';
 import { convertApiVersionData } from '@src/nodeConfig';
 
 // Monkey patch bitcore-lib
@@ -150,8 +157,8 @@ test('GET /addresses', async () => {
   }]);
 
   const addresses = [
-    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0, seqnum: 1 },
-    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0, seqnum: 2 },
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0, seqnum: 1, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0, seqnum: 2, bip32_account: 0 },
   ];
 
   await addToAddressTable(mysql, addresses);
@@ -239,10 +246,10 @@ test('GET /addresses/check_mine', async () => {
   }]);
 
   await addToAddressTable(mysql, [
-    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[2], index: 3, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[3], index: 4, walletId: 'my-wallet', transactions: 0 },
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[2], index: 3, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[3], index: 4, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
   ]);
 
   // missing wallet
@@ -318,6 +325,91 @@ test('GET /addresses/check_mine', async () => {
   expect(returnBody.details[1].message).toStrictEqual('"addresses[0]" length must be at least 34 characters long');
 });
 
+test('GET /addresses legacy param selects the derivation account', async () => {
+  expect.hasAssertions();
+
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+
+  await addToAddressTable(mysql, [
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 12, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 1, bip32_account: null as any },
+    { address: ADDRESSES[2], index: 7, walletId: 'my-wallet', transactions: 3, bip32_account: 2, ct_address: 'HshLongCtAddress1' },
+  ]);
+
+  // default: legacy only, exact historical shape (no ct_address / account keys)
+  let event = makeGatewayEventWithAuthorizer('my-wallet', null);
+  let result = await addressesGet(event, null, null) as APIGatewayProxyResult;
+  let returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.addresses).toStrictEqual([
+    { address: ADDRESSES[0], index: 0, transactions: 12, seqnum: 0 },
+    { address: ADDRESSES[1], index: 1, transactions: 1, seqnum: 0 },
+  ]);
+
+  // legacy=false: CTSpend rows with ct_address
+  event = makeGatewayEventWithAuthorizer('my-wallet', { legacy: 'false' });
+  result = await addressesGet(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.addresses).toStrictEqual([
+    { address: 'HshLongCtAddress1', spendAddress: ADDRESSES[2], index: 7, transactions: 3, seqnum: 0 },
+  ]);
+
+  // index lookup honours the account selector
+  event = makeGatewayEventWithAuthorizer('my-wallet', { index: '7', legacy: 'false' });
+  result = await addressesGet(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.addresses).toStrictEqual([
+    { address: 'HshLongCtAddress1', spendAddress: ADDRESSES[2], index: 7, transactions: 3, seqnum: 0 },
+  ]);
+  // ...and defaults to legacy: index 7 does not exist in the legacy account
+  event = makeGatewayEventWithAuthorizer('my-wallet', { index: '7' });
+  result = await addressesGet(event, null, null) as APIGatewayProxyResult;
+  expect(result.statusCode).toBe(404);
+});
+
+test('POST /addresses/check_mine resolves membership across all accounts', async () => {
+  expect.hasAssertions();
+
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+
+  await addToAddressTable(mysql, [
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 1, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 0, walletId: 'my-wallet', transactions: 1, bip32_account: 2, ct_address: 'HshLongCtAddress1' },
+  ]);
+
+  // A wallet owns both its Legacy and its CTSpend addresses; a foreign address is not mine.
+  // check_mine returns only a boolean membership map, so it never filters by account.
+  const event = makeGatewayEventWithAuthorizer('my-wallet', null, JSON.stringify({
+    addresses: [ADDRESSES[0], ADDRESSES[1], ADDRESSES[2]],
+  }));
+  const result = await checkMine(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.addresses).toStrictEqual({
+    [ADDRESSES[0]]: true,
+    [ADDRESSES[1]]: true,
+    [ADDRESSES[2]]: false,
+  });
+});
+
 test('GET /addresses/new', async () => {
   expect.hasAssertions();
 
@@ -332,17 +424,17 @@ test('GET /addresses/new', async () => {
     readyAt: 10001,
   }]);
   await addToAddressTable(mysql, [
-    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[2], index: 2, walletId: 'my-wallet', transactions: 2 },
-    { address: ADDRESSES[3], index: 3, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[4], index: 4, walletId: 'my-wallet', transactions: 3 },
-    { address: ADDRESSES[5], index: 5, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[6], index: 6, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[7], index: 7, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[8], index: 8, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[9], index: 0, walletId: null, transactions: 0 },
-    { address: ADDRESSES[10], index: 0, walletId: 'test', transactions: 0 },
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[2], index: 2, walletId: 'my-wallet', transactions: 2, bip32_account: 0 },
+    { address: ADDRESSES[3], index: 3, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[4], index: 4, walletId: 'my-wallet', transactions: 3, bip32_account: 0 },
+    { address: ADDRESSES[5], index: 5, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[6], index: 6, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[7], index: 7, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[8], index: 8, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[9], index: 0, walletId: null, transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[10], index: 0, walletId: 'test', transactions: 0, bip32_account: 0 },
   ]);
 
   // missing wallet
@@ -364,6 +456,61 @@ test('GET /addresses/new', async () => {
   expect(returnBody.addresses).toContainEqual({ address: ADDRESSES[6], index: 6, addressPath: "m/44'/280'/0'/0/6" });
   expect(returnBody.addresses).toContainEqual({ address: ADDRESSES[7], index: 7, addressPath: "m/44'/280'/0'/0/7" });
   expect(returnBody.addresses).toContainEqual({ address: ADDRESSES[8], index: 8, addressPath: "m/44'/280'/0'/0/8" });
+
+  // legacy is not present in the default response
+  expect(returnBody.legacyAddresses).toBeUndefined();
+});
+
+test('GET /addresses/new legacy=false returns shielded and legacy unused addresses', async () => {
+  expect.hasAssertions();
+
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    highestUsedIndex: 4,
+    createdAt: 10000,
+    readyAt: 10001,
+    ctStatus: 'ready',
+    shieldedMaxGap: 3,
+    lastUsedShieldedIndex: 1,
+  }]);
+  await addToAddressTable(mysql, [
+    // Legacy account (0): unused addresses after the transparent frontier (index > 4)
+    { address: ADDRESSES[0], index: 5, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 6, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    // CTSpend account (2): used up to the shielded frontier (index <= 1), unused after it
+    { address: ADDRESSES[2], index: 1, walletId: 'my-wallet', transactions: 2, bip32_account: 2, ct_address: 'Hsh1' },
+    { address: ADDRESSES[3], index: 2, walletId: 'my-wallet', transactions: 0, bip32_account: 2, ct_address: 'Hsh2' },
+    { address: ADDRESSES[4], index: 3, walletId: 'my-wallet', transactions: 0, bip32_account: 2, ct_address: 'Hsh3' },
+    { address: ADDRESSES[5], index: 4, walletId: 'my-wallet', transactions: 0, bip32_account: 2, ct_address: 'Hsh4' },
+  ]);
+
+  const event = makeGatewayEventWithAuthorizer('my-wallet', { legacy: 'false' });
+  const result = await newAddressesGet(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+
+  // `addresses` carry the user-facing CT address within the shielded gap (3), on the account-2 path
+  expect(returnBody.addresses).toStrictEqual([
+    { address: 'Hsh2', index: 2, addressPath: "m/44'/280'/2'/0/2" },
+    { address: 'Hsh3', index: 3, addressPath: "m/44'/280'/2'/0/3" },
+    { address: 'Hsh4', index: 4, addressPath: "m/44'/280'/2'/0/4" },
+  ]);
+  // `spendAddresses` carry the parallel on-chain spend addresses
+  expect(returnBody.spendAddresses).toStrictEqual([
+    { address: ADDRESSES[3], index: 2, addressPath: "m/44'/280'/2'/0/2" },
+    { address: ADDRESSES[4], index: 3, addressPath: "m/44'/280'/2'/0/3" },
+    { address: ADDRESSES[5], index: 4, addressPath: "m/44'/280'/2'/0/4" },
+  ]);
+  // `legacyAddresses` carry today's legacy shape
+  expect(returnBody.legacyAddresses).toStrictEqual([
+    { address: ADDRESSES[0], index: 5, addressPath: "m/44'/280'/0'/0/5" },
+    { address: ADDRESSES[1], index: 6, addressPath: "m/44'/280'/0'/0/6" },
+  ]);
 });
 
 test('GET /addresses/new with no transactions', async () => {
@@ -380,17 +527,17 @@ test('GET /addresses/new with no transactions', async () => {
   }]);
 
   await addToAddressTable(mysql, [
-    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[2], index: 2, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[3], index: 3, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[4], index: 4, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[5], index: 5, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[6], index: 6, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[7], index: 7, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[8], index: 8, walletId: 'my-wallet', transactions: 0 },
-    { address: ADDRESSES[9], index: 0, walletId: null, transactions: 0 },
-    { address: ADDRESSES[10], index: 0, walletId: 'test', transactions: 0 },
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[2], index: 2, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[3], index: 3, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[4], index: 4, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[5], index: 5, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[6], index: 6, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[7], index: 7, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[8], index: 8, walletId: 'my-wallet', transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[9], index: 0, walletId: null, transactions: 0, bip32_account: 0 },
+    { address: ADDRESSES[10], index: 0, walletId: 'test', transactions: 0, bip32_account: 0 },
   ]);
 
   // missing wallet
@@ -527,6 +674,7 @@ test('GET /balances', async () => {
     index: 0,
     walletId: 'my-wallet',
     transactions: 2,
+    bip32_account: 0,
   }]);
   await addToAddressBalanceTable(mysql, [[ADDRESSES[0], 'token3', 5, 1, lockExpires2, 2, 0, 0, 10]]);
   await addToWalletBalanceTable(mysql, [{
@@ -668,6 +816,111 @@ test('GET /balances', async () => {
   expect(returnBody.balances).toHaveLength(0);
 });
 
+test('GET /balances shielded: merged default, split breakdown and unified status', async () => {
+  expect.hasAssertions();
+  await addToWalletTable(mysql, [{
+    id: 'shielded-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+    ctStatus: 'ready',
+  }]);
+  const token1 = { id: 'token1', name: 'MyToken1', symbol: 'MT1', version: TokenVersion.DEPOSIT };
+  await addToTokenTable(mysql, [{ ...token1, transactions: 0 }]);
+  await addToWalletBalanceTable(mysql, [{
+    walletId: 'shielded-wallet',
+    tokenId: 'token1',
+    unlockedBalance: 1000n,
+    lockedBalance: 0n,
+    unlockedAuthorities: 0,
+    lockedAuthorities: 0,
+    timelockExpires: null,
+    transactions: 50,
+    unlockedShieldedBalance: 2500n,
+    lockedShieldedBalance: 0n,
+    totalShieldedReceived: 2500n,
+  }]);
+
+  // default: merged totals, same field shapes as today
+  let event = makeGatewayEventWithAuthorizer('shielded-wallet', null);
+  let result = await balancesGet(event, null, null) as APIGatewayProxyResult;
+  let returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+  expect(returnBody.status).toBe('ready');
+  expect(returnBody.balances).toContainEqual({
+    token: token1,
+    transactions: 50,
+    balance: { unlocked: 3500, locked: 0 },
+    lockExpires: null,
+    tokenAuthorities: { unlocked: { mint: false, melt: false }, locked: { mint: false, melt: false } },
+  });
+
+  // split=true: breakdown objects
+  event = makeGatewayEventWithAuthorizer('shielded-wallet', { split: 'true' });
+  result = await balancesGet(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.balances).toContainEqual({
+    token: token1,
+    transactions: 50,
+    balance: {
+      unlocked: { transparent: 1000, shielded: 2500, total: 3500 },
+      locked: { transparent: 0, shielded: 0, total: 0 },
+    },
+    lockExpires: null,
+    tokenAuthorities: { unlocked: { mint: false, melt: false }, locked: { mint: false, melt: false } },
+  });
+});
+
+test('GET /balances surfaces creating unified status during shielded catch-up', async () => {
+  expect.hasAssertions();
+  await addToWalletTable(mysql, [{
+    id: 'catching-up-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+    ctStatus: 'creating',
+  }]);
+
+  const event = makeGatewayEventWithAuthorizer('catching-up-wallet', null);
+  const result = await balancesGet(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+  expect(returnBody.status).toBe('creating');
+});
+
+test('GET /balances split=true renders zero backfill for unheld token', async () => {
+  expect.hasAssertions();
+  await addToWalletTable(mysql, [{
+    id: 'empty-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+  await addToTokenTable(mysql, [{ id: 'token9', name: 'T9', symbol: 'T9', version: TokenVersion.DEPOSIT, transactions: 0 }]);
+
+  const event = makeGatewayEventWithAuthorizer('empty-wallet', { token_id: 'token9', split: 'true' });
+  const result = await balancesGet(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.balances).toHaveLength(1);
+  expect(returnBody.balances[0].balance).toStrictEqual({
+    unlocked: { transparent: 0, shielded: 0, total: 0 },
+    locked: { transparent: 0, shielded: 0, total: 0 },
+  });
+});
+
 test('GET /txhistory', async () => {
   expect.hasAssertions();
 
@@ -713,8 +966,8 @@ test('GET /txhistory', async () => {
   expect(result.statusCode).toBe(200);
   expect(returnBody.success).toBe(true);
   expect(returnBody.history).toHaveLength(2);
-  expect(returnBody.history).toContainEqual({ txId: 'tx1', timestamp: 1000, balance: 5, voided: 0, version: 2 });
-  expect(returnBody.history).toContainEqual({ txId: 'tx2', timestamp: 1001, balance: 7, voided: 0, version: 3 });
+  expect(returnBody.history).toContainEqual({ txId: 'tx1', timestamp: 1000, balance: 5, voided: 0, version: 2, tx_kind: 'transparent', balanceBreakdown: { transparent: 5, shielded: 0 } });
+  expect(returnBody.history).toContainEqual({ txId: 'tx2', timestamp: 1001, balance: 7, voided: 0, version: 3, tx_kind: 'transparent', balanceBreakdown: { transparent: 7, shielded: 0 } });
 
   // with count just 1, return only the most recent tx
   event = makeGatewayEventWithAuthorizer('my-wallet', { count: '1' });
@@ -724,7 +977,7 @@ test('GET /txhistory', async () => {
   expect(returnBody.success).toBe(true);
   expect(returnBody.count).toBe(1);
   expect(returnBody.history).toHaveLength(1);
-  expect(returnBody.history).toContainEqual({ txId: 'tx2', timestamp: 1001, balance: 7, voided: 0, version: 3 });
+  expect(returnBody.history).toContainEqual({ txId: 'tx2', timestamp: 1001, balance: 7, voided: 0, version: 3, tx_kind: 'transparent', balanceBreakdown: { transparent: 7, shielded: 0 } });
 
   // skip first item
   event = makeGatewayEventWithAuthorizer('my-wallet', { skip: '1' });
@@ -734,7 +987,7 @@ test('GET /txhistory', async () => {
   expect(returnBody.success).toBe(true);
   expect(returnBody.skip).toBe(1);
   expect(returnBody.history).toHaveLength(1);
-  expect(returnBody.history).toContainEqual({ txId: 'tx1', timestamp: 1000, balance: 5, voided: 0, version: 2 });
+  expect(returnBody.history).toContainEqual({ txId: 'tx1', timestamp: 1000, balance: 5, voided: 0, version: 2, tx_kind: 'transparent', balanceBreakdown: { transparent: 5, shielded: 0 } });
 
   // use other token id
   event = makeGatewayEventWithAuthorizer('my-wallet', { token_id: 'token2' });
@@ -743,7 +996,7 @@ test('GET /txhistory', async () => {
   expect(result.statusCode).toBe(200);
   expect(returnBody.success).toBe(true);
   expect(returnBody.history).toHaveLength(1);
-  expect(returnBody.history).toContainEqual({ txId: 'tx1', timestamp: 1000, balance: 7, voided: 0, version: 2 });
+  expect(returnBody.history).toContainEqual({ txId: 'tx1', timestamp: 1000, balance: 7, voided: 0, version: 2, tx_kind: 'transparent', balanceBreakdown: { transparent: 7, shielded: 0 } });
 
   // it should also return voided transactions
   event = makeGatewayEventWithAuthorizer('my-wallet', { token_id: 'token3' });
@@ -752,7 +1005,43 @@ test('GET /txhistory', async () => {
   expect(result.statusCode).toBe(200);
   expect(returnBody.success).toBe(true);
   expect(returnBody.history).toHaveLength(1);
-  expect(returnBody.history).toContainEqual({ txId: 'tx2', timestamp: 1001, balance: 7, voided: 1, version: 3 });
+  expect(returnBody.history).toContainEqual({ txId: 'tx2', timestamp: 1001, balance: 7, voided: 1, version: 3, tx_kind: 'transparent', balanceBreakdown: { transparent: 7, shielded: 0 } });
+});
+
+test('GET /txhistory carries tx_kind and balanceBreakdown', async () => {
+  expect.hasAssertions();
+
+  await addToWalletTable(mysql, [{
+    id: 'my-wallet',
+    xpubkey: 'xpubkey',
+    authXpubkey: 'auth_xpubkey',
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+  await addToWalletTxHistoryTable(mysql, [
+    ['my-wallet', 'stx1', '00', 150n, 2000, false],            // transparent-only
+    ['my-wallet', 'stx2', '00', 0n, 2001, false, 150n],        // shielded-only
+    ['my-wallet', 'stx3', '00', -50n, 2002, false, 100n],      // mixed
+  ]);
+
+  const event = makeGatewayEventWithAuthorizer('my-wallet', null);
+  const result = await txHistoryGet(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody.success).toBe(true);
+
+  const byTx = Object.fromEntries(returnBody.history.map((h) => [h.txId, h]));
+  expect(byTx.stx1.tx_kind === 'transparent').toBe(true);
+  expect(byTx.stx1.balance).toBe(150);
+  expect(byTx.stx1.balanceBreakdown).toStrictEqual({ transparent: 150, shielded: 0 });
+  expect(byTx.stx2.tx_kind === 'shielded').toBe(true);
+  expect(byTx.stx2.balance).toBe(150);
+  expect(byTx.stx2.balanceBreakdown).toStrictEqual({ transparent: 0, shielded: 150 });
+  expect(byTx.stx3.tx_kind === 'mixed').toBe(true);
+  expect(byTx.stx3.balance).toBe(50);
+  expect(byTx.stx3.balanceBreakdown).toStrictEqual({ transparent: -50, shielded: 100 });
 });
 
 test('GET /wallet', async () => {
@@ -785,11 +1074,16 @@ test('GET /wallet', async () => {
     xpubkey: XPUBKEY,
     authXpubkey: AUTH_XPUBKEY,
     status: 'ready',
+    legacyStatus: 'ready',
+    shieldedStatus: 'none',
     maxGap: 5,
     retryCount: 0,
     createdAt: 10000,
     readyAt: 10001,
     lastUsedAddressIndex: -1,
+    // Shielded info fields — defaults for a wallet with no shielded keys.
+    shieldedMaxGap: 20,
+    lastUsedShieldedIndex: null,
   });
 });
 
@@ -816,7 +1110,7 @@ test('POST /wallet', async () => {
   expect(returnBody.details).toHaveLength(1);
   expect(returnBody.details[0].message).toStrictEqual('"value" must be of type object');
 
-  // missing xpubkey, auth_xpubkey, signatures and timestamp
+  // missing xpubkey, auth_xpubkey, signatures and timestamp (an unknown field is ignored)
   event = makeGatewayEvent({}, JSON.stringify({ param1: 'aaa', firstAddress: 'a' }));
   result = await walletLoad(event, null, null) as APIGatewayProxyResult;
   returnBody = JSON.parse(result.body as string);
@@ -824,13 +1118,12 @@ test('POST /wallet', async () => {
   expect(result.statusCode).toBe(400);
   expect(returnBody.success).toBe(false);
   expect(returnBody.error).toBe(ApiError.INVALID_PAYLOAD);
-  expect(returnBody.details).toHaveLength(6);
+  expect(returnBody.details).toHaveLength(5);
   expect(returnBody.details[0].message).toStrictEqual('"xpubkey" is required');
   expect(returnBody.details[1].message).toStrictEqual('"authXpubkey" is required');
   expect(returnBody.details[2].message).toStrictEqual('"xpubkeySignature" is required');
   expect(returnBody.details[3].message).toStrictEqual('"authXpubkeySignature" is required');
   expect(returnBody.details[4].message).toStrictEqual('"timestamp" is required');
-  expect(returnBody.details[5].message).toStrictEqual('"param1" is not allowed');
 
   // get the first address
   const xpubChangeDerivation = walletUtils.xpubDeriveChild(XPUBKEY, 0);
@@ -1044,6 +1337,7 @@ test('POST /wallet should fail with ApiError.WALLET_MAX_RETRIES when max retries
   expect(returnBody.status.status).toStrictEqual(WalletStatus.ERROR);
   expect(returnBody.status.retryCount).toStrictEqual(5);
 
+  mockedAddAlert.mockClear();
   event = makeGatewayEvent({}, JSON.stringify(params));
   result = await walletLoad(event, null, null) as APIGatewayProxyResult;
   returnBody = JSON.parse(result.body as string);
@@ -1051,6 +1345,8 @@ test('POST /wallet should fail with ApiError.WALLET_MAX_RETRIES when max retries
   expect(returnBody.status.status).toStrictEqual(WalletStatus.ERROR);
   expect(returnBody.error).toStrictEqual(ApiError.WALLET_MAX_RETRIES);
   expect(returnBody.status.retryCount).toStrictEqual(5);
+  // Reaching the retry cap raises an ops alert.
+  expect(mockedAddAlert).toHaveBeenCalledTimes(1);
 }, 30000); // This is huge for a test, but bitcore-lib takes too long
 
 test('POST /wallet/init should validate attributes properly', async () => {
@@ -1119,6 +1415,27 @@ test('PUT /wallet/auth should fail if wallet is not yet started', async () => {
 
   expect(result.statusCode).toBe(404);
   expect(returnBody.success).toStrictEqual(false);
+  expect(returnBody.error).toStrictEqual(ApiError.WALLET_NOT_FOUND);
+});
+
+test('PUT /wallet/auth ignores a field this service does not know', async () => {
+  expect.hasAssertions();
+
+  const event = makeGatewayEvent({}, JSON.stringify({
+    xpubkey: XPUBKEY,
+    xpubkeySignature: 'xpubkey-signature',
+    authXpubkey: AUTH_XPUBKEY,
+    authXpubkeySignature: 'auth-xpubkey-signature',
+    firstAddress: ADDRESSES[0],
+    timestamp: Math.floor(Date.now() / 1000),
+    futureField: 'x',
+  }));
+
+  const result = await changeAuthXpub(event, null, null) as APIGatewayProxyResult;
+  const returnBody = JSON.parse(result.body as string);
+
+  // Past the schema: it fails on the missing wallet, not on the payload.
+  expect(result.statusCode).toBe(404);
   expect(returnBody.error).toStrictEqual(ApiError.WALLET_NOT_FOUND);
 });
 
@@ -1354,67 +1671,6 @@ test('loadWallet should fail if timestamp is shifted for more than 30s', async (
   expect(returnBody.details[0].message).toBe('The timestamp is shifted 40(s). Limit is 30(s).');
 });
 
-test('loadWallet should update wallet status to ERROR if an error occurs', async () => {
-  expect.hasAssertions();
-
-  const now = Math.floor(Date.now() / 1000);
-  const {
-    walletId,
-    xpubkey,
-    xpubkeySignature,
-    authXpubkey,
-    authXpubkeySignature,
-    firstAddress,
-  } = getAuthData(now);
-
-  const loadWalletAsyncSpy = jest.spyOn(Wallet, 'invokeLoadWalletAsync');
-  const mockImplementationSuccess = jest.fn(() => Promise.resolve());
-  loadWalletAsyncSpy.mockImplementation(mockImplementationSuccess);
-
-  // wallet should be 'creating'
-  const event = makeGatewayEvent({}, JSON.stringify({
-    xpubkey,
-    xpubkeySignature,
-    authXpubkey,
-    authXpubkeySignature,
-    firstAddress,
-    timestamp: now,
-  }));
-  const result = await walletLoad(event, null, null) as APIGatewayProxyResult;
-  const returnBody = JSON.parse(result.body as string);
-
-  expect(result.statusCode).toBe(200);
-  expect(returnBody.status.status).toStrictEqual(WalletStatus.CREATING);
-
-  const dbSpy = jest.spyOn(Db, 'addNewAddresses');
-  const mockImplementationFailure = jest.fn(() => Promise.reject(new Error('error!')));
-  dbSpy.mockImplementation(mockImplementationFailure);
-
-  const loadEvent = { xpubkey: XPUBKEY, maxGap: 10 };
-
-  const noop = () => false;
-
-  // mocking an event call from aws
-  await loadWallet(loadEvent, {
-    callbackWaitsForEmptyEventLoop: true,
-    logGroupName: '/aws/lambda/mock-lambda',
-    logStreamName: '2018/11/29/[$LATEST]xxxxxxxxxxxb',
-    functionName: 'loadWalletAsync',
-    memoryLimitInMB: '1024',
-    functionVersion: '$LATEST',
-    awsRequestId: 'xxxxxx-xxxxx-11e8-xxxx-xxxxxxxxx',
-    invokedFunctionArn: 'arn:aws:lambda:us-east-1:xxxxxxxx:function:loadWalletAsync',
-    getRemainingTimeInMillis: () => 1000,
-    done: noop,
-    fail: noop,
-    succeed: noop,
-  }, noop);
-
-  const wallet = await Db.getWallet(mysql, walletId);
-
-  expect(wallet.status).toStrictEqual(WalletStatus.ERROR);
-}, 30000);
-
 test('loadWalletFailed should create alert if xpubkey is missing', async () => {
   expect.hasAssertions();
 
@@ -1434,6 +1690,140 @@ test('loadWalletFailed should create alert if xpubkey is missing', async () => {
     },
     expect.anything(),
   );
+});
+
+test('loadWalletFailed pins only the shielded side when the transparent side was ready (upgrade crash)', async () => {
+  expect.hasAssertions();
+  await cleanDatabase(mysql);
+  const walletId = getWalletId(XPUBKEY);
+  await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5);
+  await Db.updateWalletStatus(mysql, walletId, WalletStatus.READY);
+  await Db.registerWalletShieldedKeys(mysql, walletId, 'scanx', 'spendx', 20);
+
+  await loadWalletFailed(makeLoadWalletFailedSNSEvent(1, XPUBKEY), null, null);
+
+  const w = await Db.getWallet(mysql, walletId);
+  expect(w.status).toBe(WalletStatus.READY);   // working transparent state untouched
+  expect(w.ctStatus).toBe(WalletStatus.ERROR); // shielded side pinned
+  expect(w.retryCount).toBe(5);                // pinned at the cap (config.maxLoadWalletRetries in the test env)
+});
+
+test('loadWalletFailed rebuilds the totals of an upgrade that crashed', async () => {
+  // A timed-out upgrade reaches the DLQ, not the worker's catch. The daemon
+  // resumes the wallet's deltas once it is in error, so the totals it skipped
+  // while the upgrade ran must be rebuilt here too.
+  expect.hasAssertions();
+  await cleanDatabase(mysql);
+  const walletId = getWalletId(XPUBKEY);
+  await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5);
+  await Db.updateWalletStatus(mysql, walletId, WalletStatus.READY);
+  await Db.registerWalletShieldedKeys(mysql, walletId, 'scanx', 'spendx', 20);
+  await mysql.query(
+    'INSERT INTO `address` (`address`, `index`, `wallet_id`, `transactions`, `bip32_account`) VALUES (?, 0, ?, 1, 0)',
+    [ADDRESSES[0], walletId],
+  );
+  await addToAddressTxHistoryTable(mysql, [
+    { address: ADDRESSES[0], txId: 'during', tokenId: '00', balance: 150n, timestamp: 20 },
+  ]);
+  await addToAddressBalanceTable(mysql, [[ADDRESSES[0], '00', 150, 0, null, 1, 0, 0, 150]]);
+  await mysql.query(
+    `INSERT INTO \`wallet_tx_history\` (\`wallet_id\`, \`tx_id\`, \`token_id\`, \`balance\`, \`timestamp\`, \`voided\`)
+     VALUES (?, 'voided-meanwhile', '00', 30, 15, FALSE)`,
+    [walletId],
+  );
+
+  await loadWalletFailed(makeLoadWalletFailedSNSEvent(1, XPUBKEY), null, null);
+
+  const w = await Db.getWallet(mysql, walletId);
+  expect(w.status).toBe(WalletStatus.READY);
+  expect(w.ctStatus).toBe(WalletStatus.ERROR);
+  expect(w.retryCount).toBe(5);
+  const balances = await mysql.query(
+    'SELECT `token_id`, `unlocked_balance` FROM `wallet_balance` WHERE `wallet_id` = ?', [walletId],
+  ) as unknown as { token_id: string; unlocked_balance: string }[];
+  expect(balances.map((b) => [b.token_id, Number(b.unlocked_balance)])).toStrictEqual([['00', 150]]);
+  const history = await mysql.query(
+    'SELECT `tx_id` FROM `wallet_tx_history` WHERE `wallet_id` = ?', [walletId],
+  ) as unknown as { tx_id: string }[];
+  expect(history.map((h) => h.tx_id)).toStrictEqual(['during']);
+});
+
+test('loadWalletFailed rebuilds the totals of a wallet in error whose direct load crashed', async () => {
+  // An operator's direct load of a wallet left in error before the fix can
+  // die before moving it back to creating; it reaches the DLQ still in error.
+  expect.hasAssertions();
+  await cleanDatabase(mysql);
+  const walletId = getWalletId(XPUBKEY);
+  await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5);
+  await Db.updateWalletStatus(mysql, walletId, WalletStatus.READY);
+  await Db.registerWalletShieldedKeys(mysql, walletId, 'scanx', 'spendx', 20);
+  await mysql.query("UPDATE `wallet` SET `ct_status` = 'error' WHERE `id` = ?", [walletId]);
+  await mysql.query(
+    'INSERT INTO `address` (`address`, `index`, `wallet_id`, `transactions`, `bip32_account`) VALUES (?, 0, ?, 1, 0)',
+    [ADDRESSES[0], walletId],
+  );
+  await addToAddressTxHistoryTable(mysql, [
+    { address: ADDRESSES[0], txId: 'during', tokenId: '00', balance: 150n, timestamp: 20 },
+  ]);
+  await addToAddressBalanceTable(mysql, [[ADDRESSES[0], '00', 150, 0, null, 1, 0, 0, 150]]);
+
+  await loadWalletFailed(makeLoadWalletFailedSNSEvent(1, XPUBKEY), null, null);
+
+  const w = await Db.getWallet(mysql, walletId);
+  expect(w.status).toBe(WalletStatus.READY);
+  expect(w.ctStatus).toBe(WalletStatus.ERROR);
+  expect(w.retryCount).toBe(5);
+  const balances = await mysql.query(
+    "SELECT `unlocked_balance` FROM `wallet_balance` WHERE `wallet_id` = ? AND `token_id` = '00'", [walletId],
+  ) as unknown as { unlocked_balance: string }[];
+  expect(balances.map((b) => Number(b.unlocked_balance))).toStrictEqual([150]);
+});
+
+test('loadWalletFailed pins both sides for a fresh shielded wallet crash', async () => {
+  expect.hasAssertions();
+  await cleanDatabase(mysql);
+  const walletId = getWalletId(XPUBKEY);
+  await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5, { scanXpriv: 'scanx', spendXpub: 'spendx', shieldedMaxGap: 20 });
+
+  await loadWalletFailed(makeLoadWalletFailedSNSEvent(1, XPUBKEY), null, null);
+
+  const w = await Db.getWallet(mysql, walletId);
+  expect(w.status).toBe(WalletStatus.ERROR);
+  expect(w.ctStatus).toBe(WalletStatus.ERROR);
+  expect(w.retryCount).toBe(5);
+  expect(w.readyAt).toEqual(expect.any(Number)); // the legacy pin stamps ready_at
+});
+
+test('loadWalletFailed does not demote a shielded wallet that already recovered', async () => {
+  expect.hasAssertions();
+  await cleanDatabase(mysql);
+  const walletId = getWalletId(XPUBKEY);
+  await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5);
+  await Db.registerWalletShieldedKeys(mysql, walletId, 'scanx', 'spendx', 20);
+  // A later attempt already recovered both sides; the DLQ event for the earlier
+  // crashed attempt is only now being delivered.
+  await Db.markWalletLoadReady(mysql, walletId, true);
+
+  await loadWalletFailed(makeLoadWalletFailedSNSEvent(1, XPUBKEY), null, null);
+
+  const w = await Db.getWallet(mysql, walletId);
+  expect(w.status).toBe(WalletStatus.READY);
+  expect(w.ctStatus).toBe(WalletStatus.READY);
+  expect(w.retryCount).toBe(0); // not pinned at the cap -> not bricked
+});
+
+test('loadWalletFailed does not demote a transparent wallet that already recovered', async () => {
+  expect.hasAssertions();
+  await cleanDatabase(mysql);
+  const walletId = getWalletId(XPUBKEY);
+  await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, 5);
+  await Db.updateWalletStatus(mysql, walletId, WalletStatus.READY);
+
+  await loadWalletFailed(makeLoadWalletFailedSNSEvent(1, XPUBKEY), null, null);
+
+  const w = await Db.getWallet(mysql, walletId);
+  expect(w.status).toBe(WalletStatus.READY);
+  expect(w.retryCount).toBe(0);
 });
 
 test('GET /wallet/tokens', async () => {
@@ -1573,7 +1963,7 @@ test('GET /wallet/tokens/token_id/details', async () => {
   expect(returnBody.details).toMatchInlineSnapshot(`
   [
     {
-      "message": "\"token_id\" length must be at least 64 characters long",
+      "message": ""token_id" length must be at least 64 characters long",
       "path": [
         "token_id",
       ],
@@ -1630,6 +2020,8 @@ test('GET /version', async () => {
     min_tx_weight_coefficient: 1.6,
     min_tx_weight_k: 100,
     token_deposit_percentage: 0.01,
+    token_deposit_percentage_numerator: 10000000,
+    token_deposit_percentage_denominator: 1000000000,
     reward_spend_min_blocks: 300,
     max_number_inputs: 255,
     max_number_outputs: 255,
@@ -1655,6 +2047,8 @@ test('GET /version', async () => {
     timestamp: expect.anything(),
     ...returnData,
   }));
+  // The service's own capability, beside the fullnode's data.
+  expect(returnBody.data.shieldedOutputsEnabled).toBe(true);
 });
 
 test('GET /wallet/proxy/transactions/{txId}', async () => {
@@ -1755,7 +2149,7 @@ test('GET /wallet/proxy/transactions/{txId}', async () => {
     {
       "details": [
         {
-          "message": "\"txId\" is required",
+          "message": ""txId" is required",
           "path": [
             "txId",
           ],
@@ -1804,7 +2198,7 @@ test('GET /wallet/proxy/{txId}/confirmation_data', async () => {
     {
       "details": [
         {
-          "message": "\"txId\" is required",
+          "message": ""txId" is required",
           "path": [
             "txId",
           ],
@@ -1850,7 +2244,7 @@ test('GET /wallet/proxy/graphviz/neighbours', async () => {
     {
       "details": [
         {
-          "message": "\"maxLevel\" is required",
+          "message": ""maxLevel" is required",
           "path": [
             "maxLevel",
           ],
@@ -1870,19 +2264,19 @@ test('GET /wallet/proxy/graphviz/neighbours', async () => {
     {
       "details": [
         {
-          "message": "\"txId\" is required",
+          "message": ""txId" is required",
           "path": [
             "txId",
           ],
         },
         {
-          "message": "\"graphType\" is required",
+          "message": ""graphType" is required",
           "path": [
             "graphType",
           ],
         },
         {
-          "message": "\"maxLevel\" is required",
+          "message": ""maxLevel" is required",
           "path": [
             "maxLevel",
           ],
@@ -1895,6 +2289,33 @@ test('GET /wallet/proxy/graphviz/neighbours', async () => {
 });
 
 describe('GET /health', () => {
+  // The provider is reported as a component of its own; these cases register
+  // the test provider so only the component under test can fail.
+  beforeEach(() => resetCtCryptoMock());
+  afterEach(() => clearShieldedCryptoProvider());
+
+  test('fails when no shielded crypto provider is registered', async () => {
+    expect.hasAssertions();
+
+    clearShieldedCryptoProvider();
+    jest.spyOn(fullnode, 'getStatus').mockResolvedValue({ dag: { best_block: { height: 321 } } });
+    jest.spyOn(fullnode, 'getHealth').mockResolvedValue({ status: 'pass' });
+    await addToTransactionTable(mysql, [['tx1', 100, 2, false, 321, 60]]);
+
+    const result = await getHealthcheck(makeGatewayEvent({}), null, null) as APIGatewayProxyResult;
+    const returnBody = JSON.parse(result.body as string);
+
+    expect(returnBody.status).toBe('fail');
+    expect(returnBody.checks['shielded:crypto_provider']).toStrictEqual([{
+      affectsServiceHealth: true,
+      componentName: 'shielded:crypto_provider',
+      componentType: 'internal',
+      output: expect.stringContaining('Shielded crypto provider failed to load'),
+      status: 'fail',
+      time: expect.any(String),
+    }]);
+  });
+
   test('success case', async () => {
     expect.hasAssertions();
 
@@ -1953,6 +2374,14 @@ describe('GET /health', () => {
           'componentName': 'fullnode:health',
           'componentType': 'http',
           'output': 'Fullnode is healthy',
+          'status': 'pass',
+          'time': expect.any(String),
+        }],
+        'shielded:crypto_provider': [{
+          'affectsServiceHealth': true,
+          'componentName': 'shielded:crypto_provider',
+          'componentType': 'internal',
+          'output': 'Shielded crypto provider is registered',
           'status': 'pass',
           'time': expect.any(String),
         }],
@@ -2024,6 +2453,14 @@ describe('GET /health', () => {
           'status': 'pass',
           'time': expect.any(String),
         }],
+        'shielded:crypto_provider': [{
+          'affectsServiceHealth': true,
+          'componentName': 'shielded:crypto_provider',
+          'componentType': 'internal',
+          'output': 'Shielded crypto provider is registered',
+          'status': 'pass',
+          'time': expect.any(String),
+        }],
       }
     });
   });
@@ -2079,6 +2516,14 @@ describe('GET /health', () => {
           'componentName': 'fullnode:health',
           'componentType': 'http',
           'output': 'Fullnode is healthy',
+          'status': 'pass',
+          'time': expect.any(String),
+        }],
+        'shielded:crypto_provider': [{
+          'affectsServiceHealth': true,
+          'componentName': 'shielded:crypto_provider',
+          'componentType': 'internal',
+          'output': 'Shielded crypto provider is registered',
           'status': 'pass',
           'time': expect.any(String),
         }],
@@ -2142,6 +2587,14 @@ describe('GET /health', () => {
           'componentType': 'http',
           'output': 'Error checking fullnode health: Fullnode exploded!',
           'status': 'fail',
+          'time': expect.any(String),
+        }],
+        'shielded:crypto_provider': [{
+          'affectsServiceHealth': true,
+          'componentName': 'shielded:crypto_provider',
+          'componentType': 'internal',
+          'output': 'Shielded crypto provider is registered',
+          'status': 'pass',
           'time': expect.any(String),
         }],
       }
@@ -2216,6 +2669,14 @@ describe('GET /health', () => {
           'status': 'fail',
           'time': expect.any(String),
         }],
+        'shielded:crypto_provider': [{
+          'affectsServiceHealth': true,
+          'componentName': 'shielded:crypto_provider',
+          'componentType': 'internal',
+          'output': 'Shielded crypto provider is registered',
+          'status': 'pass',
+          'time': expect.any(String),
+        }],
       }
     });
   });
@@ -2235,8 +2696,8 @@ test('GET /addresses (query string index parameter)', async () => {
   }]);
 
   const addresses = [
-    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0, seqnum: 1 },
-    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0, seqnum: 2 },
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0, seqnum: 1, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0, seqnum: 2, bip32_account: 0 },
   ];
 
   await addToAddressTable(mysql, addresses);
@@ -2320,8 +2781,8 @@ test('GET /address/info', async () => {
   }]);
 
   const addresses = [
-    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0, seqnum: 1 },
-    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0, seqnum: 2 },
+    { address: ADDRESSES[0], index: 0, walletId: 'my-wallet', transactions: 0, seqnum: 1, bip32_account: 0 },
+    { address: ADDRESSES[1], index: 1, walletId: 'my-wallet', transactions: 0, seqnum: 2, bip32_account: 0 },
   ];
 
   await addToAddressTable(mysql, addresses);
@@ -2369,4 +2830,683 @@ test('GET /address/info', async () => {
   expect(returnBody.success).toBe(false);
   expect(returnBody.error).toBe(ApiError.INVALID_PAYLOAD);
   expect(returnBody.details[0].message).toBeDefined();
+});
+
+const bip32lib = BIP32Factory(ecc);
+// Shielded load tests do heavy key derivation (PBKDF2) + CT address crypto, so
+// they need a longer per-test timeout than jest's 5s default.
+const SHIELDED_TEST_TIMEOUT_MS = 20000;
+const HATHOR_MSG_PREFIX = 'Hathor Signed Message:\n';
+
+interface ShieldedFieldOpts {
+  // Seed for the scan/spend keypair (vary it to build a distinct key set).
+  seedHex?: string;
+  // Auth xpub the ct_address signature will be verified against. Defaults to a
+  // self-generated key (for validator unit tests); handler tests pass the real
+  // wallet auth xpub.
+  authXpubkey?: string;
+  // Signer for the ct_address message. Defaults to signing with the
+  // self-generated auth key; handler tests sign with the real auth private key.
+  authSign?: (message: string) => string;
+}
+
+/**
+ * Build a valid shielded-registration field set for a wallet: a matched
+ * scan/spend pair (change-level), the first ct_address, and both signatures.
+ * `authXpubkey` is returned so callers pass it back in for verification.
+ */
+const buildShieldedFields = (walletId: string, timestamp: number, opts: ShieldedFieldOpts = {}) => {
+  const root = bip32lib.fromSeed(Buffer.from(opts.seedHex ?? '01'.repeat(32), 'hex'));
+  const scanXpriv = root.derivePath("m/44'/280'/1'/0").toBase58();
+  const spendNode = root.derivePath("m/44'/280'/2'/0");
+  const spendXpub = spendNode.neutered().toBase58();
+  const authNode = root.derivePath("m/44'/280'/280'");
+  const authXpubkey = opts.authXpubkey ?? authNode.neutered().toBase58();
+
+  const firstCtAddress = deriveCtAddress(scanXpriv, spendXpub, 0, new Network(process.env.NETWORK as string)).ctAddress;
+
+  const sign = (payload: string, priv: Buffer): string => bitcoinMessage
+    .sign(buildAuthMessage(timestamp, walletId, payload), priv, true, HATHOR_MSG_PREFIX)
+    .toString('base64');
+
+  const ctAddressSignature = opts.authSign
+    ? opts.authSign(buildAuthMessage(timestamp, walletId, firstCtAddress))
+    : sign(firstCtAddress, authNode.privateKey as Buffer);
+
+  return {
+    scanXpriv,
+    spendXpub,
+    firstCtAddress,
+    spendXpubSignature: sign(spendXpub, spendNode.privateKey as Buffer),
+    ctAddressSignature,
+    authXpubkey,
+  };
+};
+
+// Sign a message with the wallet's real auth private key (matching AUTH_XPUBKEY),
+// via bitcore whose MAGIC_BYTES were set to the Hathor prefix above. The auth key
+// is memoized because seed derivation (PBKDF2) is expensive.
+let cachedAuthPriv: ReturnType<typeof HathorWalletServiceWallet.deriveAuthPrivateKey> | undefined;
+const realAuthSign = (message: string): string => {
+  if (!cachedAuthPriv) {
+    const xpriv = getXPrivKeyFromSeed(TEST_SEED, { passphrase: '', networkName: process.env.NETWORK });
+    cachedAuthPriv = HathorWalletServiceWallet.deriveAuthPrivateKey(xpriv);
+  }
+  return new bitcore.Message(message).sign(cachedAuthPriv.privateKey);
+};
+
+// Build a full wallet-load body (valid transparent + shielded halves) for the
+// real test wallet (XPUBKEY / AUTH_XPUBKEY). `opts` tweaks the shielded keys.
+const buildShieldedLoadBody = (now: number, opts: ShieldedFieldOpts = {}) => {
+  const walletId = getWalletId(XPUBKEY);
+  const auth = getAuthData(now);
+  const shielded = buildShieldedFields(walletId, now, { authXpubkey: AUTH_XPUBKEY, authSign: realAuthSign, ...opts });
+  return {
+    xpubkey: auth.xpubkey,
+    xpubkeySignature: auth.xpubkeySignature,
+    authXpubkey: auth.authXpubkey,
+    authXpubkeySignature: auth.authXpubkeySignature,
+    firstAddress: auth.firstAddress,
+    timestamp: now,
+    scanXpriv: shielded.scanXpriv,
+    spendXpub: shielded.spendXpub,
+    firstCtAddress: shielded.firstCtAddress,
+    spendXpubSignature: shielded.spendXpubSignature,
+    ctAddressSignature: shielded.ctAddressSignature,
+  };
+};
+
+describe('validateShieldedRegistration', () => {
+  const now = 1700000000;
+  const walletId = 'wallet-id';
+
+  test('accepts a valid matched set', () => {
+    const f = buildShieldedFields(walletId, now);
+    expect(validateShieldedRegistration({ timestamp: now, walletId, ...f })).toEqual({ ok: true });
+  });
+
+  test('rejects a tampered auth (ct_address) signature with 403', () => {
+    const f = buildShieldedFields(walletId, now);
+    const res = validateShieldedRegistration({
+      timestamp: now, walletId, ...f, ctAddressSignature: f.spendXpubSignature,
+    });
+    expect(res).toEqual({ ok: false, code: 403, message: expect.any(String) });
+  });
+
+  test('rejects a tampered spend self-signature with 403', () => {
+    const f = buildShieldedFields(walletId, now);
+    const res = validateShieldedRegistration({
+      timestamp: now, walletId, ...f, spendXpubSignature: f.ctAddressSignature,
+    });
+    expect(res).toEqual({ ok: false, code: 403, message: expect.any(String) });
+  });
+
+  test('rejects a firstCtAddress that does not match the submitted keys with 400', () => {
+    const f = buildShieldedFields(walletId, now);
+    const res = validateShieldedRegistration({
+      timestamp: now, walletId, ...f, firstCtAddress: f.spendXpub, // any non-matching value
+    });
+    expect(res).toEqual({ ok: false, code: 400, message: expect.any(String) });
+  });
+
+  test('rejects an unparseable spendXpub with 400', () => {
+    const f = buildShieldedFields(walletId, now);
+    const res = validateShieldedRegistration({
+      timestamp: now, walletId, ...f, spendXpub: 'not-an-xpub',
+    });
+    expect(res).toEqual({ ok: false, code: 400, message: expect.any(String) });
+  });
+
+  test('rejects a spendXpub that is a private key with 400', () => {
+    const f = buildShieldedFields(walletId, now);
+    // The client slip this guards: `toBase58()` where `neutered().toBase58()` was meant.
+    const spendNode = bip32lib.fromSeed(Buffer.from('01'.repeat(32), 'hex')).derivePath("m/44'/280'/2'/0");
+    const spendXpriv = spendNode.toBase58();
+    expect(spendXpriv).not.toEqual(f.spendXpub);
+
+    // Re-sign so the spend proof holds over the swapped payload. Every other check then
+    // passes on its own terms — the private node derives the same child pubkeys, so the
+    // submitted firstCtAddress still re-derives. Only the neutered check catches this.
+    const res = validateShieldedRegistration({
+      timestamp: now,
+      walletId,
+      ...f,
+      spendXpub: spendXpriv,
+      spendXpubSignature: bitcoinMessage
+        .sign(buildAuthMessage(now, walletId, spendXpriv), spendNode.privateKey as Buffer, true, HATHOR_MSG_PREFIX)
+        .toString('base64'),
+    });
+
+    expect(res).toEqual({ ok: false, code: 400, message: 'spendXpub must be a public key, not a private key' });
+  });
+});
+
+describe('shielded wallet registration', () => {
+  test('load rejects partial shielded fields with 400', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const { xpubkey, xpubkeySignature, authXpubkey, authXpubkeySignature, firstAddress, timestamp } = getAuthData(now);
+
+    // Only one of the five all-or-none shielded fields is present.
+    const event = makeGatewayEvent({}, JSON.stringify({
+      xpubkey, xpubkeySignature, authXpubkey, authXpubkeySignature, firstAddress, timestamp,
+      scanXpriv: 'scan',
+    }));
+
+    const result = await walletLoad(event, null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(400);
+    expect(JSON.parse(result.body as string).error).toBe(ApiError.INVALID_PAYLOAD);
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('load lets a complete shielded field set past the schema into proof validation', async () => {
+    await cleanDatabase(mysql);
+
+    const now = Math.floor(Date.now() / 1000);
+    const { xpubkey, xpubkeySignature, authXpubkey, authXpubkeySignature, firstAddress, timestamp } = getAuthData(now);
+
+    // All five shielded fields present (dummy values — the schema only validates
+    // their types, so it accepts them; the cryptographic proof is checked later).
+    const event = makeGatewayEvent({}, JSON.stringify({
+      xpubkey, xpubkeySignature, authXpubkey, authXpubkeySignature, firstAddress, timestamp,
+      scanXpriv: 'scan', spendXpub: 'spend', firstCtAddress: 'ct',
+      spendXpubSignature: 'sps', ctAddressSignature: 'cts',
+    }));
+
+    const result = await walletLoad(event, null, null) as APIGatewayProxyResult;
+    const returnBody = JSON.parse(result.body as string);
+    // The fields are not rejected as unknown keys (INVALID_PAYLOAD) — they reach
+    // proof validation, which then rejects the dummy keys with 400.
+    expect(returnBody.error).not.toBe(ApiError.INVALID_PAYLOAD);
+    expect(result.statusCode).toBe(400);
+    expect(returnBody.details[0].message).toBe('Invalid scanXpriv or spendXpub');
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  const seedReadyWallet = () => addToWalletTable(mysql, [{
+    id: getWalletId(XPUBKEY),
+    xpubkey: XPUBKEY,
+    authXpubkey: AUTH_XPUBKEY,
+    status: 'ready',
+    maxGap: 5,
+    createdAt: 10000,
+    readyAt: 10001,
+  }]);
+
+  // Spy the async-load invoke, reset (spyOn accumulates calls across tests, and
+  // a one-off rejection a failed test never reached would leak into the next).
+  // Every load — transparent or shielded — goes through this single combined load.
+  const spyInvokes = () => {
+    const combined = jest.spyOn(Wallet, 'invokeLoadWalletAsync');
+    combined.mockReset();
+    combined.mockResolvedValue(undefined);
+    return { combined };
+  };
+
+  test('registers shielded keys on a brand-new wallet via the combined load and never leaks scan_xpriv', async () => {
+    await cleanDatabase(mysql);
+    const { combined } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    const body = buildShieldedLoadBody(now);
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(200);
+
+    const returnBody = JSON.parse(result.body as string);
+    expect(returnBody.status.status).toBe(WalletStatus.CREATING);
+    expect(returnBody.status.shieldedMaxGap).toBe(20);
+    expect(returnBody.status).not.toHaveProperty('scanXpriv');
+    expect(returnBody.status).not.toHaveProperty('spendXpub');
+
+    const wallet = await Db.getWallet(mysql, getWalletId(XPUBKEY));
+    expect(wallet.ctStatus).toBe('creating');
+    expect(wallet.scanXpriv).toBe(body.scanXpriv);
+    expect(wallet.spendXpub).toBe(body.spendXpub);
+
+    expect(combined).toHaveBeenCalledTimes(1);
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('loads a wallet whose request has a field this service does not know, logging only its name', async () => {
+    await cleanDatabase(mysql);
+    const { combined } = spyInvokes();
+    const warn = jest.fn();
+    const realLogger = LoggerModule.default();
+    const loggerSpy = jest.spyOn(LoggerModule, 'default').mockReturnValue(
+      Object.assign(Object.create(realLogger), { warn }),
+    );
+    const body = { ...buildShieldedLoadBody(Math.floor(Date.now() / 1000)), futureField: 'not-to-be-logged' };
+
+    try {
+      const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+
+      expect(result.statusCode).toBe(200);
+      // The client learns the field wasn't honoured.
+      expect(JSON.parse(result.body as string).ignoredFields).toStrictEqual(['futureField']);
+      expect(combined).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.any(String), { fields: ['futureField'] });
+      expect(JSON.stringify(warn.mock.calls)).not.toContain('not-to-be-logged');
+    } finally {
+      loggerSpy.mockRestore();
+    }
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('still rejects a partial shielded field set that comes with a field this service does not know', async () => {
+    await cleanDatabase(mysql);
+    spyInvokes();
+    const { scanXpriv, ...partial } = buildShieldedLoadBody(Math.floor(Date.now() / 1000));
+    void scanXpriv;
+
+    const result = await walletLoad(
+      makeGatewayEvent({}, JSON.stringify({ ...partial, futureField: 'x' })), null, null,
+    ) as APIGatewayProxyResult;
+
+    expect(result.statusCode).toBe(400);
+    expect(JSON.parse(result.body as string).error).toBe(ApiError.INVALID_PAYLOAD);
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('marks the wallet error and bumps retryCount when the combined load invoke fails', async () => {
+    await cleanDatabase(mysql);
+    const { combined } = spyInvokes();
+    combined.mockRejectedValueOnce(new Error('invoke failed'));
+    const now = Math.floor(Date.now() / 1000);
+    const body = buildShieldedLoadBody(now);
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    // The endpoint still returns 200; the wallet is flagged error for a later retry.
+    expect(result.statusCode).toBe(200);
+
+    const returnBody = JSON.parse(result.body as string);
+    expect(returnBody.status.status).toBe(WalletStatus.ERROR);
+    expect(returnBody.status.retryCount).toBe(1);
+
+    const wallet = await Db.getWallet(mysql, getWalletId(XPUBKEY));
+    expect(wallet.status).toBe(WalletStatus.ERROR);
+    expect(wallet.retryCount).toBe(1);
+    expect(combined).toHaveBeenCalledTimes(1);
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('rebuilds the totals of an upgrade whose load invoke fails', async () => {
+    // The API flips ct_status to creating before the invoke, so the daemon may
+    // already have skipped the wallet's deltas; once it is error they resume.
+    await cleanDatabase(mysql);
+    await seedReadyWallet();
+    const walletId = getWalletId(XPUBKEY);
+    await mysql.query(
+      'INSERT INTO `address` (`address`, `index`, `wallet_id`, `transactions`, `bip32_account`) VALUES (?, 0, ?, 1, 0)',
+      [ADDRESSES[0], walletId],
+    );
+    await addToAddressTxHistoryTable(mysql, [
+      { address: ADDRESSES[0], txId: 'during', tokenId: '00', balance: 150n, timestamp: 20 },
+    ]);
+    await addToAddressBalanceTable(mysql, [[ADDRESSES[0], '00', 150, 0, null, 1, 0, 0, 150]]);
+    const { combined } = spyInvokes();
+    combined.mockRejectedValueOnce(new Error('invoke failed'));
+    const body = buildShieldedLoadBody(Math.floor(Date.now() / 1000));
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(200);
+
+    const wallet = await Db.getWallet(mysql, walletId);
+    expect(wallet.status).toBe(WalletStatus.READY);
+    expect(wallet.ctStatus).toBe(WalletStatus.ERROR);
+    expect(wallet.retryCount).toBe(1);
+    const balances = await mysql.query(
+      "SELECT `unlocked_balance` FROM `wallet_balance` WHERE `wallet_id` = ? AND `token_id` = '00'", [walletId],
+    ) as unknown as { unlocked_balance: string }[];
+    expect(balances.map((b) => Number(b.unlocked_balance))).toStrictEqual([150]);
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('upgrades an already-loaded transparent wallet via the combined load', async () => {
+    await cleanDatabase(mysql);
+    await seedReadyWallet();
+    const { combined } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    const body = buildShieldedLoadBody(now);
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    // A shielded upgrade must not be rejected as WALLET_ALREADY_LOADED.
+    expect(result.statusCode).toBe(200);
+
+    const wallet = await Db.getWallet(mysql, getWalletId(XPUBKEY));
+    expect(wallet.ctStatus).toBe('creating');
+    expect(wallet.scanXpriv).toBe(body.scanXpriv);
+    // The upgrade runs the combined load, which idempotently re-reconstructs the
+    // transparent side too.
+    expect(combined).toHaveBeenCalledTimes(1);
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('is a no-op when the same shielded keys are re-submitted', async () => {
+    await cleanDatabase(mysql);
+    await seedReadyWallet();
+    const { combined } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    const body = buildShieldedLoadBody(now);
+    await Db.registerWalletShieldedKeys(mysql, getWalletId(XPUBKEY), body.scanXpriv, body.spendXpub, 20);
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(200);
+
+    const wallet = await Db.getWallet(mysql, getWalletId(XPUBKEY));
+    expect(wallet.scanXpriv).toBe(body.scanXpriv);
+    // Identical keys already stored -> no load is (re-)triggered.
+    expect(combined).not.toHaveBeenCalled();
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('rejects a different shielded key set with 409', async () => {
+    await cleanDatabase(mysql);
+    await seedReadyWallet();
+    const { combined } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    // Store one key set, then submit a different one.
+    const stored = buildShieldedFields(getWalletId(XPUBKEY), now, { seedHex: '02'.repeat(32) });
+    await Db.registerWalletShieldedKeys(mysql, getWalletId(XPUBKEY), stored.scanXpriv, stored.spendXpub, 20);
+
+    const body = buildShieldedLoadBody(now); // default seed -> different keys
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(409);
+    expect(JSON.parse(result.body as string).error).toBe(ApiError.SHIELDED_KEYS_CONFLICT);
+    expect(combined).not.toHaveBeenCalled();
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('rejects an invalid shielded signature with 403', async () => {
+    await cleanDatabase(mysql);
+    const { combined } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    const body = { ...buildShieldedLoadBody(now), ctAddressSignature: Buffer.from('invalid').toString('base64') };
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(403);
+    // No wallet should have been created — shielded validation runs before any load.
+    expect(await Db.getWallet(mysql, getWalletId(XPUBKEY))).toBeNull();
+    expect(combined).not.toHaveBeenCalled();
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('re-runs the combined load when the same keys are re-submitted after a failed load', async () => {
+    await cleanDatabase(mysql);
+    const walletId = getWalletId(XPUBKEY);
+    const { combined } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    const body = buildShieldedLoadBody(now);
+    // The wallet holds these keys but a previous load errored (retryCount below the cap).
+    await addToWalletTable(mysql, [{
+      id: walletId, xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY, status: 'error', maxGap: 5, createdAt: 10000, readyAt: 10001,
+    }]);
+    await Db.registerWalletShieldedKeys(mysql, walletId, body.scanXpriv, body.spendXpub, 20);
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(200);
+    // Same keys + error state -> retry via the combined load.
+    expect(combined).toHaveBeenCalledTimes(1);
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  // A shielded upgrade of a ready legacy wallet that failed up to the retry cap:
+  // legacy stays ready, ct_status is pinned at error.
+  const seedFailedUpgrade = async (now: number) => {
+    await cleanDatabase(mysql);
+    const walletId = getWalletId(XPUBKEY);
+    const body = buildShieldedLoadBody(now);
+    await addToWalletTable(mysql, [{
+      id: walletId, xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY, status: 'ready', maxGap: 5, createdAt: 10000, readyAt: 10001,
+    }]);
+    await Db.registerWalletShieldedKeys(mysql, walletId, body.scanXpriv, body.spendXpub, 20);
+    await mysql.query('UPDATE `wallet` SET `ct_status` = ?, `retry_count` = 5 WHERE `id` = ?', ['error', walletId]);
+    return { walletId, body };
+  };
+  const splitErrorStatus = { status: 'error', legacyStatus: 'ready', shieldedStatus: 'error' };
+
+  test('reports each side when a failed upgrade reaches the retry cap', async () => {
+    const { combined } = spyInvokes();
+    const { body } = await seedFailedUpgrade(Math.floor(Date.now() / 1000));
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(400);
+    const returnBody = JSON.parse(result.body as string);
+    expect(returnBody.error).toBe(ApiError.WALLET_MAX_RETRIES);
+    expect(returnBody.status).toMatchObject(splitErrorStatus);
+    expect(combined).not.toHaveBeenCalled();
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('reports each side on a legacy-only load of a failed upgrade', async () => {
+    const { combined } = spyInvokes();
+    const { body } = await seedFailedUpgrade(Math.floor(Date.now() / 1000));
+    const legacyBody = {
+      xpubkey: body.xpubkey,
+      xpubkeySignature: body.xpubkeySignature,
+      authXpubkey: body.authXpubkey,
+      authXpubkeySignature: body.authXpubkeySignature,
+      firstAddress: body.firstAddress,
+      timestamp: body.timestamp,
+    };
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(legacyBody)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(400);
+    const returnBody = JSON.parse(result.body as string);
+    expect(returnBody.error).toBe(ApiError.WALLET_ALREADY_LOADED);
+    expect(returnBody.status).toMatchObject(splitErrorStatus);
+    expect(combined).not.toHaveBeenCalled();
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('GET /wallet/status reports each side of a failed upgrade', async () => {
+    const { walletId } = await seedFailedUpgrade(Math.floor(Date.now() / 1000));
+
+    const result = await walletGet(makeGatewayEventWithAuthorizer(walletId, null), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(200);
+    const returnBody = JSON.parse(result.body as string);
+    expect(returnBody.status).toMatchObject(splitErrorStatus);
+    expect(returnBody.status).not.toHaveProperty('scanXpriv');
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('rejects a shielded resubmit with WALLET_MAX_RETRIES + alert once the cap is reached', async () => {
+    await cleanDatabase(mysql);
+    const walletId = getWalletId(XPUBKEY);
+    const { combined } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    const body = buildShieldedLoadBody(now);
+    await addToWalletTable(mysql, [{
+      id: walletId, xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY, status: 'error', maxGap: 5, createdAt: 10000, readyAt: 10001,
+    }]);
+    await Db.registerWalletShieldedKeys(mysql, walletId, body.scanXpriv, body.spendXpub, 20);
+    // Push retry_count to the cap (MAX_LOAD_WALLET_RETRIES is 5 in the test env).
+    await mysql.query('UPDATE `wallet` SET `retry_count` = 5 WHERE `id` = ?', [walletId]);
+    mockedAddAlert.mockClear();
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(400);
+    expect(JSON.parse(result.body as string).error).toBe(ApiError.WALLET_MAX_RETRIES);
+    // No retry is kicked off, and reaching the cap raises an ops alert carrying
+    // the wallet id + retry count at MINOR severity.
+    expect(combined).not.toHaveBeenCalled();
+    expect(mockedAddAlert).toHaveBeenCalledTimes(1);
+    expect(mockedAddAlert).toHaveBeenCalledWith(
+      'Wallet load exceeded max retries',
+      expect.stringContaining(walletId),
+      Severity.MINOR,
+      expect.objectContaining({ wallet_id: walletId, retry_count: 5, source: 'wallet-service' }),
+      expect.anything(),
+    );
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('a same-keys retry flips the wallet back to creating before re-invoking', async () => {
+    await cleanDatabase(mysql);
+    const walletId = getWalletId(XPUBKEY);
+    const { combined } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    const body = buildShieldedLoadBody(now);
+    await addToWalletTable(mysql, [{
+      id: walletId, xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY, status: 'error', maxGap: 5, createdAt: 10000, readyAt: 10001,
+    }]);
+    await Db.registerWalletShieldedKeys(mysql, walletId, body.scanXpriv, body.spendXpub, 20);
+    await mysql.query('UPDATE `wallet` SET `ct_status` = ? WHERE `id` = ?', ['error', walletId]);
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(200);
+    expect(combined).toHaveBeenCalledTimes(1);
+    const w = await Db.getWallet(mysql, walletId);
+    expect(w.status).toBe(WalletStatus.CREATING);   // CAS flipped it before the invoke
+    expect(w.ctStatus).toBe(WalletStatus.CREATING);
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  /**
+   * Simulate losing the upgrade race: a concurrent request attaches `keys` to the
+   * wallet just before ours, so our guarded write matches no rows and reports false.
+   */
+  const loseUpgradeRaceTo = (walletId: string, keys: { scanXpriv: string; spendXpub: string }) => {
+    jest.spyOn(Db, 'registerWalletShieldedKeys').mockImplementationOnce(async () => {
+      await mysql.query(
+        'UPDATE `wallet` SET `scan_xpriv` = ?, `spend_xpub` = ?, `ct_status` = ? WHERE `id` = ?',
+        [Buffer.from(keys.scanXpriv, 'utf8'), keys.spendXpub, WalletStatus.CREATING, walletId],
+      );
+      return false;
+    });
+  };
+
+  test('a lost upgrade race skips the duplicate invoke', async () => {
+    await cleanDatabase(mysql);
+    await seedReadyWallet();
+    const { combined } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    const body = buildShieldedLoadBody(now);
+    loseUpgradeRaceTo(getWalletId(XPUBKEY), body); // winner attached the same keys
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(200);
+    // The winner is already driving the load; this request must not spawn a second.
+    expect(combined).not.toHaveBeenCalled();
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('a lost upgrade race against a different key set is a 409', async () => {
+    await cleanDatabase(mysql);
+    await seedReadyWallet();
+    const { combined } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    const body = buildShieldedLoadBody(now);
+    const stored = buildShieldedFields(getWalletId(XPUBKEY), now, { seedHex: '02'.repeat(32) });
+    loseUpgradeRaceTo(getWalletId(XPUBKEY), stored); // winner attached a different set
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(409);
+    expect(JSON.parse(result.body as string).error).toBe(ApiError.SHIELDED_KEYS_CONFLICT);
+    expect(combined).not.toHaveBeenCalled();
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('a lost CAS race skips the duplicate invoke', async () => {
+    await cleanDatabase(mysql);
+    const walletId = getWalletId(XPUBKEY);
+    const { combined } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    const body = buildShieldedLoadBody(now);
+    await addToWalletTable(mysql, [{
+      id: walletId, xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY, status: 'error', maxGap: 5, createdAt: 10000, readyAt: 10001,
+    }]);
+    await Db.registerWalletShieldedKeys(mysql, walletId, body.scanXpriv, body.spendXpub, 20);
+    jest.spyOn(Db, 'casWalletErrorToCreating').mockResolvedValueOnce(false); // another request won
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(200);
+    expect(combined).not.toHaveBeenCalled();
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('a legacy-only retry flips an errored wallet to creating before re-invoking', async () => {
+    await cleanDatabase(mysql);
+    const walletId = getWalletId(XPUBKEY);
+    const { combined } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    // transparent-only body — the schema rejects unknown keys, so build it from
+    // getAuthData's fields rather than passing the helper's object (it carries walletId).
+    const { xpubkey, xpubkeySignature, authXpubkey, authXpubkeySignature, firstAddress, timestamp } = getAuthData(now);
+    const body = { xpubkey, xpubkeySignature, authXpubkey, authXpubkeySignature, firstAddress, timestamp };
+    await addToWalletTable(mysql, [{
+      id: walletId, xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY, status: 'error', maxGap: 5, createdAt: 10000, readyAt: 10001,
+    }]);
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(200);
+    expect(combined).toHaveBeenCalledTimes(1);
+    const w = await Db.getWallet(mysql, walletId);
+    expect(w.status).toBe(WalletStatus.CREATING); // CAS flipped it before the invoke
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('a lost legacy CAS race skips the duplicate invoke', async () => {
+    await cleanDatabase(mysql);
+    const walletId = getWalletId(XPUBKEY);
+    const { combined } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    const { xpubkey, xpubkeySignature, authXpubkey, authXpubkeySignature, firstAddress, timestamp } = getAuthData(now);
+    const body = { xpubkey, xpubkeySignature, authXpubkey, authXpubkeySignature, firstAddress, timestamp };
+    await addToWalletTable(mysql, [{
+      id: walletId, xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY, status: 'error', maxGap: 5, createdAt: 10000, readyAt: 10001,
+    }]);
+    jest.spyOn(Db, 'casWalletErrorToCreating').mockResolvedValueOnce(false); // another request won
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    expect(result.statusCode).toBe(200);
+    expect(combined).not.toHaveBeenCalled();
+  }, SHIELDED_TEST_TIMEOUT_MS);
+
+  test('an upgrade of a max-retries wallet resets retry_count and loads', async () => {
+    await cleanDatabase(mysql);
+    const walletId = getWalletId(XPUBKEY);
+    const { combined } = spyInvokes();
+    const now = Math.floor(Date.now() / 1000);
+    const body = buildShieldedLoadBody(now);
+    // Legacy wallet bricked at the retry cap, no ct keys yet -> a first-time upgrade.
+    await addToWalletTable(mysql, [{
+      id: walletId, xpubkey: XPUBKEY, authXpubkey: AUTH_XPUBKEY, status: 'error', maxGap: 5, createdAt: 10000, readyAt: 10001,
+    }]);
+    await mysql.query('UPDATE `wallet` SET `retry_count` = 5 WHERE `id` = ?', [walletId]); // MAX in the test env
+
+    const result = await walletLoad(makeGatewayEvent({}, JSON.stringify(body)), null, null) as APIGatewayProxyResult;
+    // Honored, not rejected as WALLET_MAX_RETRIES: the attach reset the counter.
+    expect(result.statusCode).toBe(200);
+    expect(combined).toHaveBeenCalledTimes(1);
+    const w = await Db.getWallet(mysql, walletId);
+    expect(w.retryCount).toBe(0);
+    expect(w.ctStatus).toBe(WalletStatus.CREATING);
+    expect(w.scanXpriv).toBe(body.scanXpriv);
+  }, SHIELDED_TEST_TIMEOUT_MS);
+});
+
+test('onTotalSupplyRequest', async () => {
+  expect.hasAssertions();
+
+  await addToUtxoTable(mysql, [{
+    txId: 'txId1',
+    index: 0,
+    tokenId: '00',
+    address: ADDRESSES[0],
+    value: 50n,
+    authorities: 0,
+    timelock: null,
+    heightlock: null,
+    locked: false,
+    spentBy: null,
+  }, {
+    txId: 'txId1',
+    index: 1,
+    tokenId: 'token1',
+    address: ADDRESSES[0],
+    value: 30n,
+    authorities: 0,
+    timelock: null,
+    heightlock: null,
+    locked: false,
+    spentBy: null,
+  }]);
+
+  // The network-monitor invokes the lambda with an empty body, so the token
+  // defaults to HTR.
+  let event = makeGatewayEvent({}, {});
+  let result = await onTotalSupplyRequest(event, null, null) as APIGatewayProxyResult;
+  let returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody).toStrictEqual({ success: true, totalSupply: 50 });
+
+  event = makeGatewayEvent({}, { tokenId: 'token1' });
+  result = await onTotalSupplyRequest(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(200);
+  expect(returnBody).toStrictEqual({ success: true, totalSupply: 30 });
+
+  event = makeGatewayEvent({}, { tokenId: 'not-alphanum!' });
+  result = await onTotalSupplyRequest(event, null, null) as APIGatewayProxyResult;
+  returnBody = JSON.parse(result.body as string);
+  expect(result.statusCode).toBe(STATUS_CODE_TABLE[ApiError.INVALID_PAYLOAD]);
+  expect(returnBody.error).toBe(ApiError.INVALID_PAYLOAD);
 });

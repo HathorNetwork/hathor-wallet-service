@@ -25,14 +25,8 @@ describe('PushNotificationUtils', () => {
       STAGE: 'stage',
       ON_TX_PUSH_NOTIFICATION_REQUESTED_LAMBDA_ENDPOINT: 'endpoint',
       FIREBASE_PROJECT_ID: 'projectId',
-      FIREBASE_PRIVATE_KEY_ID: 'private-key-id',
       FIREBASE_PRIVATE_KEY: 'private-key',
       FIREBASE_CLIENT_EMAIL: 'client-email',
-      FIREBASE_CLIENT_ID: 'client-id',
-      FIREBASE_AUTH_URI: 'https://accounts.google.com/o/oauth2/auth',
-      FIREBASE_TOKEN_URI: 'https://oauth2.googleapis.com/token',
-      FIREBASE_AUTH_PROVIDER_X509_CERT_URL: 'https://www.googleapis.com/oauth2/v1/certs',
-      FIREBASE_CLIENT_X509_CERT_URL: 'https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk.iam.gserviceaccount.com',
       PUSH_ALLOWED_PROVIDERS: 'android,ios',
       AWS_REGION: 'local',
     };
@@ -131,27 +125,6 @@ describe('PushNotificationUtils', () => {
       );
     });
 
-    it('FIREBASE_PRIVATE_KEY_ID', async () => {
-      expect.hasAssertions();
-
-      // load local env
-      process.env.PUSH_NOTIFICATION_ENABLED = 'true';
-      process.env.FIREBASE_PRIVATE_KEY_ID = '';
-
-      // reload module
-      jest.resetModules();
-      await import('@src/utils/pushnotification.utils');
-      await stopWalletLibOpenHandles();
-
-      expect(mockedAddAlert).toHaveBeenLastCalledWith(
-        'Lambda missing env variables',
-        'Invalid Firebase configuration: "firebasePrivateKeyId" is not allowed to be empty',
-        Severity.MINOR,
-        null,
-        logger,
-      );
-    });
-
     it('FIREBASE_PRIVATE_KEY', async () => {
       expect.hasAssertions();
 
@@ -194,120 +167,13 @@ describe('PushNotificationUtils', () => {
       );
     });
 
-    it('FIREBASE_CLIENT_ID', async () => {
-      expect.hasAssertions();
-
-      // load local env
-      process.env.PUSH_NOTIFICATION_ENABLED = 'true';
-      process.env.FIREBASE_CLIENT_ID = '';
-
-      // reload module
-      jest.resetModules();
-      await import('@src/utils/pushnotification.utils');
-      await stopWalletLibOpenHandles();
-
-      expect(mockedAddAlert).toHaveBeenLastCalledWith(
-        'Lambda missing env variables',
-        'Invalid Firebase configuration: "firebaseClientId" is not allowed to be empty',
-        Severity.MINOR,
-        null,
-        logger,
-      );
-    });
-
-    it('FIREBASE_AUTH_URI', async () => {
-      expect.hasAssertions();
-
-      // load local env
-      process.env.PUSH_NOTIFICATION_ENABLED = 'true';
-      process.env.FIREBASE_AUTH_URI = '';
-
-      // reload module
-      jest.resetModules();
-      await import('@src/utils/pushnotification.utils');
-      await stopWalletLibOpenHandles();
-
-      expect(mockedAddAlert).toHaveBeenLastCalledWith(
-        'Lambda missing env variables',
-        'Invalid Firebase configuration: "firebaseAuthUri" is not allowed to be empty',
-        Severity.MINOR,
-        null,
-        logger,
-      );
-    });
-
-    it('FIREBASE_TOKEN_URI', async () => {
-      expect.hasAssertions();
-
-      // load local env
-      process.env.PUSH_NOTIFICATION_ENABLED = 'true';
-      process.env.FIREBASE_TOKEN_URI = '';
-
-      // reload module
-      jest.resetModules();
-      await import('@src/utils/pushnotification.utils');
-      await stopWalletLibOpenHandles();
-
-      expect(mockedAddAlert).toHaveBeenLastCalledWith(
-        'Lambda missing env variables',
-        'Invalid Firebase configuration: "firebaseTokenUri" is not allowed to be empty',
-        Severity.MINOR,
-        null,
-        logger,
-      );
-    });
-
-    it('FIREBASE_AUTH_PROVIDER_X509_CERT_URL', async () => {
-      expect.hasAssertions();
-
-      // load local env
-      process.env.PUSH_NOTIFICATION_ENABLED = 'true';
-      process.env.FIREBASE_AUTH_PROVIDER_X509_CERT_URL = '';
-
-      // reload module
-      jest.resetModules();
-      await import('@src/utils/pushnotification.utils');
-      await stopWalletLibOpenHandles();
-
-      expect(mockedAddAlert).toHaveBeenLastCalledWith(
-        'Lambda missing env variables',
-        'Invalid Firebase configuration: "firebaseAuthProviderX509CertUrl" is not allowed to be empty',
-        Severity.MINOR,
-        null,
-        logger,
-      );
-    });
-
-    it('FIREBASE_CLIENT_X509_CERT_URL', async () => {
-      expect.hasAssertions();
-
-      // load local env
-      process.env.PUSH_NOTIFICATION_ENABLED = 'true';
-      process.env.FIREBASE_CLIENT_X509_CERT_URL = '';
-
-      // reload module
-      jest.resetModules();
-      await import('@src/utils/pushnotification.utils');
-      await stopWalletLibOpenHandles();
-
-      expect(mockedAddAlert).toHaveBeenLastCalledWith(
-        'Lambda missing env variables',
-        'Invalid Firebase configuration: "firebaseClientX509CertUrl" is not allowed to be empty',
-        Severity.MINOR,
-        null,
-        logger,
-      );
-    });
-
     it('should not validate Firebase config when push notifications are disabled', async () => {
       expect.hasAssertions();
 
       // load local env
       process.env.PUSH_NOTIFICATION_ENABLED = 'false';
-      process.env.FIREBASE_AUTH_URI = '';
-      process.env.FIREBASE_TOKEN_URI = '';
-      process.env.FIREBASE_AUTH_PROVIDER_X509_CERT_URL = '';
-      process.env.FIREBASE_CLIENT_X509_CERT_URL = '';
+      process.env.FIREBASE_PROJECT_ID = '';
+      process.env.FIREBASE_CLIENT_EMAIL = '';
 
       // reload module
       jest.resetModules();

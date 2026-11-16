@@ -22,15 +22,17 @@ import { getDbConnection } from '../db';
  * Responsibilities:
  *
  * 1. Idle-stream detection — no EVENT_RECEIVED for >IDLE_EVENT_TIMEOUT_MS while
- *    connected fires a MAJOR alert so operators know the fullnode stream may have
- *    stalled without triggering a WebSocket disconnect.
+ *    connected fires an alert (severity configurable via IDLE_EVENT_SEVERITY,
+ *    default MAJOR) so operators know the fullnode stream may have stalled without
+ *    triggering a WebSocket disconnect.
  *
  * 2. Stuck-processing detection — PROCESSING_STARTED begins a one-shot timer;
  *    PROCESSING_COMPLETED cancels it.  If the timer fires the actor fires a
  *    MAJOR alert; the machine keeps running so that a long-running handler
  *    (e.g. a large reorg) is allowed to finish.
  *
- * 3. Reconnection storm detection — fires a MAJOR alert when the daemon
+ * 3. Reconnection storm detection — fires an alert (severity configurable via
+ *    RECONNECTION_STORM_SEVERITY, default MAJOR) when the daemon
  *    reconnects more than RECONNECTION_STORM_THRESHOLD times within
  *    RECONNECTION_STORM_WINDOW_MS.  Duplicate alerts are suppressed for
  *    STORM_ALERT_COOLDOWN_MS (1 min) to avoid spamming the alerting system.
@@ -45,9 +47,22 @@ export default (callback: any, receive: any, config = getConfig()) => {
   logger.info('Starting monitoring actor');
 
   const idleTimeoutMs = config.IDLE_EVENT_TIMEOUT_MS;
+  // Alert severities are configurable so low-activity or non-production networks can
+  // avoid paging at MAJOR (P2) on benign conditions. Validate against the enum and fall
+  // back to MAJOR if the configured value is not a recognised severity.
+  const validSeverities = new Set<string>(Object.values(Severity));
+  const resolveSeverity = (name: string, value: string): Severity => {
+    if (validSeverities.has(value)) {
+      return value as Severity;
+    }
+    logger.warn(`[monitoring] Unrecognised ${name} "${value}" — falling back to ${Severity.MAJOR}`);
+    return Severity.MAJOR;
+  };
+  const idleSeverity = resolveSeverity('IDLE_EVENT_SEVERITY', config.IDLE_EVENT_SEVERITY);
   const stuckTimeoutMs = config.STUCK_PROCESSING_TIMEOUT_MS;
   const stormThreshold = config.RECONNECTION_STORM_THRESHOLD;
   const stormWindowMs = config.RECONNECTION_STORM_WINDOW_MS;
+  const stormSeverity = resolveSeverity('RECONNECTION_STORM_SEVERITY', config.RECONNECTION_STORM_SEVERITY);
 
   // ── Idle detection ──────────────────────────────────────────────────────────
   let isConnected = false;
@@ -75,7 +90,7 @@ export default (callback: any, receive: any, config = getConfig()) => {
           'Daemon Idle — No Events Received',
           `No fullnode events received for ${idleMinutes} minute(s) while the WebSocket is connected. ` +
             'Terminating the process so Kubernetes can restart it.',
-          Severity.MAJOR,
+          idleSeverity,
           { idleMs: String(idleMs) },
           logger,
         ).finally(() => {
@@ -138,14 +153,16 @@ export default (callback: any, receive: any, config = getConfig()) => {
       stormAlertLastFiredAt = now;
 
       const windowMinutes = Math.round(stormWindowMs / 60000);
-      logger.error(
+      // Logged at warn, not error: the alert below is the notification, so this line must
+      // not also be picked up by log-based alerting.
+      logger.warn(
         `[monitoring] Reconnection storm: ${reconnectionTimestamps.length} reconnections in the last ${windowMinutes} minutes`,
       );
       addAlert(
         'Daemon Reconnection Storm',
         `${reconnectionTimestamps.length} reconnections occurred in the last ${windowMinutes} minute(s). ` +
           'The daemon may be stuck in a reconnection loop.',
-        Severity.MAJOR,
+        stormSeverity,
         {
           reconnectionCount: String(reconnectionTimestamps.length),
           windowMinutes: String(windowMinutes),

@@ -1,4 +1,11 @@
-import { Authorities, Balance, TokenBalanceMap } from '@src/types';
+import {
+  Authorities,
+  Balance,
+  TokenBalanceMap,
+  TokenInfo,
+  WalletTokenBalance,
+} from '@src/types';
+import { TokenVersion } from '@hathor/wallet-lib';
 import { DecodedOutput, TxInput, TxOutput } from '@wallet-service/common/src/types';
 
 test('Authorities', () => {
@@ -56,6 +63,32 @@ test('Balance total and authorities', () => {
   const b = new Balance(3n, 1n, 2n, null, new Authorities(0b01), new Authorities(0b10));
   expect(b.total()).toBe(3n);
   expect(b.authorities()).toStrictEqual(new Authorities(0b11));
+});
+
+test('WalletTokenBalance toJSON merges shielded amounts and toSplitJSON breaks them down', () => {
+  expect.hasAssertions();
+  const token = new TokenInfo('token1', 'MyToken1', 'MT1', TokenVersion.DEPOSIT);
+  const balance = new Balance(3505n, 1000n, 4n, null, null, null, 2500n, 5n, 2505n);
+  const entry = new WalletTokenBalance(token, balance, 5);
+
+  expect(entry.toJSON()).toStrictEqual({
+    token,
+    transactions: 5,
+    balance: { unlocked: 3500n, locked: 9n },
+    tokenAuthorities: { unlocked: balance.unlockedAuthorities, locked: balance.lockedAuthorities },
+    lockExpires: null,
+  });
+
+  expect(entry.toSplitJSON()).toStrictEqual({
+    token,
+    transactions: 5,
+    balance: {
+      unlocked: { transparent: 1000n, shielded: 2500n, total: 3500n },
+      locked: { transparent: 4n, shielded: 5n, total: 9n },
+    },
+    tokenAuthorities: { unlocked: balance.unlockedAuthorities, locked: balance.lockedAuthorities },
+    lockExpires: null,
+  });
 });
 
 test('TokenBalanceMap basic', () => {

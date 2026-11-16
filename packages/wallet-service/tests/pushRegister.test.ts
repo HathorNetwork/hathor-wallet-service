@@ -187,7 +187,7 @@ describe('statusCode:400', () => {
     expect(returnBody.details).toMatchInlineSnapshot(`
 [
   {
-    "message": "\"pushProvider\" with value \"not-supported-provider\" fails to match the required pattern: /^(?:ios|android)$/",
+    "message": ""pushProvider" with value "not-supported-provider" fails to match the required pattern: /^(?:ios|android)$/",
     "path": [
       "pushProvider",
     ],
@@ -226,7 +226,7 @@ describe('statusCode:400', () => {
     expect(returnBody.details).toMatchInlineSnapshot(`
 [
   {
-    "message": "\"deviceId\" length must be less than or equal to 256 characters long",
+    "message": ""deviceId" length must be less than or equal to 256 characters long",
     "path": [
       "deviceId",
     ],

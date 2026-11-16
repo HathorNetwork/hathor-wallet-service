@@ -9,6 +9,13 @@ Object.defineProperty(global, '_bitcore', { get() { return undefined; }, set() {
 stopGLLBackgroundTask();
 config();
 
+// wallet-lib validates the network name in setNetwork() and throws on an
+// unknown/undefined name. Production always sets NETWORK; default it for tests
+// that don't (matching the mainnet fixtures) so module-load setNetwork succeeds.
+if (!process.env.NETWORK) {
+  process.env.NETWORK = 'mainnet';
+}
+
 /**
  * Block all real outbound HTTP/HTTPS requests from unit tests.
  *
