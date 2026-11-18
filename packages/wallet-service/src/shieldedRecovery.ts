@@ -549,9 +549,10 @@ export const recordFailedShieldedUpgrade = async (
  *  3. the addresses' `address_balance` rows, including pairs that don't exist
  *     yet (next-key locks), so no daemon delta lands mid-rebuild;
  *  4. rebuild the CTSpend addresses' shielded history (first, since the
- *     balance rebuild counts its rows) and balances, then the wallet's totals
- *     and history over every one of its addresses, dropping first the wallet
- *     rows those addresses no longer back (see `pruneWalletTotals`).
+ *     balance rebuild counts its rows) and balances, then the wallet's history
+ *     and totals over every one of its addresses, dropping first the wallet
+ *     rows those addresses no longer back (see `pruneWalletTotals`). The
+ *     history goes before the totals, whose transaction count reads it.
  *
  * A catch-up of a ready wallet (`onlyPromoted`) rebuilds the shielded columns
  * of just the addresses whose outputs it promoted (the wallet's totals are
@@ -592,8 +593,8 @@ export const commitShieldedRecoveries = async (
   await timeStep(onStep, 'rebuildShieldedHistory', () => rebuildShieldedAddressTxHistory(mysql, ctSpendAddresses));
   await timeStep(onStep, 'rebuildShieldedBalances', () => rebuildShieldedAddressBalances(mysql, ctSpendAddresses));
   await timeStep(onStep, 'prune', () => pruneWalletTotals(mysql, walletId, addresses));
-  await timeStep(onStep, 'rebuildWalletBalance', () => rebuildWalletBalance(mysql, walletId, addresses));
   await timeStep(onStep, 'rebuildWalletTxHistory', () => rebuildWalletTxHistory(mysql, walletId, addresses));
+  await timeStep(onStep, 'rebuildWalletBalance', () => rebuildWalletBalance(mysql, walletId, addresses));
   return promoted;
 };
 

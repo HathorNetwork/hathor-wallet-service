@@ -382,11 +382,20 @@ export const rebuildShieldedAddressTxHistory = async (
 
 /**
  * Rebuild a wallet's `wallet_balance` rows by aggregating its addresses'
- * `address_balance` (both transparent and shielded column families), with the
- * per-token `transactions` count taken from `address_tx_history` (distinct txs,
- * so shared txs aren't double-counted). Upsert → idempotent. Credits the
- * transparent balance and any caught-up shielded receives in the same pass, so
- * it serves both transparent-only and shielded wallets.
+ * `address_balance` (both transparent and shielded column families). Upsert →
+ * idempotent. Credits the transparent balance and any caught-up shielded
+ * receives in the same pass, so it serves both transparent-only and shielded
+ * wallets.
+ *
+ * The per-token `transactions` count is the number of the wallet's
+ * `wallet_tx_history` rows, so this must run after `pruneWalletTotals` and
+ * `rebuildWalletTxHistory`, in the same transaction and over the same
+ * addresses. Those two leave exactly one row per (tx, token) that has a
+ * non-voided `address_tx_history` row on the wallet's addresses, so the count
+ * is the wallet's distinct transactions per token, with a tx shared by two of
+ * its addresses counted once. The count has no `voided` filter: a row in that
+ * set is a live transaction whatever its own flag says, since the history
+ * rebuild does not reset the flag on a row that already exists.
  */
 export const rebuildWalletBalance = async (
   mysql: ServerlessMysql,
@@ -419,9 +428,9 @@ export const rebuildWalletBalance = async (
           GROUP BY \`token_id\`
        ) b
        LEFT JOIN (
-         SELECT \`token_id\`, COUNT(DISTINCT \`tx_id\`) AS \`transactions\`
-           FROM \`address_tx_history\`
-          WHERE \`address\` IN (?) AND \`voided\` = FALSE
+         SELECT \`token_id\`, COUNT(*) AS \`transactions\`
+           FROM \`wallet_tx_history\`
+          WHERE \`wallet_id\` = ?
           GROUP BY \`token_id\`
        ) h ON h.\`token_id\` = b.\`token_id\`
      ON DUPLICATE KEY UPDATE
@@ -435,7 +444,7 @@ export const rebuildWalletBalance = async (
         \`unlocked_shielded_balance\` = VALUES(\`unlocked_shielded_balance\`),
         \`locked_shielded_balance\` = VALUES(\`locked_shielded_balance\`),
         \`total_shielded_received\` = VALUES(\`total_shielded_received\`)`,
-    [walletId, addresses, addresses],
+    [walletId, addresses, walletId],
   );
 };
 

@@ -344,6 +344,22 @@ describe('commitShieldedRecoveries', () => {
     expect((await readState('o1')).s).toBe('unowned');
   });
 
+  it('counts the wallet\'s transactions without a history row its addresses no longer back', async () => {
+    await seedWallet('w1');
+    await seedTransparentAddress('ta', 'w1', 0);
+    await seedTransparentBalance('ta', 'ttx');
+    // Left over from a tx voided while the wallet was mid-load.
+    await mysql.query(
+      `INSERT INTO \`wallet_tx_history\` (\`wallet_id\`, \`token_id\`, \`tx_id\`, \`balance\`, \`timestamp\`, \`voided\`)
+       VALUES ('w1', '00', 'gone', 5, 400, FALSE)`,
+    );
+
+    await runRecoveryTransaction(mysql, logger, (tx) => commitShieldedRecoveries(tx, 'w1', []));
+
+    expect(await countWalletHistory('w1')).toBe(1);
+    expect(Number((await readWalletBalance('w1')).txns)).toBe(1);
+  });
+
   it('totals every address the wallet has when it commits, not when it swept', async () => {
     const sweep = await sweepOne();
     // The daemon claims and credits another address for the wallet in between.
@@ -381,7 +397,7 @@ describe('commitShieldedRecoveries step timings', () => {
     expect(steps.map(([step]) => step)).toEqual([
       'lockAddresses', 'finishSweep', 'promote', 'lockBalances',
       'rebuildShieldedHistory', 'rebuildShieldedBalances',
-      'prune', 'rebuildWalletBalance', 'rebuildWalletTxHistory',
+      'prune', 'rebuildWalletTxHistory', 'rebuildWalletBalance',
     ]);
     expect(steps.every(([, ms]) => ms >= 0)).toBe(true);
   });
@@ -443,7 +459,7 @@ describe('runSettle', () => {
     const steps = infoCalls(log, 'Settle step');
     expect(steps.map((meta) => meta.step)).toEqual([
       'lockAddresses', 'promote', 'lockBalances', 'rebuildShieldedHistory', 'rebuildShieldedBalances',
-      'prune', 'rebuildWalletBalance', 'rebuildWalletTxHistory',
+      'prune', 'rebuildWalletTxHistory', 'rebuildWalletBalance',
     ]);
     expect(steps.every((meta) => meta.walletId === 'w1' && meta.source === 'load' && meta.attempt === 1)).toBe(true);
     const [summary] = infoCalls(log, 'Settle finished');
