@@ -13,7 +13,6 @@ import {
   addAlert,
   Severity,
   ShieldedOutputMode,
-  Bip32Account,
   isShieldedCryptoProviderRegistered,
   MISSING_SHIELDED_PROVIDER_ALERT,
   ShieldedScanMissError,
@@ -24,6 +23,7 @@ import {
   countRecoveredShieldedOutputs,
   getShieldedOutputsToRecover,
   lockWalletAddresses,
+  lockWalletAddressBalancesForUpdate,
   finishWalletSweep,
   promoteShieldedTxOutputs,
   markShieldedTxOutputRecoveryFailed,
@@ -35,7 +35,6 @@ import {
   ShieldedOutputToRecover,
   ShieldedRecovery,
 } from '@src/db/shielded';
-import { lockAddressBalancesForUpdate } from '@src/db';
 import { beginTransaction, commitTransaction, rollbackTransaction } from '@src/db/utils';
 import config from '@src/config';
 
@@ -547,7 +546,10 @@ export const recordFailedShieldedUpgrade = async (
  *     reaches `address` last) can still conflict with us;
  *  2. promote each recovery (only rows still unpromoted and not voided);
  *  3. the addresses' `address_balance` rows, including pairs that don't exist
- *     yet (next-key locks), so no daemon delta lands mid-rebuild;
+ *     yet (next-key locks), so no daemon delta lands mid-rebuild. Like the
+ *     wallet rebuilds, this reads the wallet's rows through its `address` rows
+ *     rather than an address list, so a wallet with many addresses can't make
+ *     it scan and lock the whole table (see `walletAddressRows`);
  *  4. rebuild the CTSpend addresses' shielded history (first, since the
  *     balance rebuild counts its rows) and balances, then the wallet's history
  *     and totals over every one of its addresses, dropping first the wallet
@@ -583,18 +585,15 @@ export const commitShieldedRecoveries = async (
   if (onlyPromoted && promoted === 0) {
     return promoted;
   }
+  await timeStep(onStep, 'lockBalances', () => lockWalletAddressBalancesForUpdate(mysql, walletId));
+  // A catch-up rebuilds only the CTSpend addresses it promoted outputs for.
+  const onlyAddresses = onlyPromoted ? [...new Set(recoveries.map((r) => r.address))] : undefined;
+  await timeStep(onStep, 'rebuildShieldedHistory', () => rebuildShieldedAddressTxHistory(mysql, walletId, onlyAddresses));
+  await timeStep(onStep, 'rebuildShieldedBalances', () => rebuildShieldedAddressBalances(mysql, walletId, onlyAddresses));
   const addresses = owned.map((a) => a.address);
-  await timeStep(onStep, 'lockBalances', () => lockAddressBalancesForUpdate(mysql, addresses));
-  const promotedAddresses = new Set(recoveries.map((r) => r.address));
-  const ctSpendAddresses = owned
-    .filter((a) => a.bip32Account === Bip32Account.CTSpend)
-    .map((a) => a.address)
-    .filter((address) => !onlyPromoted || promotedAddresses.has(address));
-  await timeStep(onStep, 'rebuildShieldedHistory', () => rebuildShieldedAddressTxHistory(mysql, ctSpendAddresses));
-  await timeStep(onStep, 'rebuildShieldedBalances', () => rebuildShieldedAddressBalances(mysql, ctSpendAddresses));
   await timeStep(onStep, 'prune', () => pruneWalletTotals(mysql, walletId, addresses));
-  await timeStep(onStep, 'rebuildWalletTxHistory', () => rebuildWalletTxHistory(mysql, walletId, addresses));
-  await timeStep(onStep, 'rebuildWalletBalance', () => rebuildWalletBalance(mysql, walletId, addresses));
+  await timeStep(onStep, 'rebuildWalletTxHistory', () => rebuildWalletTxHistory(mysql, walletId));
+  await timeStep(onStep, 'rebuildWalletBalance', () => rebuildWalletBalance(mysql, walletId));
   return promoted;
 };
 
