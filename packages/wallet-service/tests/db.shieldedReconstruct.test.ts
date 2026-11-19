@@ -13,6 +13,7 @@ import {
   rebuildShieldedAddressTxHistory,
   rebuildWalletBalance,
   rebuildWalletTxHistory,
+  pruneWalletTotals,
 } from '@src/db/shielded';
 
 const mysql: ServerlessMysql = getDbConnection();
@@ -82,6 +83,21 @@ const readWalletBalance = async (walletId: string, tokenId: string) => (await my
      FROM \`wallet_balance\` WHERE \`wallet_id\` = ? AND \`token_id\` = ?`,
   [walletId, tokenId],
 ))[0];
+
+// The order commitShieldedRecoveries runs them in: rebuildWalletBalance takes
+// its transaction count from the history the two before it leave behind.
+const rebuildWalletTotals = async (walletId: string, addresses: string[]) => {
+  await pruneWalletTotals(mysql, walletId, addresses);
+  await rebuildWalletTxHistory(mysql, walletId, addresses);
+  await rebuildWalletBalance(mysql, walletId, addresses);
+};
+
+const insertWalletHistoryRow = (walletId: string, txId: string, tokenId: string, voided = false) => mysql.query(
+  `INSERT INTO \`wallet_tx_history\`
+     (\`wallet_id\`, \`token_id\`, \`tx_id\`, \`balance\`, \`shielded_balance_delta\`, \`timestamp\`, \`voided\`)
+   VALUES (?, ?, ?, 0, 0, 0, ?)`,
+  [walletId, tokenId, txId, voided],
+);
 
 beforeEach(async () => {
   await cleanDatabase(mysql);
@@ -267,7 +283,7 @@ describe('rebuildWalletBalance', () => {
     await insertAddressHistoryRow('ta', 't1', '00', 200, 0); // transparent tx
     await insertAddressHistoryRow('ca', 'rtx1', '00', 0, 100); // shielded tx
 
-    await rebuildWalletBalance(mysql, 'w1', ['ta', 'ca']);
+    await rebuildWalletTotals('w1', ['ta', 'ca']);
 
     const wb = await readWalletBalance('w1', '00');
     expect(String(wb.ub)).toBe('200');
@@ -289,23 +305,80 @@ describe('rebuildWalletBalance', () => {
     expect(Number(wb.te)).toBe(500); // MIN(900, 500)
   });
 
-  it('counts a tx touching two wallet addresses once (COUNT DISTINCT)', async () => {
+  it('counts a tx touching two wallet addresses once', async () => {
     await insertAddressBalance('a1', '00', { usb: 100, tsr: 100 });
     await insertAddressBalance('a2', '00', { usb: 50, tsr: 50 });
     await insertAddressHistoryRow('a1', 'shared', '00', 0, 100); // same tx on both addresses
     await insertAddressHistoryRow('a2', 'shared', '00', 0, 50);
 
-    await rebuildWalletBalance(mysql, 'w1', ['a1', 'a2']);
+    await rebuildWalletTotals('w1', ['a1', 'a2']);
 
-    expect(Number((await readWalletBalance('w1', '00')).txns)).toBe(1); // COUNT(DISTINCT tx_id); non-distinct -> 2
+    expect(Number((await readWalletBalance('w1', '00')).txns)).toBe(1); // counted per address it would be 2
+  });
+
+  it('counts a tx with two tokens once per token', async () => {
+    await insertAddressBalance('a1', '00', { ub: 10, tr: 10 });
+    await insertAddressBalance('a1', 't1', { ub: 5, tr: 5 });
+    await insertAddressHistoryRow('a1', 'multi', '00', 10, 0);
+    await insertAddressHistoryRow('a1', 'multi', 't1', 5, 0);
+    await insertAddressHistoryRow('a1', 'other', 't1', 0, 0);
+
+    await rebuildWalletTotals('w1', ['a1']);
+
+    expect(Number((await readWalletBalance('w1', '00')).txns)).toBe(1);
+    expect(Number((await readWalletBalance('w1', 't1')).txns)).toBe(2);
+  });
+
+  it('does not count a voided address-history row', async () => {
+    await insertAddressBalance('a1', '00', { ub: 10, tr: 10 });
+    await insertAddressHistoryRow('a1', 'live', '00', 10, 0);
+    await insertAddressHistoryRow('a1', 'gone', '00', 7, 0, true);
+
+    await rebuildWalletTotals('w1', ['a1']);
+
+    expect(Number((await readWalletBalance('w1', '00')).txns)).toBe(1);
+  });
+
+  it('takes the transaction count from the wallet\'s rebuilt history', async () => {
+    // rebuildWalletBalance counts the rows the history rebuild left, so it must
+    // run after it; here the history holds two rows no address row backs.
+    await insertAddressBalance('a1', '00', { ub: 10, tr: 10 });
+    await insertWalletHistoryRow('w1', 'h1', '00');
+    await insertWalletHistoryRow('w1', 'h2', '00');
+
+    await rebuildWalletBalance(mysql, 'w1', ['a1']);
+
+    expect(Number((await readWalletBalance('w1', '00')).txns)).toBe(2);
+  });
+
+  it('counts a backed wallet-history row even when it carries a stale voided flag', async () => {
+    // The history rebuild does not reset `voided` on a row that already exists,
+    // and the pair is still a non-voided tx of the wallet's addresses.
+    await insertAddressBalance('a1', '00', { ub: 10, tr: 10 });
+    await insertAddressHistoryRow('a1', 'tx1', '00', 10, 0);
+    await insertWalletHistoryRow('w1', 'tx1', '00', true);
+
+    await rebuildWalletTotals('w1', ['a1']);
+
+    expect(Number((await readWalletBalance('w1', '00')).txns)).toBe(1);
+  });
+
+  it('does not count a wallet-history row the prune removes', async () => {
+    await insertAddressBalance('a1', '00', { ub: 10, tr: 10 });
+    await insertAddressHistoryRow('a1', 'tx1', '00', 10, 0);
+    await insertWalletHistoryRow('w1', 'stale', '00');
+
+    await rebuildWalletTotals('w1', ['a1']);
+
+    expect(Number((await readWalletBalance('w1', '00')).txns)).toBe(1);
   });
 
   it('is idempotent', async () => {
     await insertAddressBalance('ca', '00', { usb: 100, tsr: 100 });
     await insertAddressHistoryRow('ca', 'rtx1', '00', 0, 100);
 
-    await rebuildWalletBalance(mysql, 'w1', ['ca']);
-    await rebuildWalletBalance(mysql, 'w1', ['ca']);
+    await rebuildWalletTotals('w1', ['ca']);
+    await rebuildWalletTotals('w1', ['ca']);
 
     const wb = await readWalletBalance('w1', '00');
     expect(String(wb.usb)).toBe('100');

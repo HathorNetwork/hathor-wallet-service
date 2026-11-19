@@ -105,6 +105,19 @@ describe('runShieldedSweep', () => {
     expect(await catchupOf('a1')).toBe('done');
   });
 
+  it('logs each wallet\'s settle with its caller', async () => {
+    await seedWallet('w1');
+    await seedCtSpendAddress('a1', 'w1', 'pending');
+    await seedOutput('t1', 'a1', 0xa1, 100n);
+    const info = jest.fn();
+    const log = { ...logger, info } as unknown as Logger;
+
+    await runShieldedSweep(mysql, log, plentyOfTime, '');
+
+    const settles = info.mock.calls.filter(([m]) => m === 'Settle finished').map(([, meta]) => meta);
+    expect(settles).toEqual([expect.objectContaining({ walletId: 'w1', source: 'sweep', attempts: 1 })]);
+  });
+
   it('leaves wallets and addresses nothing flagged alone', async () => {
     await seedWallet('w1');
     await seedCtSpendAddress('a1', 'w1', 'done');

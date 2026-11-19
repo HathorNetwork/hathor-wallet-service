@@ -91,4 +91,5 @@ export const EnvironmentConfigSchema = Joi.object<EnvironmentConfig>({
   logLevel: Joi.string().required(),
   createNftMaxRetries: Joi.number().required(),
   warnMaxReorgSize: Joi.number().required(),
+  loadSettleAlertMs: Joi.number().min(0).required(),
 });
