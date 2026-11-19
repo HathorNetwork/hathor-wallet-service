@@ -497,6 +497,14 @@ export const pruneWalletTotals = async (
  * `address_tx_history` per (tx, token): transparent `balance` and
  * `shielded_balance_delta` are summed across the wallet's addresses. Upsert →
  * idempotent. Serves both transparent-only and shielded wallets.
+ *
+ * `ORDER BY tx_id` feeds the inserts to `wallet_tx_history_tx_id_idx` in key
+ * order, so they sweep that index once instead of landing on random leaves.
+ * For a big wallet this runs inside the settle's lock, and each uncached leaf
+ * is a synchronous read (change buffering is off by default on MySQL 8.4).
+ * Without the clause the order depends on whether the GROUP BY temp table
+ * spills to disk: in memory it comes back unordered, and the inserts read
+ * about twice as many pages.
  */
 export const rebuildWalletTxHistory = async (
   mysql: ServerlessMysql,
@@ -512,6 +520,7 @@ export const rebuildWalletTxHistory = async (
        FROM \`address_tx_history\`
       WHERE \`address\` IN (?) AND \`voided\` = FALSE
       GROUP BY \`tx_id\`, \`token_id\`, \`timestamp\`
+      ORDER BY \`tx_id\`
      ON DUPLICATE KEY UPDATE
         \`balance\` = VALUES(\`balance\`),
         \`shielded_balance_delta\` = VALUES(\`shielded_balance_delta\`)`,
