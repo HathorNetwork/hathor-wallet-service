@@ -372,6 +372,97 @@ describe('commitShieldedRecoveries', () => {
   });
 });
 
+describe('commitShieldedRecoveries lock footprint', () => {
+  const ER_LOCK_WAIT_TIMEOUT = 1205;
+  const ER_LOCK_NOWAIT = 3572;
+
+  // A wallet with more addresses than the range optimizer's memory holds
+  // (`range_optimizer_max_mem_size`: about 9k to 13k addresses at the 8 MB
+  // default) can't be read by an `address IN (...)` range, and a scan of the
+  // whole table locks every row it passes. A 1-byte limit makes any list
+  // overflow it, so a one-address wallet stands in for a wide one.
+  it.each([
+    ['a full settle', false],
+    ['a catch-up', true],
+  ])('holds only the wallet\'s own rows, however many addresses it has, in %s', async (_, onlyPromoted) => {
+    await seedWallet('w1');
+    // Two of each kind, so each list is a real range rather than one key lookup.
+    await seedTransparentAddress('Ha', 'w1', 0);
+    await seedTransparentBalance('Ha', 'tx1');
+    await seedTransparentAddress('Hb', 'w1', 1);
+    await seedTransparentBalance('Hb', 'tx1');
+    await seedCtSpendAddress('Hc', 'w1', 0);
+    await seedCtSpendAddress('Hd', 'w1', 1);
+    // An output the settle promotes, so the shielded rebuilds have work to do.
+    await insertTx('o1', 1000);
+    await insertUnownedOutput('o1', 'Hc', '00');
+    const recovery = { txId: 'o1', index: 0, address: 'Hc', value: 100n, tokenId: '00' };
+    // A row the prune checks and drops.
+    await mysql.query(
+      `INSERT INTO \`wallet_tx_history\` (\`wallet_id\`, \`token_id\`, \`tx_id\`, \`balance\`, \`timestamp\`, \`voided\`)
+       VALUES ('w1', '00', 'stale', 5, 400, FALSE)`,
+    );
+    // Between the two wallets' rows, so the next-key lock past w1's last row
+    // lands here rather than on w2's first.
+    await seedWallet('w3');
+    await seedTransparentAddress('Hm', 'w3', 0);
+    await seedTransparentBalance('Hm', 'tx2');
+    await insertUnownedOutput('om', 'Hm', '00');
+    await seedWallet('w2');
+    await seedTransparentAddress('Hz', 'w2', 0);
+    await seedTransparentBalance('Hz', 'tx3');
+    await insertUnownedOutput('oz', 'Hz', '00');
+
+    const settle = getDbConnection();
+    const probe = getDbConnection();
+    try {
+      await settle.query('SET SESSION range_optimizer_max_mem_size = 1');
+      await settle.query('START TRANSACTION');
+      await commitShieldedRecoveries(settle, 'w1', [recovery], { onlyPromoted });
+      await probe.query('SET SESSION innodb_lock_wait_timeout = 1');
+
+      // Another wallet's rows stay free, so the daemon keeps syncing it.
+      await expect(probe.query(
+        "SELECT 1 FROM `address_balance` WHERE `address` = 'Hz' FOR UPDATE NOWAIT",
+      )).resolves.toBeDefined();
+      await expect(probe.query(
+        "SELECT 1 FROM `address_tx_history` WHERE `address` = 'Hz' FOR UPDATE NOWAIT",
+      )).resolves.toBeDefined();
+      await expect(probe.query(
+        "SELECT 1 FROM `tx_output` WHERE `tx_id` = 'oz' FOR UPDATE NOWAIT",
+      )).resolves.toBeDefined();
+      // A new history row for it goes into every index of the table.
+      await expect(probe.query(
+        `INSERT INTO \`address_tx_history\` (\`address\`, \`tx_id\`, \`token_id\`, \`balance\`, \`timestamp\`, \`voided\`)
+         VALUES ('Hz', 'tx9', '00', 1, 900, FALSE)`,
+      )).resolves.toBeDefined();
+      // Every step ran: in the settle's own view, the prune dropped 'stale'
+      // and the rebuilds added the transparent and the recovered transaction.
+      expect((await settle.query(
+        "SELECT `tx_id` FROM `wallet_tx_history` WHERE `wallet_id` = 'w1' ORDER BY `tx_id`",
+      ) as unknown as { tx_id: string }[]).map((r) => r.tx_id)).toEqual(['o1', 'tx1']);
+      // The wallet's own rows are held, including a token pair it doesn't have
+      // yet. The history row is only read by the settle, so this also shows
+      // the probes see its shared locks.
+      await expect(probe.query(
+        "SELECT 1 FROM `address_balance` WHERE `address` = 'Ha' FOR UPDATE NOWAIT",
+      )).rejects.toMatchObject({ errno: ER_LOCK_NOWAIT });
+      await expect(probe.query(
+        "SELECT 1 FROM `address_tx_history` WHERE `address` = 'Ha' FOR UPDATE NOWAIT",
+      )).rejects.toMatchObject({ errno: ER_LOCK_NOWAIT });
+      await expect(probe.query(
+        `INSERT INTO \`address_balance\` (\`address\`, \`token_id\`, \`unlocked_balance\`, \`locked_balance\`,
+           \`total_received\`, \`unlocked_authorities\`, \`locked_authorities\`, \`timelock_expires\`, \`transactions\`)
+         VALUES ('Ha', 't9', 1, 0, 1, 0, 0, NULL, 1)`,
+      )).rejects.toMatchObject({ errno: ER_LOCK_WAIT_TIMEOUT });
+    } finally {
+      await settle.query('ROLLBACK').finally(() => Promise.all([
+        closeDbConnection(settle), closeDbConnection(probe),
+      ]));
+    }
+  }, 30000);
+});
+
 describe('commitShieldedRecoveries step timings', () => {
   const sweepOne = async () => {
     await seedWallet('w1');

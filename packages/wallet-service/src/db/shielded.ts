@@ -245,6 +245,9 @@ export const getShieldedOutputsToRecover = async (
   }));
 };
 
+/** The `address` index on (`wallet_id`, `bip32_account`, `index`). */
+const ADDRESS_WALLET_INDEX = 'uk_address_wallet_account_index';
+
 /** One of a wallet's addresses, as read under lock. */
 export interface LockedWalletAddress {
   address: string;
@@ -257,20 +260,70 @@ export interface LockedWalletAddress {
  *
  * Take this first in a recovery commit (see `commitShieldedRecoveries` for the
  * order and why). The lock on the `wallet_id` index also keeps the daemon from
- * adding an address to the wallet while we total it.
+ * adding an address to the wallet while we total it. The index is pinned so
+ * the settle's later reads of these rows (see `walletAddressRows`) take the
+ * same one.
  */
 export const lockWalletAddresses = async (
   mysql: ServerlessMysql,
   walletId: string,
 ): Promise<LockedWalletAddress[]> => {
   const results: DbSelectResult = await mysql.query(
-    'SELECT `address`, `bip32_account` FROM `address` WHERE `wallet_id` = ? FOR UPDATE',
+    `SELECT \`address\`, \`bip32_account\` FROM \`address\` FORCE INDEX (${ADDRESS_WALLET_INDEX})
+      WHERE \`wallet_id\` = ? FOR UPDATE`,
     [walletId],
   );
   return results.map((row) => ({
     address: row.address as string,
     bip32Account: row.bip32_account == null ? null : Number(row.bip32_account),
   }));
+};
+
+/**
+ * A `FROM` clause over the rows of `table` that belong to one wallet's
+ * addresses, read through `index`, an index of `table` led by `address`. The
+ * query filters on `a.wallet_id` (and may narrow by `a.bip32_account`).
+ *
+ * The settle reads each table this way rather than with an `address IN (...)`
+ * list: a wallet with many addresses (about 9k to 13k at MySQL's default
+ * 8 MB `range_optimizer_max_mem_size`) overflows the memory the optimizer has
+ * for planning such a list, and the statement falls back to a scan of the
+ * whole table. Inside the settle that scan locks every row it passes, so the
+ * daemon then waits on any wallet's writes, not just this one's.
+ *
+ * The join reads the wallet's `address` rows by `wallet_id`, through the
+ * index `lockWalletAddresses` already locked, then `table` by `address`. The
+ * order (`STRAIGHT_JOIN`) and both indexes (`FORCE INDEX`) are pinned, so the
+ * rows touched, and so the rows locked, never depend on table statistics. The
+ * settle reads `address` with locking reads, so they see the same address set
+ * as `lockWalletAddresses`.
+ */
+const walletAddressRows = (table: string, alias: string, index = 'PRIMARY'): string => (
+  `\`address\` a FORCE INDEX (${ADDRESS_WALLET_INDEX})`
+  + ` STRAIGHT_JOIN \`${table}\` ${alias} FORCE INDEX (${index}) ON ${alias}.\`address\` = a.\`address\``
+);
+
+/**
+ * Take row locks on a wallet's `address_balance` rows for the rest of the
+ * caller's transaction, including the gaps where a token pair it doesn't have
+ * yet would go (next-key locks). Run after `lockWalletAddresses`.
+ *
+ * The load finishes by recomputing `wallet_balance` absolutely from these rows
+ * and then flipping the wallet ready. Without the locks the daemon can commit an
+ * `address_balance` write in between: that transaction is skipped for
+ * `wallet_balance` (the wallet is not attributable while loading) *and* missed
+ * by the rebuild's snapshot, so it is lost for good — the daemon only ever
+ * increments from the now-wrong total. Holding the locks makes such a write wait
+ * until the wallet is ready, after which it applies to both tables normally.
+ */
+export const lockWalletAddressBalancesForUpdate = async (
+  mysql: ServerlessMysql,
+  walletId: string,
+): Promise<void> => {
+  await mysql.query(
+    `SELECT 1 FROM ${walletAddressRows('address_balance', 'b')} WHERE a.\`wallet_id\` = ? FOR UPDATE`,
+    [walletId],
+  );
 };
 
 /**
@@ -293,12 +346,37 @@ export const countRecoveredShieldedOutputs = async (
 };
 
 /**
- * Recompute the shielded balance columns of `address_balance` for the given
- * addresses from their recovered `tx_output` rows (mode 1/2, `recovery_state =
- * 'recovered'`, non-voided). Snapshot semantics (replace, not add) → idempotent:
- * unlocked/locked come from the unspent utxos, `total_shielded_received` is the
- * lifetime (every recovered output, spent or not). Only the shielded columns are
- * written; a transparent balance already on the (address, token) row is preserved.
+ * The recovered, non-voided shielded `tx_output` rows `t` of a wallet's CTSpend
+ * addresses, or of just the `onlyAddresses` among them: a `FROM … WHERE`
+ * fragment and its parameters. Read through the wallet's `address` rows (see
+ * `walletAddressRows`), so `onlyAddresses` only filters the wallet's CTSpend
+ * rows; it is never planned as a range, so its size can't change the plan.
+ *
+ * `tx_output` is read through `idx_tx_output_utxo_lookup`, whose first column
+ * is `address`; `voided` is part of it too, so that filter runs in the index.
+ */
+const recoveredCtSpendOutputs = (
+  walletId: string,
+  onlyAddresses?: string[],
+): { sql: string; params: unknown[] } => ({
+  sql: `${walletAddressRows('tx_output', 't', 'idx_tx_output_utxo_lookup')}
+          WHERE a.\`wallet_id\` = ? AND a.\`bip32_account\` = ?
+            ${onlyAddresses === undefined ? '' : 'AND a.`address` IN (?)'}
+            AND t.\`mode\` IN (?, ?) AND t.\`recovery_state\` = ? AND t.\`voided\` = FALSE`,
+  params: [
+    walletId, Bip32Account.CTSpend, ...(onlyAddresses === undefined ? [] : [onlyAddresses]),
+    ...SHIELDED_MODES, RecoveryState.Recovered,
+  ],
+});
+
+/**
+ * Recompute the shielded balance columns of `address_balance` for the wallet's
+ * CTSpend addresses (all of them, or the `onlyAddresses`) from their recovered
+ * `tx_output` rows (mode 1/2, `recovery_state = 'recovered'`, non-voided).
+ * Snapshot semantics (replace, not add) → idempotent: unlocked/locked come from
+ * the unspent utxos, `total_shielded_received` is the lifetime (every recovered
+ * output, spent or not). Only the shielded columns are written; a transparent
+ * balance already on the (address, token) row is preserved.
  *
  * `transactions` is set to the pair's number of `address_tx_history` rows,
  * which is what the daemon's count amounts to (it writes a row and adds 1
@@ -309,9 +387,11 @@ export const countRecoveredShieldedOutputs = async (
  */
 export const rebuildShieldedAddressBalances = async (
   mysql: ServerlessMysql,
-  addresses: string[],
+  walletId: string,
+  onlyAddresses?: string[],
 ): Promise<void> => {
-  if (addresses.length === 0) return;
+  if (onlyAddresses?.length === 0) return;
+  const outputs = recoveredCtSpendOutputs(walletId, onlyAddresses);
   await mysql.query(
     `INSERT INTO \`address_balance\`
        (\`address\`, \`token_id\`, \`unlocked_balance\`, \`locked_balance\`,
@@ -325,22 +405,21 @@ export const rebuildShieldedAddressBalances = async (
         (SELECT COUNT(*) FROM \`address_tx_history\` h
           WHERE h.\`address\` = t.\`address\` AND h.\`token_id\` = t.\`token_id\`
             AND h.\`voided\` = FALSE)
-       FROM \`tx_output\` t
-      WHERE t.\`address\` IN (?) AND t.\`mode\` IN (?, ?)
-        AND t.\`recovery_state\` = ? AND t.\`voided\` = FALSE
+       FROM ${outputs.sql}
       GROUP BY t.\`address\`, t.\`token_id\`
      ON DUPLICATE KEY UPDATE
         \`unlocked_shielded_balance\` = VALUES(\`unlocked_shielded_balance\`),
         \`locked_shielded_balance\` = VALUES(\`locked_shielded_balance\`),
         \`total_shielded_received\` = VALUES(\`total_shielded_received\`),
         \`transactions\` = VALUES(\`transactions\`)`,
-    [addresses, ...SHIELDED_MODES, RecoveryState.Recovered],
+    outputs.params,
   );
 };
 
 /**
- * Recompute the shielded history for the given addresses from their recovered
- * `tx_output` rows: per (address, tx, token), the signed sum of what the tx
+ * Recompute the shielded history for the wallet's CTSpend addresses (all of
+ * them, or the `onlyAddresses`) from their recovered `tx_output` rows: per
+ * (address, tx, token), the signed sum of what the tx
  * received (`+value` on the output's own tx) and what it spent (`-value` on the
  * output's `spent_by`), stamped with that tx's timestamp. Both sides come from
  * `tx_output`, so this is a true snapshot: it agrees with the delta the daemon
@@ -351,32 +430,27 @@ export const rebuildShieldedAddressBalances = async (
  */
 export const rebuildShieldedAddressTxHistory = async (
   mysql: ServerlessMysql,
-  addresses: string[],
+  walletId: string,
+  onlyAddresses?: string[],
 ): Promise<void> => {
-  if (addresses.length === 0) return;
+  if (onlyAddresses?.length === 0) return;
+  const outputs = recoveredCtSpendOutputs(walletId, onlyAddresses);
   await mysql.query(
     `INSERT INTO \`address_tx_history\`
        (\`address\`, \`tx_id\`, \`token_id\`, \`balance\`, \`shielded_balance_delta\`, \`timestamp\`, \`voided\`)
      SELECT s.\`address\`, s.\`tx_id\`, s.\`token_id\`, 0, SUM(s.\`delta\`), tx.\`timestamp\`, FALSE
        FROM (
          SELECT t.\`address\`, t.\`tx_id\`, t.\`token_id\`, CAST(t.\`value\` AS SIGNED) AS \`delta\`
-           FROM \`tx_output\` t
-          WHERE t.\`address\` IN (?) AND t.\`mode\` IN (?, ?)
-            AND t.\`recovery_state\` = ? AND t.\`voided\` = FALSE
+           FROM ${outputs.sql}
          UNION ALL
          SELECT t.\`address\`, t.\`spent_by\`, t.\`token_id\`, -CAST(t.\`value\` AS SIGNED)
-           FROM \`tx_output\` t
-          WHERE t.\`address\` IN (?) AND t.\`mode\` IN (?, ?)
-            AND t.\`recovery_state\` = ? AND t.\`voided\` = FALSE
+           FROM ${outputs.sql}
             AND t.\`spent_by\` IS NOT NULL
        ) s
        INNER JOIN \`transaction\` tx ON tx.\`tx_id\` = s.\`tx_id\` AND tx.\`voided\` = FALSE
       GROUP BY s.\`address\`, s.\`tx_id\`, s.\`token_id\`, tx.\`timestamp\`
      ON DUPLICATE KEY UPDATE \`shielded_balance_delta\` = VALUES(\`shielded_balance_delta\`)`,
-    [
-      addresses, ...SHIELDED_MODES, RecoveryState.Recovered,
-      addresses, ...SHIELDED_MODES, RecoveryState.Recovered,
-    ],
+    [...outputs.params, ...outputs.params],
   );
 };
 
@@ -387,22 +461,22 @@ export const rebuildShieldedAddressTxHistory = async (
  * receives in the same pass, so it serves both transparent-only and shielded
  * wallets.
  *
+ * The addresses are the wallet's `address` rows (see `walletAddressRows`).
+ *
  * The per-token `transactions` count is the number of the wallet's
  * `wallet_tx_history` rows, so this must run after `pruneWalletTotals` and
- * `rebuildWalletTxHistory`, in the same transaction and over the same
- * addresses. Those two leave exactly one row per (tx, token) that has a
- * non-voided `address_tx_history` row on the wallet's addresses, so the count
- * is the wallet's distinct transactions per token, with a tx shared by two of
- * its addresses counted once. The count has no `voided` filter: a row in that
- * set is a live transaction whatever its own flag says, since the history
- * rebuild does not reset the flag on a row that already exists.
+ * `rebuildWalletTxHistory`, in the same transaction. Those two leave exactly
+ * one row per (tx, token) that has a non-voided `address_tx_history` row on
+ * the wallet's addresses, so the count is the wallet's distinct transactions
+ * per token, with a tx shared by two of its addresses counted once. The count
+ * has no `voided` filter: a row in that set is a live transaction whatever its
+ * own flag says, since the history rebuild does not reset the flag on a row
+ * that already exists.
  */
 export const rebuildWalletBalance = async (
   mysql: ServerlessMysql,
   walletId: string,
-  addresses: string[],
 ): Promise<void> => {
-  if (addresses.length === 0) return;
   await mysql.query(
     `INSERT INTO \`wallet_balance\`
        (\`wallet_id\`, \`token_id\`, \`total_received\`, \`unlocked_balance\`, \`locked_balance\`,
@@ -413,19 +487,19 @@ export const rebuildWalletBalance = async (
         COALESCE(h.\`transactions\`, 0),
         b.\`unlocked_shielded_balance\`, b.\`locked_shielded_balance\`, b.\`total_shielded_received\`
        FROM (
-         SELECT \`token_id\`,
-                SUM(\`total_received\`) AS \`total_received\`,
-                SUM(\`unlocked_balance\`) AS \`unlocked_balance\`,
-                SUM(\`locked_balance\`) AS \`locked_balance\`,
-                MIN(\`timelock_expires\`) AS \`timelock_expires\`,
-                BIT_OR(\`unlocked_authorities\`) AS \`unlocked_authorities\`,
-                BIT_OR(\`locked_authorities\`) AS \`locked_authorities\`,
-                SUM(\`unlocked_shielded_balance\`) AS \`unlocked_shielded_balance\`,
-                SUM(\`locked_shielded_balance\`) AS \`locked_shielded_balance\`,
-                SUM(\`total_shielded_received\`) AS \`total_shielded_received\`
-           FROM \`address_balance\`
-          WHERE \`address\` IN (?)
-          GROUP BY \`token_id\`
+         SELECT ab.\`token_id\`,
+                SUM(ab.\`total_received\`) AS \`total_received\`,
+                SUM(ab.\`unlocked_balance\`) AS \`unlocked_balance\`,
+                SUM(ab.\`locked_balance\`) AS \`locked_balance\`,
+                MIN(ab.\`timelock_expires\`) AS \`timelock_expires\`,
+                BIT_OR(ab.\`unlocked_authorities\`) AS \`unlocked_authorities\`,
+                BIT_OR(ab.\`locked_authorities\`) AS \`locked_authorities\`,
+                SUM(ab.\`unlocked_shielded_balance\`) AS \`unlocked_shielded_balance\`,
+                SUM(ab.\`locked_shielded_balance\`) AS \`locked_shielded_balance\`,
+                SUM(ab.\`total_shielded_received\`) AS \`total_shielded_received\`
+           FROM ${walletAddressRows('address_balance', 'ab')}
+          WHERE a.\`wallet_id\` = ?
+          GROUP BY ab.\`token_id\`
        ) b
        LEFT JOIN (
          SELECT \`token_id\`, COUNT(*) AS \`transactions\`
@@ -444,7 +518,7 @@ export const rebuildWalletBalance = async (
         \`unlocked_shielded_balance\` = VALUES(\`unlocked_shielded_balance\`),
         \`locked_shielded_balance\` = VALUES(\`locked_shielded_balance\`),
         \`total_shielded_received\` = VALUES(\`total_shielded_received\`)`,
-    [walletId, addresses, walletId],
+    [walletId, walletId, walletId],
   );
 };
 
@@ -463,6 +537,21 @@ export const rebuildWalletBalance = async (
  * Every daemon write that adds a row to a wallet's tables follows a write to
  * its addresses' `address_balance` in the same transaction, so with those
  * rows locked nothing can add a row this would wrongly delete.
+ *
+ * `addresses` must be the wallet's address set, as `lockWalletAddresses`
+ * returned it. The balance prune reads that set by `wallet_id` (see
+ * `walletAddressRows`). The history prune keeps the list, but only as a
+ * filter: it probes `address_tx_history` by `tx_id` for each of the wallet's
+ * rows, so the list's size can't turn it into a scan of the whole table.
+ * `NO_SEMIJOIN` is what pins that plan: without it MySQL may turn the
+ * `NOT EXISTS` into a materialized antijoin that scans an index. `FORCE INDEX`
+ * then keeps the probe on the `tx_id` index; on its own it is unsafe, since
+ * with the antijoin it leaves only a full table scan.
+ *
+ * The probe reads by `tx_id`, so under REPEATABLE READ it also S-locks other
+ * addresses' history entries for the transactions it checks, and the gaps
+ * next to them in the `tx_id` index. That only happens on a re-settle, when
+ * the wallet already has history rows.
  */
 export const pruneWalletTotals = async (
   mysql: ServerlessMysql,
@@ -474,15 +563,15 @@ export const pruneWalletTotals = async (
     `DELETE FROM \`wallet_balance\`
       WHERE \`wallet_id\` = ?
         AND \`token_id\` NOT IN (
-          SELECT \`token_id\` FROM \`address_balance\` WHERE \`address\` IN (?)
+          SELECT ab.\`token_id\` FROM ${walletAddressRows('address_balance', 'ab')} WHERE a.\`wallet_id\` = ?
         )`,
-    [walletId, addresses],
+    [walletId, walletId],
   );
   await mysql.query(
     `DELETE FROM \`wallet_tx_history\`
       WHERE \`wallet_id\` = ?
         AND NOT EXISTS (
-          SELECT 1 FROM \`address_tx_history\` h
+          SELECT /*+ NO_SEMIJOIN() */ 1 FROM \`address_tx_history\` h FORCE INDEX (address_tx_history_txid_idx)
            WHERE h.\`address\` IN (?)
              AND h.\`tx_id\` = \`wallet_tx_history\`.\`tx_id\`
              AND h.\`token_id\` = \`wallet_tx_history\`.\`token_id\`
@@ -496,7 +585,8 @@ export const pruneWalletTotals = async (
  * Rebuild a wallet's `wallet_tx_history` by aggregating its addresses'
  * `address_tx_history` per (tx, token): transparent `balance` and
  * `shielded_balance_delta` are summed across the wallet's addresses. Upsert →
- * idempotent. Serves both transparent-only and shielded wallets.
+ * idempotent. Serves both transparent-only and shielded wallets. The addresses
+ * are the wallet's `address` rows (see `walletAddressRows`).
  *
  * `ORDER BY tx_id` feeds the inserts to `wallet_tx_history_tx_id_idx` in key
  * order, so they sweep that index once instead of landing on random leaves.
@@ -509,22 +599,20 @@ export const pruneWalletTotals = async (
 export const rebuildWalletTxHistory = async (
   mysql: ServerlessMysql,
   walletId: string,
-  addresses: string[],
 ): Promise<void> => {
-  if (addresses.length === 0) return;
   await mysql.query(
     `INSERT INTO \`wallet_tx_history\`
        (\`wallet_id\`, \`token_id\`, \`tx_id\`, \`balance\`, \`shielded_balance_delta\`, \`timestamp\`, \`voided\`)
-     SELECT ?, \`token_id\`, \`tx_id\`,
-        SUM(\`balance\`), SUM(\`shielded_balance_delta\`), \`timestamp\`, FALSE
-       FROM \`address_tx_history\`
-      WHERE \`address\` IN (?) AND \`voided\` = FALSE
-      GROUP BY \`tx_id\`, \`token_id\`, \`timestamp\`
-      ORDER BY \`tx_id\`
+     SELECT ?, h.\`token_id\`, h.\`tx_id\`,
+        SUM(h.\`balance\`), SUM(h.\`shielded_balance_delta\`), h.\`timestamp\`, FALSE
+       FROM ${walletAddressRows('address_tx_history', 'h')}
+      WHERE a.\`wallet_id\` = ? AND h.\`voided\` = FALSE
+      GROUP BY h.\`tx_id\`, h.\`token_id\`, h.\`timestamp\`
+      ORDER BY h.\`tx_id\`
      ON DUPLICATE KEY UPDATE
         \`balance\` = VALUES(\`balance\`),
         \`shielded_balance_delta\` = VALUES(\`shielded_balance_delta\`)`,
-    [walletId, addresses],
+    [walletId, walletId],
   );
 };
 
