@@ -1350,9 +1350,15 @@ const handleVertexAcceptedOnce = async (context: Context, _event: Event) => {
   });
 };
 
+/** Names a handler and the event it is processing, for the lock-conflict logs and alert. */
+const lockConflictLabel = (handler: string, context: Context): string => {
+  const eventId = context.event?.event?.id;
+  return eventId === undefined ? handler : `${handler}, event ${eventId}`;
+};
+
 /** handleVertexAccepted, re-run when its transaction loses a lock conflict (see retryOnLockConflict). */
 export const handleVertexAccepted = (context: Context, event: Event) => (
-  retryOnLockConflict(() => handleVertexAcceptedOnce(context, event))
+  retryOnLockConflict(() => handleVertexAcceptedOnce(context, event), lockConflictLabel('handleVertexAccepted', context))
 );
 
 const handleVertexRemovedOnce = async (context: Context, _event: Event) => {
@@ -1427,7 +1433,7 @@ const handleVertexRemovedOnce = async (context: Context, _event: Event) => {
 
 /** handleVertexRemoved, re-run when its transaction loses a lock conflict (see retryOnLockConflict). */
 export const handleVertexRemoved = (context: Context, event: Event) => (
-  retryOnLockConflict(() => handleVertexRemovedOnce(context, event))
+  retryOnLockConflict(() => handleVertexRemovedOnce(context, event), lockConflictLabel('handleVertexRemoved', context))
 );
 
 /**
@@ -1677,7 +1683,7 @@ const handleVoidedTxOnce = async (context: Context) => {
 
 /** handleVoidedTx, re-run when its transaction loses a lock conflict (see retryOnLockConflict). */
 export const handleVoidedTx = (context: Context) => (
-  retryOnLockConflict(() => handleVoidedTxOnce(context))
+  retryOnLockConflict(() => handleVoidedTxOnce(context), lockConflictLabel('handleVoidedTx', context))
 );
 
 const handleUnvoidedTxOnce = async (context: Context) => {
@@ -1727,7 +1733,7 @@ const handleUnvoidedTxOnce = async (context: Context) => {
 
 /** handleUnvoidedTx, re-run when its transaction loses a lock conflict (see retryOnLockConflict). */
 export const handleUnvoidedTx = (context: Context) => (
-  retryOnLockConflict(() => handleUnvoidedTxOnce(context))
+  retryOnLockConflict(() => handleUnvoidedTxOnce(context), lockConflictLabel('handleUnvoidedTx', context))
 );
 
 const handleTxFirstBlockOnce = async (context: Context) => {
@@ -1789,7 +1795,7 @@ const handleTxFirstBlockOnce = async (context: Context) => {
 
 /** handleTxFirstBlock, re-run when its transaction loses a lock conflict (see retryOnLockConflict). */
 export const handleTxFirstBlock = (context: Context) => (
-  retryOnLockConflict(() => handleTxFirstBlockOnce(context))
+  retryOnLockConflict(() => handleTxFirstBlockOnce(context), lockConflictLabel('handleTxFirstBlock', context))
 );
 
 /**
@@ -1859,7 +1865,7 @@ const handleNcExecVoidedOnce = async (context: Context) => {
 
 /** handleNcExecVoided, re-run when its transaction loses a lock conflict (see retryOnLockConflict). */
 export const handleNcExecVoided = (context: Context) => (
-  retryOnLockConflict(() => handleNcExecVoidedOnce(context))
+  retryOnLockConflict(() => handleNcExecVoidedOnce(context), lockConflictLabel('handleNcExecVoided', context))
 );
 
 export const updateLastSyncedEvent = async (context: Context) => {
@@ -2080,7 +2086,7 @@ const handleTokenCreatedOnce = async (context: Context) => {
 
 /** handleTokenCreated, re-run when its transaction loses a lock conflict (see retryOnLockConflict). */
 export const handleTokenCreated = (context: Context) => (
-  retryOnLockConflict(() => handleTokenCreatedOnce(context))
+  retryOnLockConflict(() => handleTokenCreatedOnce(context), lockConflictLabel('handleTokenCreated', context))
 );
 
 /**
