@@ -77,6 +77,7 @@ export interface EnvironmentConfig {
   logLevel: string;
   createNftMaxRetries: number;
   warnMaxReorgSize: number;
+  loadSettleAlertMs: number;
 }
 
 /**

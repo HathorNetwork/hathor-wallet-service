@@ -7,14 +7,15 @@
 
 import { Logger } from 'winston';
 import { ServerlessMysql } from 'serverless-mysql';
-import { addAlert, Bip32Account } from '@wallet-service/common';
+import { addAlert, Bip32Account, Severity } from '@wallet-service/common';
 import { getDbConnection, closeDbConnection } from '@src/utils';
 import { cleanDatabase, addToWalletTable, addToAddressTable } from '@tests/utils';
 import { resetCtCryptoMock, primeAmountRewind, primeFullyRewind } from '@tests/utils/ct-crypto-mock';
 import {
-  sweptOutputs, findAndRewindShielded, reconstructWallet, commitShieldedRecoveries, runRecoveryTransaction,
+  sweptOutputs, findAndRewindShielded, reconstructWallet, commitShieldedRecoveries, runRecoveryTransaction, runSettle,
 } from '@src/shieldedRecovery';
 import * as ShieldedDb from '@src/db/shielded';
+import config from '@src/config';
 
 jest.mock('@wallet-service/common', () => ({
   ...jest.requireActual('@wallet-service/common'),
@@ -343,6 +344,22 @@ describe('commitShieldedRecoveries', () => {
     expect((await readState('o1')).s).toBe('unowned');
   });
 
+  it('counts the wallet\'s transactions without a history row its addresses no longer back', async () => {
+    await seedWallet('w1');
+    await seedTransparentAddress('ta', 'w1', 0);
+    await seedTransparentBalance('ta', 'ttx');
+    // Left over from a tx voided while the wallet was mid-load.
+    await mysql.query(
+      `INSERT INTO \`wallet_tx_history\` (\`wallet_id\`, \`token_id\`, \`tx_id\`, \`balance\`, \`timestamp\`, \`voided\`)
+       VALUES ('w1', '00', 'gone', 5, 400, FALSE)`,
+    );
+
+    await runRecoveryTransaction(mysql, logger, (tx) => commitShieldedRecoveries(tx, 'w1', []));
+
+    expect(await countWalletHistory('w1')).toBe(1);
+    expect(Number((await readWalletBalance('w1')).txns)).toBe(1);
+  });
+
   it('totals every address the wallet has when it commits, not when it swept', async () => {
     const sweep = await sweepOne();
     // The daemon claims and credits another address for the wallet in between.
@@ -352,6 +369,262 @@ describe('commitShieldedRecoveries', () => {
     await runRecoveryTransaction(mysql, logger, (tx) => commitShieldedRecoveries(tx, 'w1', sweep.recoveries));
 
     expect(await readWalletBalance('w1')).toMatchObject({ ub: '200', usb: '100' });
+  });
+});
+
+describe('commitShieldedRecoveries lock footprint', () => {
+  const ER_LOCK_WAIT_TIMEOUT = 1205;
+  const ER_LOCK_NOWAIT = 3572;
+
+  // A wallet with more addresses than the range optimizer's memory holds
+  // (`range_optimizer_max_mem_size`: about 9k to 13k addresses at the 8 MB
+  // default) can't be read by an `address IN (...)` range, and a scan of the
+  // whole table locks every row it passes. A 1-byte limit makes any list
+  // overflow it, so a one-address wallet stands in for a wide one.
+  it.each([
+    ['a full settle', false],
+    ['a catch-up', true],
+  ])('holds only the wallet\'s own rows, however many addresses it has, in %s', async (_, onlyPromoted) => {
+    await seedWallet('w1');
+    // Two of each kind, so each list is a real range rather than one key lookup.
+    await seedTransparentAddress('Ha', 'w1', 0);
+    await seedTransparentBalance('Ha', 'tx1');
+    await seedTransparentAddress('Hb', 'w1', 1);
+    await seedTransparentBalance('Hb', 'tx1');
+    await seedCtSpendAddress('Hc', 'w1', 0);
+    await seedCtSpendAddress('Hd', 'w1', 1);
+    // An output the settle promotes, so the shielded rebuilds have work to do.
+    await insertTx('o1', 1000);
+    await insertUnownedOutput('o1', 'Hc', '00');
+    const recovery = { txId: 'o1', index: 0, address: 'Hc', value: 100n, tokenId: '00' };
+    // A row the prune checks and drops.
+    await mysql.query(
+      `INSERT INTO \`wallet_tx_history\` (\`wallet_id\`, \`token_id\`, \`tx_id\`, \`balance\`, \`timestamp\`, \`voided\`)
+       VALUES ('w1', '00', 'stale', 5, 400, FALSE)`,
+    );
+    // Between the two wallets' rows, so the next-key lock past w1's last row
+    // lands here rather than on w2's first.
+    await seedWallet('w3');
+    await seedTransparentAddress('Hm', 'w3', 0);
+    await seedTransparentBalance('Hm', 'tx2');
+    await insertUnownedOutput('om', 'Hm', '00');
+    await seedWallet('w2');
+    await seedTransparentAddress('Hz', 'w2', 0);
+    await seedTransparentBalance('Hz', 'tx3');
+    await insertUnownedOutput('oz', 'Hz', '00');
+
+    const settle = getDbConnection();
+    const probe = getDbConnection();
+    try {
+      await settle.query('SET SESSION range_optimizer_max_mem_size = 1');
+      await settle.query('START TRANSACTION');
+      await commitShieldedRecoveries(settle, 'w1', [recovery], { onlyPromoted });
+      await probe.query('SET SESSION innodb_lock_wait_timeout = 1');
+
+      // Another wallet's rows stay free, so the daemon keeps syncing it.
+      await expect(probe.query(
+        "SELECT 1 FROM `address_balance` WHERE `address` = 'Hz' FOR UPDATE NOWAIT",
+      )).resolves.toBeDefined();
+      await expect(probe.query(
+        "SELECT 1 FROM `address_tx_history` WHERE `address` = 'Hz' FOR UPDATE NOWAIT",
+      )).resolves.toBeDefined();
+      await expect(probe.query(
+        "SELECT 1 FROM `tx_output` WHERE `tx_id` = 'oz' FOR UPDATE NOWAIT",
+      )).resolves.toBeDefined();
+      // A new history row for it goes into every index of the table.
+      await expect(probe.query(
+        `INSERT INTO \`address_tx_history\` (\`address\`, \`tx_id\`, \`token_id\`, \`balance\`, \`timestamp\`, \`voided\`)
+         VALUES ('Hz', 'tx9', '00', 1, 900, FALSE)`,
+      )).resolves.toBeDefined();
+      // Every step ran: in the settle's own view, the prune dropped 'stale'
+      // and the rebuilds added the transparent and the recovered transaction.
+      expect((await settle.query(
+        "SELECT `tx_id` FROM `wallet_tx_history` WHERE `wallet_id` = 'w1' ORDER BY `tx_id`",
+      ) as unknown as { tx_id: string }[]).map((r) => r.tx_id)).toEqual(['o1', 'tx1']);
+      // The wallet's own rows are held, including a token pair it doesn't have
+      // yet. The history row is only read by the settle, so this also shows
+      // the probes see its shared locks.
+      await expect(probe.query(
+        "SELECT 1 FROM `address_balance` WHERE `address` = 'Ha' FOR UPDATE NOWAIT",
+      )).rejects.toMatchObject({ errno: ER_LOCK_NOWAIT });
+      await expect(probe.query(
+        "SELECT 1 FROM `address_tx_history` WHERE `address` = 'Ha' FOR UPDATE NOWAIT",
+      )).rejects.toMatchObject({ errno: ER_LOCK_NOWAIT });
+      await expect(probe.query(
+        `INSERT INTO \`address_balance\` (\`address\`, \`token_id\`, \`unlocked_balance\`, \`locked_balance\`,
+           \`total_received\`, \`unlocked_authorities\`, \`locked_authorities\`, \`timelock_expires\`, \`transactions\`)
+         VALUES ('Ha', 't9', 1, 0, 1, 0, 0, NULL, 1)`,
+      )).rejects.toMatchObject({ errno: ER_LOCK_WAIT_TIMEOUT });
+    } finally {
+      await settle.query('ROLLBACK').finally(() => Promise.all([
+        closeDbConnection(settle), closeDbConnection(probe),
+      ]));
+    }
+  }, 30000);
+});
+
+describe('commitShieldedRecoveries step timings', () => {
+  const sweepOne = async () => {
+    await seedWallet('w1');
+    await seedCtSpendAddress('ca', 'w1', 0);
+    await insertTx('o1', 1000);
+    await insertUnownedOutput('o1', 'ca', '00');
+    await insertSatellite('o1', Buffer.alloc(33, 0xa1), Buffer.alloc(33, 0xa1));
+    primeAmountRewind({
+      commitment: Buffer.alloc(33, 0xa1), ephemeralPubkey: Buffer.alloc(33, 0xa1), value: 100n, tokenUid: Buffer.alloc(32, 0),
+    });
+    return findAndRewindShielded(mysql, 'w1', logger);
+  };
+
+  it('reports every step of a full settle once, in order', async () => {
+    const sweep = await sweepOne();
+    const steps: [string, number][] = [];
+
+    await runRecoveryTransaction(mysql, logger, (tx) => commitShieldedRecoveries(tx, 'w1', sweep.recoveries, {
+      finishSweep: true,
+      onStep: (step, ms) => { steps.push([step, ms]); },
+    }));
+
+    expect(steps.map(([step]) => step)).toEqual([
+      'lockAddresses', 'finishSweep', 'promote', 'lockBalances',
+      'rebuildShieldedHistory', 'rebuildShieldedBalances',
+      'prune', 'rebuildWalletTxHistory', 'rebuildWalletBalance',
+    ]);
+    expect(steps.every(([, ms]) => ms >= 0)).toBe(true);
+  });
+
+  it('reports only the steps that ran when a catch-up promotes nothing', async () => {
+    await seedWallet('w1');
+    await seedCtSpendAddress('ca', 'w1', 0);
+    const steps: string[] = [];
+
+    await runRecoveryTransaction(mysql, logger, (tx) => commitShieldedRecoveries(tx, 'w1', [], {
+      onlyPromoted: true,
+      onStep: (step) => { steps.push(step); },
+    }));
+
+    expect(steps).toEqual(['lockAddresses', 'promote']);
+  });
+
+  it('commits the settle when the step hook throws', async () => {
+    const sweep = await sweepOne();
+
+    const promoted = await runRecoveryTransaction(mysql, logger, (tx) => commitShieldedRecoveries(tx, 'w1', sweep.recoveries, {
+      onStep: () => { throw new Error('hook boom'); },
+    }));
+
+    expect(promoted).toBe(1);
+    expect((await readState('o1')).s).toBe('recovered');
+    expect(String((await readWalletBalance('w1')).usb)).toBe('100');
+  });
+});
+
+describe('runSettle', () => {
+  const lockError = (errno: number) => Object.assign(new Error(`lock error ${errno}`), { errno });
+  const spyLogger = () => ({
+    debug: jest.fn(), error: jest.fn(), info: jest.fn(), warn: jest.fn(),
+  });
+  const infoCalls = (log: ReturnType<typeof spyLogger>, message: string) => (
+    log.info.mock.calls.filter(([m]) => m === message).map(([, meta]) => meta)
+  );
+  const readMaxGap = async () => Number(((await mysql.query(
+    "SELECT `max_gap` FROM `wallet` WHERE `id` = 'w1'",
+  )) as unknown as { max_gap: number }[])[0].max_gap);
+  const defaultAlertMs = config.loadSettleAlertMs;
+
+  afterEach(() => {
+    config.loadSettleAlertMs = defaultAlertMs;
+  });
+
+  it('logs each step as it completes and a summary, with the wallet and the caller', async () => {
+    await seedWallet('w1');
+    await seedTransparentAddress('ta', 'w1', 0);
+    await seedTransparentBalance('ta', 'ttx');
+    const log = spyLogger();
+
+    await runSettle(mysql, log as unknown as Logger, { walletId: 'w1', source: 'load' }, (tx, onStep) => (
+      commitShieldedRecoveries(tx, 'w1', [], { onStep })
+    ));
+
+    expect(infoCalls(log, 'Settle started')).toEqual([{ walletId: 'w1', source: 'load' }]);
+    const steps = infoCalls(log, 'Settle step');
+    expect(steps.map((meta) => meta.step)).toEqual([
+      'lockAddresses', 'promote', 'lockBalances', 'rebuildShieldedHistory', 'rebuildShieldedBalances',
+      'prune', 'rebuildWalletTxHistory', 'rebuildWalletBalance',
+    ]);
+    expect(steps.every((meta) => meta.walletId === 'w1' && meta.source === 'load' && meta.attempt === 1)).toBe(true);
+    const [summary] = infoCalls(log, 'Settle finished');
+    expect(summary).toMatchObject({ walletId: 'w1', source: 'load', attempts: 1 });
+    expect(Object.keys(summary.stepsMs)).toContain('rebuildWalletTxHistory');
+    expect(mockedAddAlert).not.toHaveBeenCalled();
+  });
+
+  it('counts attempts and adds up step time across a lock-conflict re-run', async () => {
+    await seedWallet('w1');
+    const log = spyLogger();
+    let attempts = 0;
+
+    await runSettle(mysql, log as unknown as Logger, { walletId: 'w1', source: 'sweep' }, async (tx, onStep) => {
+      attempts += 1;
+      onStep('work', attempts === 1 ? 5 : 7);
+      await tx.query("UPDATE `wallet` SET `max_gap` = `max_gap` + 1 WHERE `id` = 'w1'");
+      if (attempts === 1) throw lockError(1213);
+    });
+
+    const [summary] = infoCalls(log, 'Settle finished');
+    expect(summary).toMatchObject({ attempts: 2, stepsMs: { work: 12 } });
+    expect(infoCalls(log, 'Settle step').map((meta) => meta.attempt)).toEqual([1, 2]);
+    expect(await readMaxGap()).toBe(21);
+  });
+
+  it('alerts after the commit when the settle reaches the threshold', async () => {
+    await seedWallet('w1');
+    config.loadSettleAlertMs = 0;
+
+    await runSettle(mysql, logger, { walletId: 'w1', source: 'failed-upgrade' }, async (tx, onStep) => {
+      onStep('work', 3);
+      await tx.query("UPDATE `wallet` SET `max_gap` = 25 WHERE `id` = 'w1'");
+    });
+
+    expect(mockedAddAlert).toHaveBeenCalledTimes(1);
+    const [title, , severity, metadata] = mockedAddAlert.mock.calls[0];
+    expect(title).toBe('Slow wallet settle');
+    expect(severity).toBe(Severity.MINOR);
+    expect(metadata).toMatchObject({ wallet_id: 'w1', settle_source: 'failed-upgrade', attempts: 1, source: 'wallet-service' });
+    expect(JSON.parse(metadata.steps_ms)).toEqual({ work: 3 });
+    expect(await readMaxGap()).toBe(25);
+  });
+
+  it('keeps the commit and resolves when the slow-settle alert throws', async () => {
+    await seedWallet('w1');
+    config.loadSettleAlertMs = 0;
+    mockedAddAlert.mockRejectedValueOnce(new Error('alert queue down'));
+    const log = spyLogger();
+
+    const result = await runSettle(mysql, log as unknown as Logger, { walletId: 'w1', source: 'load' }, async (tx) => {
+      await tx.query("UPDATE `wallet` SET `max_gap` = 26 WHERE `id` = 'w1'");
+      return 'committed';
+    });
+
+    expect(result).toBe('committed');
+    expect(await readMaxGap()).toBe(26);
+    expect(log.error).toHaveBeenCalledWith('Failed to send the slow-settle alert', expect.objectContaining({ walletId: 'w1' }));
+  });
+
+  it('logs and rethrows a failed settle, without alerting', async () => {
+    await seedWallet('w1');
+    config.loadSettleAlertMs = 0;
+    const log = spyLogger();
+    const failure = Object.assign(new Error('out of range'), { errno: 1690, code: 'ER_DATA_OUT_OF_RANGE' });
+
+    await expect(runSettle(mysql, log as unknown as Logger, { walletId: 'w1', source: 'load' }, async () => {
+      throw failure;
+    })).rejects.toBe(failure);
+
+    expect(log.warn).toHaveBeenCalledWith('Settle failed', expect.objectContaining({
+      walletId: 'w1', source: 'load', attempts: 1, errno: 1690, code: 'ER_DATA_OUT_OF_RANGE',
+    }));
+    expect(mockedAddAlert).not.toHaveBeenCalled();
   });
 });
 

@@ -95,6 +95,26 @@ export const IDLE_EVENT_TIMEOUT_MS = parseInt(process.env.IDLE_EVENT_TIMEOUT_MS 
 // self-healing restart. Validated against the Severity enum in
 // the MonitoringActor; an unrecognised value falls back to 'major'.
 export const IDLE_EVENT_SEVERITY = process.env.IDLE_EVENT_SEVERITY ?? 'major';
+// How long (ms) a handler keeps re-running its transaction after losing lock
+// conflicts. The monitor terminates the daemon when no event has been accepted
+// for IDLE_EVENT_TIMEOUT_MS, and time spent in a handler counts toward that, so
+// this budget plus one innodb_lock_wait_timeout (50 s by default) must stay
+// below it: a larger value is capped at IDLE_EVENT_TIMEOUT_MS minus 60 s. An
+// unset or invalid value (anything but a positive whole number) falls back to
+// the default.
+export const DEFAULT_LOCK_CONFLICT_RETRY_BUDGET_MS = 190_000;
+const LOCK_WAIT_MARGIN_MS = 60_000;
+const parseLockConflictRetryBudget = (raw: string | undefined, idleTimeoutMs: number): number => {
+  const requested = /^\d+$/.test(raw ?? '') && Number(raw) > 0
+    ? Number(raw)
+    : DEFAULT_LOCK_CONFLICT_RETRY_BUDGET_MS;
+  const ceiling = idleTimeoutMs - LOCK_WAIT_MARGIN_MS;
+  return Number.isFinite(ceiling) && ceiling > 0 ? Math.min(requested, ceiling) : requested;
+};
+export const LOCK_CONFLICT_RETRY_BUDGET_MS = parseLockConflictRetryBudget(
+  process.env.LOCK_CONFLICT_RETRY_BUDGET_MS,
+  IDLE_EVENT_TIMEOUT_MS,
+);
 // Timeout (ms) before alerting when stuck in a single processing state
 export const STUCK_PROCESSING_TIMEOUT_MS = parseInt(process.env.STUCK_PROCESSING_TIMEOUT_MS ?? String(60 * 60 * 1000), 10);  // 1 hour
 // Number of reconnections within RECONNECTION_STORM_WINDOW_MS to trigger a storm alert
@@ -162,6 +182,7 @@ export default () => ({
   ACK_TIMEOUT_MS,
   IDLE_EVENT_TIMEOUT_MS,
   IDLE_EVENT_SEVERITY,
+  LOCK_CONFLICT_RETRY_BUDGET_MS,
   STUCK_PROCESSING_TIMEOUT_MS,
   RECONNECTION_STORM_THRESHOLD,
   RECONNECTION_STORM_WINDOW_MS,

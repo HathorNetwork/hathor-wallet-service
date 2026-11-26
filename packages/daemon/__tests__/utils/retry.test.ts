@@ -5,14 +5,22 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+import { addAlert, Severity } from '@wallet-service/common';
 import { retryWithBackoff, retryOnLockConflict, isLockConflict } from '../../src/utils/retry';
 import logger from '../../src/logger';
+import * as Config from '../../src/config';
 
 jest.mock('../../src/logger', () => ({
   debug: jest.fn(),
   error: jest.fn(),
   warn: jest.fn(),
 }));
+
+jest.mock('@wallet-service/common', () => ({
+  ...jest.requireActual('@wallet-service/common'),
+  addAlert: jest.fn().mockResolvedValue(undefined),
+}));
+const mockedAddAlert = addAlert as jest.Mock;
 
 describe('retryWithBackoff', () => {
   beforeEach(() => {
@@ -194,9 +202,20 @@ describe('retryWithBackoff', () => {
 
 describe('retryOnLockConflict', () => {
   const lockError = (errno: number) => Object.assign(new Error(`lock error ${errno}`), { errno });
+  // An attempt that waits out a full innodb_lock_wait_timeout before failing.
+  const slowLockWait = async () => {
+    jest.setSystemTime(Date.now() + 50_000);
+    throw lockError(1205);
+  };
 
-  beforeEach(() => jest.useFakeTimers());
-  afterEach(() => jest.useRealTimers());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.useFakeTimers();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
 
   it.each([1213, 1205])('re-runs a transaction that lost a lock conflict (errno %i)', async (errno) => {
     const fn = jest.fn()
@@ -210,7 +229,7 @@ describe('retryOnLockConflict', () => {
     expect(fn).toHaveBeenCalledTimes(2);
   });
 
-  it('gives up after its retries, with the last error', async () => {
+  it('gives up on fast conflicts at its attempt cap, with the last error', async () => {
     const fn = jest.fn().mockRejectedValue(lockError(1213));
 
     const result = retryOnLockConflict(fn);
@@ -218,7 +237,102 @@ describe('retryOnLockConflict', () => {
     await jest.runAllTimersAsync();
 
     await expect(result).rejects.toMatchObject({ errno: 1213 });
-    expect(fn).toHaveBeenCalledTimes(3);
+    expect(fn).toHaveBeenCalledTimes(10);
+  });
+
+  it('gives up on lock wait timeouts once its time budget is spent', async () => {
+    // Attempts start at about 0, 50, 100 and 150 s; the 4th fails past the
+    // 190 s budget, so no 5th starts.
+    const fn = jest.fn(slowLockWait);
+
+    const result = retryOnLockConflict(fn);
+    result.catch(() => {});
+    await jest.runAllTimersAsync();
+
+    await expect(result).rejects.toMatchObject({ errno: 1205 });
+    expect(fn).toHaveBeenCalledTimes(4);
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Retry budget of 190000ms exhausted after 4 attempts'));
+  });
+
+  it('falls back to the default budget when the configured one is unusable', async () => {
+    const realConfig = Config.default();
+    jest.spyOn(Config, 'default').mockReturnValue({ ...realConfig, LOCK_CONFLICT_RETRY_BUDGET_MS: Number.NaN });
+    const fn = jest.fn(slowLockWait);
+
+    const result = retryOnLockConflict(fn);
+    result.catch(() => {});
+    await jest.runAllTimersAsync();
+
+    await expect(result).rejects.toMatchObject({ errno: 1205 });
+    expect(fn).toHaveBeenCalledTimes(4);
+  });
+
+  it('reports and alerts on a long wait that it got through', async () => {
+    const fn = jest.fn()
+      .mockImplementationOnce(slowLockWait)
+      .mockImplementationOnce(slowLockWait)
+      .mockResolvedValueOnce('done');
+
+    const result = retryOnLockConflict(fn);
+    await jest.runAllTimersAsync();
+
+    await expect(result).resolves.toBe('done');
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringMatching(/^Lock conflict cleared after 3 attempts and \d+ms$/));
+    expect(mockedAddAlert).toHaveBeenCalledTimes(1);
+    const [title, , severity, metadata] = mockedAddAlert.mock.calls[0];
+    expect(title).toBe('Daemon waited long on a lock conflict');
+    expect(severity).toBe(Severity.MINOR);
+    expect(metadata).toMatchObject({ attempts: 3 });
+    expect(metadata.elapsed_ms).toBeGreaterThanOrEqual(100_000);
+  });
+
+  it('names the handler and event in the log and the alert', async () => {
+    const fn = jest.fn()
+      .mockImplementationOnce(slowLockWait)
+      .mockImplementationOnce(slowLockWait)
+      .mockResolvedValueOnce('done');
+
+    const result = retryOnLockConflict(fn, 'handleVertexAccepted, event 42');
+    await jest.runAllTimersAsync();
+
+    await expect(result).resolves.toBe('done');
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringMatching(/\(handleVertexAccepted, event 42\)$/));
+    const [, message, , metadata] = mockedAddAlert.mock.calls[0];
+    expect(message).toContain('handleVertexAccepted, event 42');
+    expect(metadata).toMatchObject({ handler: 'handleVertexAccepted, event 42' });
+  });
+
+  it('reports a short wait without alerting', async () => {
+    const fn = jest.fn()
+      .mockRejectedValueOnce(lockError(1213))
+      .mockResolvedValueOnce('done');
+
+    const result = retryOnLockConflict(fn);
+    await jest.runAllTimersAsync();
+
+    await expect(result).resolves.toBe('done');
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringMatching(/^Lock conflict cleared after 2 attempts/));
+    expect(mockedAddAlert).not.toHaveBeenCalled();
+  });
+
+  it('stays quiet when the first attempt succeeds', async () => {
+    await expect(retryOnLockConflict(jest.fn().mockResolvedValue('done'))).resolves.toBe('done');
+
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(mockedAddAlert).not.toHaveBeenCalled();
+  });
+
+  it('returns the result when the slow-wait alert fails', async () => {
+    mockedAddAlert.mockRejectedValueOnce(new Error('alert queue down'));
+    const fn = jest.fn()
+      .mockImplementationOnce(slowLockWait)
+      .mockImplementationOnce(slowLockWait)
+      .mockResolvedValueOnce('done');
+
+    const result = retryOnLockConflict(fn);
+    await jest.runAllTimersAsync();
+
+    await expect(result).resolves.toBe('done');
   });
 
   it('does not retry any other error', async () => {
@@ -226,6 +340,42 @@ describe('retryOnLockConflict', () => {
 
     await expect(retryOnLockConflict(fn)).rejects.toMatchObject({ errno: 1690 });
     expect(fn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('LOCK_CONFLICT_RETRY_BUDGET_MS', () => {
+  const setEnv = (name: string, value: string | undefined) => {
+    if (value === undefined) delete process.env[name]; else process.env[name] = value;
+  };
+  const loadBudget = (value: string | undefined, idleTimeoutMs?: string): number => {
+    const previous = process.env.LOCK_CONFLICT_RETRY_BUDGET_MS;
+    const previousIdle = process.env.IDLE_EVENT_TIMEOUT_MS;
+    setEnv('LOCK_CONFLICT_RETRY_BUDGET_MS', value);
+    setEnv('IDLE_EVENT_TIMEOUT_MS', idleTimeoutMs);
+    try {
+      let budget = 0;
+      jest.isolateModules(() => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        budget = require('../../src/config').LOCK_CONFLICT_RETRY_BUDGET_MS;
+      });
+      return budget;
+    } finally {
+      setEnv('LOCK_CONFLICT_RETRY_BUDGET_MS', previous);
+      setEnv('IDLE_EVENT_TIMEOUT_MS', previousIdle);
+    }
+  };
+
+  it('reads a valid value from the environment', () => {
+    expect(loadBudget('120000')).toBe(120000);
+  });
+
+  it.each([undefined, '', 'abc', '0', '-5', '190s', '1e5'])('falls back to the default for %p', (value) => {
+    expect(loadBudget(value)).toBe(190000);
+  });
+
+  it('caps the budget a minute below the idle timeout', () => {
+    expect(loadBudget('500000')).toBe(240000);
+    expect(loadBudget(undefined, '120000')).toBe(60000);
   });
 });
 

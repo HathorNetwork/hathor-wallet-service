@@ -29,6 +29,7 @@ import {
 import { resetCtCryptoMock, primeAmountRewind, primeScanMiss } from '@tests/utils/ct-crypto-mock';
 import { runShieldedSweep } from '@src/shieldedSweep';
 import createDefaultLogger from '@src/logger';
+import * as LoggerModule from '@src/logger';
 import { loadWallet } from '@src/api/wallet';
 import * as ShieldedRecovery from '@src/shieldedRecovery';
 import * as ShieldedDb from '@src/db/shielded';
@@ -550,4 +551,91 @@ describe('loadWallet', () => {
     const r = await runWorker({ source: 'serverless-plugin-warmup' });
     expect(r).toMatchObject({ success: true, walletId: '' });
   });
+});
+
+describe('loadWallet logging', () => {
+  // loadWallet builds its own logger; hand it one whose calls can be read.
+  const captureLoadLogger = () => {
+    const log = { debug: jest.fn(), error: jest.fn(), info: jest.fn(), warn: jest.fn() };
+    const spy = jest.spyOn(LoggerModule, 'default').mockReturnValue(log as never);
+    return { log, spy };
+  };
+  const infoCalls = (log: { info: jest.Mock }, message: string) => (
+    log.info.mock.calls.filter(([m]) => m === message).map(([, meta]) => meta)
+  );
+
+  it('names the wallet and times each phase and settle step of a successful load', async () => {
+    await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, MAX_GAP, { scanXpriv, spendXpub, shieldedMaxGap: SHIELDED_GAP });
+    await seedShieldedOutputAt(2, 'ctxL', 0xb7, 700n);
+    const { log, spy } = captureLoadLogger();
+
+    try {
+      const result = await runWorker({ xpubkey: XPUBKEY, maxGap: MAX_GAP });
+      expect(result).toMatchObject({ success: true, walletId });
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(infoCalls(log, 'Wallet load started')).toEqual([{ walletId }]);
+    expect(infoCalls(log, 'Wallet load phase').map((meta) => meta.phase)).toEqual(['derive', 'claim', 'sweeps', 'settle']);
+    const [finished] = infoCalls(log, 'Wallet load finished');
+    expect(finished).toMatchObject({ walletId, recoveries: 1 });
+    expect(finished.addresses).toBeGreaterThan(0);
+    expect(Object.keys(finished.phasesMs)).toEqual(['derive', 'claim', 'sweeps', 'settle']);
+    const [settle] = infoCalls(log, 'Settle finished');
+    expect(settle).toMatchObject({ walletId, source: 'load', attempts: 1 });
+    expect(Object.keys(settle.stepsMs)).toEqual(expect.arrayContaining(['lockAddresses', 'rebuildWalletTxHistory', 'markReady']));
+    // Nothing secret goes to the logs.
+    const logged = JSON.stringify([log.info.mock.calls, log.warn.mock.calls, log.error.mock.calls]);
+    expect(logged).not.toContain(XPUBKEY);
+    expect(logged).not.toContain(scanXpriv);
+    expect(logged).not.toContain(spendXpub);
+  }, COMBINED_TEST_TIMEOUT_MS);
+
+  it('tags the settle that records a failed upgrade with its caller', async () => {
+    // A ready legacy wallet whose stored scan xpriv makes the upgrade's derivation throw.
+    await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, MAX_GAP);
+    await updateWalletStatus(mysql, walletId, WalletStatus.READY);
+    await mysql.query(
+      'UPDATE `wallet` SET `scan_xpriv` = ?, `spend_xpub` = ?, `shielded_max_gap` = ?, `ct_status` = ? WHERE `id` = ?',
+      [Buffer.from('not-a-valid-xpriv', 'utf8'), spendXpub, SHIELDED_GAP, 'creating', walletId],
+    );
+    const { log, spy } = captureLoadLogger();
+
+    try {
+      const result = await runWorker({ xpubkey: XPUBKEY, maxGap: MAX_GAP });
+      expect(result).toMatchObject({ success: false });
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(infoCalls(log, 'Settle finished')).toEqual([
+      expect.objectContaining({ walletId, source: 'failed-upgrade', attempts: 1 }),
+    ]);
+  }, COMBINED_TEST_TIMEOUT_MS);
+
+  it('names the wallet and the error code when a load fails', async () => {
+    await createWallet(mysql, walletId, XPUBKEY, AUTH_XPUBKEY, MAX_GAP, { scanXpriv, spendXpub, shieldedMaxGap: SHIELDED_GAP });
+    const failure = Object.assign(new Error('derivation boom'), { errno: 1105, code: 'ER_UNKNOWN_ERROR' });
+    const deriveSpy = jest.spyOn(Db, 'generateAddresses').mockRejectedValueOnce(failure);
+    const { log, spy } = captureLoadLogger();
+
+    try {
+      const result = await runWorker({ xpubkey: XPUBKEY, maxGap: MAX_GAP });
+      expect(result).toMatchObject({ success: false });
+    } finally {
+      spy.mockRestore();
+      deriveSpy.mockRestore();
+    }
+
+    expect(infoCalls(log, 'Wallet load started')).toEqual([{ walletId }]);
+    expect(log.error).toHaveBeenCalledWith('Errored on loadWallet', expect.objectContaining({
+      walletId, errno: 1105, code: 'ER_UNKNOWN_ERROR',
+    }));
+    // Nothing secret goes to the logs on the failure path either.
+    const logged = JSON.stringify([log.info.mock.calls, log.warn.mock.calls, log.error.mock.calls]);
+    expect(logged).not.toContain(XPUBKEY);
+    expect(logged).not.toContain(scanXpriv);
+    expect(logged).not.toContain(spendXpub);
+  }, COMBINED_TEST_TIMEOUT_MS);
 });
