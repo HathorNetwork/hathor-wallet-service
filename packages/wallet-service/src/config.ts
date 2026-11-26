@@ -9,6 +9,18 @@ import { EnvironmentConfig } from '@src/types';
 import { EnvironmentConfigSchema } from '@src/schemas';
 import { Severity, addAlert } from '@wallet-service/common';
 
+const DEFAULT_LOAD_SETTLE_ALERT_MS = 30_000;
+
+/**
+ * A settle (see `runSettle`) that takes this long or longer raises a MINOR
+ * alert; 0 alerts on every settle. Anything but a whole number of milliseconds
+ * falls back to the default rather than failing the config validation, which
+ * would take every Lambda down.
+ */
+const parseLoadSettleAlertMs = (raw: string | undefined): number => (
+  /^\d+$/.test(raw ?? '') ? Number(raw) : DEFAULT_LOAD_SETTLE_ALERT_MS
+);
+
 export function loadEnvConfig(): EnvironmentConfig {
   const config: EnvironmentConfig = {
     defaultServer: process.env.DEFAULT_SERVER ?? 'https://node1.mainnet.hathor.network/v1a/',
@@ -47,6 +59,7 @@ export function loadEnvConfig(): EnvironmentConfig {
     logLevel: process.env.LOG_LEVEL || 'info',
     createNftMaxRetries: Number.parseInt(process.env.CREATE_NFT_MAX_RETRIES || '3', 10),
     warnMaxReorgSize: Number.parseInt(process.env.WARN_MAX_REORG_SIZE || '100', 10),
+    loadSettleAlertMs: parseLoadSettleAlertMs(process.env.LOAD_SETTLE_ALERT_MS),
   };
 
   if (process.env.NODE_ENV === 'test') {

@@ -13,7 +13,6 @@ import {
   addAlert,
   Severity,
   ShieldedOutputMode,
-  Bip32Account,
   isShieldedCryptoProviderRegistered,
   MISSING_SHIELDED_PROVIDER_ALERT,
   ShieldedScanMissError,
@@ -24,6 +23,7 @@ import {
   countRecoveredShieldedOutputs,
   getShieldedOutputsToRecover,
   lockWalletAddresses,
+  lockWalletAddressBalancesForUpdate,
   finishWalletSweep,
   promoteShieldedTxOutputs,
   markShieldedTxOutputRecoveryFailed,
@@ -35,8 +35,8 @@ import {
   ShieldedOutputToRecover,
   ShieldedRecovery,
 } from '@src/db/shielded';
-import { lockAddressBalancesForUpdate } from '@src/db';
 import { beginTransaction, commitTransaction, rollbackTransaction } from '@src/db/utils';
+import config from '@src/config';
 
 /** A shielded output, as the recovery alerts identify it. */
 export interface ShieldedOutputRef {
@@ -376,6 +376,113 @@ export const runRecoveryTransaction = async <T>(
   }
 };
 
+/** Receives how long one named step of a settle took, in milliseconds. */
+export type SettleStepHook = (step: string, ms: number) => void;
+
+/** Which code path ran a settle (see `runSettle`). */
+export type SettleSource = 'load' | 'failed-upgrade' | 'sweep';
+
+/**
+ * Run `fn` and report its duration to `onStep` under `name`. The report can
+ * never affect the step: an error thrown by the hook is swallowed, so it
+ * cannot replace the step's result or error and roll back a good settle.
+ */
+export const timeStep = async <T>(
+  onStep: SettleStepHook | undefined,
+  name: string,
+  fn: () => Promise<T>,
+): Promise<T> => {
+  const started = Date.now();
+  try {
+    return await fn();
+  } finally {
+    try {
+      onStep?.(name, Date.now() - started);
+    } catch {
+      // Timing must never affect the settle.
+    }
+  }
+};
+
+/** The MySQL `errno` and `code` of an error, when it has them. */
+export const errorCode = (e: unknown): { errno?: unknown; code?: unknown } => {
+  const { errno, code } = (e ?? {}) as { errno?: unknown; code?: unknown };
+  return { errno, code };
+};
+
+/**
+ * Run a settle, the transaction that rebuilds a wallet's totals under its
+ * row locks (see `commitShieldedRecoveries`), and report how long it took.
+ * The duration includes waiting for those locks and any re-run attempt.
+ *
+ * Any daemon vertex that touches the wallet waits for this commit, so its
+ * duration is how long sync can stall. Each step is logged as it completes,
+ * so a settle cut off by the Lambda timeout still shows how far it got. A
+ * settle that takes `config.loadSettleAlertMs` or longer raises a MINOR alert
+ * after the commit.
+ *
+ * `work` runs inside `runRecoveryTransaction` (`runOpts` passes through), so
+ * it can run more than once after a lock conflict; the step totals add up
+ * every attempt. Nothing this adds can fail the settle: the alert runs after
+ * the commit and only logs its own failure.
+ */
+export const runSettle = async <T>(
+  mysql: ServerlessMysql,
+  logger: Logger,
+  { walletId, source }: { walletId: string; source: SettleSource },
+  work: (tx: ServerlessMysql, onStep: SettleStepHook) => Promise<T>,
+  runOpts?: { lockWaitSeconds?: number; canRetry?: () => boolean },
+): Promise<T> => {
+  const started = Date.now();
+  const stepsMs: Record<string, number> = {};
+  let attempts = 0;
+  logger.info('Settle started', { walletId, source });
+
+  let result: T;
+  try {
+    result = await runRecoveryTransaction(mysql, logger, (tx) => {
+      attempts += 1;
+      const attempt = attempts;
+      const onStep: SettleStepHook = (step, ms) => {
+        stepsMs[step] = (stepsMs[step] ?? 0) + ms;
+        logger.info('Settle step', { walletId, source, step, ms, attempt });
+      };
+      return work(tx, onStep);
+    }, runOpts);
+  } catch (e) {
+    logger.warn('Settle failed', {
+      walletId, source, attempts, settleMs: Date.now() - started, stepsMs, ...errorCode(e),
+    });
+    throw e;
+  }
+
+  const settleMs = Date.now() - started;
+  logger.info('Settle finished', { walletId, source, attempts, settleMs, stepsMs });
+  if (settleMs >= config.loadSettleAlertMs) {
+    try {
+      await addAlert(
+        'Slow wallet settle',
+        `The ${source} settle of wallet ${walletId} took ${settleMs} ms over ${attempts} attempt(s). `
+        + 'A settle holds the wallet\'s rows locked while it runs, so the sync daemon may have waited '
+        + 'up to that long on any vertex touching the wallet.',
+        Severity.MINOR,
+        {
+          wallet_id: walletId,
+          settle_ms: settleMs,
+          settle_source: source,
+          attempts,
+          steps_ms: JSON.stringify(stepsMs),
+          source: 'wallet-service',
+        },
+        logger,
+      );
+    } catch (alertError) {
+      logger.error('Failed to send the slow-settle alert', { walletId, error: String(alertError) });
+    }
+  }
+  return result;
+};
+
 /**
  * Record a failed shielded upgrade of a wallet whose transparent side is
  * ready, rebuilding the wallet's totals and history in the same transaction.
@@ -397,9 +504,9 @@ export const recordFailedShieldedUpgrade = async (
   mark: (tx: ServerlessMysql) => Promise<void>,
 ): Promise<void> => {
   try {
-    await runRecoveryTransaction(mysql, logger, async (tx) => {
-      await commitShieldedRecoveries(tx, walletId, []);
-      await mark(tx);
+    await runSettle(mysql, logger, { walletId, source: 'failed-upgrade' }, async (tx, onStep) => {
+      await commitShieldedRecoveries(tx, walletId, [], { onStep });
+      await timeStep(onStep, 'markFailed', () => mark(tx));
     });
   } catch (e) {
     logger.error('Could not record a failed shielded upgrade; the wallet stays mid-load', {
@@ -439,11 +546,15 @@ export const recordFailedShieldedUpgrade = async (
  *     reaches `address` last) can still conflict with us;
  *  2. promote each recovery (only rows still unpromoted and not voided);
  *  3. the addresses' `address_balance` rows, including pairs that don't exist
- *     yet (next-key locks), so no daemon delta lands mid-rebuild;
+ *     yet (next-key locks), so no daemon delta lands mid-rebuild. Like the
+ *     wallet rebuilds, this reads the wallet's rows through its `address` rows
+ *     rather than an address list, so a wallet with many addresses can't make
+ *     it scan and lock the whole table (see `walletAddressRows`);
  *  4. rebuild the CTSpend addresses' shielded history (first, since the
- *     balance rebuild counts its rows) and balances, then the wallet's totals
- *     and history over every one of its addresses, dropping first the wallet
- *     rows those addresses no longer back (see `pruneWalletTotals`).
+ *     balance rebuild counts its rows) and balances, then the wallet's history
+ *     and totals over every one of its addresses, dropping first the wallet
+ *     rows those addresses no longer back (see `pruneWalletTotals`). The
+ *     history goes before the totals, whose transaction count reads it.
  *
  * A catch-up of a ready wallet (`onlyPromoted`) rebuilds the shielded columns
  * of just the addresses whose outputs it promoted (the wallet's totals are
@@ -452,34 +563,37 @@ export const recordFailedShieldedUpgrade = async (
  * wallet's rows locked for longer than the change needs. `finishSweep` marks the catch-up
  * done in the same commit (step 1b, while the address rows are held).
  *
+ * `onStep`, when given, receives each step's duration (see `runSettle`).
+ *
  * Returns how many outputs were actually promoted.
  */
 export const commitShieldedRecoveries = async (
   mysql: ServerlessMysql,
   walletId: string,
   recoveries: ShieldedRecovery[],
-  { onlyPromoted = false, finishSweep = false }: { onlyPromoted?: boolean; finishSweep?: boolean } = {},
+  {
+    onlyPromoted = false,
+    finishSweep = false,
+    onStep,
+  }: { onlyPromoted?: boolean; finishSweep?: boolean; onStep?: SettleStepHook } = {},
 ): Promise<number> => {
-  const owned = await lockWalletAddresses(mysql, walletId);
+  const owned = await timeStep(onStep, 'lockAddresses', () => lockWalletAddresses(mysql, walletId));
   if (finishSweep) {
-    await finishWalletSweep(mysql, walletId);
+    await timeStep(onStep, 'finishSweep', () => finishWalletSweep(mysql, walletId));
   }
-  const promoted = await promoteShieldedTxOutputs(mysql, recoveries);
+  const promoted = await timeStep(onStep, 'promote', () => promoteShieldedTxOutputs(mysql, recoveries));
   if (onlyPromoted && promoted === 0) {
     return promoted;
   }
+  await timeStep(onStep, 'lockBalances', () => lockWalletAddressBalancesForUpdate(mysql, walletId));
+  // A catch-up rebuilds only the CTSpend addresses it promoted outputs for.
+  const onlyAddresses = onlyPromoted ? [...new Set(recoveries.map((r) => r.address))] : undefined;
+  await timeStep(onStep, 'rebuildShieldedHistory', () => rebuildShieldedAddressTxHistory(mysql, walletId, onlyAddresses));
+  await timeStep(onStep, 'rebuildShieldedBalances', () => rebuildShieldedAddressBalances(mysql, walletId, onlyAddresses));
   const addresses = owned.map((a) => a.address);
-  await lockAddressBalancesForUpdate(mysql, addresses);
-  const promotedAddresses = new Set(recoveries.map((r) => r.address));
-  const ctSpendAddresses = owned
-    .filter((a) => a.bip32Account === Bip32Account.CTSpend)
-    .map((a) => a.address)
-    .filter((address) => !onlyPromoted || promotedAddresses.has(address));
-  await rebuildShieldedAddressTxHistory(mysql, ctSpendAddresses);
-  await rebuildShieldedAddressBalances(mysql, ctSpendAddresses);
-  await pruneWalletTotals(mysql, walletId, addresses);
-  await rebuildWalletBalance(mysql, walletId, addresses);
-  await rebuildWalletTxHistory(mysql, walletId, addresses);
+  await timeStep(onStep, 'prune', () => pruneWalletTotals(mysql, walletId, addresses));
+  await timeStep(onStep, 'rebuildWalletTxHistory', () => rebuildWalletTxHistory(mysql, walletId));
+  await timeStep(onStep, 'rebuildWalletBalance', () => rebuildWalletBalance(mysql, walletId));
   return promoted;
 };
 

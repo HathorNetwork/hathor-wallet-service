@@ -21,7 +21,7 @@ import { getWalletsNeedingSweep, markWalletSweepRunning } from '@src/db/shielded
 import {
   commitShieldedRecoveries,
   findAndRewindShielded,
-  runRecoveryTransaction,
+  runSettle,
   ShieldedRecoveryFailure,
 } from '@src/shieldedRecovery';
 import { ensureShieldedCryptoProvider } from '@src/shieldedCrypto';
@@ -117,10 +117,12 @@ const sweepWallet = async (
       outputs: sweep.failures.slice(0, ALERT_LIST_CAP),
     });
   }
-  await runRecoveryTransaction(mysql, logger, (tx) => commitShieldedRecoveries(tx, walletId, sweep.recoveries, {
-    onlyPromoted: true,
-    finishSweep: !sweep.truncated,
-  }), {
+  await runSettle(mysql, logger, { walletId, source: 'sweep' }, (tx, onStep) => commitShieldedRecoveries(
+    tx,
+    walletId,
+    sweep.recoveries,
+    { onlyPromoted: true, finishSweep: !sweep.truncated, onStep },
+  ), {
     lockWaitSeconds: COMMIT_LOCK_WAIT_SECONDS,
     canRetry: () => timeLeftMs() > COMMIT_RETRY_MARGIN_MS,
   });

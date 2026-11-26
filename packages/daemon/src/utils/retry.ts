@@ -5,7 +5,9 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+import { addAlert, Severity } from '@wallet-service/common';
 import logger from '../logger';
+import getConfig, { DEFAULT_LOCK_CONFLICT_RETRY_BUDGET_MS } from '../config';
 
 export interface RetryOptions {
   maxRetries?: number;
@@ -13,9 +15,15 @@ export interface RetryOptions {
   maxDelayMs?: number;
   backoffMultiplier?: number;
   retryableErrors?: (error: any) => boolean;
+  /**
+   * Stop retrying once this long has passed since the first attempt started,
+   * even with retries left. Checked after each failed attempt; unset means no
+   * time limit.
+   */
+  maxElapsedMs?: number;
 }
 
-const DEFAULT_OPTIONS: Required<RetryOptions> = {
+const DEFAULT_OPTIONS: Required<Omit<RetryOptions, 'maxElapsedMs'>> = {
   maxRetries: 5,
   initialDelayMs: 1000,
   maxDelayMs: 10000,
@@ -63,6 +71,7 @@ export async function retryWithBackoff<T>(
   options: RetryOptions = {}
 ): Promise<T> {
   const config = { ...DEFAULT_OPTIONS, ...options };
+  const startedAt = Date.now();
   let lastError: any;
 
   for (let attempt = 0; attempt <= config.maxRetries; attempt++) {
@@ -74,6 +83,12 @@ export async function retryWithBackoff<T>(
       // Check if we should retry this error
       if (!config.retryableErrors(error)) {
         logger.debug('Error is not retryable, throwing immediately');
+        throw error;
+      }
+
+      // Check if the time budget is spent
+      if (config.maxElapsedMs !== undefined && Date.now() - startedAt >= config.maxElapsedMs) {
+        logger.error(`Retry budget of ${config.maxElapsedMs}ms exhausted after ${attempt + 1} attempts`);
         throw error;
       }
 
@@ -115,6 +130,17 @@ export const isLockConflict = (error: unknown): boolean => {
   return errno === 1213 || errno === 1205;
 };
 
+/** Hard cap on attempts, so a storm of fast deadlocks cannot spin for the whole budget. */
+const LOCK_CONFLICT_MAX_ATTEMPTS = 10;
+
+/** A wait at least this long, once got through, raises a MINOR alert. */
+const LOCK_CONFLICT_ALERT_MS = 60_000;
+
+const lockConflictRetryBudgetMs = (): number => {
+  const budget = getConfig().LOCK_CONFLICT_RETRY_BUDGET_MS;
+  return Number.isFinite(budget) && budget > 0 ? budget : DEFAULT_LOCK_CONFLICT_RETRY_BUDGET_MS;
+};
+
 /**
  * Run a handler's transaction again when it loses a lock conflict.
  *
@@ -130,14 +156,50 @@ export const isLockConflict = (error: unknown): boolean => {
  * the database until after it commits (ingest queues its notifications for
  * then).
  *
- * Two retries at most: a lock wait timeout takes `innodb_lock_wait_timeout`
- * (50 s by default) per attempt, and time spent in a handler counts toward
- * the monitor's idle timeout (5 minutes), past which it stops sync anyway.
+ * It retries while less than `LOCK_CONFLICT_RETRY_BUDGET_MS` has passed since
+ * the first attempt started, and at most `LOCK_CONFLICT_MAX_ATTEMPTS` times. A
+ * lock wait timeout costs a full `innodb_lock_wait_timeout` (50 s by default)
+ * per attempt, so the worst case is the budget plus one wait. Time spent in a
+ * handler counts toward the monitor's idle timeout, which terminates the
+ * daemon, so the budget sits below it. The budget is per handler: an event
+ * whose handlers each wait can take longer.
+ *
+ * A wait it gets through is logged, and alerted when it lasted a minute or
+ * more: the daemon stalled that long, most likely behind a wallet-service
+ * settle. `label` names the handler and event in both.
  */
-export const retryOnLockConflict = <T>(fn: () => Promise<T>): Promise<T> => retryWithBackoff(fn, {
-  maxRetries: 2,
-  initialDelayMs: 100,
-  maxDelayMs: 1000,
-  backoffMultiplier: 2,
-  retryableErrors: isLockConflict,
-});
+export const retryOnLockConflict = async <T>(fn: () => Promise<T>, label?: string): Promise<T> => {
+  const startedAt = Date.now();
+  let attempts = 0;
+  const result = await retryWithBackoff(() => {
+    attempts += 1;
+    return fn();
+  }, {
+    maxRetries: LOCK_CONFLICT_MAX_ATTEMPTS - 1,
+    initialDelayMs: 100,
+    maxDelayMs: 1000,
+    backoffMultiplier: 2,
+    retryableErrors: isLockConflict,
+    maxElapsedMs: lockConflictRetryBudgetMs(),
+  });
+  if (attempts > 1) {
+    const elapsedMs = Date.now() - startedAt;
+    const where = label ? ` (${label})` : '';
+    logger.warn(`Lock conflict cleared after ${attempts} attempts and ${elapsedMs}ms${where}`);
+    if (elapsedMs >= LOCK_CONFLICT_ALERT_MS) {
+      // Not awaited: the handler has committed, and sync should not wait on it.
+      // Any failure, even a synchronous one, only logs.
+      Promise.resolve().then(() => addAlert(
+        'Daemon waited long on a lock conflict',
+        `A handler${where} waited ${elapsedMs} ms over ${attempts} attempts for database locks before it committed. `
+        + 'Sync was stalled for that long, most likely behind a wallet-service settle.',
+        Severity.MINOR,
+        { elapsed_ms: elapsedMs, attempts, handler: label ?? 'unknown' },
+        logger,
+      )).catch((alertError) => {
+        logger.error(`Failed to send the lock-wait alert: ${String(alertError)}`);
+      });
+    }
+  }
+  return result;
+};
